@@ -148,3 +148,26 @@ def login(data: LoginData):
         "token": token,
         "email": user.email,
     }
+class ForgotPasswordData(BaseModel):
+    email: str
+
+
+@app.post("/forgot-password")
+def forgot_password(data: ForgotPasswordData):
+
+    db = SessionLocal()
+
+    user = (
+        db.query(User)
+        .filter(User.email == data.email)
+        .first()
+    )
+
+    if not user:
+        return {
+            "message": "Jeśli konto istnieje, email został wysłany"
+        }
+
+    return {
+        "message": "Link resetowania hasła został wysłany"
+    }
