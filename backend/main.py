@@ -11,7 +11,7 @@ from models import User
 from passlib.context import CryptContext
 
 from jose import jwt
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 
 SECRET_KEY = "SUPER_SECRET_KEY"
@@ -133,9 +133,11 @@ def login(data: LoginData):
         }
 
     payload = {
-        "sub": user.email,
-        "exp": datetime.utcnow() + timedelta(days=7)
-    }
+
+    "sub": user.email,
+    "role": user.role,
+    "exp": datetime.now(timezone.utc) + timedelta(days=7)
+}
 
     token = jwt.encode(
         payload,
