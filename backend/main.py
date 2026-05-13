@@ -8,7 +8,7 @@ from database import engine
 from database import Base
 from database import SessionLocal
 
-from models import User
+from models import User, Competition, Discipline
 
 from passlib.context import CryptContext
 
@@ -42,21 +42,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-competitions = [
-    {
-        "id": 1,
-        "name": "rzutki sa OK!",
-        "date": "12.06.2026",
-        "location": "Nowy Targ",
-    },
-    {
-        "id": 2,
-        "name": "Liga Klubowa",
-        "date": "28.06.2026",
-        "location": "Zakopane",
-    },
-]
-
 
 class RegisterData(BaseModel):
     email: str
@@ -71,10 +56,19 @@ class LoginData(BaseModel):
 class ForgotPasswordData(BaseModel):
     email: str
 
+
 class CompetitionData(BaseModel):
     name: str
     date: str
     location: str
+
+
+class DisciplineData(BaseModel):
+    name: str
+    description: str
+    scoring_type: str
+    shots_count: int
+
 
 def get_current_user(
     token: str = Depends(oauth2_scheme)
@@ -166,6 +160,15 @@ def root():
 
 @app.get("/competitions")
 def get_competitions():
+
+    db = SessionLocal()
+
+    competitions = (
+        db.query(Competition)
+        .filter(Competition.status == "published")
+        .all()
+    )
+
     return competitions
 
 
@@ -275,27 +278,98 @@ def forgot_password(
         "message": "Link resetowania hasła został wysłany"
     }
 
+
 @app.post("/competitions")
 def create_competition(
     data: CompetitionData,
     user: User = Depends(get_current_organizer)
 ):
 
-    new_competition = {
-        "id": len(competitions) + 1,
-        "name": data.name,
-        "date": data.date,
-        "location": data.location,
-    }
+    db = SessionLocal()
 
-    competitions.append(new_competition)
+    competition = Competition(
+        name=data.name,
+        date=data.date,
+        location=data.location,
+        status="draft",
+        created_by=user.email,
+    )
+
+    db.add(competition)
+
+    db.commit()
+
+    db.refresh(competition)
 
     return {
         "message": "Zawody utworzone",
-        "competition": new_competition,
-        "created_by": user.email,
-        "role": user.role,
+        "competition_id": competition.id,
     }
+
+
+@app.get("/my-competitions")
+def get_my_competitions(
+    user: User = Depends(get_current_organizer)
+):
+
+    db = SessionLocal()
+
+    competitions = (
+        db.query(Competition)
+        .filter(Competition.created_by == user.email)
+        .all()
+    )
+
+    return competitions
+
+
+@app.post("/competitions/{competition_id}/disciplines")
+def create_discipline(
+    competition_id: int,
+    data: DisciplineData,
+    user: User = Depends(get_current_organizer)
+):
+
+    db = SessionLocal()
+
+    competition = (
+        db.query(Competition)
+        .filter(Competition.id == competition_id)
+        .first()
+    )
+
+    if not competition:
+        raise HTTPException(
+            status_code=404,
+            detail="Zawody nie istnieją"
+        )
+
+    if competition.created_by != user.email:
+        raise HTTPException(
+            status_code=403,
+            detail="Brak dostępu"
+        )
+
+    discipline = Discipline(
+        competition_id=competition.id,
+        name=data.name,
+        description=data.description,
+        scoring_type=data.scoring_type,
+        shots_count=data.shots_count,
+    )
+
+    db.add(discipline)
+
+    db.commit()
+
+    db.refresh(discipline)
+
+    return {
+        "message": "Konkurencja dodana",
+        "discipline_id": discipline.id,
+    }
+
+
 @app.get("/me")
 def get_me(
     user: User = Depends(get_current_user)
@@ -304,4 +378,38 @@ def get_me(
     return {
         "email": user.email,
         "role": user.role,
+    }
+
+@app.delete("/competitions/{competition_id}")
+def delete_competition(
+    competition_id: int,
+    user: User = Depends(get_current_organizer)
+):
+
+    db = SessionLocal()
+
+    competition = (
+        db.query(Competition)
+        .filter(Competition.id == competition_id)
+        .first()
+    )
+
+    if not competition:
+        raise HTTPException(
+            status_code=404,
+            detail="Zawody nie istnieją"
+        )
+
+    if competition.created_by != user.email:
+        raise HTTPException(
+            status_code=403,
+            detail="Brak dostępu"
+        )
+
+    db.delete(competition)
+
+    db.commit()
+
+    return {
+        "message": "Zawody usunięte"
     }
