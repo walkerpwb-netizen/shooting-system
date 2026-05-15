@@ -1,6 +1,8 @@
 import JoinCompetitionPanel from "./JoinCompetitionPanel";
 import LogoPreviewLink from "./LogoPreviewLink";
 
+import { apiUrl } from "@/lib/api";
+
 type CompetitionPageProps = {
   params: Promise<{
     id: string;
@@ -29,7 +31,7 @@ type Participant = {
 
 async function getCompetition(id: string) {
   const response = await fetch(
-    `http://127.0.0.1:8000/competitions/${id}`,
+    apiUrl(`/competitions/${id}`),
     {
       cache: "no-store",
     }

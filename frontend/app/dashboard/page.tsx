@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
+import { apiUrl } from "@/lib/api";
+
 interface Competition {
   id: number;
   name: string;
@@ -36,7 +38,7 @@ export default function DashboardPage() {
     async function loadCompetitions() {
       try {
         const response = await fetch(
-          "http://localhost:8000/competitions"
+          apiUrl("/competitions")
         );
 
         const data = await response.json();

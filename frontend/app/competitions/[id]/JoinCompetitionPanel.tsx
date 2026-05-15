@@ -3,6 +3,8 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 
+import { apiUrl } from "@/lib/api";
+
 const subscribeToUserEmail = () => () => {};
 const getUserEmailSnapshot = () => localStorage.getItem("email") || "";
 const getServerUserEmailSnapshot = () => "";
@@ -83,7 +85,7 @@ export default function JoinCompetitionPanel({
     async function loadMyEntry() {
       try {
         const response = await fetch(
-          `http://127.0.0.1:8000/competitions/${competitionId}/my-entry`,
+          apiUrl(`/competitions/${competitionId}/my-entry`),
           {
             headers: {
               Authorization: `Bearer ${token}`,
@@ -248,7 +250,7 @@ export default function JoinCompetitionPanel({
       setMessage("");
 
       const response = await fetch(
-        `http://127.0.0.1:8000/competitions/${competitionId}/join`,
+        apiUrl(`/competitions/${competitionId}/join`),
         {
           method: "POST",
           headers: {
@@ -308,7 +310,7 @@ export default function JoinCompetitionPanel({
       setMessage("");
 
       const response = await fetch(
-        `http://127.0.0.1:8000/competitions/${competitionId}/leave`,
+        apiUrl(`/competitions/${competitionId}/leave`),
         {
           method: "DELETE",
           headers: {

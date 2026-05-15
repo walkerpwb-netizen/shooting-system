@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useState } from "react";
 
+import { apiUrl } from "@/lib/api";
+
 export default function RegisterPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -47,7 +49,7 @@ export default function RegisterPage() {
       setActivationLink("");
 
       const response = await fetch(
-        "http://localhost:8000/register",
+        apiUrl("/register"),
         {
           method: "POST",
           headers: {

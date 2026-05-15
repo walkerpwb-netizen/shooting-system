@@ -1,5 +1,7 @@
 import CompetitionCard from "../components/CompetitionCard";
 
+import { apiUrl } from "@/lib/api";
+
 type Competition = {
   id: number;
   name: string;
@@ -14,7 +16,7 @@ type Competition = {
 
 async function getCompetitions() {
   const response = await fetch(
-    "http://127.0.0.1:8000/competitions",
+    apiUrl("/competitions"),
     {
       cache: "no-store",
     }

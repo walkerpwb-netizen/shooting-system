@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
+import { apiUrl } from "@/lib/api";
 import { isJudge } from "@/lib/auth";
 
 type JudgeCompetition = {
@@ -96,7 +97,7 @@ export default function JudgeDisciplinePage() {
     async function loadData() {
       try {
         const competitionsResponse = await fetch(
-          "http://127.0.0.1:8000/judge/competitions",
+          apiUrl("/judge/competitions"),
           {
             headers: {
               Authorization: `Bearer ${token}`,
@@ -114,7 +115,7 @@ export default function JudgeDisciplinePage() {
         setLoading(false);
 
         const shootersResponse = await fetch(
-          `http://127.0.0.1:8000/judge/competitions/${competitionId}/disciplines/${disciplineId}/shooters`,
+          apiUrl(`/judge/competitions/${competitionId}/disciplines/${disciplineId}/shooters`),
           {
             headers: {
               Authorization: `Bearer ${token}`,
@@ -225,7 +226,7 @@ export default function JudgeDisciplinePage() {
       setMessage("");
 
       const response = await fetch(
-        `http://127.0.0.1:8000/judge/competitions/${competitionId}/disciplines/${disciplineId}/results`,
+        apiUrl(`/judge/competitions/${competitionId}/disciplines/${disciplineId}/results`),
         {
           method: "PUT",
           headers: {

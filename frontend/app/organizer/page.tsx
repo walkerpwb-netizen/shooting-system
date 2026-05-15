@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { apiUrl } from "@/lib/api";
 import { isOrganizer } from "@/lib/auth";
 
 type Competition = {
@@ -171,7 +172,7 @@ export default function OrganizerPage() {
 
     try {
       const response = await fetch(
-        "http://127.0.0.1:8000/my-competitions",
+        apiUrl("/my-competitions"),
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -206,7 +207,7 @@ export default function OrganizerPage() {
       setMessage("");
 
       const response = await fetch(
-        `http://127.0.0.1:8000/competitions/${competition.id}/judge-invitations`,
+        apiUrl(`/competitions/${competition.id}/judge-invitations`),
         {
           method: "POST",
           headers: {
@@ -268,7 +269,7 @@ export default function OrganizerPage() {
       setMessage("");
 
       const response = await fetch(
-        `http://127.0.0.1:8000/competitions/${competition.id}/judge-invitations/remove`,
+        apiUrl(`/competitions/${competition.id}/judge-invitations/remove`),
         {
           method: "POST",
           headers: {
@@ -312,7 +313,7 @@ export default function OrganizerPage() {
 
     try {
       const response = await fetch(
-        `http://127.0.0.1:8000/competitions/${competitionId}`,
+        apiUrl(`/competitions/${competitionId}`),
         {
           method: "DELETE",
 
@@ -342,7 +343,7 @@ export default function OrganizerPage() {
 
     try {
       const response = await fetch(
-        `http://127.0.0.1:8000/competitions/${competitionId}/publish`,
+        apiUrl(`/competitions/${competitionId}/publish`),
         {
           method: "PUT",
           headers: {
@@ -379,7 +380,7 @@ export default function OrganizerPage() {
 
     try {
       const response = await fetch(
-        `http://127.0.0.1:8000/competitions/${competitionId}/unpublish`,
+        apiUrl(`/competitions/${competitionId}/unpublish`),
         {
           method: "PUT",
           headers: {
@@ -416,7 +417,7 @@ export default function OrganizerPage() {
 
     try {
       const response = await fetch(
-        `http://127.0.0.1:8000/competitions/${competition.id}/start`,
+        apiUrl(`/competitions/${competition.id}/start`),
         {
           method: "PUT",
           headers: {
@@ -563,8 +564,8 @@ export default function OrganizerPage() {
       setLoading(true);
 
       const endpoint = editingCompetitionId
-        ? `http://127.0.0.1:8000/competitions/${editingCompetitionId}`
-        : "http://127.0.0.1:8000/competitions";
+        ? apiUrl(`/competitions/${editingCompetitionId}`)
+        : apiUrl("/competitions");
 
       const method = editingCompetitionId
         ? "PUT"
@@ -608,8 +609,8 @@ export default function OrganizerPage() {
       if (disciplines.length > 0) {
         for (const discipline of disciplines) {
           const disciplineEndpoint = discipline.id
-            ? `http://127.0.0.1:8000/competitions/${competitionId}/disciplines/${discipline.id}`
-            : `http://127.0.0.1:8000/competitions/${competitionId}/disciplines`;
+            ? apiUrl(`/competitions/${competitionId}/disciplines/${discipline.id}`)
+            : apiUrl(`/competitions/${competitionId}/disciplines`);
           const disciplineMethod = discipline.id
             ? "PUT"
             : "POST";

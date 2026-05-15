@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useState } from "react";
 
+import { apiUrl } from "@/lib/api";
+
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
 
@@ -23,7 +25,7 @@ export default function ForgotPasswordPage() {
       setLoading(true);
 
       const response = await fetch(
-        "http://localhost:8000/forgot-password",
+        apiUrl("/forgot-password"),
         {
           method: "POST",
           headers: {

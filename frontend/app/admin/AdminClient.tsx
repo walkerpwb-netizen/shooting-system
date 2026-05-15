@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { apiUrl } from "@/lib/api";
 import { isAdmin } from "@/lib/auth";
 
 type AdminTab = "users" | "competitions";
@@ -110,7 +111,7 @@ export default function AdminClient({
       try {
         const [usersResponse, competitionsResponse] = await Promise.all([
           fetch(
-            "http://127.0.0.1:8000/admin/users",
+            apiUrl("/admin/users"),
             {
               headers: {
                 Authorization: `Bearer ${token}`,
@@ -118,7 +119,7 @@ export default function AdminClient({
             }
           ),
           fetch(
-            "http://127.0.0.1:8000/admin/competitions",
+            apiUrl("/admin/competitions"),
             {
               headers: {
                 Authorization: `Bearer ${token}`,
@@ -176,7 +177,7 @@ export default function AdminClient({
       setMessage("");
 
       const response = await fetch(
-        `http://127.0.0.1:8000/admin/users/${userId}/role`,
+        apiUrl(`/admin/users/${userId}/role`),
         {
           method: "PUT",
           headers: {
@@ -250,7 +251,7 @@ export default function AdminClient({
       setMessage("");
 
       const response = await fetch(
-        `http://127.0.0.1:8000/admin/competitions/${competitionId}`,
+        apiUrl(`/admin/competitions/${competitionId}`),
         {
           method: "DELETE",
           headers: {
@@ -285,7 +286,7 @@ export default function AdminClient({
       setMessage("");
 
       const response = await fetch(
-        `http://127.0.0.1:8000/admin/users/${userId}/role-request/approve`,
+        apiUrl(`/admin/users/${userId}/role-request/approve`),
         {
           method: "PUT",
           headers: {
@@ -322,7 +323,7 @@ export default function AdminClient({
       setMessage("");
 
       const response = await fetch(
-        `http://127.0.0.1:8000/admin/users/${userId}/role-request`,
+        apiUrl(`/admin/users/${userId}/role-request`),
         {
           method: "DELETE",
           headers: {

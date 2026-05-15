@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { apiUrl } from "@/lib/api";
+
 type UserProfile = {
   email: string;
   role: string;
@@ -59,7 +61,7 @@ export default function ProfilePage() {
     async function loadProfile() {
       try {
         const response = await fetch(
-          "http://127.0.0.1:8000/me",
+          apiUrl("/me"),
           {
             headers: {
               Authorization: `Bearer ${token}`,
@@ -126,7 +128,7 @@ export default function ProfilePage() {
       setMessage("");
 
       const response = await fetch(
-        "http://127.0.0.1:8000/me",
+        apiUrl("/me"),
         {
           method: "PUT",
           headers: {
@@ -184,7 +186,7 @@ export default function ProfilePage() {
       setMessage("");
 
       const response = await fetch(
-        "http://127.0.0.1:8000/me/role-request",
+        apiUrl("/me/role-request"),
         {
           method: "POST",
           headers: {

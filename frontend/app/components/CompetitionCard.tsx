@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { apiUrl } from "@/lib/api";
+
 type CompetitionCardProps = {
   id: number;
   name: string;
@@ -38,7 +40,7 @@ export default function CompetitionCard({
     async function loadEntry() {
       try {
         const response = await fetch(
-          `http://127.0.0.1:8000/competitions/${id}/my-entry`,
+          apiUrl(`/competitions/${id}/my-entry`),
           {
             headers: {
               Authorization: `Bearer ${token}`,

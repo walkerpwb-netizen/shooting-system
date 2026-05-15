@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useState } from "react";
 
+import { apiUrl } from "@/lib/api";
+
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -29,7 +31,7 @@ export default function LoginPage() {
       setLoading(true);
 
       const response = await fetch(
-        "http://localhost:8000/login",
+        apiUrl("/login"),
         {
           method: "POST",
           headers: {

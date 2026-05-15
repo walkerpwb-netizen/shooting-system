@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
+import { apiUrl } from "@/lib/api";
 import { isOrganizer } from "@/lib/auth";
 
 type Competition = {
@@ -88,7 +89,7 @@ export default function OrganizerCompetitionPage() {
 
     try {
       const response = await fetch(
-        "http://127.0.0.1:8000/my-competitions",
+        apiUrl("/my-competitions"),
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -169,7 +170,7 @@ export default function OrganizerCompetitionPage() {
       setMessage("");
 
       const response = await fetch(
-        `http://127.0.0.1:8000/competitions/${competition.id}/judge-invitations`,
+        apiUrl(`/competitions/${competition.id}/judge-invitations`),
         {
           method: "POST",
           headers: {
@@ -225,7 +226,7 @@ export default function OrganizerCompetitionPage() {
       setMessage("");
 
       const response = await fetch(
-        `http://127.0.0.1:8000/competitions/${competition.id}/judge-invitations/remove`,
+        apiUrl(`/competitions/${competition.id}/judge-invitations/remove`),
         {
           method: "POST",
           headers: {

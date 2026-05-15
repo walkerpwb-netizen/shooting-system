@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { apiUrl } from "@/lib/api";
 import { isJudge } from "@/lib/auth";
 
 type JudgeCompetition = {
@@ -41,7 +42,7 @@ export default function JudgePage() {
     async function loadCompetitions() {
       try {
         const response = await fetch(
-          "http://127.0.0.1:8000/judge/competitions",
+          apiUrl("/judge/competitions"),
           {
             headers: {
               Authorization: `Bearer ${token}`,
