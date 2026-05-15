@@ -15,6 +15,7 @@ type Competition = {
   organizer_logo: string;
   sponsors: string;
   sponsor_logo: string;
+  participant_limit: number | null;
   status: string;
   disciplines_count: number;
   disciplines: {
@@ -97,6 +98,8 @@ export default function OrganizerPage() {
   const [organizerLogo, setOrganizerLogo] = useState("");
   const [sponsors, setSponsors] = useState("");
   const [sponsorLogo, setSponsorLogo] = useState("");
+  const [useParticipantLimit, setUseParticipantLimit] = useState(false);
+  const [participantLimit, setParticipantLimit] = useState("");
   const [message, setMessage] = useState("");
   const [disciplineCount, setDisciplineCount] = useState(0);
   const [disciplines, setDisciplines] = useState<Discipline[]>([]);
@@ -131,6 +134,8 @@ export default function OrganizerPage() {
     setOrganizerLogo("");
     setSponsors("");
     setSponsorLogo("");
+    setUseParticipantLimit(false);
+    setParticipantLimit("");
     setDisciplineCount(0);
     setDisciplines([]);
     setEditingCompetitionId(null);
@@ -466,6 +471,12 @@ export default function OrganizerPage() {
     setOrganizerLogo(competition.organizer_logo || "");
     setSponsors(competition.sponsors || "");
     setSponsorLogo(competition.sponsor_logo || "");
+    setUseParticipantLimit(Boolean(competition.participant_limit));
+    setParticipantLimit(
+      competition.participant_limit
+        ? String(competition.participant_limit)
+        : ""
+    );
     setEditingCompetitionStatus(competition.status);
     setDisciplineCount(0);
     setDisciplines(
@@ -525,6 +536,14 @@ export default function OrganizerPage() {
       return;
     }
 
+    if (
+      useParticipantLimit
+      && (!participantLimit || Number(participantLimit) <= 0)
+    ) {
+      setMessage("Podaj prawidłowy limit zawodników ❌");
+      return;
+    }
+
     const invalidDiscipline = disciplines.some((discipline) =>
       !discipline.name
       || !discipline.shots_count
@@ -570,6 +589,9 @@ export default function OrganizerPage() {
             organizer_logo: organizerLogo,
             sponsors,
             sponsor_logo: sponsorLogo,
+            participant_limit: useParticipantLimit
+              ? Number(participantLimit)
+              : null,
           }),
         }
       );
@@ -760,6 +782,34 @@ export default function OrganizerPage() {
                 onChange={(e) => setOrganizerFullName(e.target.value)}
                 className="w-full border border-zinc-700 bg-zinc-800 p-4 rounded-xl text-white"
               />
+
+              <label className="flex items-center gap-3 border border-zinc-700 bg-zinc-950 p-4 rounded-xl text-white font-semibold">
+                <input
+                  type="checkbox"
+                  checked={useParticipantLimit}
+                  onChange={(event) => {
+                    setUseParticipantLimit(event.target.checked);
+
+                    if (!event.target.checked) {
+                      setParticipantLimit("");
+                    }
+                  }}
+                  className="h-5 w-5"
+                />
+                Czy chcesz określić limit zawodników?
+              </label>
+
+              {useParticipantLimit && (
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  placeholder="Maksymalna liczba zawodników"
+                  value={participantLimit}
+                  onChange={(e) => setParticipantLimit(e.target.value)}
+                  className="w-full border border-zinc-700 bg-zinc-800 p-4 rounded-xl text-white"
+                />
+              )}
 
               <div className="grid md:grid-cols-2 gap-4">
                 <div className="border border-zinc-700 bg-zinc-950 rounded-2xl p-4">
@@ -1182,6 +1232,12 @@ export default function OrganizerPage() {
                 <p>
                   🎯 Dyscypliny: {competition.disciplines_count}
                 </p>
+
+                {competition.participant_limit && (
+                  <p>
+                    👥 Limit zawodników: {competition.participants.length}/{competition.participant_limit}
+                  </p>
+                )}
 
               </div>
 

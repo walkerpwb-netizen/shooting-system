@@ -41,6 +41,7 @@ type SelectedDiscipline = {
 type JoinCompetitionPanelProps = {
   competitionId: number;
   competitionEntryFee: string;
+  participantLimit: number | null;
   initialParticipants: Participant[];
   disciplines: Discipline[];
 };
@@ -48,6 +49,7 @@ type JoinCompetitionPanelProps = {
 export default function JoinCompetitionPanel({
   competitionId,
   competitionEntryFee,
+  participantLimit,
   initialParticipants,
   disciplines,
 }: JoinCompetitionPanelProps) {
@@ -185,6 +187,11 @@ export default function JoinCompetitionPanel({
     (participant) => participant.user_email === currentUserEmail
   );
   const userIsJoined = Boolean(currentUserParticipant || currentEntryType);
+  const participantLimitReached = Boolean(
+    participantLimit
+    && participants.length >= participantLimit
+    && !userIsJoined
+  );
   const userRoles = userRolesSnapshot
     .split(",")
     .filter(Boolean);
@@ -228,6 +235,11 @@ export default function JoinCompetitionPanel({
       && selectedDisciplines.some((discipline) => !discipline.ammo_type)
     ) {
       setMessage("Wybierz typ amunicji przy każdej konkurencji ❌");
+      return;
+    }
+
+    if (entryType === "shooter" && participantLimitReached) {
+      setMessage("Limit zawodników został osiągnięty ❌");
       return;
     }
 
@@ -333,9 +345,17 @@ export default function JoinCompetitionPanel({
         </h2>
 
         <span className="bg-zinc-800 text-gray-300 px-3 py-1 rounded-full text-sm font-semibold">
-          {participants.length}
+          {participantLimit
+            ? `${participants.length}/${participantLimit}`
+            : participants.length}
         </span>
       </div>
+
+      {participantLimit && (
+        <p className="text-gray-400 text-sm">
+          Limit zawodników: {participants.length}/{participantLimit}
+        </p>
+      )}
 
       {participants.length === 0 ? (
         <p className="text-gray-400">
@@ -488,12 +508,14 @@ export default function JoinCompetitionPanel({
             <button
               type="button"
               onClick={joinCompetition}
-              disabled={loading}
+              disabled={loading || (entryType === "shooter" && participantLimitReached)}
               className="bg-green-800 hover:bg-green-700 disabled:opacity-50 transition text-white py-3 rounded-xl font-semibold"
             >
-              {loading
-                ? "Zapisywanie..."
-                : "Potwierdź zapis"}
+              {participantLimitReached && entryType === "shooter"
+                ? "Limit miejsc osiągnięty"
+                : loading
+                  ? "Zapisywanie..."
+                  : "Potwierdź zapis"}
             </button>
 
             <button
@@ -527,9 +549,12 @@ export default function JoinCompetitionPanel({
                 setMessage("");
                 setShowForm(true);
               }}
-              className="w-full bg-green-800 hover:bg-green-700 transition text-white py-4 rounded-xl font-semibold"
+              disabled={participantLimitReached && !canJoinAsJudge}
+              className="w-full bg-green-800 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition text-white py-4 rounded-xl font-semibold"
             >
-              Zapisz się
+              {participantLimitReached && !canJoinAsJudge
+                ? "Limit miejsc osiągnięty"
+                : "Zapisz się"}
             </button>
           )}
 

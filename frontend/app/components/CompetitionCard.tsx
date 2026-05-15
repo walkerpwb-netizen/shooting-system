@@ -10,6 +10,8 @@ type CompetitionCardProps = {
   location: string;
   organizerFullName: string;
   sponsors: string;
+  participantLimit: number | null;
+  shootersCount: number;
   disciplinesCount: number;
 };
 
@@ -20,6 +22,8 @@ export default function CompetitionCard({
   location,
   organizerFullName,
   sponsors,
+  participantLimit,
+  shootersCount,
   disciplinesCount,
 }: CompetitionCardProps) {
   const [entryType, setEntryType] = useState("");
@@ -58,6 +62,9 @@ export default function CompetitionCard({
 
   const joinedAsShooter = entryType === "shooter";
   const joinedAsJudge = entryType === "judge";
+  const freeSlots = participantLimit === null
+    ? "Bez limitu"
+    : Math.max(participantLimit - shootersCount, 0);
 
   return (
     <div className={`rounded-3xl shadow-xl p-6 border-2 ${
@@ -78,6 +85,16 @@ export default function CompetitionCard({
             : "Dołączyłeś"}
         </p>
       )}
+
+      <div className="grid grid-cols-2 gap-2 mb-4 text-sm font-bold">
+        <div className="rounded-xl bg-zinc-100 px-3 py-2 text-zinc-800">
+          Zapisało się = {shootersCount} Strzelców
+        </div>
+
+        <div className="rounded-xl bg-green-100 px-3 py-2 text-green-900">
+          Wolne miejsca = {freeSlots}
+        </div>
+      </div>
 
       <h2 className="text-2xl font-bold text-black mb-4">
         {name}

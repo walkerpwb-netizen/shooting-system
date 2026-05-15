@@ -16,6 +16,7 @@ type Competition = {
   organizer_logo: string;
   sponsors: string;
   sponsor_logo: string;
+  participant_limit: number | null;
   status: string;
   disciplines_count: number;
   disciplines: {
@@ -336,6 +337,11 @@ export default function OrganizerCompetitionPage() {
                   <p>🤝 Sponsorzy: {competition.sponsors}</p>
                 )}
                 <p>🎯 Dyscypliny: {competition.disciplines_count}</p>
+                {competition.participant_limit && (
+                  <p>
+                    👥 Limit zawodników: {competition.participants.length}/{competition.participant_limit}
+                  </p>
+                )}
               </div>
 
               <div className="mt-6 border-t border-gray-200 pt-5">

@@ -7,6 +7,8 @@ type Competition = {
   location: string;
   organizer_full_name: string;
   sponsors: string;
+  participant_limit: number | null;
+  shooters_count: number;
   disciplines_count: number;
 };
 
@@ -56,6 +58,8 @@ export default async function CompetitionsPage() {
                 location={competition.location}
                 organizerFullName={competition.organizer_full_name}
                 sponsors={competition.sponsors}
+                participantLimit={competition.participant_limit}
+                shootersCount={competition.shooters_count}
                 disciplinesCount={competition.disciplines_count}
               />
             ))}

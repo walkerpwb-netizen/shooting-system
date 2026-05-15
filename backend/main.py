@@ -3,6 +3,7 @@ from fastapi import Depends, HTTPException
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
+from sqlalchemy import or_
 
 from database import engine
 from database import Base
@@ -93,6 +94,7 @@ def ensure_schema_updates():
             "organizer_logo": "VARCHAR",
             "sponsors": "VARCHAR",
             "sponsor_logo": "VARCHAR",
+            "participant_limit": "INTEGER",
         }
 
         for column_name, column_definition in competition_column_definitions.items():
@@ -172,6 +174,7 @@ class CompetitionData(BaseModel):
     organizer_logo: str = ""
     sponsors: str = ""
     sponsor_logo: str = ""
+    participant_limit: Optional[int] = None
 
 
 class DisciplineData(BaseModel):
@@ -710,6 +713,17 @@ def get_competitions(db=Depends(get_db)):
             .filter(Discipline.competition_id == competition.id)
             .count()
         )
+        shooters_count = (
+            db.query(CompetitionParticipant)
+            .filter(
+                CompetitionParticipant.competition_id == competition.id,
+                or_(
+                    CompetitionParticipant.entry_type == "shooter",
+                    CompetitionParticipant.entry_type.is_(None),
+                ),
+            )
+            .count()
+        )
 
         result.append({
             "id": competition.id,
@@ -721,6 +735,8 @@ def get_competitions(db=Depends(get_db)):
             "organizer_logo": competition.organizer_logo or "",
             "sponsors": competition.sponsors or "",
             "sponsor_logo": competition.sponsor_logo or "",
+            "participant_limit": competition.participant_limit,
+            "shooters_count": shooters_count,
             "status": competition.status,
             "disciplines_count": disciplines_count,
         })
@@ -770,6 +786,7 @@ def get_competition(
         "organizer_logo": competition.organizer_logo or "",
         "sponsors": competition.sponsors or "",
         "sponsor_logo": competition.sponsor_logo or "",
+        "participant_limit": competition.participant_limit,
         "status": competition.status,
         "disciplines": disciplines,
         "participants": [
@@ -961,6 +978,7 @@ def admin_get_competitions(
             "organizer_logo": competition.organizer_logo or "",
             "sponsors": competition.sponsors or "",
             "sponsor_logo": competition.sponsor_logo or "",
+            "participant_limit": competition.participant_limit,
             "status": competition.status,
             "created_by": competition.created_by,
             "organizer": {
@@ -1167,6 +1185,12 @@ def create_competition(
     user: User = Depends(get_current_organizer),
     db=Depends(get_db),
 ):
+    if data.participant_limit is not None and data.participant_limit <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Limit zawodników musi być większy od zera"
+        )
+
     competition = Competition(
         name=data.name,
         date=data.date,
@@ -1176,6 +1200,7 @@ def create_competition(
         organizer_logo=data.organizer_logo,
         sponsors=data.sponsors,
         sponsor_logo=data.sponsor_logo,
+        participant_limit=data.participant_limit,
         status="draft",
         created_by=user.email,
     )
@@ -1253,6 +1278,7 @@ def get_my_competitions(
             "organizer_logo": competition.organizer_logo or "",
             "sponsors": competition.sponsors or "",
             "sponsor_logo": competition.sponsor_logo or "",
+            "participant_limit": competition.participant_limit,
             "status": competition.status,
             "disciplines_count": len(disciplines),
             "disciplines": [
@@ -2093,6 +2119,29 @@ def join_competition(
         .first()
     )
 
+    if data.entry_type == "shooter" and competition.participant_limit:
+        existing_is_shooter = (
+            existing_participant
+            and (existing_participant.entry_type or "shooter") == "shooter"
+        )
+        current_shooter_count = (
+            db.query(CompetitionParticipant)
+            .filter(
+                CompetitionParticipant.competition_id == competition.id,
+                or_(
+                    CompetitionParticipant.entry_type == "shooter",
+                    CompetitionParticipant.entry_type.is_(None),
+                ),
+            )
+            .count()
+        )
+
+        if not existing_is_shooter and current_shooter_count >= competition.participant_limit:
+            raise HTTPException(
+                status_code=400,
+                detail="Limit zawodników został osiągnięty"
+            )
+
     if existing_participant:
         participant = existing_participant
         participant.entry_type = data.entry_type
@@ -2411,6 +2460,12 @@ def update_competition(
             detail="Nie można edytować rozpoczętych zawodów"
         )
 
+    if data.participant_limit is not None and data.participant_limit <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Limit zawodników musi być większy od zera"
+        )
+
     competition.name = data.name
     competition.date = data.date
     competition.location = data.location
@@ -2419,6 +2474,7 @@ def update_competition(
     competition.organizer_logo = data.organizer_logo
     competition.sponsors = data.sponsors
     competition.sponsor_logo = data.sponsor_logo
+    competition.participant_limit = data.participant_limit
 
     db.commit()
 

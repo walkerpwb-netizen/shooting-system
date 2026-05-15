@@ -84,6 +84,12 @@ export default async function CompetitionPage({
                 Cena startowa: według wybranych konkurencji
               </p>
             )}
+
+            {competition.participant_limit && (
+              <p className="text-gray-300">
+                Limit zawodników: {competition.participants.length}/{competition.participant_limit}
+              </p>
+            )}
           </section>
 
           {(competition.organizer_full_name || competition.organizer_logo || competition.sponsors || competition.sponsor_logo) && (
@@ -185,6 +191,7 @@ export default async function CompetitionPage({
         <JoinCompetitionPanel
           competitionId={competition.id}
           competitionEntryFee={competition.entry_fee || ""}
+          participantLimit={competition.participant_limit || null}
           initialParticipants={competition.participants as Participant[]}
           disciplines={competition.disciplines as Discipline[]}
         />

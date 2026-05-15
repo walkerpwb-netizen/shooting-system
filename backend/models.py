@@ -132,6 +132,11 @@ class Competition(Base):
         nullable=True,
     )
 
+    participant_limit = Column(
+        Integer,
+        nullable=True,
+    )
+
     status = Column(
         String,
         default="draft",
