@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -32,6 +33,16 @@ const profileRoleLabels: Record<string, string> = {
   judge: "Sędzia",
   admin: "Administrator",
 };
+
+const fieldClassName = "w-full border border-gray-300 rounded-xl px-4 py-3 text-black placeholder:text-gray-400";
+
+function RequiredLabel({ children }: { children: ReactNode }) {
+  return (
+    <span className="block text-sm font-semibold text-gray-600 mb-1">
+      {children} <span className="text-red-600">*</span>
+    </span>
+  );
+}
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -80,13 +91,13 @@ export default function ProfilePage() {
 
         if (!ignore) {
           setProfile(data);
-          setFirstName(data.first_name);
-          setLastName(data.last_name);
-          setLicenseNumber(data.license_number);
-          setJudgeLicenseNumber(data.judge_license_number);
-          setClub(data.club);
-          setBirthDate(data.birth_date);
-          setPhoneNumber(data.phone_number);
+          setFirstName(data.first_name || "");
+          setLastName(data.last_name || "");
+          setLicenseNumber(data.license_number || "");
+          setJudgeLicenseNumber(data.judge_license_number || "");
+          setClub(data.club || "");
+          setBirthDate(data.birth_date || "");
+          setPhoneNumber(data.phone_number || "");
           setEditing(!data.profile_complete);
         }
       } catch (error) {
@@ -113,7 +124,12 @@ export default function ProfilePage() {
       return;
     }
 
-    if (!firstName || !lastName || !birthDate || !phoneNumber) {
+    if (
+      !firstName.trim()
+      || !lastName.trim()
+      || !birthDate.trim()
+      || !phoneNumber.trim()
+    ) {
       setMessage("Wypełnij wszystkie wymagane pola ❌");
       return;
     }
@@ -131,13 +147,13 @@ export default function ProfilePage() {
             Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
-            first_name: firstName,
-            last_name: lastName,
-            license_number: licenseNumber,
-            judge_license_number: judgeLicenseNumber,
-            club,
-            birth_date: birthDate,
-            phone_number: phoneNumber,
+            first_name: firstName.trim(),
+            last_name: lastName.trim(),
+            license_number: licenseNumber.trim(),
+            judge_license_number: judgeLicenseNumber.trim(),
+            club: club.trim(),
+            birth_date: birthDate.trim(),
+            phone_number: phoneNumber.trim(),
           }),
         }
       );
@@ -266,56 +282,89 @@ export default function ProfilePage() {
 
               {editing ? (
                 <>
+                  <p className="text-sm text-gray-500">
+                    Pola oznaczone <span className="text-red-600 font-bold">*</span> są wymagane do zapisania się na zawody.
+                  </p>
+
                   <div className="grid md:grid-cols-2 gap-4">
-                    <input
-                      value={firstName}
-                      onChange={(e) => setFirstName(e.target.value)}
-                      placeholder="Imię"
-                      className="border border-gray-300 rounded-xl px-4 py-3 text-black"
-                    />
+                    <label>
+                      <RequiredLabel>Imię</RequiredLabel>
+                      <input
+                        value={firstName}
+                        onChange={(e) => setFirstName(e.target.value)}
+                        placeholder="Podaj imię"
+                        className={fieldClassName}
+                      />
+                    </label>
 
-                    <input
-                      value={lastName}
-                      onChange={(e) => setLastName(e.target.value)}
-                      placeholder="Nazwisko"
-                      className="border border-gray-300 rounded-xl px-4 py-3 text-black"
-                    />
+                    <label>
+                      <RequiredLabel>Nazwisko</RequiredLabel>
+                      <input
+                        value={lastName}
+                        onChange={(e) => setLastName(e.target.value)}
+                        placeholder="Podaj nazwisko"
+                        className={fieldClassName}
+                      />
+                    </label>
 
-                    <input
-                      value={licenseNumber}
-                      onChange={(e) => setLicenseNumber(e.target.value)}
-                      placeholder="Nr. Licencji Zawodniczej"
-                      className="border border-gray-300 rounded-xl px-4 py-3 text-black"
-                    />
+                    <label>
+                      <span className="block text-sm font-semibold text-gray-600 mb-1">
+                        Nr. Licencji Zawodniczej
+                      </span>
+                      <input
+                        value={licenseNumber}
+                        onChange={(e) => setLicenseNumber(e.target.value)}
+                        placeholder="Nr. Licencji Zawodniczej"
+                        className={fieldClassName}
+                      />
+                    </label>
 
-                    <input
-                      value={judgeLicenseNumber}
-                      onChange={(e) => setJudgeLicenseNumber(e.target.value)}
-                      placeholder="Nr. Licencji Sędziowskiej"
-                      className="border border-gray-300 rounded-xl px-4 py-3 text-black"
-                    />
+                    <label>
+                      <span className="block text-sm font-semibold text-gray-600 mb-1">
+                        Nr. Licencji Sędziowskiej
+                      </span>
+                      <input
+                        value={judgeLicenseNumber}
+                        onChange={(e) => setJudgeLicenseNumber(e.target.value)}
+                        placeholder="Nr. Licencji Sędziowskiej"
+                        className={fieldClassName}
+                      />
+                    </label>
 
-                    <input
-                      value={club}
-                      onChange={(e) => setClub(e.target.value)}
-                      placeholder="Klub"
-                      className="border border-gray-300 rounded-xl px-4 py-3 text-black"
-                    />
+                    <label>
+                      <span className="block text-sm font-semibold text-gray-600 mb-1">
+                        Klub
+                      </span>
+                      <input
+                        value={club}
+                        onChange={(e) => setClub(e.target.value)}
+                        placeholder="Podaj klub"
+                        className={fieldClassName}
+                      />
+                    </label>
 
-                    <input
-                      type="date"
-                      value={birthDate}
-                      onChange={(e) => setBirthDate(e.target.value)}
-                      className="border border-gray-300 rounded-xl px-4 py-3 text-black"
-                    />
+                    <label>
+                      <RequiredLabel>Data urodzenia</RequiredLabel>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={birthDate}
+                        onChange={(e) => setBirthDate(e.target.value)}
+                        placeholder="Podaj datę urodzenia"
+                        className={fieldClassName}
+                      />
+                    </label>
 
-                    <input
-                      type="tel"
-                      value={phoneNumber}
-                      onChange={(e) => setPhoneNumber(e.target.value)}
-                      placeholder="Nr telefonu"
-                      className="border border-gray-300 rounded-xl px-4 py-3 text-black"
-                    />
+                    <label>
+                      <RequiredLabel>Nr telefonu</RequiredLabel>
+                      <input
+                        type="tel"
+                        value={phoneNumber}
+                        onChange={(e) => setPhoneNumber(e.target.value)}
+                        placeholder="Podaj nr telefonu"
+                        className={fieldClassName}
+                      />
+                    </label>
                   </div>
 
                   <div className="flex gap-4">
@@ -398,7 +447,7 @@ export default function ProfilePage() {
                       </p>
 
                       <p className="text-xl font-bold text-black">
-                        {profile.birth_date}
+                        {profile.birth_date || "Brak"}
                       </p>
                     </div>
 

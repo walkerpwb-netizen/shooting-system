@@ -58,9 +58,9 @@ export default function Navbar() {
 
   return (
     <>
-    <nav className="w-full bg-green-900 text-white px-6 py-4 flex items-center justify-between">
-
-      <div className="flex items-center gap-6">
+    <nav className="w-full bg-green-900 text-white px-4 py-3 sm:px-6">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-base">
 
         <Link href="/">
           Home
@@ -96,23 +96,23 @@ export default function Navbar() {
 
       </div>
 
-      <div className="flex items-center gap-4">
+      <div className="flex w-full min-w-0 items-center justify-between gap-3 border-t border-green-800 pt-3 lg:w-auto lg:border-t-0 lg:pt-0">
 
         {user ? (
           <>
-            <span className="text-sm text-gray-300">
+            <span className="min-w-0 flex-1 truncate text-sm text-gray-300 lg:max-w-[260px]">
               {user.email}
             </span>
 
             <button
               onClick={logout}
-              className="bg-red-600 px-4 py-2 rounded-lg"
+              className="shrink-0 bg-red-600 px-3 py-2 rounded-lg font-semibold hover:bg-red-500 transition sm:px-4"
             >
               Wyloguj
             </button>
           </>
         ) : (
-          <>
+          <div className="flex w-full flex-wrap items-center justify-end gap-4">
             <Link href="/login">
               Logowanie
             </Link>
@@ -120,9 +120,10 @@ export default function Navbar() {
             <Link href="/register">
               Rejestracja
             </Link>
-          </>
+          </div>
         )}
 
+      </div>
       </div>
 
     </nav>
