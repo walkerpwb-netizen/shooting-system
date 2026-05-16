@@ -44,6 +44,58 @@ function RequiredLabel({ children }: { children: ReactNode }) {
   );
 }
 
+function normalizeBirthDateInput(value: string) {
+  const trimmedValue = value.trim();
+  const isoMatch = trimmedValue.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const polishMatch = trimmedValue.match(/^(\d{2})[./-](\d{2})[./-](\d{4})$/);
+  const dateParts = isoMatch
+    ? {
+        year: Number(isoMatch[1]),
+        month: Number(isoMatch[2]),
+        day: Number(isoMatch[3]),
+      }
+    : polishMatch
+      ? {
+          year: Number(polishMatch[3]),
+          month: Number(polishMatch[2]),
+          day: Number(polishMatch[1]),
+        }
+      : null;
+
+  if (!dateParts) {
+    return "";
+  }
+
+  const date = new Date(
+    Date.UTC(dateParts.year, dateParts.month - 1, dateParts.day)
+  );
+  const isValidDate = date.getUTCFullYear() === dateParts.year
+    && date.getUTCMonth() === dateParts.month - 1
+    && date.getUTCDate() === dateParts.day;
+
+  if (!isValidDate || dateParts.year < 1900 || date > new Date()) {
+    return "";
+  }
+
+  return [
+    String(dateParts.year).padStart(4, "0"),
+    String(dateParts.month).padStart(2, "0"),
+    String(dateParts.day).padStart(2, "0"),
+  ].join("-");
+}
+
+function normalizePhoneInput(value: string) {
+  const trimmedValue = value.trim();
+  const hasPlusPrefix = trimmedValue.startsWith("+");
+  const digits = trimmedValue.replace(/\D/g, "");
+
+  if (digits.length < 7 || digits.length > 15) {
+    return "";
+  }
+
+  return hasPlusPrefix ? `+${digits}` : digits;
+}
+
 export default function ProfilePage() {
   const router = useRouter();
 
@@ -134,6 +186,19 @@ export default function ProfilePage() {
       return;
     }
 
+    const normalizedBirthDate = normalizeBirthDateInput(birthDate);
+    const normalizedPhoneNumber = normalizePhoneInput(phoneNumber);
+
+    if (!normalizedBirthDate) {
+      setMessage("Podaj poprawną datę urodzenia, np. 1987-03-18 albo 18.03.1987 ❌");
+      return;
+    }
+
+    if (!normalizedPhoneNumber) {
+      setMessage("Podaj poprawny numer telefonu, minimum 7 cyfr ❌");
+      return;
+    }
+
     try {
       setSaving(true);
       setMessage("");
@@ -152,8 +217,8 @@ export default function ProfilePage() {
             license_number: licenseNumber.trim(),
             judge_license_number: judgeLicenseNumber.trim(),
             club: club.trim(),
-            birth_date: birthDate.trim(),
-            phone_number: phoneNumber.trim(),
+            birth_date: normalizedBirthDate,
+            phone_number: normalizedPhoneNumber,
           }),
         }
       );
@@ -359,6 +424,7 @@ export default function ProfilePage() {
                       <RequiredLabel>Nr telefonu</RequiredLabel>
                       <input
                         type="tel"
+                        inputMode="tel"
                         value={phoneNumber}
                         onChange={(e) => setPhoneNumber(e.target.value)}
                         placeholder="Podaj nr telefonu"

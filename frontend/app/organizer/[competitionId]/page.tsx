@@ -255,6 +255,50 @@ export default function OrganizerCompetitionPage() {
     }
   }
 
+  async function removeParticipant(
+    participant: Competition["participants"][number]
+  ) {
+    if (!competition) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Czy usunąć zawodnika "${participant.display_name}" z listy tych zawodów?`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    const token = localStorage.getItem("token");
+
+    try {
+      setMessage("");
+
+      const response = await fetch(
+        apiUrl(`/organizer/competitions/${competition.id}/participants/${participant.id}`),
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.detail || "Nie udało się usunąć zawodnika ❌");
+        return;
+      }
+
+      setMessage("Zawodnik usunięty z listy zawodów ✅");
+      fetchOrganizerCompetitions();
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    }
+  }
+
   return (
     <main className="min-h-screen px-6 py-10">
       <div className="max-w-7xl mx-auto">
@@ -541,7 +585,7 @@ export default function OrganizerCompetitionPage() {
                     {competition.participants.map((participant) => (
                       <div
                         key={participant.id}
-                        className="bg-gray-100 rounded-xl px-3 py-2 grid grid-cols-[1fr_auto] gap-3 items-center"
+                        className="bg-gray-100 rounded-xl px-3 py-2 grid grid-cols-[1fr_auto_auto] gap-3 items-center"
                       >
                         <p>
                           {participant.display_name}
@@ -550,6 +594,15 @@ export default function OrganizerCompetitionPage() {
                         <p className="font-black text-red-700">
                           {formatFee(parseFee(participant.total_fee))}
                         </p>
+
+                        <button
+                          type="button"
+                          onClick={() => removeParticipant(participant)}
+                          className="bg-red-700 hover:bg-red-600 text-white w-8 h-8 rounded-full font-black leading-none transition"
+                          aria-label="Usuń zawodnika z listy zawodów"
+                        >
+                          ×
+                        </button>
                       </div>
                     ))}
                   </div>

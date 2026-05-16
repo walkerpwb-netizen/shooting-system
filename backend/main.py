@@ -27,6 +27,7 @@ from jose import JWTError
 from datetime import datetime, timedelta, timezone, time
 from typing import Optional
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+import re
 import secrets
 from zoneinfo import ZoneInfo
 
@@ -34,6 +35,7 @@ from zoneinfo import ZoneInfo
 SECRET_KEY = "SUPER_SECRET_KEY"
 ALGORITHM = "HS256"
 APP_TIMEZONE = ZoneInfo("Europe/Warsaw")
+PROFILE_DATE_FORMATS = ("%Y-%m-%d", "%d.%m.%Y", "%d-%m-%Y", "%d/%m/%Y")
 
 pwd_context = CryptContext(
     schemes=["bcrypt"],
@@ -308,12 +310,42 @@ def has_role(user: User, role: str):
     return role in get_user_roles(user)
 
 
+def normalize_birth_date(value: str):
+    raw_value = (value or "").strip()
+
+    for date_format in PROFILE_DATE_FORMATS:
+        try:
+            parsed_date = datetime.strptime(raw_value, date_format).date()
+        except ValueError:
+            continue
+
+        today = datetime.now(APP_TIMEZONE).date()
+
+        if parsed_date > today or parsed_date.year < 1900:
+            return ""
+
+        return parsed_date.isoformat()
+
+    return ""
+
+
+def normalize_phone_number(value: str):
+    raw_value = (value or "").strip()
+    has_plus_prefix = raw_value.startswith("+")
+    digits = re.sub(r"\D", "", raw_value)
+
+    if len(digits) < 7 or len(digits) > 15:
+        return ""
+
+    return f"+{digits}" if has_plus_prefix else digits
+
+
 def is_profile_complete(user: User):
     return all([
-        user.first_name,
-        user.last_name,
-        user.birth_date,
-        user.phone_number,
+        (user.first_name or "").strip(),
+        (user.last_name or "").strip(),
+        normalize_birth_date(user.birth_date or ""),
+        normalize_phone_number(user.phone_number or ""),
     ])
 
 
@@ -433,6 +465,22 @@ def delete_user_with_dependencies(user: User, db):
 
     db.delete(user)
     db.commit()
+
+
+def delete_participant_with_dependencies(participant: CompetitionParticipant, db):
+    (
+        db.query(ParticipantDiscipline)
+        .filter(ParticipantDiscipline.participant_id == participant.id)
+        .delete(synchronize_session=False)
+    )
+
+    (
+        db.query(DisciplineResult)
+        .filter(DisciplineResult.participant_id == participant.id)
+        .delete(synchronize_session=False)
+    )
+
+    db.delete(participant)
 
 
 def public_participant(participant: CompetitionParticipant, db):
@@ -1759,6 +1807,58 @@ def update_organizer_participant_payment_status(
     }
 
 
+@app.delete("/organizer/competitions/{competition_id}/participants/{participant_id}")
+def organizer_delete_participant(
+    competition_id: int,
+    participant_id: int,
+    user: User = Depends(get_current_organizer),
+    db=Depends(get_db),
+):
+    auto_complete_started_competitions(db)
+
+    competition = (
+        db.query(Competition)
+        .filter(Competition.id == competition_id)
+        .first()
+    )
+
+    if not competition:
+        raise HTTPException(
+            status_code=404,
+            detail="Zawody nie istnieją"
+        )
+
+    if competition.created_by != user.email and not has_role(user, "admin"):
+        raise HTTPException(
+            status_code=403,
+            detail="Nie masz dostępu do tych zawodów"
+        )
+
+    participant = (
+        db.query(CompetitionParticipant)
+        .filter(
+            CompetitionParticipant.id == participant_id,
+            CompetitionParticipant.competition_id == competition.id,
+            CompetitionParticipant.entry_type == "shooter",
+        )
+        .first()
+    )
+
+    if not participant:
+        raise HTTPException(
+            status_code=404,
+            detail="Nie znaleziono zawodnika w tych zawodach"
+        )
+
+    delete_participant_with_dependencies(participant, db)
+    db.commit()
+
+    return {
+        "message": "Zawodnik usunięty z listy zawodów",
+        "participant_id": participant_id,
+    }
+
+
 @app.get("/judges")
 def get_judges(
     user: User = Depends(get_current_organizer),
@@ -2670,13 +2770,7 @@ def leave_competition(
             detail="Nie jesteś zapisany na te zawody"
         )
 
-    (
-        db.query(ParticipantDiscipline)
-        .filter(ParticipantDiscipline.participant_id == participant.id)
-        .delete()
-    )
-
-    db.delete(participant)
+    delete_participant_with_dependencies(participant, db)
     db.commit()
 
     participants = (
@@ -2778,19 +2872,36 @@ def update_me(
             detail="Użytkownik nie istnieje"
         )
 
-    if not all([data.first_name, data.last_name, data.birth_date, data.phone_number]):
+    first_name = data.first_name.strip()
+    last_name = data.last_name.strip()
+    birth_date = normalize_birth_date(data.birth_date)
+    phone_number = normalize_phone_number(data.phone_number)
+
+    if not all([first_name, last_name, data.birth_date.strip(), data.phone_number.strip()]):
         raise HTTPException(
             status_code=400,
             detail="Imię, nazwisko, data urodzenia i numer telefonu są wymagane"
         )
 
-    db_user.first_name = data.first_name
-    db_user.last_name = data.last_name
-    db_user.license_number = data.license_number
-    db_user.judge_license_number = data.judge_license_number
-    db_user.club = data.club
-    db_user.birth_date = data.birth_date
-    db_user.phone_number = data.phone_number
+    if not birth_date:
+        raise HTTPException(
+            status_code=400,
+            detail="Podaj poprawną datę urodzenia"
+        )
+
+    if not phone_number:
+        raise HTTPException(
+            status_code=400,
+            detail="Podaj poprawny numer telefonu"
+        )
+
+    db_user.first_name = first_name
+    db_user.last_name = last_name
+    db_user.license_number = data.license_number.strip()
+    db_user.judge_license_number = data.judge_license_number.strip()
+    db_user.club = data.club.strip()
+    db_user.birth_date = birth_date
+    db_user.phone_number = phone_number
 
     db.commit()
     roles = get_user_roles(db_user)
