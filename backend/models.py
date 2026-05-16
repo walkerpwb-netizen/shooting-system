@@ -67,6 +67,11 @@ class User(Base):
         nullable=True,
     )
 
+    judge_license_number = Column(
+        String,
+        nullable=True,
+    )
+
     club = Column(
         String,
         nullable=True,

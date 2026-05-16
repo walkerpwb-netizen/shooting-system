@@ -62,6 +62,7 @@ def ensure_schema_updates():
             "first_name": "VARCHAR",
             "last_name": "VARCHAR",
             "license_number": "VARCHAR",
+            "judge_license_number": "VARCHAR",
             "club": "VARCHAR",
             "birth_date": "VARCHAR",
             "phone_number": "VARCHAR",
@@ -205,8 +206,9 @@ class DisciplineData(BaseModel):
 class ProfileData(BaseModel):
     first_name: str
     last_name: str
-    license_number: str
-    club: str
+    license_number: str = ""
+    judge_license_number: str = ""
+    club: str = ""
     birth_date: str
     phone_number: str = ""
 
@@ -298,18 +300,12 @@ def has_role(user: User, role: str):
 
 
 def is_profile_complete(user: User):
-    base_profile_complete = all([
+    return all([
         user.first_name,
         user.last_name,
-        user.license_number,
-        user.club,
         user.birth_date,
+        user.phone_number,
     ])
-
-    if has_role(user, "organizer") or has_role(user, "admin"):
-        return base_profile_complete and bool(user.phone_number)
-
-    return base_profile_complete
 
 
 def is_user_online(user: User):
@@ -436,6 +432,13 @@ def public_participant(participant: CompetitionParticipant, db):
         .filter(User.email == participant.user_email)
         .first()
     )
+    display_name = participant.user_email
+
+    if user and user.first_name and user.last_name:
+        display_name = f"{user.last_name} {user.first_name}"
+
+        if user.club:
+            display_name = f"{display_name} - {user.club}"
 
     return {
         "id": participant.id,
@@ -445,11 +448,7 @@ def public_participant(participant: CompetitionParticipant, db):
         "first_name": user.first_name if user else "",
         "last_name": user.last_name if user else "",
         "club": user.club if user else "",
-        "display_name": (
-            f"{user.last_name} {user.first_name} - {user.club}"
-            if user and user.first_name and user.last_name and user.club
-            else participant.user_email
-        ),
+        "display_name": display_name,
     }
 
 
@@ -2513,6 +2512,7 @@ def get_me(
         "first_name": user.first_name or "",
         "last_name": user.last_name or "",
         "license_number": user.license_number or "",
+        "judge_license_number": user.judge_license_number or "",
         "club": user.club or "",
         "birth_date": user.birth_date or "",
         "phone_number": user.phone_number or "",
@@ -2579,18 +2579,16 @@ def update_me(
             detail="Użytkownik nie istnieje"
         )
 
-    if (
-        (has_role(db_user, "organizer") or has_role(db_user, "admin"))
-        and not data.phone_number
-    ):
+    if not all([data.first_name, data.last_name, data.birth_date, data.phone_number]):
         raise HTTPException(
             status_code=400,
-            detail="Numer telefonu jest wymagany dla organizatora"
+            detail="Imię, nazwisko, data urodzenia i numer telefonu są wymagane"
         )
 
     db_user.first_name = data.first_name
     db_user.last_name = data.last_name
     db_user.license_number = data.license_number
+    db_user.judge_license_number = data.judge_license_number
     db_user.club = data.club
     db_user.birth_date = data.birth_date
     db_user.phone_number = data.phone_number
@@ -2606,8 +2604,9 @@ def update_me(
         "is_active": bool(db_user.is_active),
         "first_name": db_user.first_name,
         "last_name": db_user.last_name,
-        "license_number": db_user.license_number,
-        "club": db_user.club,
+        "license_number": db_user.license_number or "",
+        "judge_license_number": db_user.judge_license_number or "",
+        "club": db_user.club or "",
         "birth_date": db_user.birth_date,
         "phone_number": db_user.phone_number or "",
         "requested_role": db_user.requested_role or "",

@@ -13,6 +13,7 @@ type UserProfile = {
   first_name: string;
   last_name: string;
   license_number: string;
+  judge_license_number: string;
   club: string;
   birth_date: string;
   phone_number: string;
@@ -45,6 +46,7 @@ export default function ProfilePage() {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [licenseNumber, setLicenseNumber] = useState("");
+  const [judgeLicenseNumber, setJudgeLicenseNumber] = useState("");
   const [club, setClub] = useState("");
   const [birthDate, setBirthDate] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
@@ -81,6 +83,7 @@ export default function ProfilePage() {
           setFirstName(data.first_name);
           setLastName(data.last_name);
           setLicenseNumber(data.license_number);
+          setJudgeLicenseNumber(data.judge_license_number);
           setClub(data.club);
           setBirthDate(data.birth_date);
           setPhoneNumber(data.phone_number);
@@ -110,16 +113,8 @@ export default function ProfilePage() {
       return;
     }
 
-    if (!firstName || !lastName || !licenseNumber || !club || !birthDate) {
+    if (!firstName || !lastName || !birthDate || !phoneNumber) {
       setMessage("Wypełnij wszystkie wymagane pola ❌");
-      return;
-    }
-
-    if (
-      (profile?.roles.includes("organizer") || profile?.roles.includes("admin"))
-      && !phoneNumber
-    ) {
-      setMessage("Podaj numer telefonu organizatora ❌");
       return;
     }
 
@@ -139,6 +134,7 @@ export default function ProfilePage() {
             first_name: firstName,
             last_name: lastName,
             license_number: licenseNumber,
+            judge_license_number: judgeLicenseNumber,
             club,
             birth_date: birthDate,
             phone_number: phoneNumber,
@@ -260,17 +256,6 @@ export default function ProfilePage() {
                   </p>
                 </div>
 
-                <div>
-                  <p className="text-sm text-gray-500 mb-1">
-                    Rola
-                  </p>
-
-                  <p className="text-xl font-bold text-black">
-                    {profile.roles
-                      .map((role) => profileRoleLabels[role] || role)
-                      .join(", ")}
-                  </p>
-                </div>
               </div>
 
               {!profile.profile_complete && (
@@ -299,7 +284,14 @@ export default function ProfilePage() {
                     <input
                       value={licenseNumber}
                       onChange={(e) => setLicenseNumber(e.target.value)}
-                      placeholder="Nr licencji"
+                      placeholder="Nr. Licencji Zawodniczej"
+                      className="border border-gray-300 rounded-xl px-4 py-3 text-black"
+                    />
+
+                    <input
+                      value={judgeLicenseNumber}
+                      onChange={(e) => setJudgeLicenseNumber(e.target.value)}
+                      placeholder="Nr. Licencji Sędziowskiej"
                       className="border border-gray-300 rounded-xl px-4 py-3 text-black"
                     />
 
@@ -317,15 +309,13 @@ export default function ProfilePage() {
                       className="border border-gray-300 rounded-xl px-4 py-3 text-black"
                     />
 
-                    {(profile.roles.includes("organizer") || profile.roles.includes("admin")) && (
-                      <input
-                        type="tel"
-                        value={phoneNumber}
-                        onChange={(e) => setPhoneNumber(e.target.value)}
-                        placeholder="Nr telefonu organizatora"
-                        className="border border-gray-300 rounded-xl px-4 py-3 text-black"
-                      />
-                    )}
+                    <input
+                      type="tel"
+                      value={phoneNumber}
+                      onChange={(e) => setPhoneNumber(e.target.value)}
+                      placeholder="Nr telefonu"
+                      className="border border-gray-300 rounded-xl px-4 py-3 text-black"
+                    />
                   </div>
 
                   <div className="flex gap-4">
@@ -374,11 +364,21 @@ export default function ProfilePage() {
 
                     <div>
                       <p className="text-sm text-gray-500 mb-1">
-                        Nr licencji
+                        Nr. Licencji Zawodniczej
                       </p>
 
                       <p className="text-xl font-bold text-black">
-                        {profile.license_number}
+                        {profile.license_number || "Brak"}
+                      </p>
+                    </div>
+
+                    <div>
+                      <p className="text-sm text-gray-500 mb-1">
+                        Nr. Licencji Sędziowskiej
+                      </p>
+
+                      <p className="text-xl font-bold text-black">
+                        {profile.judge_license_number || "Brak"}
                       </p>
                     </div>
 
@@ -388,7 +388,7 @@ export default function ProfilePage() {
                       </p>
 
                       <p className="text-xl font-bold text-black">
-                        {profile.club}
+                        {profile.club || "Brak"}
                       </p>
                     </div>
 
@@ -402,17 +402,27 @@ export default function ProfilePage() {
                       </p>
                     </div>
 
-                    {(profile.roles.includes("organizer") || profile.roles.includes("admin")) && (
-                      <div>
-                        <p className="text-sm text-gray-500 mb-1">
-                          Telefon
-                        </p>
+                    <div>
+                      <p className="text-sm text-gray-500 mb-1">
+                        Telefon
+                      </p>
 
-                        <p className="text-xl font-bold text-black">
-                          {profile.phone_number || "Brak numeru"}
-                        </p>
-                      </div>
-                    )}
+                      <p className="text-xl font-bold text-black">
+                        {profile.phone_number || "Brak numeru"}
+                      </p>
+                    </div>
+
+                    <div className="md:col-span-2">
+                      <p className="text-sm text-gray-500 mb-1">
+                        Rola
+                      </p>
+
+                      <p className="text-xl font-bold text-black">
+                        {profile.roles
+                          .map((role) => profileRoleLabels[role] || role)
+                          .join(", ")}
+                      </p>
+                    </div>
                   </div>
 
                   <div className="flex gap-4">
