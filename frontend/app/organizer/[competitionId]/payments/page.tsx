@@ -365,7 +365,149 @@ export default function OrganizerPaymentsPage() {
               </div>
             </div>
 
-            <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-x-auto">
+            <div className="md:hidden bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
+              <div className="p-4 border-b border-zinc-800">
+                <h2 className="text-2xl font-bold text-white">
+                  Lista zawodników
+                </h2>
+                <p className="text-gray-400 mt-1">
+                  Potwierdzaj przybycie i opłaty w dniu zawodów.
+                </p>
+
+                <input
+                  value={filter}
+                  onChange={(event) => setFilter(event.target.value)}
+                  placeholder="Filtruj zawodnika"
+                  className="mt-4 w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-base text-white placeholder:text-gray-500 focus:outline-none focus:border-green-700"
+                />
+              </div>
+
+              <div className="p-3 space-y-3">
+                {visibleParticipants.length === 0 ? (
+                  <p className="px-1 py-3 text-gray-400">
+                    Brak zawodników pasujących do filtra.
+                  </p>
+                ) : (
+                  visibleParticipants.map((participant) => {
+                    const isSaving = savingId === participant.id;
+                    const isComplete = participant.checked_in && participant.paid;
+
+                    return (
+                      <div
+                        key={participant.id}
+                        className="rounded-2xl border border-zinc-800 bg-zinc-950/40 p-4 space-y-4"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-lg font-black text-white">
+                              {participantName(participant)}
+                            </p>
+                            {isComplete && (
+                              <p className="mt-1 text-sm font-bold text-green-400">
+                                Potwierdzony
+                              </p>
+                            )}
+                          </div>
+
+                          <p className="shrink-0 rounded-full bg-red-950/50 px-3 py-1 text-sm font-black text-red-200">
+                            {formatFee(parseFee(participant.total_fee))}
+                          </p>
+                        </div>
+
+                        <dl className="grid grid-cols-1 gap-3 text-sm">
+                          <div className="rounded-xl bg-zinc-900 p-3">
+                            <dt className="text-gray-500">
+                              Licencja
+                            </dt>
+                            <dd className="font-bold text-gray-200">
+                              {participant.license_number || "brak"}
+                            </dd>
+                          </div>
+
+                          <div className="rounded-xl bg-zinc-900 p-3">
+                            <dt className="text-gray-500">
+                              Klub
+                            </dt>
+                            <dd className="font-bold text-gray-200">
+                              {participant.club || "brak"}
+                            </dd>
+                          </div>
+
+                          <div className="rounded-xl bg-zinc-900 p-3">
+                            <dt className="text-gray-500">
+                              Konkurencje
+                            </dt>
+                            <dd className="font-bold text-gray-200">
+                              {disciplinesText(participant) || "brak"}
+                            </dd>
+                          </div>
+                        </dl>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => updateParticipant(participant, {
+                              checked_in: !participant.checked_in,
+                            })}
+                            disabled={isSaving}
+                            className={`rounded-xl px-3 py-3 font-bold transition ${
+                              participant.checked_in
+                                ? "bg-green-900/70 text-green-100 hover:bg-green-800"
+                                : "bg-zinc-700 text-gray-200 hover:bg-zinc-600"
+                            } disabled:opacity-50`}
+                          >
+                            {participant.checked_in ? "Przybył" : "Brak"}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => updateParticipant(participant, {
+                              paid: !participant.paid,
+                            })}
+                            disabled={isSaving}
+                            className={`rounded-xl px-3 py-3 font-bold transition ${
+                              participant.paid
+                                ? "bg-green-900/70 text-green-100 hover:bg-green-800"
+                                : "bg-red-900/70 text-red-100 hover:bg-red-800"
+                            } disabled:opacity-50`}
+                          >
+                            {participant.paid ? "Opłacone" : "Do zapłaty"}
+                          </button>
+                        </div>
+
+                        {!isComplete ? (
+                          <button
+                            type="button"
+                            onClick={() => updateParticipant(participant, {
+                              checked_in: true,
+                              paid: true,
+                            })}
+                            disabled={isSaving}
+                            className="w-full rounded-xl bg-green-700 px-4 py-3 font-bold text-white transition hover:bg-green-600 disabled:opacity-50"
+                          >
+                            Przybył i opłacił
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => updateParticipant(participant, {
+                              checked_in: false,
+                              paid: false,
+                            })}
+                            disabled={isSaving}
+                            className="w-full rounded-xl bg-red-700 px-4 py-3 font-bold text-white transition hover:bg-red-600 disabled:opacity-50"
+                          >
+                            Cofnij status
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            <div className="hidden md:block bg-zinc-900 border border-zinc-800 rounded-xl overflow-x-auto">
               <div className="min-w-[1240px]">
                 <div className="px-3 py-3 border-b border-zinc-800">
                   <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
