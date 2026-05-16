@@ -362,25 +362,6 @@ export default function JoinCompetitionPanel({
         </p>
       )}
 
-      {participants.length === 0 ? (
-        <p className="text-gray-400">
-          Nikt jeszcze nie dołączył do tych zawodów.
-        </p>
-      ) : (
-        <div className="space-y-3">
-          {participants.map((participant, index) => (
-            <div
-              key={participant.id}
-              className="border border-zinc-700 rounded-xl p-4"
-            >
-              <p className="font-bold">
-                {index + 1}. {participant.display_name}
-              </p>
-            </div>
-          ))}
-        </div>
-      )}
-
       {!registrationOpen ? (
         <div className="border border-zinc-700 bg-zinc-950/50 rounded-xl p-4 space-y-2 text-gray-300">
           <p>
@@ -584,6 +565,25 @@ export default function JoinCompetitionPanel({
           <p className="text-yellow-200 text-center text-sm">
             Wypisanie się z zawodów jest możliwe najpóźniej 48 godzin przed zawodami.
           </p>
+        </div>
+      )}
+
+      {participants.length === 0 ? (
+        <p className="text-gray-400">
+          Nikt jeszcze nie dołączył do tych zawodów.
+        </p>
+      ) : (
+        <div className="space-y-3">
+          {participants.map((participant, index) => (
+            <div
+              key={participant.id}
+              className="border border-zinc-700 rounded-xl p-4"
+            >
+              <p className="font-bold">
+                {index + 1}. {participant.display_name}
+              </p>
+            </div>
+          ))}
         </div>
       )}
 
