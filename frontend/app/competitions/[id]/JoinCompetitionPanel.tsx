@@ -191,6 +191,11 @@ export default function JoinCompetitionPanel({
     (participant) => participant.user_email === currentUserEmail
   );
   const userIsJoined = Boolean(currentUserParticipant || currentEntryType);
+  const waitingForOrganizerApproval = Boolean(
+    competitionStatus === "started"
+    && currentEntryType === "shooter"
+    && !currentUserParticipant
+  );
   const participantLimitReached = Boolean(
     participantLimit
     && participants.length >= participantLimit
@@ -220,7 +225,7 @@ export default function JoinCompetitionPanel({
     0
   );
   const totalFee = competitionFee + disciplinesFee + ammoFee;
-  const registrationOpen = competitionStatus === "published";
+  const registrationOpen = ["published", "started"].includes(competitionStatus);
 
   async function joinCompetition() {
     const token = localStorage.getItem("token");
@@ -282,7 +287,9 @@ export default function JoinCompetitionPanel({
       setMessage(
         entryType === "judge"
           ? "Dołączono do zawodów jako sędzia ✅"
-          : "Jesteś zapisany na zawody ✅"
+          : competitionStatus === "started"
+            ? "Zgłoszenie przyjęte. Pojawisz się na liście po potwierdzeniu udziału i opłaty przez organizatora ✅"
+            : "Jesteś zapisany na zawody ✅"
       );
     } catch (error) {
       console.error(error);
@@ -533,7 +540,11 @@ export default function JoinCompetitionPanel({
         </div>
       ) : (
         <div className="space-y-3">
-          {userIsJoined ? (
+          {waitingForOrganizerApproval ? (
+            <div className="border border-yellow-700 bg-yellow-950/30 rounded-xl p-4 text-yellow-100">
+              Zgłoszenie przyjęte. Pojawisz się na liście zawodników po potwierdzeniu udziału i opłaty przez organizatora.
+            </div>
+          ) : userIsJoined ? (
             <button
               type="button"
               onClick={leaveCompetition}

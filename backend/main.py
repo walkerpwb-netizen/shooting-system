@@ -510,6 +510,27 @@ def public_participant(participant: CompetitionParticipant, db):
     }
 
 
+def public_shooter_participants(competition: Competition, db):
+    query = (
+        db.query(CompetitionParticipant)
+        .filter(
+            CompetitionParticipant.competition_id == competition.id,
+            or_(
+                CompetitionParticipant.entry_type == "shooter",
+                CompetitionParticipant.entry_type.is_(None),
+            ),
+        )
+    )
+
+    if competition.status in ["started", "completed"]:
+        query = query.filter(
+            CompetitionParticipant.checked_in == 1,
+            CompetitionParticipant.paid == 1,
+        )
+
+    return query.all()
+
+
 def staff_participant(participant: CompetitionParticipant, db):
     public_data = public_participant(participant, db)
     public_data["is_head_judge"] = bool(participant.is_head_judge)
@@ -973,14 +994,7 @@ def get_competition(
         .all()
     )
 
-    participants = (
-        db.query(CompetitionParticipant)
-        .filter(
-            CompetitionParticipant.competition_id == competition.id,
-            CompetitionParticipant.entry_type == "shooter",
-        )
-        .all()
-    )
+    participants = public_shooter_participants(competition, db)
 
     return {
         "id": competition.id,
@@ -2295,6 +2309,9 @@ def get_judge_discipline_shooters(
         if not participant:
             continue
 
+        if competition.status == "started" and (not participant.checked_in or not participant.paid):
+            continue
+
         shooter = (
             db.query(User)
             .filter(User.email == participant.user_email)
@@ -2568,10 +2585,10 @@ def join_competition(
             detail="Zawody nie istnieją"
         )
 
-    if competition.status != "published":
+    if competition.status not in ["published", "started"]:
         raise HTTPException(
             status_code=400,
-            detail="Nie można zapisać się na nieopublikowane zawody"
+            detail="Nie można zapisać się na te zawody"
         )
 
     if not user.is_active:
@@ -2711,14 +2728,7 @@ def join_competition(
 
     db.commit()
 
-    participants = (
-        db.query(CompetitionParticipant)
-        .filter(
-            CompetitionParticipant.competition_id == competition.id,
-            CompetitionParticipant.entry_type == "shooter",
-        )
-        .all()
-    )
+    participants = public_shooter_participants(competition, db)
 
     return {
         "message": "Zapisano na zawody",
@@ -2773,14 +2783,7 @@ def leave_competition(
     delete_participant_with_dependencies(participant, db)
     db.commit()
 
-    participants = (
-        db.query(CompetitionParticipant)
-        .filter(
-            CompetitionParticipant.competition_id == competition.id,
-            CompetitionParticipant.entry_type == "shooter",
-        )
-        .all()
-    )
+    participants = public_shooter_participants(competition, db)
 
     return {
         "message": "Wypisano z zawodów",
