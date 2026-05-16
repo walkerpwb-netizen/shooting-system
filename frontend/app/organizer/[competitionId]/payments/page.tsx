@@ -83,6 +83,22 @@ function getSortValue(participant: PaymentParticipant, field: SortField) {
   return participant[field] ? 1 : 0;
 }
 
+async function readJsonResponse(response: Response) {
+  const responseText = await response.text();
+
+  if (!responseText) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(responseText);
+  } catch {
+    return {
+      detail: `Serwer zwrócił nieczytelną odpowiedź (${response.status})`,
+    };
+  }
+}
+
 export default function OrganizerPaymentsPage() {
   const router = useRouter();
   const params = useParams<{ competitionId: string }>();
@@ -120,7 +136,7 @@ export default function OrganizerPaymentsPage() {
             },
           }
         );
-        const data = await response.json();
+        const data = await readJsonResponse(response);
 
         if (!response.ok) {
           setMessage(data.detail || "Nie udało się pobrać rozliczeń ❌");
@@ -250,7 +266,7 @@ export default function OrganizerPaymentsPage() {
           body: JSON.stringify(changes),
         }
       );
-      const data = await response.json();
+      const data = await readJsonResponse(response);
 
       if (!response.ok) {
         setMessage(data.detail || "Nie udało się zaktualizować zawodnika ❌");

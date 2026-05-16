@@ -1653,13 +1653,19 @@ def get_organizer_competition_payments(
         for participant in participants
     ]
     total_fee = sum(
-        parse_price(participant["total_fee"])
-        for participant in participant_rows
+        (
+            parse_price(participant["total_fee"])
+            for participant in participant_rows
+        ),
+        Decimal("0"),
     )
     paid_total = sum(
-        parse_price(participant["total_fee"])
-        for participant in participant_rows
-        if participant["paid"]
+        (
+            parse_price(participant["total_fee"])
+            for participant in participant_rows
+            if participant["paid"]
+        ),
+        Decimal("0"),
     )
 
     return {
