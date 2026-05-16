@@ -66,6 +66,8 @@ type ManualDisciplineSelection = {
   ammo_type: "" | "own" | "club";
 };
 
+type ManualFormErrors = Partial<Record<keyof ManualParticipantForm | "disciplines" | "ammo_type", string>>;
+
 function parseFee(value: string) {
   const fee = Number((value || "0").replace(",", "."));
 
@@ -89,6 +91,42 @@ function getCompetitionStatusLabel(status: string) {
   return competitionStatusLabels[status] || status;
 }
 
+function isValidManualBirthDate(value: string) {
+  const rawValue = value.trim();
+  const isoMatch = rawValue.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const polishMatch = rawValue.match(/^(\d{2})[./-](\d{2})[./-](\d{4})$/);
+
+  const year = isoMatch
+    ? Number(isoMatch[1])
+    : polishMatch
+      ? Number(polishMatch[3])
+      : 0;
+  const month = isoMatch
+    ? Number(isoMatch[2])
+    : polishMatch
+      ? Number(polishMatch[2])
+      : 0;
+  const day = isoMatch
+    ? Number(isoMatch[3])
+    : polishMatch
+      ? Number(polishMatch[1])
+      : 0;
+
+  if (!year || !month || !day || year < 1900) {
+    return false;
+  }
+
+  const parsedDate = new Date(year, month - 1, day);
+  const today = new Date();
+
+  return (
+    parsedDate.getFullYear() === year &&
+    parsedDate.getMonth() === month - 1 &&
+    parsedDate.getDate() === day &&
+    parsedDate <= today
+  );
+}
+
 export default function OrganizerCompetitionPage() {
   const router = useRouter();
   const params = useParams<{ competitionId: string }>();
@@ -110,6 +148,8 @@ export default function OrganizerCompetitionPage() {
   });
   const [manualDisciplines, setManualDisciplines] = useState<ManualDisciplineSelection[]>([]);
   const [manualSaving, setManualSaving] = useState(false);
+  const [manualFormMessage, setManualFormMessage] = useState("");
+  const [manualFormErrors, setManualFormErrors] = useState<ManualFormErrors>({});
 
   useEffect(() => {
     if (!isOrganizer()) {
@@ -241,6 +281,28 @@ export default function OrganizerCompetitionPage() {
     return total;
   }, [competition, manualDisciplines]);
 
+  function manualInputClass(field: keyof ManualParticipantForm) {
+    const hasError = Boolean(manualFormErrors[field]);
+
+    return `w-full border rounded-xl px-3 py-3 ${
+      hasError
+        ? "border-red-300 bg-red-50 text-red-950 ring-1 ring-red-200"
+        : "border-gray-300"
+    }`;
+  }
+
+  function manualErrorText(field: keyof ManualParticipantForm) {
+    if (!manualFormErrors[field]) {
+      return null;
+    }
+
+    return (
+      <p className="text-sm font-semibold text-red-700">
+        {manualFormErrors[field]}
+      </p>
+    );
+  }
+
   function updateManualParticipantField(
     field: keyof ManualParticipantForm,
     value: string
@@ -249,9 +311,28 @@ export default function OrganizerCompetitionPage() {
       ...current,
       [field]: value,
     }));
+    setManualFormErrors((current) => {
+      const updatedErrors = {
+        ...current,
+      };
+
+      delete updatedErrors[field];
+
+      return updatedErrors;
+    });
   }
 
   function toggleManualDiscipline(disciplineId: number, checked: boolean) {
+    setManualFormErrors((current) => {
+      const updatedErrors = {
+        ...current,
+      };
+
+      delete updatedErrors.disciplines;
+      delete updatedErrors.ammo_type;
+
+      return updatedErrors;
+    });
     setManualDisciplines((current) => {
       if (!checked) {
         return current.filter((item) => item.discipline_id !== disciplineId);
@@ -275,6 +356,15 @@ export default function OrganizerCompetitionPage() {
     disciplineId: number,
     ammoType: "own" | "club"
   ) {
+    setManualFormErrors((current) => {
+      const updatedErrors = {
+        ...current,
+      };
+
+      delete updatedErrors.ammo_type;
+
+      return updatedErrors;
+    });
     setManualDisciplines((current) =>
       current.map((item) =>
         item.discipline_id === disciplineId
@@ -296,6 +386,8 @@ export default function OrganizerCompetitionPage() {
       club: "",
     });
     setManualDisciplines([]);
+    setManualFormMessage("");
+    setManualFormErrors({});
     setShowManualParticipantForm(false);
   }
 
@@ -304,28 +396,47 @@ export default function OrganizerCompetitionPage() {
       return;
     }
 
-    const missingProfileField = [
-      manualParticipant.last_name,
-      manualParticipant.first_name,
-      manualParticipant.birth_date,
-      manualParticipant.license_number,
-      manualParticipant.club,
-    ].some((value) => !value.trim());
+    const errors: ManualFormErrors = {};
 
-    if (missingProfileField) {
-      setMessage("Uzupełnij dane zawodnika, a przy licencji lub klubie wpisz Brak, jeśli ich nie ma ❌");
-      return;
+    if (!manualParticipant.last_name.trim()) {
+      errors.last_name = "Uzupełnij nazwisko.";
+    }
+
+    if (!manualParticipant.first_name.trim()) {
+      errors.first_name = "Uzupełnij imię.";
+    }
+
+    if (!manualParticipant.birth_date.trim()) {
+      errors.birth_date = "Uzupełnij datę urodzenia.";
+    } else if (!isValidManualBirthDate(manualParticipant.birth_date)) {
+      errors.birth_date = "Wpisz datę w formacie RRRR-MM-DD, np. 1987-03-18, albo DD.MM.RRRR.";
+    }
+
+    if (!manualParticipant.license_number.trim()) {
+      errors.license_number = "Wpisz numer licencji albo Brak.";
+    }
+
+    if (!manualParticipant.club.trim()) {
+      errors.club = "Wpisz klub albo Brak.";
     }
 
     if (manualDisciplines.length === 0) {
-      setMessage("Wybierz minimum jedną konkurencję ❌");
-      return;
+      errors.disciplines = "Wybierz minimum jedną konkurencję.";
     }
 
     if (manualDisciplines.some((discipline) => !discipline.ammo_type)) {
-      setMessage("Wybierz typ amunicji przy każdej konkurencji ❌");
+      errors.ammo_type = "Wybierz typ amunicji przy każdej wybranej konkurencji.";
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setMessage("");
+      setManualFormErrors(errors);
+      setManualFormMessage("Popraw podświetlone pola formularza.");
       return;
     }
+
+    setManualFormErrors({});
+    setManualFormMessage("");
 
     const token = localStorage.getItem("token");
 
@@ -350,7 +461,7 @@ export default function OrganizerCompetitionPage() {
       const data = await response.json();
 
       if (!response.ok) {
-        setMessage(data.detail || "Nie udało się dodać zawodnika ❌");
+        setManualFormMessage(data.detail || "Nie udało się dodać zawodnika.");
         return;
       }
 
@@ -359,7 +470,7 @@ export default function OrganizerCompetitionPage() {
       fetchOrganizerCompetitions();
     } catch (error) {
       console.error(error);
-      setMessage("Błąd połączenia z serwerem ❌");
+      setManualFormMessage("Błąd połączenia z serwerem.");
     } finally {
       setManualSaving(false);
     }
@@ -807,6 +918,12 @@ export default function OrganizerCompetitionPage() {
 
                     {showManualParticipantForm && (
                       <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50 p-4 space-y-4">
+                        {manualFormMessage && (
+                          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-red-800 font-semibold">
+                            {manualFormMessage}
+                          </div>
+                        )}
+
                         <div className="grid md:grid-cols-2 gap-3">
                           <label className="space-y-1">
                             <span className="text-sm font-semibold text-gray-700">
@@ -816,8 +933,9 @@ export default function OrganizerCompetitionPage() {
                               value={manualParticipant.last_name}
                               onChange={(event) => updateManualParticipantField("last_name", event.target.value)}
                               placeholder="Nazwisko"
-                              className="w-full border border-gray-300 rounded-xl px-3 py-3"
+                              className={manualInputClass("last_name")}
                             />
+                            {manualErrorText("last_name")}
                           </label>
 
                           <label className="space-y-1">
@@ -828,8 +946,9 @@ export default function OrganizerCompetitionPage() {
                               value={manualParticipant.first_name}
                               onChange={(event) => updateManualParticipantField("first_name", event.target.value)}
                               placeholder="Imię"
-                              className="w-full border border-gray-300 rounded-xl px-3 py-3"
+                              className={manualInputClass("first_name")}
                             />
+                            {manualErrorText("first_name")}
                           </label>
 
                           <label className="space-y-1">
@@ -842,8 +961,15 @@ export default function OrganizerCompetitionPage() {
                               value={manualParticipant.birth_date}
                               onChange={(event) => updateManualParticipantField("birth_date", event.target.value)}
                               placeholder="Podaj datę urodzenia"
-                              className="w-full border border-gray-300 rounded-xl px-3 py-3"
+                              className={manualInputClass("birth_date")}
                             />
+                            <p className={`text-sm ${
+                              manualFormErrors.birth_date
+                                ? "font-semibold text-red-700"
+                                : "text-gray-500"
+                            }`}>
+                              Format: RRRR-MM-DD, np. 1987-03-18, albo DD.MM.RRRR.
+                            </p>
                           </label>
 
                           <label className="space-y-1">
@@ -854,8 +980,9 @@ export default function OrganizerCompetitionPage() {
                               value={manualParticipant.license_number}
                               onChange={(event) => updateManualParticipantField("license_number", event.target.value)}
                               placeholder="Nr licencji albo Brak"
-                              className="w-full border border-gray-300 rounded-xl px-3 py-3"
+                              className={manualInputClass("license_number")}
                             />
+                            {manualErrorText("license_number")}
                           </label>
 
                           <label className="space-y-1 md:col-span-2">
@@ -866,8 +993,9 @@ export default function OrganizerCompetitionPage() {
                               value={manualParticipant.club}
                               onChange={(event) => updateManualParticipantField("club", event.target.value)}
                               placeholder="Klub albo Brak"
-                              className="w-full border border-gray-300 rounded-xl px-3 py-3"
+                              className={manualInputClass("club")}
                             />
+                            {manualErrorText("club")}
                           </label>
                         </div>
 
@@ -875,16 +1003,28 @@ export default function OrganizerCompetitionPage() {
                           <p className="font-bold">
                             Konkurencje i amunicja
                           </p>
+                          {(manualFormErrors.disciplines || manualFormErrors.ammo_type) && (
+                            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+                              {manualFormErrors.disciplines || manualFormErrors.ammo_type}
+                            </div>
+                          )}
 
                           {competition.disciplines.map((discipline) => {
                             const selectedDiscipline = manualDisciplines.find(
                               (item) => item.discipline_id === discipline.id
                             );
+                            const disciplineHasError =
+                              Boolean(manualFormErrors.disciplines) ||
+                              Boolean(manualFormErrors.ammo_type && selectedDiscipline && !selectedDiscipline.ammo_type);
 
                             return (
                               <div
                                 key={discipline.id}
-                                className="rounded-xl border border-gray-200 bg-white p-3"
+                                className={`rounded-xl border p-3 ${
+                                  disciplineHasError
+                                    ? "border-red-300 bg-red-50 ring-1 ring-red-100"
+                                    : "border-gray-200 bg-white"
+                                }`}
                               >
                                 <label className="flex items-center gap-2 font-bold">
                                   <input
@@ -897,7 +1037,11 @@ export default function OrganizerCompetitionPage() {
 
                                 {selectedDiscipline && (
                                   <div className="grid sm:grid-cols-2 gap-2 mt-3 text-sm">
-                                    <label className="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2">
+                                    <label className={`flex items-center gap-2 rounded-lg border px-3 py-2 ${
+                                      manualFormErrors.ammo_type && !selectedDiscipline.ammo_type
+                                        ? "border-red-300 bg-white"
+                                        : "border-gray-200"
+                                    }`}>
                                       <input
                                         type="radio"
                                         name={`manual-ammo-${discipline.id}`}
@@ -907,7 +1051,11 @@ export default function OrganizerCompetitionPage() {
                                       Własna amunicja
                                     </label>
 
-                                    <label className="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2">
+                                    <label className={`flex items-center gap-2 rounded-lg border px-3 py-2 ${
+                                      manualFormErrors.ammo_type && !selectedDiscipline.ammo_type
+                                        ? "border-red-300 bg-white"
+                                        : "border-gray-200"
+                                    }`}>
                                       <input
                                         type="radio"
                                         name={`manual-ammo-${discipline.id}`}
