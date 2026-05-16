@@ -10,6 +10,7 @@ from database import Base
 from database import SessionLocal
 
 from models import (
+    AppSetting,
     User,
     Competition,
     Discipline,
@@ -280,7 +281,18 @@ class ParticipantPaymentStatusData(BaseModel):
     paid: Optional[bool] = None
 
 
+class ResultsTableSettingsData(BaseModel):
+    grid_template_columns: str
+    min_width: str
+    row_padding_y: str
+
+
 ALLOWED_ROLES = ["user", "organizer", "judge", "admin"]
+RESULTS_TABLE_SETTINGS_DEFAULTS = {
+    "grid_template_columns": "80px 1.6fr 1fr 1.1fr 120px",
+    "min_width": "820px",
+    "row_padding_y": "0.75rem",
+}
 
 
 def primary_role(roles: list[str]):
@@ -325,6 +337,81 @@ def set_user_roles(user: User, roles: list[str]):
     normalized_roles = normalize_roles(roles)
     user.roles = ",".join(normalized_roles)
     user.role = primary_role(normalized_roles)
+
+
+def validate_results_table_settings(data: ResultsTableSettingsData):
+    grid_template_columns = data.grid_template_columns.strip()
+    min_width = data.min_width.strip()
+    row_padding_y = data.row_padding_y.strip()
+    safe_css_pattern = r"^[0-9a-zA-Z.%_(), -]+$"
+    size_pattern = r"^\d+(\.\d+)?(px|rem|em|%)$"
+
+    if not re.fullmatch(safe_css_pattern, grid_template_columns):
+        raise HTTPException(
+            status_code=400,
+            detail="Układ kolumn może zawierać tylko bezpieczne wartości CSS"
+        )
+
+    if len(grid_template_columns.split()) != 5:
+        raise HTTPException(
+            status_code=400,
+            detail="Podaj 5 wartości: Miejsce Zawodnik Licencja Klub Punkty"
+        )
+
+    if not re.fullmatch(size_pattern, min_width):
+        raise HTTPException(
+            status_code=400,
+            detail="Minimalna szerokość musi mieć jednostkę px, rem, em albo %"
+        )
+
+    if not re.fullmatch(size_pattern, row_padding_y):
+        raise HTTPException(
+            status_code=400,
+            detail="Wysokość wiersza musi mieć jednostkę px, rem, em albo %"
+        )
+
+    return {
+        "grid_template_columns": grid_template_columns,
+        "min_width": min_width,
+        "row_padding_y": row_padding_y,
+    }
+
+
+def get_setting_value(key: str, db):
+    setting = (
+        db.query(AppSetting)
+        .filter(AppSetting.key == key)
+        .first()
+    )
+
+    if setting:
+        return setting.value
+
+    return RESULTS_TABLE_SETTINGS_DEFAULTS[key]
+
+
+def set_setting_value(key: str, value: str, db):
+    setting = (
+        db.query(AppSetting)
+        .filter(AppSetting.key == key)
+        .first()
+    )
+
+    if not setting:
+        setting = AppSetting(
+            key=key,
+            value=value,
+        )
+        db.add(setting)
+    else:
+        setting.value = value
+
+
+def get_results_table_settings(db):
+    return {
+        key: get_setting_value(key, db)
+        for key in RESULTS_TABLE_SETTINGS_DEFAULTS
+    }
 
 
 def has_role(user: User, role: str):
@@ -1573,6 +1660,35 @@ def get_my_competition_entry(
         "entry_type": participant.entry_type or "shooter",
         "is_head_judge": bool(participant.is_head_judge),
     }
+
+
+@app.get("/settings/results-table")
+def get_public_results_table_settings(db=Depends(get_db)):
+    return get_results_table_settings(db)
+
+
+@app.get("/admin/settings/results-table")
+def get_admin_results_table_settings(
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    return get_results_table_settings(db)
+
+
+@app.put("/admin/settings/results-table")
+def update_admin_results_table_settings(
+    data: ResultsTableSettingsData,
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    settings = validate_results_table_settings(data)
+
+    for key, value in settings.items():
+        set_setting_value(key, value, db)
+
+    db.commit()
+
+    return get_results_table_settings(db)
 
 
 @app.get("/admin/users")

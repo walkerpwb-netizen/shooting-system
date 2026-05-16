@@ -159,6 +159,13 @@ export default function Navbar() {
           >
             Zawody
           </Link>
+
+          <Link
+            href="/admin?tab=settings"
+            className="bg-zinc-800 hover:bg-zinc-700 px-4 py-2 rounded-lg transition"
+          >
+            Settings
+          </Link>
         </div>
       </nav>
     )}

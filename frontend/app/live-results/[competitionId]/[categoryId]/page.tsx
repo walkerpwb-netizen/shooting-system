@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
+import ResultsLeaderboardTable from "@/app/components/ResultsLeaderboardTable";
 import { apiUrl } from "@/lib/api";
 
 type LiveCompetition = {
@@ -75,7 +76,6 @@ export default function LiveLeaderboardPage() {
   const [leaderboard, setLeaderboard] = useState<LiveLeaderboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
-  const [filter, setFilter] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -120,25 +120,6 @@ export default function LiveLeaderboardPage() {
       window.clearInterval(intervalId);
     };
   }, [categoryId, competitionId]);
-
-  const visibleShooters = useMemo(() => {
-    const normalizedFilter = filter.trim().toLowerCase();
-
-    if (!normalizedFilter) {
-      return leaderboard?.shooters || [];
-    }
-
-    return (leaderboard?.shooters || []).filter((shooter) =>
-      [
-        shooter.display_name,
-        shooter.license_number,
-        shooter.club,
-      ]
-        .join(" ")
-        .toLowerCase()
-        .includes(normalizedFilter)
-    );
-  }, [filter, leaderboard]);
 
   const updatedAt = formatUpdatedAt(leaderboard?.updated_at || "");
 
@@ -192,73 +173,11 @@ export default function LiveLeaderboardPage() {
               </p>
             </div>
 
-            <section className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900">
-              <div className="border-b border-zinc-800 p-4">
-                <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-                  <div>
-                    <h2 className="text-2xl font-bold text-white">
-                      Ranking
-                    </h2>
-
-                    <p className="text-sm text-gray-400">
-                      Lista sortuje się automatycznie od najwyższego wyniku.
-                    </p>
-                  </div>
-
-                  <input
-                    value={filter}
-                    onChange={(event) => setFilter(event.target.value)}
-                    placeholder="Filtruj zawodnika"
-                    className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white placeholder:text-gray-500 focus:border-green-700 focus:outline-none md:w-80"
-                  />
-                </div>
-              </div>
-
-              <div className="overflow-x-auto">
-                <div className="min-w-[820px]">
-                  <div className="grid grid-cols-[80px_1.6fr_1fr_1.1fr_120px] gap-3 border-b border-zinc-800 bg-zinc-950/50 px-4 py-3 text-xs font-bold uppercase tracking-wide text-gray-400">
-                    <p>Miejsce</p>
-                    <p>Zawodnik</p>
-                    <p>Licencja</p>
-                    <p>Klub</p>
-                    <p className="text-right">Punkty</p>
-                  </div>
-
-                  {visibleShooters.length === 0 ? (
-                    <p className="px-4 py-5 text-gray-400">
-                      Brak zawodników w tej klasyfikacji.
-                    </p>
-                  ) : (
-                    visibleShooters.map((shooter) => (
-                      <div
-                        key={shooter.participant_id}
-                        className="grid grid-cols-[80px_1.6fr_1fr_1.1fr_120px] items-center gap-3 border-b border-zinc-800 px-4 py-3 text-sm last:border-b-0 hover:bg-zinc-800/50"
-                      >
-                        <p className="text-lg font-black text-green-300">
-                          {shooter.place}
-                        </p>
-
-                        <p className="font-semibold text-white">
-                          {shooter.display_name}
-                        </p>
-
-                        <p className="text-gray-300">
-                          {shooter.license_number || "brak"}
-                        </p>
-
-                        <p className="text-gray-300">
-                          {shooter.club || "brak"}
-                        </p>
-
-                        <p className="text-right text-xl font-black text-white">
-                          {shooter.points || "0"}
-                        </p>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            </section>
+            <ResultsLeaderboardTable
+              shooters={leaderboard.shooters}
+              description="Lista sortuje się automatycznie od najwyższego wyniku."
+              emptyMessage="Brak zawodników w tej klasyfikacji."
+            />
           </>
         )}
       </div>

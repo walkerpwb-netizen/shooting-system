@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { apiUrl } from "@/lib/api";
 import { isAdmin } from "@/lib/auth";
 
-type AdminTab = "users" | "competitions";
+type AdminTab = "users" | "competitions" | "settings";
 type UserSortField = "name" | "status" | "role" | "account" | "phone";
 type SortDirection = "asc" | "desc";
 
@@ -53,6 +53,12 @@ type AdminCompetition = {
   disciplines: AdminDiscipline[];
 };
 
+type ResultsTableSettings = {
+  grid_template_columns: string;
+  min_width: string;
+  row_padding_y: string;
+};
+
 const roles = [
   "user",
   "organizer",
@@ -70,6 +76,12 @@ const roleLabels: Record<string, string> = {
 const requestedRoleLabels: Record<string, string> = {
   organizer: "organizator",
   judge: "sędzia",
+};
+
+const defaultResultsTableSettings: ResultsTableSettings = {
+  grid_template_columns: "80px 1.6fr 1fr 1.1fr 120px",
+  min_width: "820px",
+  row_padding_y: "0.75rem",
 };
 
 type AdminClientProps = {
@@ -93,7 +105,12 @@ export default function AdminClient({
   const [userSortField, setUserSortField] = useState<UserSortField>("name");
   const [userSortDirection, setUserSortDirection] = useState<SortDirection>("asc");
   const [expandedCompetitionId, setExpandedCompetitionId] = useState<number | null>(null);
-  const [currentAdminEmail, setCurrentAdminEmail] = useState("");
+  const [currentAdminEmail] = useState(() =>
+    typeof window === "undefined"
+      ? ""
+      : localStorage.getItem("email") || ""
+  );
+  const [resultsTableSettings, setResultsTableSettings] = useState<ResultsTableSettings>(defaultResultsTableSettings);
 
   useEffect(() => {
     if (!isAdmin()) {
@@ -102,7 +119,6 @@ export default function AdminClient({
     }
 
     const token = localStorage.getItem("token");
-    setCurrentAdminEmail(localStorage.getItem("email") || "");
     let ignore = false;
 
     if (!token) {
@@ -112,7 +128,7 @@ export default function AdminClient({
 
     async function loadAdminData() {
       try {
-        const [usersResponse, competitionsResponse] = await Promise.all([
+        const [usersResponse, competitionsResponse, settingsResponse] = await Promise.all([
           fetch(
             apiUrl("/admin/users"),
             {
@@ -129,10 +145,19 @@ export default function AdminClient({
               },
             }
           ),
+          fetch(
+            apiUrl("/admin/settings/results-table"),
+            {
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            }
+          ),
         ]);
 
         const usersData = await usersResponse.json();
         const competitionsData = await competitionsResponse.json();
+        const settingsData = await settingsResponse.json();
 
         if (ignore) {
           return;
@@ -148,8 +173,18 @@ export default function AdminClient({
           return;
         }
 
+        if (!settingsResponse.ok) {
+          setMessage(settingsData.detail || "Nie udało się pobrać ustawień ❌");
+          return;
+        }
+
         setUsers(usersData);
         setCompetitions(competitionsData);
+        setResultsTableSettings({
+          grid_template_columns: settingsData.grid_template_columns || defaultResultsTableSettings.grid_template_columns,
+          min_width: settingsData.min_width || defaultResultsTableSettings.min_width,
+          row_padding_y: settingsData.row_padding_y || defaultResultsTableSettings.row_padding_y,
+        });
       } catch (error) {
         console.error(error);
 
@@ -350,6 +385,42 @@ export default function AdminClient({
         )
       );
       setMessage("Prośba odrzucona ✅");
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    }
+  }
+
+  async function saveResultsTableSettings() {
+    const token = localStorage.getItem("token");
+
+    try {
+      setMessage("");
+
+      const response = await fetch(
+        apiUrl("/admin/settings/results-table"),
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(resultsTableSettings),
+        }
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.detail || "Nie udało się zapisać ustawień ❌");
+        return;
+      }
+
+      setResultsTableSettings({
+        grid_template_columns: data.grid_template_columns || defaultResultsTableSettings.grid_template_columns,
+        min_width: data.min_width || defaultResultsTableSettings.min_width,
+        row_padding_y: data.row_padding_y || defaultResultsTableSettings.row_padding_y,
+      });
+      setMessage("Ustawienia tabeli wyników zapisane ✅");
     } catch (error) {
       console.error(error);
       setMessage("Błąd połączenia z serwerem ❌");
@@ -593,6 +664,18 @@ export default function AdminClient({
             }`}
           >
             Zawody
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab("settings")}
+            className={`px-5 py-3 rounded-xl font-bold transition ${
+              activeTab === "settings"
+                ? "bg-green-700 text-white"
+                : "bg-zinc-800 text-gray-300 hover:bg-zinc-700"
+            }`}
+          >
+            Settings
           </button>
         </div>
 
@@ -856,7 +939,7 @@ export default function AdminClient({
             ))}
             </div>
           </section>
-        ) : (
+        ) : activeTab === "competitions" ? (
           <section className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-x-auto">
             <div className="min-w-[1200px]">
               <div className="grid grid-cols-[1.5fr_1fr_1.2fr_0.8fr_1.3fr_1.4fr_0.8fr_0.8fr_1.2fr] gap-4 px-5 py-4 text-sm font-bold text-gray-400 border-b border-zinc-800">
@@ -1027,6 +1110,82 @@ export default function AdminClient({
                   </div>
                 );
               })}
+            </div>
+          </section>
+        ) : (
+          <section className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+            <div className="mb-6">
+              <h2 className="text-3xl font-bold text-white mb-2">
+                Settings
+              </h2>
+
+              <p className="text-gray-400">
+                Globalne ustawienia tabel wyników dla wyników na żywo, historycznych i organizatora.
+              </p>
+            </div>
+
+            <div className="space-y-5">
+              <label className="block">
+                <span className="block text-white font-semibold mb-2">
+                  Układ kolumn tabeli wyników
+                </span>
+
+                <input
+                  value={resultsTableSettings.grid_template_columns}
+                  onChange={(event) => setResultsTableSettings((currentSettings) => ({
+                    ...currentSettings,
+                    grid_template_columns: event.target.value,
+                  }))}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
+                  placeholder="80px 1.6fr 1fr 1.1fr 120px"
+                />
+
+                <p className="text-gray-500 text-sm mt-2">
+                  Kolejność: Miejsce, Zawodnik, Licencja, Klub, Punkty.
+                </p>
+              </label>
+
+              <div className="grid md:grid-cols-2 gap-4">
+                <label className="block">
+                  <span className="block text-white font-semibold mb-2">
+                    Minimalna szerokość tabeli
+                  </span>
+
+                  <input
+                    value={resultsTableSettings.min_width}
+                    onChange={(event) => setResultsTableSettings((currentSettings) => ({
+                      ...currentSettings,
+                      min_width: event.target.value,
+                    }))}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
+                    placeholder="820px"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="block text-white font-semibold mb-2">
+                    Wysokość wierszy
+                  </span>
+
+                  <input
+                    value={resultsTableSettings.row_padding_y}
+                    onChange={(event) => setResultsTableSettings((currentSettings) => ({
+                      ...currentSettings,
+                      row_padding_y: event.target.value,
+                    }))}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
+                    placeholder="0.75rem"
+                  />
+                </label>
+              </div>
+
+              <button
+                type="button"
+                onClick={saveResultsTableSettings}
+                className="bg-green-700 hover:bg-green-600 text-white px-5 py-3 rounded-xl font-bold transition"
+              >
+                Zapisz ustawienia
+              </button>
             </div>
           </section>
         )}

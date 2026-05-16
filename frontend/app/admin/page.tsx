@@ -10,8 +10,8 @@ export default async function AdminPage({
   searchParams,
 }: AdminPageProps) {
   const params = await searchParams;
-  const initialTab = params.tab === "competitions"
-    ? "competitions"
+  const initialTab: "users" | "competitions" | "settings" = params.tab === "competitions" || params.tab === "settings"
+    ? params.tab
     : "users";
 
   return (
