@@ -63,6 +63,17 @@ function formatFee(value: number) {
   return `${value.toFixed(2)} zł`;
 }
 
+const competitionStatusLabels: Record<string, string> = {
+  draft: "Szkic",
+  published: "Opublikowane",
+  started: "Trwające",
+  completed: "Zakończone",
+};
+
+function getCompetitionStatusLabel(status: string) {
+  return competitionStatusLabels[status] || status;
+}
+
 export default function OrganizerCompetitionPage() {
   const router = useRouter();
   const params = useParams<{ competitionId: string }>();
@@ -316,7 +327,7 @@ export default function OrganizerCompetitionPage() {
 
           {competition && (
             <p className="text-gray-400">
-              {competition.date} • {competition.location} • {competition.status}
+              {competition.date} • {competition.location} • {getCompetitionStatusLabel(competition.status)}
             </p>
           )}
         </div>
@@ -344,7 +355,7 @@ export default function OrganizerCompetitionPage() {
                 </h2>
 
                 <span className="bg-yellow-100 text-yellow-800 px-3 py-1 rounded-full text-sm font-semibold">
-                  {competition.status}
+                  {getCompetitionStatusLabel(competition.status)}
                 </span>
               </div>
 

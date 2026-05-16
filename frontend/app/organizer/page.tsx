@@ -60,6 +60,8 @@ type Discipline = {
   entry_fee: string;
 };
 
+type OrganizerTab = "current" | "history";
+
 const ammoTypes = [
   ".22 LR",
   "19mm",
@@ -69,6 +71,17 @@ const ammoTypes = [
   "12/70",
   "12/76",
 ];
+
+const competitionStatusLabels: Record<string, string> = {
+  draft: "Szkic",
+  published: "Opublikowane",
+  started: "Trwające",
+  completed: "Zakończone",
+};
+
+function getCompetitionStatusLabel(status: string) {
+  return competitionStatusLabels[status] || status;
+}
 
 function isCompetitionDateReached(dateValue: string) {
   const normalizedDate = dateValue.includes(".")
@@ -90,6 +103,7 @@ export default function OrganizerPage() {
   const router = useRouter();
 
   const [competitions, setCompetitions] = useState<Competition[]>([]);
+  const [activeTab, setActiveTab] = useState<OrganizerTab>("current");
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [name, setName] = useState("");
   const [date, setDate] = useState("");
@@ -115,6 +129,11 @@ export default function OrganizerPage() {
   const newDisciplineCount = Math.max(
     disciplines.length - existingDisciplineCount,
     0
+  );
+  const visibleCompetitions = competitions.filter((competition) =>
+    activeTab === "history"
+      ? competition.status === "completed"
+      : competition.status !== "completed"
   );
 
   useEffect(() => {
@@ -731,6 +750,32 @@ export default function OrganizerPage() {
 
         </div>
 
+        <div className="flex flex-wrap items-center gap-3 mb-8">
+          <button
+            type="button"
+            onClick={() => setActiveTab("current")}
+            className={`px-5 py-3 rounded-xl font-bold transition ${
+              activeTab === "current"
+                ? "bg-green-700 text-white"
+                : "bg-zinc-800 text-gray-300 hover:bg-zinc-700"
+            }`}
+          >
+            Aktualne
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab("history")}
+            className={`px-5 py-3 rounded-xl font-bold transition ${
+              activeTab === "history"
+                ? "bg-green-700 text-white"
+                : "bg-zinc-800 text-gray-300 hover:bg-zinc-700"
+            }`}
+          >
+            Historyczne
+          </button>
+        </div>
+
         {showCreateForm && (
 
           <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-8 mb-10 shadow-2xl">
@@ -1192,9 +1237,16 @@ export default function OrganizerPage() {
 
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+        {visibleCompetitions.length === 0 ? (
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 text-gray-300">
+            {activeTab === "history"
+              ? "Nie masz jeszcze zakończonych zawodów."
+              : "Nie masz jeszcze aktualnych zawodów."}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
 
-          {competitions.map((competition) => (
+          {visibleCompetitions.map((competition) => (
 
             <div
               key={competition.id}
@@ -1216,7 +1268,7 @@ export default function OrganizerPage() {
                 </h2>
 
                 <span className="bg-yellow-100 text-yellow-800 px-3 py-1 rounded-full text-sm font-semibold">
-                  {competition.status}
+                  {getCompetitionStatusLabel(competition.status)}
                 </span>
 
               </div>
@@ -1357,7 +1409,8 @@ export default function OrganizerPage() {
 
           ))}
 
-        </div>
+          </div>
+        )}
 
       </div>
 
