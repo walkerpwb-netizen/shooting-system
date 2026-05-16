@@ -77,6 +77,10 @@ export default function Navbar() {
           Wyniki na Żywo
         </Link>
 
+        <Link href="/historical-results">
+          Wyniki Historyczne
+        </Link>
+
         {user && (
           <Link href="/profile">
             Profil

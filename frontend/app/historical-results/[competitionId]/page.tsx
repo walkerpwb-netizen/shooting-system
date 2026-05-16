@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 
 import { apiUrl } from "@/lib/api";
 
-type LiveCategory = {
+type HistoricalCategory = {
   id: string;
   name: string;
   type: "discipline" | "aggregate";
@@ -14,7 +14,7 @@ type LiveCategory = {
   disciplines_count: number;
 };
 
-type LiveCompetitionDetails = {
+type HistoricalCompetitionDetails = {
   id: number;
   name: string;
   date: string;
@@ -22,10 +22,10 @@ type LiveCompetitionDetails = {
   organizer_full_name: string;
   status: string;
   completed_at: string;
-  categories: LiveCategory[];
+  categories: HistoricalCategory[];
 };
 
-function categoryDescription(category: LiveCategory) {
+function categoryDescription(category: HistoricalCategory) {
   if (category.type === "discipline") {
     return "Konkurencja dostępna w tych zawodach";
   }
@@ -41,11 +41,11 @@ function categoryDescription(category: LiveCategory) {
   return `Suma z ${category.disciplines_count} konkurencji`;
 }
 
-export default function LiveCompetitionPage() {
+export default function HistoricalCompetitionPage() {
   const params = useParams<{ competitionId: string }>();
   const competitionId = Number(params.competitionId);
 
-  const [competition, setCompetition] = useState<LiveCompetitionDetails | null>(null);
+  const [competition, setCompetition] = useState<HistoricalCompetitionDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
 
@@ -55,7 +55,7 @@ export default function LiveCompetitionPage() {
     async function loadCompetition() {
       try {
         const response = await fetch(
-          apiUrl(`/live-results/competitions/${competitionId}`),
+          apiUrl(`/historical-results/competitions/${competitionId}`),
           {
             cache: "no-store",
           }
@@ -85,11 +85,9 @@ export default function LiveCompetitionPage() {
     }
 
     loadCompetition();
-    const intervalId = window.setInterval(loadCompetition, 10000);
 
     return () => {
       active = false;
-      window.clearInterval(intervalId);
     };
   }, [competitionId]);
 
@@ -104,10 +102,10 @@ export default function LiveCompetitionPage() {
     <main className="min-h-screen px-6 py-10">
       <div className="mx-auto max-w-6xl">
         <Link
-          href="/live-results"
+          href="/historical-results"
           className="mb-6 inline-flex rounded-xl bg-red-700 px-5 py-3 font-bold text-white transition hover:bg-red-600"
         >
-          Wróć do zawodów
+          Wróć do historii
         </Link>
 
         {message && (
@@ -122,15 +120,13 @@ export default function LiveCompetitionPage() {
           </p>
         ) : !competition ? (
           <p className="rounded-xl border border-zinc-800 bg-zinc-900 p-6 text-gray-300">
-            Te zawody nie są aktualnie dostępne w wynikach na żywo.
+            Te zawody nie są dostępne w wynikach historycznych.
           </p>
         ) : (
           <>
             <div className="mb-8">
-              <p className="mb-3 inline-flex rounded-full border border-green-700 bg-green-950/70 px-4 py-2 text-sm font-bold text-green-200">
-                {competition.status === "completed"
-                  ? "Zakończone - widoczne 24 h"
-                  : "Wyniki na żywo"}
+              <p className="mb-3 inline-flex rounded-full border border-zinc-700 bg-zinc-900 px-4 py-2 text-sm font-bold text-zinc-200">
+                Wyniki historyczne
               </p>
 
               <h1 className="mb-3 text-4xl font-bold text-white sm:text-5xl">
@@ -158,7 +154,7 @@ export default function LiveCompetitionPage() {
                   {disciplineCategories.map((category) => (
                     <Link
                       key={category.id}
-                      href={`/live-results/${competition.id}/${category.id}`}
+                      href={`/historical-results/${competition.id}/${category.id}`}
                       className="rounded-xl border border-zinc-800 bg-zinc-900 p-5 transition hover:border-green-700 hover:bg-zinc-800"
                     >
                       <p className="mb-2 text-xl font-bold text-white">
@@ -183,7 +179,7 @@ export default function LiveCompetitionPage() {
                 {aggregateCategories.map((category) => (
                   <Link
                     key={category.id}
-                    href={`/live-results/${competition.id}/${category.id}`}
+                    href={`/historical-results/${competition.id}/${category.id}`}
                     className="rounded-xl border border-zinc-800 bg-zinc-900 p-5 transition hover:border-green-700 hover:bg-zinc-800"
                   >
                     <p className="mb-2 text-xl font-bold text-white">

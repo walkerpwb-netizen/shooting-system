@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { apiUrl } from "@/lib/api";
 
-type LiveCompetition = {
+type HistoricalCompetition = {
   id: number;
   name: string;
   date: string;
@@ -16,7 +16,7 @@ type LiveCompetition = {
   completed_at: string;
 };
 
-type LiveCategory = {
+type HistoricalCategory = {
   id: string;
   name: string;
   type: "discipline" | "aggregate";
@@ -24,7 +24,7 @@ type LiveCategory = {
   disciplines_count: number;
 };
 
-type LiveShooter = {
+type HistoricalShooter = {
   participant_id: number;
   display_name: string;
   first_name: string;
@@ -36,35 +36,14 @@ type LiveShooter = {
   place: number;
 };
 
-type LiveLeaderboard = {
-  competition: LiveCompetition;
-  category: LiveCategory;
-  shooters: LiveShooter[];
+type HistoricalLeaderboard = {
+  competition: HistoricalCompetition;
+  category: HistoricalCategory;
+  shooters: HistoricalShooter[];
   updated_at: string;
 };
 
-function formatUpdatedAt(value: string) {
-  if (!value) {
-    return "";
-  }
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
-
-  return date.toLocaleTimeString(
-    "pl-PL",
-    {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    }
-  );
-}
-
-export default function LiveLeaderboardPage() {
+export default function HistoricalLeaderboardPage() {
   const params = useParams<{
     competitionId: string;
     categoryId: string;
@@ -72,7 +51,7 @@ export default function LiveLeaderboardPage() {
   const competitionId = Number(params.competitionId);
   const categoryId = params.categoryId;
 
-  const [leaderboard, setLeaderboard] = useState<LiveLeaderboard | null>(null);
+  const [leaderboard, setLeaderboard] = useState<HistoricalLeaderboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [filter, setFilter] = useState("");
@@ -83,7 +62,7 @@ export default function LiveLeaderboardPage() {
     async function loadLeaderboard() {
       try {
         const response = await fetch(
-          apiUrl(`/live-results/competitions/${competitionId}/categories/${categoryId}`),
+          apiUrl(`/historical-results/competitions/${competitionId}/categories/${categoryId}`),
           {
             cache: "no-store",
           }
@@ -113,11 +92,9 @@ export default function LiveLeaderboardPage() {
     }
 
     loadLeaderboard();
-    const intervalId = window.setInterval(loadLeaderboard, 5000);
 
     return () => {
       active = false;
-      window.clearInterval(intervalId);
     };
   }, [categoryId, competitionId]);
 
@@ -140,13 +117,11 @@ export default function LiveLeaderboardPage() {
     );
   }, [filter, leaderboard]);
 
-  const updatedAt = formatUpdatedAt(leaderboard?.updated_at || "");
-
   return (
     <main className="min-h-screen px-6 py-10">
       <div className="mx-auto max-w-7xl">
         <Link
-          href={`/live-results/${competitionId}`}
+          href={`/historical-results/${competitionId}`}
           className="mb-6 inline-flex rounded-xl bg-red-700 px-5 py-3 font-bold text-white transition hover:bg-red-600"
         >
           Wróć do kategorii
@@ -164,23 +139,15 @@ export default function LiveLeaderboardPage() {
           </p>
         ) : !leaderboard ? (
           <p className="rounded-xl border border-zinc-800 bg-zinc-900 p-6 text-gray-300">
-            Ta klasyfikacja nie jest aktualnie dostępna.
+            Ta klasyfikacja nie jest dostępna w historii.
           </p>
         ) : (
           <>
             <div className="mb-8">
               <div className="mb-3 flex flex-wrap items-center gap-3">
-                <span className="rounded-full border border-green-700 bg-green-950/70 px-4 py-2 text-sm font-bold text-green-200">
-                  {leaderboard.competition.status === "completed"
-                    ? "Zakończone - widoczne 24 h"
-                    : "Auto-odświeżanie co 5 s"}
+                <span className="rounded-full border border-zinc-700 bg-zinc-900 px-4 py-2 text-sm font-bold text-zinc-200">
+                  Wyniki historyczne
                 </span>
-
-                {updatedAt && (
-                  <span className="text-sm font-semibold text-gray-400">
-                    Ostatnia aktualizacja: {updatedAt}
-                  </span>
-                )}
               </div>
 
               <h1 className="mb-3 text-4xl font-bold text-white sm:text-5xl">
@@ -201,7 +168,7 @@ export default function LiveLeaderboardPage() {
                     </h2>
 
                     <p className="text-sm text-gray-400">
-                      Lista sortuje się automatycznie od najwyższego wyniku.
+                      Lista jest posortowana od najwyższego wyniku.
                     </p>
                   </div>
 

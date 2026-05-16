@@ -157,6 +157,11 @@ class Competition(Base):
         default="draft",
     )
 
+    completed_at = Column(
+        String,
+        nullable=True,
+    )
+
     created_by = Column(
         String,
         nullable=False,

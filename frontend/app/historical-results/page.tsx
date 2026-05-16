@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 
 import { apiUrl } from "@/lib/api";
 
-type LiveCompetition = {
+type HistoricalCompetition = {
   id: number;
   name: string;
   date: string;
@@ -16,14 +16,31 @@ type LiveCompetition = {
   completed_at: string;
 };
 
-function statusLabel(status: string) {
-  return status === "completed"
-    ? "Zakończone - widoczne 24 h"
-    : "Trwają";
+function formatCompletedAt(value: string) {
+  if (!value) {
+    return "brak daty zakończenia";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "brak daty zakończenia";
+  }
+
+  return date.toLocaleString(
+    "pl-PL",
+    {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    }
+  );
 }
 
-export default function LiveResultsPage() {
-  const [competitions, setCompetitions] = useState<LiveCompetition[]>([]);
+export default function HistoricalResultsPage() {
+  const [competitions, setCompetitions] = useState<HistoricalCompetition[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
 
@@ -33,7 +50,7 @@ export default function LiveResultsPage() {
     async function loadCompetitions() {
       try {
         const response = await fetch(
-          apiUrl("/live-results/competitions"),
+          apiUrl("/historical-results/competitions"),
           {
             cache: "no-store",
           }
@@ -41,7 +58,7 @@ export default function LiveResultsPage() {
         const data = await response.json();
 
         if (!response.ok) {
-          setMessage(data.detail || "Nie udało się pobrać zawodów.");
+          setMessage(data.detail || "Nie udało się pobrać wyników historycznych.");
           return;
         }
 
@@ -63,11 +80,9 @@ export default function LiveResultsPage() {
     }
 
     loadCompetitions();
-    const intervalId = window.setInterval(loadCompetitions, 10000);
 
     return () => {
       active = false;
-      window.clearInterval(intervalId);
     };
   }, []);
 
@@ -75,16 +90,16 @@ export default function LiveResultsPage() {
     <main className="min-h-screen px-6 py-10">
       <div className="mx-auto max-w-6xl">
         <div className="mb-8">
-          <p className="mb-3 inline-flex rounded-full border border-green-700 bg-green-950/70 px-4 py-2 text-sm font-bold text-green-200">
-            Na żywo
+          <p className="mb-3 inline-flex rounded-full border border-zinc-700 bg-zinc-900 px-4 py-2 text-sm font-bold text-zinc-200">
+            Archiwum
           </p>
 
           <h1 className="mb-2 text-4xl font-bold text-white sm:text-5xl">
-            Wyniki na Żywo
+            Wyniki Historyczne
           </h1>
 
           <p className="max-w-2xl text-gray-400">
-            Aktualnie trwające zawody oraz wyniki dostępne jeszcze przez 24 godziny po zakończeniu.
+            Zakończone zawody starsze niż 24 godziny, posortowane od najnowszych.
           </p>
         </div>
 
@@ -96,16 +111,16 @@ export default function LiveResultsPage() {
 
         {loading ? (
           <p className="text-gray-400">
-            Ładowanie zawodów...
+            Ładowanie wyników historycznych...
           </p>
         ) : competitions.length === 0 ? (
           <section className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
             <h2 className="mb-2 text-2xl font-bold text-white">
-              Brak trwających zawodów
+              Brak wyników historycznych
             </h2>
 
             <p className="text-gray-400">
-              Lista pojawi się automatycznie, gdy organizator rozpocznie zawody albo zakończy je w ciągu ostatnich 24 godzin.
+              Zawody trafią tutaj 24 godziny po zakończeniu.
             </p>
           </section>
         ) : (
@@ -113,16 +128,12 @@ export default function LiveResultsPage() {
             {competitions.map((competition) => (
               <Link
                 key={competition.id}
-                href={`/live-results/${competition.id}`}
+                href={`/historical-results/${competition.id}`}
                 className="group rounded-xl border border-zinc-800 bg-zinc-900 p-6 transition hover:border-green-700 hover:bg-zinc-800"
               >
                 <div className="mb-4 flex items-center justify-between gap-3">
-                  <span className={`rounded-full px-3 py-1 text-sm font-bold text-white ${
-                    competition.status === "completed"
-                      ? "bg-zinc-700"
-                      : "bg-green-700"
-                  }`}>
-                    {statusLabel(competition.status)}
+                  <span className="rounded-full bg-zinc-700 px-3 py-1 text-sm font-bold text-white">
+                    Zakończone
                   </span>
 
                   <span className="text-sm font-semibold text-gray-400">
@@ -145,6 +156,10 @@ export default function LiveResultsPage() {
 
                   <p>
                     Data: {competition.date}
+                  </p>
+
+                  <p>
+                    Zakończone: {formatCompletedAt(competition.completed_at)}
                   </p>
                 </div>
               </Link>
