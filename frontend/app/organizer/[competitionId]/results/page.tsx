@@ -127,7 +127,7 @@ export default function OrganizerResultsPage() {
       <div className="mx-auto max-w-6xl">
         <Link
           href={`/organizer/${competitionId}`}
-          className="mb-6 inline-flex rounded-xl bg-red-700 px-5 py-3 font-bold text-white transition hover:bg-red-600"
+          className="ui-button mb-6 inline-flex rounded-xl bg-red-700 px-5 py-3 font-bold text-white transition hover:bg-red-600"
         >
           Wróć do zawodów
         </Link>
@@ -179,7 +179,7 @@ export default function OrganizerResultsPage() {
                     <Link
                       key={category.id}
                       href={`/organizer/${competition.id}/results/${category.id}`}
-                      className="rounded-xl border border-zinc-800 bg-zinc-900 p-5 transition hover:border-green-700 hover:bg-zinc-800"
+                      className="ui-block rounded-xl border border-zinc-800 bg-zinc-900 p-5 transition hover:border-green-700 hover:bg-zinc-800"
                     >
                       <p className="mb-2 text-xl font-bold text-white">
                         {category.name}
@@ -204,7 +204,7 @@ export default function OrganizerResultsPage() {
                   <Link
                     key={category.id}
                     href={`/organizer/${competition.id}/results/${category.id}`}
-                    className="rounded-xl border border-zinc-800 bg-zinc-900 p-5 transition hover:border-green-700 hover:bg-zinc-800"
+                    className="ui-block rounded-xl border border-zinc-800 bg-zinc-900 p-5 transition hover:border-green-700 hover:bg-zinc-800"
                   >
                     <p className="mb-2 text-xl font-bold text-white">
                       {category.name}

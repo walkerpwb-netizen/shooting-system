@@ -745,7 +745,7 @@ export default function OrganizerPage() {
 
           <button
             onClick={handleToggleForm}
-            className="w-full md:w-auto bg-green-700 hover:bg-green-600 text-white px-6 py-4 rounded-2xl font-bold transition"
+            className="ui-button w-full md:w-auto bg-green-700 hover:bg-green-600 text-white px-6 py-4 rounded-2xl font-bold transition"
           >
             {showCreateForm
               ? "Zamknij"
@@ -758,7 +758,7 @@ export default function OrganizerPage() {
           <button
             type="button"
             onClick={() => setActiveTab("current")}
-            className={`px-5 py-3 rounded-xl font-bold transition ${
+            className={`ui-button px-5 py-3 rounded-xl font-bold transition ${
               activeTab === "current"
                 ? "bg-green-700 text-white"
                 : "bg-zinc-800 text-gray-300 hover:bg-zinc-700"
@@ -770,7 +770,7 @@ export default function OrganizerPage() {
           <button
             type="button"
             onClick={() => setActiveTab("history")}
-            className={`px-5 py-3 rounded-xl font-bold transition ${
+            className={`ui-button px-5 py-3 rounded-xl font-bold transition ${
               activeTab === "history"
                 ? "bg-green-700 text-white"
                 : "bg-zinc-800 text-gray-300 hover:bg-zinc-700"
@@ -782,7 +782,7 @@ export default function OrganizerPage() {
 
         {showCreateForm && (
 
-          <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-8 mb-10 shadow-2xl">
+          <div className="ui-block bg-zinc-900 border border-zinc-800 rounded-3xl p-8 mb-10 shadow-2xl">
 
             <h2 className="text-3xl font-bold text-white mb-6">
               {editingCompetitionId
@@ -1262,7 +1262,7 @@ export default function OrganizerPage() {
                   router.push(`/organizer/${competition.id}`);
                 }
               }}
-              className="bg-white rounded-3xl p-6 shadow-xl cursor-pointer transition hover:-translate-y-1 hover:shadow-2xl"
+              className="ui-block bg-white rounded-3xl p-6 shadow-xl cursor-pointer transition hover:-translate-y-1 hover:shadow-2xl"
             >
 
               <div className="flex items-center justify-between mb-4">
@@ -1343,7 +1343,7 @@ export default function OrganizerPage() {
                     handleEditCompetition(competition)
                   }}
                   disabled={competition.status === "started" || competition.status === "completed"}
-                  className="bg-blue-600 hover:bg-blue-500 disabled:bg-gray-400 disabled:cursor-not-allowed text-white py-3 rounded-xl font-semibold"
+                  className="ui-button bg-blue-600 hover:bg-blue-500 disabled:bg-gray-400 disabled:cursor-not-allowed text-white py-3 rounded-xl font-semibold"
                 >
                   Edytuj
                 </button>
@@ -1354,7 +1354,7 @@ export default function OrganizerPage() {
                       event.stopPropagation();
                       handleTogglePublication(competition)
                     }}
-                    className={`text-white py-3 rounded-xl font-semibold ${
+                    className={`ui-button text-white py-3 rounded-xl font-semibold ${
                       competition.status === "published"
                         ? "bg-orange-600 hover:bg-orange-500"
                         : "bg-green-700 hover:bg-green-600"
@@ -1378,7 +1378,7 @@ export default function OrganizerPage() {
                         ? ""
                         : "Zawody można rozpocząć najwcześniej w dniu zawodów"
                     }
-                    className="bg-green-800 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white py-3 rounded-xl font-semibold"
+                    className="ui-button bg-green-800 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white py-3 rounded-xl font-semibold"
                   >
                     Rozpocznij
                   </button>
@@ -1390,7 +1390,7 @@ export default function OrganizerPage() {
                       event.stopPropagation();
                       handleFinishCompetition(competition);
                     }}
-                    className="bg-orange-700 hover:bg-orange-600 text-white py-3 rounded-xl font-semibold"
+                    className="ui-button bg-orange-700 hover:bg-orange-600 text-white py-3 rounded-xl font-semibold"
                   >
                     Zakończ
                   </button>
@@ -1402,7 +1402,7 @@ export default function OrganizerPage() {
                       event.stopPropagation();
                       router.push(`/organizer/${competition.id}/results`);
                     }}
-                    className="bg-green-800 hover:bg-green-700 text-white py-3 rounded-xl font-semibold"
+                    className="ui-button bg-green-800 hover:bg-green-700 text-white py-3 rounded-xl font-semibold"
                   >
                     Wyniki
                   </button>
@@ -1414,7 +1414,7 @@ export default function OrganizerPage() {
                     handleDeleteCompetition(competition.id)
                   }}
                   disabled={competition.status === "started" || competition.status === "completed"}
-                  className="bg-red-700 hover:bg-red-600 disabled:bg-gray-400 disabled:cursor-not-allowed text-white py-3 rounded-xl font-semibold"
+                  className="ui-button bg-red-700 hover:bg-red-600 disabled:bg-gray-400 disabled:cursor-not-allowed text-white py-3 rounded-xl font-semibold"
                 >
                   Usuń
                 </button>

@@ -287,11 +287,36 @@ class ResultsTableSettingsData(BaseModel):
     row_padding_y: str
 
 
+class UiSettingsData(BaseModel):
+    block_padding: str
+    block_min_height: str
+    block_radius: str
+    button_padding_x: str
+    button_padding_y: str
+    button_min_height: str
+    button_radius: str
+    navbar_padding_x: str
+    navbar_padding_y: str
+    navbar_content_max_width: str
+
+
 ALLOWED_ROLES = ["user", "organizer", "judge", "admin"]
 RESULTS_TABLE_SETTINGS_DEFAULTS = {
     "grid_template_columns": "80px 1.6fr 1fr 1.1fr 120px",
     "min_width": "820px",
     "row_padding_y": "0.75rem",
+}
+UI_SETTINGS_DEFAULTS = {
+    "block_padding": "1.5rem",
+    "block_min_height": "0px",
+    "block_radius": "1.5rem",
+    "button_padding_x": "1.25rem",
+    "button_padding_y": "0.75rem",
+    "button_min_height": "0px",
+    "button_radius": "0.75rem",
+    "navbar_padding_x": "1.5rem",
+    "navbar_padding_y": "0.75rem",
+    "navbar_content_max_width": "100%",
 }
 
 
@@ -377,6 +402,31 @@ def validate_results_table_settings(data: ResultsTableSettingsData):
     }
 
 
+def validate_ui_settings(data: UiSettingsData):
+    settings = {
+        "block_padding": data.block_padding.strip(),
+        "block_min_height": data.block_min_height.strip(),
+        "block_radius": data.block_radius.strip(),
+        "button_padding_x": data.button_padding_x.strip(),
+        "button_padding_y": data.button_padding_y.strip(),
+        "button_min_height": data.button_min_height.strip(),
+        "button_radius": data.button_radius.strip(),
+        "navbar_padding_x": data.navbar_padding_x.strip(),
+        "navbar_padding_y": data.navbar_padding_y.strip(),
+        "navbar_content_max_width": data.navbar_content_max_width.strip(),
+    }
+    size_pattern = r"^\d+(\.\d+)?(px|rem|em|%)$"
+
+    for key, value in settings.items():
+        if not re.fullmatch(size_pattern, value):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Wartość {key} musi mieć jednostkę px, rem, em albo %"
+            )
+
+    return settings
+
+
 def get_setting_value(key: str, db):
     setting = (
         db.query(AppSetting)
@@ -387,7 +437,12 @@ def get_setting_value(key: str, db):
     if setting:
         return setting.value
 
-    return RESULTS_TABLE_SETTINGS_DEFAULTS[key]
+    defaults = {
+        **RESULTS_TABLE_SETTINGS_DEFAULTS,
+        **UI_SETTINGS_DEFAULTS,
+    }
+
+    return defaults[key]
 
 
 def set_setting_value(key: str, value: str, db):
@@ -411,6 +466,13 @@ def get_results_table_settings(db):
     return {
         key: get_setting_value(key, db)
         for key in RESULTS_TABLE_SETTINGS_DEFAULTS
+    }
+
+
+def get_ui_settings(db):
+    return {
+        key: get_setting_value(key, db)
+        for key in UI_SETTINGS_DEFAULTS
     }
 
 
@@ -1667,12 +1729,25 @@ def get_public_results_table_settings(db=Depends(get_db)):
     return get_results_table_settings(db)
 
 
+@app.get("/settings/ui")
+def get_public_ui_settings(db=Depends(get_db)):
+    return get_ui_settings(db)
+
+
 @app.get("/admin/settings/results-table")
 def get_admin_results_table_settings(
     admin: User = Depends(get_current_admin),
     db=Depends(get_db),
 ):
     return get_results_table_settings(db)
+
+
+@app.get("/admin/settings/ui")
+def get_admin_ui_settings(
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    return get_ui_settings(db)
 
 
 @app.put("/admin/settings/results-table")
@@ -1689,6 +1764,22 @@ def update_admin_results_table_settings(
     db.commit()
 
     return get_results_table_settings(db)
+
+
+@app.put("/admin/settings/ui")
+def update_admin_ui_settings(
+    data: UiSettingsData,
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    settings = validate_ui_settings(data)
+
+    for key, value in settings.items():
+        set_setting_value(key, value, db)
+
+    db.commit()
+
+    return get_ui_settings(db)
 
 
 @app.get("/admin/users")

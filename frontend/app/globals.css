@@ -5,6 +5,16 @@
   --foreground: #171717;
   --font-geist-sans: Arial, Helvetica, sans-serif;
   --font-geist-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --ss-block-padding: 1.5rem;
+  --ss-block-min-height: 0px;
+  --ss-block-radius: 1.5rem;
+  --ss-button-padding-x: 1.25rem;
+  --ss-button-padding-y: 0.75rem;
+  --ss-button-min-height: 0px;
+  --ss-button-radius: 0.75rem;
+  --ss-navbar-padding-x: 1.5rem;
+  --ss-navbar-padding-y: 0.75rem;
+  --ss-navbar-content-max-width: 100%;
 }
 
 @theme inline {
@@ -25,4 +35,27 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+.ui-block {
+  border-radius: var(--ss-block-radius) !important;
+  min-height: var(--ss-block-min-height);
+  padding: var(--ss-block-padding) !important;
+}
+
+.ui-button {
+  border-radius: var(--ss-button-radius) !important;
+  min-height: var(--ss-button-min-height);
+  padding: var(--ss-button-padding-y) var(--ss-button-padding-x) !important;
+}
+
+.ui-navbar {
+  padding: var(--ss-navbar-padding-y) var(--ss-navbar-padding-x) !important;
+}
+
+.ui-navbar-inner {
+  margin-left: auto;
+  margin-right: auto;
+  max-width: var(--ss-navbar-content-max-width);
+  width: 100%;
 }

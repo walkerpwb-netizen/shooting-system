@@ -129,7 +129,7 @@ export default function HistoricalResultsPage() {
               <Link
                 key={competition.id}
                 href={`/historical-results/${competition.id}`}
-                className="group rounded-xl border border-zinc-800 bg-zinc-900 p-6 transition hover:border-green-700 hover:bg-zinc-800"
+                className="ui-block group rounded-xl border border-zinc-800 bg-zinc-900 p-6 transition hover:border-green-700 hover:bg-zinc-800"
               >
                 <div className="mb-4 flex items-center justify-between gap-3">
                   <span className="rounded-full bg-zinc-700 px-3 py-1 text-sm font-bold text-white">

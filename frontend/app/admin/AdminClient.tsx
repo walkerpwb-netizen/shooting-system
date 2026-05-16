@@ -59,6 +59,19 @@ type ResultsTableSettings = {
   row_padding_y: string;
 };
 
+type UiSettings = {
+  block_padding: string;
+  block_min_height: string;
+  block_radius: string;
+  button_padding_x: string;
+  button_padding_y: string;
+  button_min_height: string;
+  button_radius: string;
+  navbar_padding_x: string;
+  navbar_padding_y: string;
+  navbar_content_max_width: string;
+};
+
 const roles = [
   "user",
   "organizer",
@@ -82,6 +95,32 @@ const defaultResultsTableSettings: ResultsTableSettings = {
   grid_template_columns: "80px 1.6fr 1fr 1.1fr 120px",
   min_width: "820px",
   row_padding_y: "0.75rem",
+};
+
+const defaultUiSettings: UiSettings = {
+  block_padding: "1.5rem",
+  block_min_height: "0px",
+  block_radius: "1.5rem",
+  button_padding_x: "1.25rem",
+  button_padding_y: "0.75rem",
+  button_min_height: "0px",
+  button_radius: "0.75rem",
+  navbar_padding_x: "1.5rem",
+  navbar_padding_y: "0.75rem",
+  navbar_content_max_width: "100%",
+};
+
+const uiCssVariableNames: Record<keyof UiSettings, string> = {
+  block_padding: "--ss-block-padding",
+  block_min_height: "--ss-block-min-height",
+  block_radius: "--ss-block-radius",
+  button_padding_x: "--ss-button-padding-x",
+  button_padding_y: "--ss-button-padding-y",
+  button_min_height: "--ss-button-min-height",
+  button_radius: "--ss-button-radius",
+  navbar_padding_x: "--ss-navbar-padding-x",
+  navbar_padding_y: "--ss-navbar-padding-y",
+  navbar_content_max_width: "--ss-navbar-content-max-width",
 };
 
 type AdminClientProps = {
@@ -111,6 +150,7 @@ export default function AdminClient({
       : localStorage.getItem("email") || ""
   );
   const [resultsTableSettings, setResultsTableSettings] = useState<ResultsTableSettings>(defaultResultsTableSettings);
+  const [uiSettings, setUiSettings] = useState<UiSettings>(defaultUiSettings);
 
   useEffect(() => {
     if (!isAdmin()) {
@@ -128,7 +168,7 @@ export default function AdminClient({
 
     async function loadAdminData() {
       try {
-        const [usersResponse, competitionsResponse, settingsResponse] = await Promise.all([
+        const [usersResponse, competitionsResponse, tableSettingsResponse, uiSettingsResponse] = await Promise.all([
           fetch(
             apiUrl("/admin/users"),
             {
@@ -153,11 +193,20 @@ export default function AdminClient({
               },
             }
           ),
+          fetch(
+            apiUrl("/admin/settings/ui"),
+            {
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            }
+          ),
         ]);
 
         const usersData = await usersResponse.json();
         const competitionsData = await competitionsResponse.json();
-        const settingsData = await settingsResponse.json();
+        const tableSettingsData = await tableSettingsResponse.json();
+        const uiSettingsData = await uiSettingsResponse.json();
 
         if (ignore) {
           return;
@@ -173,17 +222,34 @@ export default function AdminClient({
           return;
         }
 
-        if (!settingsResponse.ok) {
-          setMessage(settingsData.detail || "Nie udało się pobrać ustawień ❌");
+        if (!tableSettingsResponse.ok) {
+          setMessage(tableSettingsData.detail || "Nie udało się pobrać ustawień tabeli ❌");
+          return;
+        }
+
+        if (!uiSettingsResponse.ok) {
+          setMessage(uiSettingsData.detail || "Nie udało się pobrać ustawień UI ❌");
           return;
         }
 
         setUsers(usersData);
         setCompetitions(competitionsData);
         setResultsTableSettings({
-          grid_template_columns: settingsData.grid_template_columns || defaultResultsTableSettings.grid_template_columns,
-          min_width: settingsData.min_width || defaultResultsTableSettings.min_width,
-          row_padding_y: settingsData.row_padding_y || defaultResultsTableSettings.row_padding_y,
+          grid_template_columns: tableSettingsData.grid_template_columns || defaultResultsTableSettings.grid_template_columns,
+          min_width: tableSettingsData.min_width || defaultResultsTableSettings.min_width,
+          row_padding_y: tableSettingsData.row_padding_y || defaultResultsTableSettings.row_padding_y,
+        });
+        setUiSettings({
+          block_padding: uiSettingsData.block_padding || defaultUiSettings.block_padding,
+          block_min_height: uiSettingsData.block_min_height || defaultUiSettings.block_min_height,
+          block_radius: uiSettingsData.block_radius || defaultUiSettings.block_radius,
+          button_padding_x: uiSettingsData.button_padding_x || defaultUiSettings.button_padding_x,
+          button_padding_y: uiSettingsData.button_padding_y || defaultUiSettings.button_padding_y,
+          button_min_height: uiSettingsData.button_min_height || defaultUiSettings.button_min_height,
+          button_radius: uiSettingsData.button_radius || defaultUiSettings.button_radius,
+          navbar_padding_x: uiSettingsData.navbar_padding_x || defaultUiSettings.navbar_padding_x,
+          navbar_padding_y: uiSettingsData.navbar_padding_y || defaultUiSettings.navbar_padding_y,
+          navbar_content_max_width: uiSettingsData.navbar_content_max_width || defaultUiSettings.navbar_content_max_width,
         });
       } catch (error) {
         console.error(error);
@@ -253,6 +319,15 @@ export default function AdminClient({
     return user.roles?.length
       ? user.roles
       : [user.role];
+  }
+
+  function applyUiSettings(settings: UiSettings) {
+    Object.entries(uiCssVariableNames).forEach(([key, variableName]) => {
+      document.documentElement.style.setProperty(
+        variableName,
+        settings[key as keyof UiSettings]
+      );
+    });
   }
 
   function getRoleNames(user: AdminUser) {
@@ -421,6 +496,52 @@ export default function AdminClient({
         row_padding_y: data.row_padding_y || defaultResultsTableSettings.row_padding_y,
       });
       setMessage("Ustawienia tabeli wyników zapisane ✅");
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    }
+  }
+
+  async function saveUiSettings() {
+    const token = localStorage.getItem("token");
+
+    try {
+      setMessage("");
+
+      const response = await fetch(
+        apiUrl("/admin/settings/ui"),
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(uiSettings),
+        }
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.detail || "Nie udało się zapisać ustawień UI ❌");
+        return;
+      }
+
+      const nextUiSettings = {
+        block_padding: data.block_padding || defaultUiSettings.block_padding,
+        block_min_height: data.block_min_height || defaultUiSettings.block_min_height,
+        block_radius: data.block_radius || defaultUiSettings.block_radius,
+        button_padding_x: data.button_padding_x || defaultUiSettings.button_padding_x,
+        button_padding_y: data.button_padding_y || defaultUiSettings.button_padding_y,
+        button_min_height: data.button_min_height || defaultUiSettings.button_min_height,
+        button_radius: data.button_radius || defaultUiSettings.button_radius,
+        navbar_padding_x: data.navbar_padding_x || defaultUiSettings.navbar_padding_x,
+        navbar_padding_y: data.navbar_padding_y || defaultUiSettings.navbar_padding_y,
+        navbar_content_max_width: data.navbar_content_max_width || defaultUiSettings.navbar_content_max_width,
+      };
+
+      setUiSettings(nextUiSettings);
+      applyUiSettings(nextUiSettings);
+      setMessage("Ustawienia UI zapisane ✅");
     } catch (error) {
       console.error(error);
       setMessage("Błąd połączenia z serwerem ❌");
@@ -645,7 +766,7 @@ export default function AdminClient({
           <button
             type="button"
             onClick={() => setActiveTab("users")}
-            className={`px-5 py-3 rounded-xl font-bold transition ${
+            className={`ui-button px-5 py-3 rounded-xl font-bold transition ${
               activeTab === "users"
                 ? "bg-green-700 text-white"
                 : "bg-zinc-800 text-gray-300 hover:bg-zinc-700"
@@ -657,7 +778,7 @@ export default function AdminClient({
           <button
             type="button"
             onClick={() => setActiveTab("competitions")}
-            className={`px-5 py-3 rounded-xl font-bold transition ${
+            className={`ui-button px-5 py-3 rounded-xl font-bold transition ${
               activeTab === "competitions"
                 ? "bg-green-700 text-white"
                 : "bg-zinc-800 text-gray-300 hover:bg-zinc-700"
@@ -669,7 +790,7 @@ export default function AdminClient({
           <button
             type="button"
             onClick={() => setActiveTab("settings")}
-            className={`px-5 py-3 rounded-xl font-bold transition ${
+            className={`ui-button px-5 py-3 rounded-xl font-bold transition ${
               activeTab === "settings"
                 ? "bg-green-700 text-white"
                 : "bg-zinc-800 text-gray-300 hover:bg-zinc-700"
@@ -1113,39 +1234,236 @@ export default function AdminClient({
             </div>
           </section>
         ) : (
-          <section className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+          <section className="ui-block bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
             <div className="mb-6">
               <h2 className="text-3xl font-bold text-white mb-2">
                 Settings
               </h2>
 
               <p className="text-gray-400">
-                Globalne ustawienia tabel wyników dla wyników na żywo, historycznych i organizatora.
+                Globalne ustawienia wyglądu systemu.
               </p>
             </div>
 
-            <div className="space-y-5">
-              <label className="block">
-                <span className="block text-white font-semibold mb-2">
-                  Układ kolumn tabeli wyników
-                </span>
+            <div className="space-y-8">
+              <div className="rounded-2xl border border-zinc-800 bg-zinc-950/50 p-5">
+                <h3 className="text-2xl font-bold text-white mb-4">
+                  Bloki
+                </h3>
 
-                <input
-                  value={resultsTableSettings.grid_template_columns}
-                  onChange={(event) => setResultsTableSettings((currentSettings) => ({
-                    ...currentSettings,
-                    grid_template_columns: event.target.value,
-                  }))}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
-                  placeholder="80px 1.6fr 1fr 1.1fr 120px"
-                />
+                <div className="grid md:grid-cols-3 gap-4">
+                  <label className="block">
+                    <span className="block text-white font-semibold mb-2">
+                      Wewnętrzny odstęp bloku
+                    </span>
 
-                <p className="text-gray-500 text-sm mt-2">
-                  Kolejność: Miejsce, Zawodnik, Licencja, Klub, Punkty.
-                </p>
-              </label>
+                    <input
+                      value={uiSettings.block_padding}
+                      onChange={(event) => setUiSettings((currentSettings) => ({
+                        ...currentSettings,
+                        block_padding: event.target.value,
+                      }))}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
+                      placeholder="1.5rem"
+                    />
+                  </label>
 
-              <div className="grid md:grid-cols-2 gap-4">
+                  <label className="block">
+                    <span className="block text-white font-semibold mb-2">
+                      Minimalna wysokość bloku
+                    </span>
+
+                    <input
+                      value={uiSettings.block_min_height}
+                      onChange={(event) => setUiSettings((currentSettings) => ({
+                        ...currentSettings,
+                        block_min_height: event.target.value,
+                      }))}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
+                      placeholder="0px"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="block text-white font-semibold mb-2">
+                      Zaokrąglenie bloków
+                    </span>
+
+                    <input
+                      value={uiSettings.block_radius}
+                      onChange={(event) => setUiSettings((currentSettings) => ({
+                        ...currentSettings,
+                        block_radius: event.target.value,
+                      }))}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
+                      placeholder="1.5rem"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-zinc-800 bg-zinc-950/50 p-5">
+                <h3 className="text-2xl font-bold text-white mb-4">
+                  Przyciski
+                </h3>
+
+                <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <label className="block">
+                    <span className="block text-white font-semibold mb-2">
+                      Szerokość przycisków
+                    </span>
+
+                    <input
+                      value={uiSettings.button_padding_x}
+                      onChange={(event) => setUiSettings((currentSettings) => ({
+                        ...currentSettings,
+                        button_padding_x: event.target.value,
+                      }))}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
+                      placeholder="1.25rem"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="block text-white font-semibold mb-2">
+                      Wysokość przycisków
+                    </span>
+
+                    <input
+                      value={uiSettings.button_padding_y}
+                      onChange={(event) => setUiSettings((currentSettings) => ({
+                        ...currentSettings,
+                        button_padding_y: event.target.value,
+                      }))}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
+                      placeholder="0.75rem"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="block text-white font-semibold mb-2">
+                      Minimalna wysokość
+                    </span>
+
+                    <input
+                      value={uiSettings.button_min_height}
+                      onChange={(event) => setUiSettings((currentSettings) => ({
+                        ...currentSettings,
+                        button_min_height: event.target.value,
+                      }))}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
+                      placeholder="0px"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="block text-white font-semibold mb-2">
+                      Zaokrąglenie
+                    </span>
+
+                    <input
+                      value={uiSettings.button_radius}
+                      onChange={(event) => setUiSettings((currentSettings) => ({
+                        ...currentSettings,
+                        button_radius: event.target.value,
+                      }))}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
+                      placeholder="0.75rem"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-zinc-800 bg-zinc-950/50 p-5">
+                <h3 className="text-2xl font-bold text-white mb-4">
+                  Navbar
+                </h3>
+
+                <div className="grid md:grid-cols-3 gap-4">
+                  <label className="block">
+                    <span className="block text-white font-semibold mb-2">
+                      Szerokość odstępów
+                    </span>
+
+                    <input
+                      value={uiSettings.navbar_padding_x}
+                      onChange={(event) => setUiSettings((currentSettings) => ({
+                        ...currentSettings,
+                        navbar_padding_x: event.target.value,
+                      }))}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
+                      placeholder="1.5rem"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="block text-white font-semibold mb-2">
+                      Wysokość navbaru
+                    </span>
+
+                    <input
+                      value={uiSettings.navbar_padding_y}
+                      onChange={(event) => setUiSettings((currentSettings) => ({
+                        ...currentSettings,
+                        navbar_padding_y: event.target.value,
+                      }))}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
+                      placeholder="0.75rem"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="block text-white font-semibold mb-2">
+                      Maksymalna szerokość treści
+                    </span>
+
+                    <input
+                      value={uiSettings.navbar_content_max_width}
+                      onChange={(event) => setUiSettings((currentSettings) => ({
+                        ...currentSettings,
+                        navbar_content_max_width: event.target.value,
+                      }))}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
+                      placeholder="100%"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={saveUiSettings}
+                className="ui-button bg-green-700 hover:bg-green-600 text-white px-5 py-3 rounded-xl font-bold transition"
+              >
+                Zapisz ustawienia UI
+              </button>
+
+              <div className="rounded-2xl border border-zinc-800 bg-zinc-950/50 p-5 space-y-5">
+                <h3 className="text-2xl font-bold text-white">
+                  Tabela wyników
+                </h3>
+
+                <label className="block">
+                  <span className="block text-white font-semibold mb-2">
+                    Układ kolumn tabeli wyników
+                  </span>
+
+                  <input
+                    value={resultsTableSettings.grid_template_columns}
+                    onChange={(event) => setResultsTableSettings((currentSettings) => ({
+                      ...currentSettings,
+                      grid_template_columns: event.target.value,
+                    }))}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
+                    placeholder="80px 1.6fr 1fr 1.1fr 120px"
+                  />
+
+                  <p className="text-gray-500 text-sm mt-2">
+                    Kolejność: Miejsce, Zawodnik, Licencja, Klub, Punkty.
+                  </p>
+                </label>
+
+                <div className="grid md:grid-cols-2 gap-4">
                 <label className="block">
                   <span className="block text-white font-semibold mb-2">
                     Minimalna szerokość tabeli
@@ -1182,10 +1500,11 @@ export default function AdminClient({
               <button
                 type="button"
                 onClick={saveResultsTableSettings}
-                className="bg-green-700 hover:bg-green-600 text-white px-5 py-3 rounded-xl font-bold transition"
+                className="ui-button bg-green-700 hover:bg-green-600 text-white px-5 py-3 rounded-xl font-bold transition"
               >
-                Zapisz ustawienia
+                Zapisz ustawienia tabeli
               </button>
+              </div>
             </div>
           </section>
         )}

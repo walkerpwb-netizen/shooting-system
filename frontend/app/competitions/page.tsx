@@ -114,7 +114,7 @@ export default async function CompetitionsPage({
             <a
               key={tab.key}
               href={`/competitions?status=${tab.key}`}
-              className={`px-5 py-3 rounded-xl font-bold transition ${
+              className={`ui-button px-5 py-3 rounded-xl font-bold transition ${
                 activeTab.key === tab.key
                   ? "bg-green-700 text-white"
                   : "bg-zinc-800 text-gray-300 hover:bg-zinc-700"

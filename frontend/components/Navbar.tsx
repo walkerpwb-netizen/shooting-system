@@ -58,8 +58,8 @@ export default function Navbar() {
 
   return (
     <>
-    <nav className="w-full bg-green-900 text-white px-4 py-3 sm:px-6">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+    <nav className="ui-navbar w-full bg-green-900 text-white px-4 py-3 sm:px-6">
+      <div className="ui-navbar-inner flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
       <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-base">
 
         <Link href="/">
@@ -117,7 +117,7 @@ export default function Navbar() {
 
             <button
               onClick={logout}
-              className="shrink-0 bg-red-600 px-3 py-2 rounded-lg font-semibold hover:bg-red-500 transition sm:px-4"
+              className="ui-button shrink-0 bg-red-600 px-3 py-2 rounded-lg font-semibold hover:bg-red-500 transition sm:px-4"
             >
               Wyloguj
             </button>
@@ -140,29 +140,29 @@ export default function Navbar() {
     </nav>
 
     {isAdmin && (
-      <nav className="w-full bg-zinc-950 border-b border-zinc-800 text-white px-6 py-3">
-        <div className="flex items-center gap-4 text-sm font-semibold">
+      <nav className="ui-navbar w-full bg-zinc-950 border-b border-zinc-800 text-white px-6 py-3">
+        <div className="ui-navbar-inner flex items-center gap-4 text-sm font-semibold">
           <span className="text-gray-400">
             Admin
           </span>
 
           <Link
             href="/admin?tab=users"
-            className="bg-zinc-800 hover:bg-zinc-700 px-4 py-2 rounded-lg transition"
+            className="ui-button bg-zinc-800 hover:bg-zinc-700 px-4 py-2 rounded-lg transition"
           >
             Użytkownicy
           </Link>
 
           <Link
             href="/admin?tab=competitions"
-            className="bg-zinc-800 hover:bg-zinc-700 px-4 py-2 rounded-lg transition"
+            className="ui-button bg-zinc-800 hover:bg-zinc-700 px-4 py-2 rounded-lg transition"
           >
             Zawody
           </Link>
 
           <Link
             href="/admin?tab=settings"
-            className="bg-zinc-800 hover:bg-zinc-700 px-4 py-2 rounded-lg transition"
+            className="ui-button bg-zinc-800 hover:bg-zinc-700 px-4 py-2 rounded-lg transition"
           >
             Settings
           </Link>

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import Navbar from "@/components/Navbar";
+import GlobalUiSettings from "./components/GlobalUiSettings";
 
 export const metadata: Metadata = {
   title: "Shooting System",
@@ -18,6 +19,7 @@ export default function RootLayout({
       className="dark h-full antialiased"
     >
       <body className="min-h-full">
+        <GlobalUiSettings />
         <Navbar />
         {children}
       </body>

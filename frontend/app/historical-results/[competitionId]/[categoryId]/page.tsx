@@ -103,7 +103,7 @@ export default function HistoricalLeaderboardPage() {
       <div className="mx-auto max-w-7xl">
         <Link
           href={`/historical-results/${competitionId}`}
-          className="mb-6 inline-flex rounded-xl bg-red-700 px-5 py-3 font-bold text-white transition hover:bg-red-600"
+          className="ui-button mb-6 inline-flex rounded-xl bg-red-700 px-5 py-3 font-bold text-white transition hover:bg-red-600"
         >
           Wróć do kategorii
         </Link>

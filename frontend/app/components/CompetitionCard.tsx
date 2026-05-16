@@ -76,7 +76,7 @@ export default function CompetitionCard({
       : "";
 
   return (
-    <div className={`rounded-3xl shadow-xl p-6 border-2 ${
+    <div className={`ui-block rounded-3xl shadow-xl p-6 border-2 ${
       joinedAsJudge
         ? "bg-blue-50 border-blue-600"
         : joinedAsShooter
@@ -149,7 +149,7 @@ export default function CompetitionCard({
 
       <Link
         href={`/competitions/${id}`}
-        className="block w-full text-center bg-green-900 hover:bg-green-800 transition text-white py-3 rounded-xl font-semibold"
+        className="ui-button block w-full text-center bg-green-900 hover:bg-green-800 transition text-white py-3 rounded-xl font-semibold"
       >
         Zobacz szczegóły
       </Link>
