@@ -441,9 +441,46 @@ export default function OrganizerPage() {
     }
   }
 
+  async function handleFinishCompetition(competition: Competition) {
+    const confirmed = window.confirm(
+      "Czy na pewno chcesz zakończyć zawody? Po zakończeniu trafią do zakończonych zawodów."
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    const token = localStorage.getItem("token");
+
+    try {
+      const response = await fetch(
+        apiUrl(`/competitions/${competition.id}/finish`),
+        {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.detail || "Nie udało się zakończyć zawodów ❌");
+        return;
+      }
+
+      setMessage("Zawody zakończone ✅");
+      fetchOrganizerCompetitions();
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    }
+  }
+
   function handleTogglePublication(competition: Competition) {
-    if (competition.status === "started") {
-      setMessage("Rozpoczętych zawodów nie można cofnąć do szkicu ❌");
+    if (competition.status === "started" || competition.status === "completed") {
+      setMessage("Rozpoczętych lub zakończonych zawodów nie można cofnąć do szkicu ❌");
       return;
     }
 
@@ -1249,13 +1286,13 @@ export default function OrganizerPage() {
                     event.stopPropagation();
                     handleEditCompetition(competition)
                   }}
-                  disabled={competition.status === "started"}
+                  disabled={competition.status === "started" || competition.status === "completed"}
                   className="bg-blue-600 hover:bg-blue-500 disabled:bg-gray-400 disabled:cursor-not-allowed text-white py-3 rounded-xl font-semibold"
                 >
                   Edytuj
                 </button>
 
-                {competition.status !== "started" && (
+                {competition.status !== "started" && competition.status !== "completed" && (
                   <button
                     onClick={(event) => {
                       event.stopPropagation();
@@ -1291,12 +1328,24 @@ export default function OrganizerPage() {
                   </button>
                 )}
 
+                {competition.status === "started" && (
+                  <button
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleFinishCompetition(competition);
+                    }}
+                    className="bg-orange-700 hover:bg-orange-600 text-white py-3 rounded-xl font-semibold"
+                  >
+                    Zakończ
+                  </button>
+                )}
+
                 <button
                   onClick={(event) => {
                     event.stopPropagation();
                     handleDeleteCompetition(competition.id)
                   }}
-                  disabled={competition.status === "started"}
+                  disabled={competition.status === "started" || competition.status === "completed"}
                   className="bg-red-700 hover:bg-red-600 disabled:bg-gray-400 disabled:cursor-not-allowed text-white py-3 rounded-xl font-semibold"
                 >
                   Usuń

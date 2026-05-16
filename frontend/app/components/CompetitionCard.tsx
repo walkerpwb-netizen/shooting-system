@@ -10,6 +10,7 @@ type CompetitionCardProps = {
   name: string;
   date: string;
   location: string;
+  status: string;
   organizerFullName: string;
   sponsors: string;
   participantLimit: number | null;
@@ -22,6 +23,7 @@ export default function CompetitionCard({
   name,
   date,
   location,
+  status,
   organizerFullName,
   sponsors,
   participantLimit,
@@ -67,6 +69,11 @@ export default function CompetitionCard({
   const freeSlots = participantLimit === null
     ? "Bez limitu"
     : Math.max(participantLimit - shootersCount, 0);
+  const statusLabel = status === "started"
+    ? "Trwają"
+    : status === "completed"
+      ? "Zakończone"
+      : "";
 
   return (
     <div className={`rounded-3xl shadow-xl p-6 border-2 ${
@@ -85,6 +92,16 @@ export default function CompetitionCard({
           {joinedAsJudge
             ? "Sędziujesz"
             : "Dołączyłeś"}
+        </p>
+      )}
+
+      {statusLabel && (
+        <p className={`inline-block px-3 py-1 rounded-full text-sm font-bold mb-4 ${
+          status === "started"
+            ? "bg-orange-600 text-white"
+            : "bg-zinc-700 text-white"
+        }`}>
+          {statusLabel}
         </p>
       )}
 

@@ -194,6 +194,7 @@ export default async function CompetitionPage({
           competitionId={competition.id}
           competitionEntryFee={competition.entry_fee || ""}
           participantLimit={competition.participant_limit || null}
+          competitionStatus={competition.status}
           initialParticipants={competition.participants as Participant[]}
           disciplines={competition.disciplines as Discipline[]}
         />

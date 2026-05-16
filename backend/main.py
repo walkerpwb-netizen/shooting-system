@@ -24,14 +24,16 @@ from passlib.context import CryptContext
 from jose import jwt
 from jose import JWTError
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, time
 from typing import Optional
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import secrets
+from zoneinfo import ZoneInfo
 
 
 SECRET_KEY = "SUPER_SECRET_KEY"
 ALGORITHM = "HS256"
+APP_TIMEZONE = ZoneInfo("Europe/Warsaw")
 
 pwd_context = CryptContext(
     schemes=["bcrypt"],
@@ -630,7 +632,45 @@ def can_start_competition(competition: Competition):
     if not competition_date:
         return False
 
-    return datetime.now().date() >= competition_date.date()
+    return datetime.now(APP_TIMEZONE).date() >= competition_date.date()
+
+
+def should_auto_complete_competition(competition: Competition):
+    if competition.status != "started":
+        return False
+
+    competition_date = parse_competition_date(competition.date)
+
+    if not competition_date:
+        return False
+
+    now = datetime.now(APP_TIMEZONE)
+
+    if competition_date.date() < now.date():
+        return True
+
+    return (
+        competition_date.date() == now.date()
+        and now.time() >= time(22, 0)
+    )
+
+
+def auto_complete_started_competitions(db):
+    competitions = (
+        db.query(Competition)
+        .filter(Competition.status == "started")
+        .all()
+    )
+
+    changed = False
+
+    for competition in competitions:
+        if should_auto_complete_competition(competition):
+            competition.status = "completed"
+            changed = True
+
+    if changed:
+        db.commit()
 
 
 def get_db():
@@ -760,9 +800,11 @@ def root():
 
 @app.get("/competitions")
 def get_competitions(db=Depends(get_db)):
+    auto_complete_started_competitions(db)
+
     competitions = (
         db.query(Competition)
-        .filter(Competition.status.in_(["published", "started"]))
+        .filter(Competition.status.in_(["published", "started", "completed"]))
         .all()
     )
 
@@ -810,6 +852,8 @@ def get_competition(
     competition_id: int,
     db=Depends(get_db),
 ):
+    auto_complete_started_competitions(db)
+
     competition = (
         db.query(Competition)
         .filter(Competition.id == competition_id)
@@ -1068,6 +1112,8 @@ def admin_get_competitions(
     admin: User = Depends(get_current_admin),
     db=Depends(get_db),
 ):
+    auto_complete_started_competitions(db)
+
     competitions = (
         db.query(Competition)
         .order_by(Competition.id.desc())
@@ -1386,6 +1432,8 @@ def get_my_competitions(
     user: User = Depends(get_current_organizer),
     db=Depends(get_db),
 ):
+    auto_complete_started_competitions(db)
+
     competitions = (
         db.query(Competition)
         .filter(Competition.created_by == user.email)
@@ -1792,6 +1840,8 @@ def get_judge_competitions(
     user: User = Depends(get_current_judge),
     db=Depends(get_db),
 ):
+    auto_complete_started_competitions(db)
+
     judge_participants = (
         db.query(CompetitionParticipant)
         .filter(
@@ -1890,6 +1940,8 @@ def get_judge_discipline_shooters(
     user: User = Depends(get_current_judge),
     db=Depends(get_db),
 ):
+    auto_complete_started_competitions(db)
+
     if not judge_can_access_discipline(user, competition_id, discipline_id, db):
         raise HTTPException(
             status_code=403,
@@ -1993,6 +2045,8 @@ def save_judge_result(
     user: User = Depends(get_current_judge),
     db=Depends(get_db),
 ):
+    auto_complete_started_competitions(db)
+
     if not judge_can_access_discipline(user, competition_id, discipline_id, db):
         raise HTTPException(
             status_code=403,
@@ -2202,6 +2256,8 @@ def join_competition(
     user: User = Depends(get_current_user),
     db=Depends(get_db),
 ):
+    auto_complete_started_competitions(db)
+
     competition = (
         db.query(Competition)
         .filter(Competition.id == competition_id)
@@ -2381,6 +2437,8 @@ def leave_competition(
     user: User = Depends(get_current_user),
     db=Depends(get_db),
 ):
+    auto_complete_started_competitions(db)
+
     competition = (
         db.query(Competition)
         .filter(Competition.id == competition_id)
@@ -2562,6 +2620,8 @@ def delete_competition(
     user: User = Depends(get_current_organizer),
     db=Depends(get_db),
 ):
+    auto_complete_started_competitions(db)
+
     competition = (
         db.query(Competition)
         .filter(Competition.id == competition_id)
@@ -2580,10 +2640,10 @@ def delete_competition(
             detail="Brak dostępu"
         )
 
-    if competition.status == "started" and not has_role(user, "admin"):
+    if competition.status in ["started", "completed"] and not has_role(user, "admin"):
         raise HTTPException(
             status_code=400,
-            detail="Nie można usunąć rozpoczętych zawodów"
+            detail="Nie można usunąć rozpoczętych lub zakończonych zawodów"
         )
 
     delete_competition_with_dependencies(competition, db)
@@ -2600,6 +2660,8 @@ def update_competition(
     user: User = Depends(get_current_organizer),
     db=Depends(get_db),
 ):
+    auto_complete_started_competitions(db)
+
     competition = (
         db.query(Competition)
         .filter(Competition.id == competition_id)
@@ -2618,10 +2680,10 @@ def update_competition(
             detail="Brak dostępu"
         )
 
-    if competition.status == "started" and not has_role(user, "admin"):
+    if competition.status in ["started", "completed"] and not has_role(user, "admin"):
         raise HTTPException(
             status_code=400,
-            detail="Nie można edytować rozpoczętych zawodów"
+            detail="Nie można edytować rozpoczętych lub zakończonych zawodów"
         )
 
     if data.participant_limit is not None and data.participant_limit <= 0:
@@ -2655,6 +2717,8 @@ def publish_competition(
     user: User = Depends(get_current_organizer),
     db=Depends(get_db),
 ):
+    auto_complete_started_competitions(db)
+
     competition = (
         db.query(Competition)
         .filter(Competition.id == competition_id)
@@ -2673,10 +2737,10 @@ def publish_competition(
             detail="Brak dostępu"
         )
 
-    if competition.status == "started":
+    if competition.status in ["started", "completed"]:
         raise HTTPException(
             status_code=400,
-            detail="Zawody są już rozpoczęte"
+            detail="Nie można publikować rozpoczętych lub zakończonych zawodów"
         )
 
     disciplines_count = (
@@ -2707,6 +2771,8 @@ def unpublish_competition(
     user: User = Depends(get_current_organizer),
     db=Depends(get_db),
 ):
+    auto_complete_started_competitions(db)
+
     competition = (
         db.query(Competition)
         .filter(Competition.id == competition_id)
@@ -2725,10 +2791,10 @@ def unpublish_competition(
             detail="Brak dostępu"
         )
 
-    if competition.status == "started":
+    if competition.status in ["started", "completed"]:
         raise HTTPException(
             status_code=400,
-            detail="Nie można cofnąć publikacji rozpoczętych zawodów"
+            detail="Nie można cofnąć publikacji rozpoczętych lub zakończonych zawodów"
         )
 
     competition.status = "draft"
@@ -2747,6 +2813,8 @@ def start_competition(
     user: User = Depends(get_current_organizer),
     db=Depends(get_db),
 ):
+    auto_complete_started_competitions(db)
+
     competition = (
         db.query(Competition)
         .filter(Competition.id == competition_id)
@@ -2782,6 +2850,48 @@ def start_competition(
 
     return {
         "message": "Zawody rozpoczęte",
+        "competition_id": competition.id,
+        "status": competition.status,
+    }
+
+
+@app.put("/competitions/{competition_id}/finish")
+def finish_competition(
+    competition_id: int,
+    user: User = Depends(get_current_organizer),
+    db=Depends(get_db),
+):
+    auto_complete_started_competitions(db)
+
+    competition = (
+        db.query(Competition)
+        .filter(Competition.id == competition_id)
+        .first()
+    )
+
+    if not competition:
+        raise HTTPException(
+            status_code=404,
+            detail="Zawody nie istnieją"
+        )
+
+    if competition.created_by != user.email:
+        raise HTTPException(
+            status_code=403,
+            detail="Brak dostępu"
+        )
+
+    if competition.status != "started":
+        raise HTTPException(
+            status_code=400,
+            detail="Zakończyć można tylko rozpoczęte zawody"
+        )
+
+    competition.status = "completed"
+    db.commit()
+
+    return {
+        "message": "Zawody zakończone",
         "competition_id": competition.id,
         "status": competition.status,
     }

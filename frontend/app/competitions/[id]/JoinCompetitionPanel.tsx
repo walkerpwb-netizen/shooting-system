@@ -44,6 +44,7 @@ type JoinCompetitionPanelProps = {
   competitionId: number;
   competitionEntryFee: string;
   participantLimit: number | null;
+  competitionStatus: string;
   initialParticipants: Participant[];
   disciplines: Discipline[];
 };
@@ -52,6 +53,7 @@ export default function JoinCompetitionPanel({
   competitionId,
   competitionEntryFee,
   participantLimit,
+  competitionStatus,
   initialParticipants,
   disciplines,
 }: JoinCompetitionPanelProps) {
@@ -218,6 +220,7 @@ export default function JoinCompetitionPanel({
     0
   );
   const totalFee = competitionFee + disciplinesFee + ammoFee;
+  const registrationOpen = competitionStatus === "published";
 
   async function joinCompetition() {
     const token = localStorage.getItem("token");
@@ -378,7 +381,25 @@ export default function JoinCompetitionPanel({
         </div>
       )}
 
-      {showForm ? (
+      {!registrationOpen ? (
+        <div className="border border-zinc-700 bg-zinc-950/50 rounded-xl p-4 space-y-2 text-gray-300">
+          <p>
+            {competitionStatus === "started"
+              ? "Zapisy są zamknięte, ponieważ zawody aktualnie trwają."
+              : competitionStatus === "completed"
+                ? "Zapisy są zamknięte, ponieważ zawody zostały zakończone."
+                : "Zapisy są aktualnie zamknięte."}
+          </p>
+
+          {userIsJoined && (
+            <p className="font-semibold">
+              {currentEntryType === "judge"
+                ? "Jesteś zapisany jako sędzia."
+                : "Jesteś zapisany jako zawodnik."}
+            </p>
+          )}
+        </div>
+      ) : showForm ? (
         <div className="border border-zinc-700 rounded-xl p-4 space-y-4">
           <h3 className="font-bold">
             Dołącz do zawodów
