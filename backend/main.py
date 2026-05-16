@@ -136,6 +136,10 @@ def ensure_schema_updates():
             "entry_type": "VARCHAR DEFAULT 'shooter'",
             "is_head_judge": "INTEGER DEFAULT 0",
             "total_fee": "VARCHAR",
+            "checked_in": "INTEGER DEFAULT 0",
+            "checked_in_at": "VARCHAR",
+            "paid": "INTEGER DEFAULT 0",
+            "paid_at": "VARCHAR",
         }
 
         for column_name, column_definition in participant_column_definitions.items():
@@ -246,6 +250,11 @@ class JudgeAssignmentRemovalData(BaseModel):
 class JudgeResultData(BaseModel):
     participant_id: int
     points: str
+
+
+class ParticipantPaymentStatusData(BaseModel):
+    checked_in: Optional[bool] = None
+    paid: Optional[bool] = None
 
 
 ALLOWED_ROLES = ["user", "organizer", "judge", "admin"]
@@ -447,6 +456,7 @@ def public_participant(participant: CompetitionParticipant, db):
         "total_fee": participant.total_fee or calculate_participant_total_fee(participant, db),
         "first_name": user.first_name if user else "",
         "last_name": user.last_name if user else "",
+        "license_number": user.license_number if user else "",
         "club": user.club if user else "",
         "display_name": display_name,
     }
@@ -456,6 +466,50 @@ def staff_participant(participant: CompetitionParticipant, db):
     public_data = public_participant(participant, db)
     public_data["is_head_judge"] = bool(participant.is_head_judge)
     return public_data
+
+
+def participant_payment_row(participant: CompetitionParticipant, db):
+    user = (
+        db.query(User)
+        .filter(User.email == participant.user_email)
+        .first()
+    )
+    participant_disciplines = (
+        db.query(ParticipantDiscipline)
+        .filter(ParticipantDiscipline.participant_id == participant.id)
+        .all()
+    )
+    discipline_ids = [
+        participant_discipline.discipline_id
+        for participant_discipline in participant_disciplines
+    ]
+    disciplines = []
+
+    if discipline_ids:
+        disciplines = (
+            db.query(Discipline)
+            .filter(Discipline.id.in_(discipline_ids))
+            .all()
+        )
+
+    return {
+        **public_participant(participant, db),
+        "first_name": user.first_name if user else "",
+        "last_name": user.last_name if user else "",
+        "license_number": user.license_number if user else "",
+        "club": user.club if user else "",
+        "disciplines": [
+            {
+                "id": discipline.id,
+                "name": discipline.name,
+            }
+            for discipline in disciplines
+        ],
+        "checked_in": bool(participant.checked_in),
+        "checked_in_at": participant.checked_in_at or "",
+        "paid": bool(participant.paid),
+        "paid_at": participant.paid_at or "",
+    }
 
 
 def parse_price(value):
@@ -1558,6 +1612,145 @@ def get_my_competitions(
         })
 
     return result
+
+
+@app.get("/organizer/competitions/{competition_id}/payments")
+def get_organizer_competition_payments(
+    competition_id: int,
+    user: User = Depends(get_current_organizer),
+    db=Depends(get_db),
+):
+    auto_complete_started_competitions(db)
+
+    competition = (
+        db.query(Competition)
+        .filter(Competition.id == competition_id)
+        .first()
+    )
+
+    if not competition:
+        raise HTTPException(
+            status_code=404,
+            detail="Zawody nie istnieją"
+        )
+
+    if competition.created_by != user.email and not has_role(user, "admin"):
+        raise HTTPException(
+            status_code=403,
+            detail="Nie masz dostępu do rozliczeń tych zawodów"
+        )
+
+    participants = (
+        db.query(CompetitionParticipant)
+        .filter(
+            CompetitionParticipant.competition_id == competition.id,
+            CompetitionParticipant.entry_type == "shooter",
+        )
+        .all()
+    )
+    participant_rows = [
+        participant_payment_row(participant, db)
+        for participant in participants
+    ]
+    total_fee = sum(
+        parse_price(participant["total_fee"])
+        for participant in participant_rows
+    )
+    paid_total = sum(
+        parse_price(participant["total_fee"])
+        for participant in participant_rows
+        if participant["paid"]
+    )
+
+    return {
+        "competition": {
+            "id": competition.id,
+            "name": competition.name,
+            "date": competition.date,
+            "location": competition.location,
+            "status": competition.status,
+        },
+        "participants": participant_rows,
+        "summary": {
+            "participants_count": len(participant_rows),
+            "checked_in_count": len([
+                participant
+                for participant in participant_rows
+                if participant["checked_in"]
+            ]),
+            "paid_count": len([
+                participant
+                for participant in participant_rows
+                if participant["paid"]
+            ]),
+            "total_fee": format_money(total_fee),
+            "paid_total": format_money(paid_total),
+            "unpaid_total": format_money(total_fee - paid_total),
+        },
+    }
+
+
+@app.put("/organizer/competitions/{competition_id}/participants/{participant_id}/payments")
+def update_organizer_participant_payment_status(
+    competition_id: int,
+    participant_id: int,
+    data: ParticipantPaymentStatusData,
+    user: User = Depends(get_current_organizer),
+    db=Depends(get_db),
+):
+    auto_complete_started_competitions(db)
+
+    competition = (
+        db.query(Competition)
+        .filter(Competition.id == competition_id)
+        .first()
+    )
+
+    if not competition:
+        raise HTTPException(
+            status_code=404,
+            detail="Zawody nie istnieją"
+        )
+
+    if competition.created_by != user.email and not has_role(user, "admin"):
+        raise HTTPException(
+            status_code=403,
+            detail="Nie masz dostępu do rozliczeń tych zawodów"
+        )
+
+    participant = (
+        db.query(CompetitionParticipant)
+        .filter(
+            CompetitionParticipant.id == participant_id,
+            CompetitionParticipant.competition_id == competition.id,
+            CompetitionParticipant.entry_type == "shooter",
+        )
+        .first()
+    )
+
+    if not participant:
+        raise HTTPException(
+            status_code=404,
+            detail="Nie znaleziono zawodnika w tych zawodach"
+        )
+
+    now = datetime.now(APP_TIMEZONE).isoformat()
+
+    if data.checked_in is not None:
+        participant.checked_in = 1 if data.checked_in else 0
+        participant.checked_in_at = now if data.checked_in else None
+
+    if data.paid is not None:
+        participant.paid = 1 if data.paid else 0
+        participant.paid_at = now if data.paid else None
+
+    db.commit()
+    db.refresh(participant)
+
+    return {
+        "message": "Status zawodnika zaktualizowany",
+        "participant": participant_payment_row(participant, db),
+    }
 
 
 @app.get("/judges")

@@ -525,6 +525,13 @@ export default function OrganizerCompetitionPage() {
                   </span>
                 </div>
 
+                <Link
+                  href={`/organizer/${competition.id}/payments`}
+                  className="block w-full bg-green-700 hover:bg-green-600 text-white text-center py-3 rounded-xl font-bold mb-4 transition"
+                >
+                  Otwórz listę obecności i opłat
+                </Link>
+
                 {competition.participants.length === 0 ? (
                   <p className="text-gray-500">
                     Brak zapisanych zawodników.

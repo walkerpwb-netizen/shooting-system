@@ -249,6 +249,26 @@ class CompetitionParticipant(Base):
         nullable=True,
     )
 
+    checked_in = Column(
+        Integer,
+        default=0,
+    )
+
+    checked_in_at = Column(
+        String,
+        nullable=True,
+    )
+
+    paid = Column(
+        Integer,
+        default=0,
+    )
+
+    paid_at = Column(
+        String,
+        nullable=True,
+    )
+
 
 class ParticipantDiscipline(Base):
     __tablename__ = "participant_disciplines"
