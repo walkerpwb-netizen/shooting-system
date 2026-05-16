@@ -721,15 +721,15 @@ export default function OrganizerPage() {
   }
 
   return (
-    <main className="min-h-screen p-10">
+    <main className="min-h-screen px-4 py-8 md:p-10">
 
       <div className="max-w-6xl mx-auto">
 
-        <div className="flex items-center justify-between mb-10">
+        <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between mb-10">
 
-          <div>
+          <div className="min-w-0">
 
-            <h1 className="text-5xl font-bold text-white mb-2">
+            <h1 className="text-4xl md:text-5xl font-bold text-white mb-2">
               Panel Organizatora
             </h1>
 
@@ -741,7 +741,7 @@ export default function OrganizerPage() {
 
           <button
             onClick={handleToggleForm}
-            className="bg-green-700 hover:bg-green-600 text-white px-6 py-4 rounded-2xl font-bold transition"
+            className="w-full md:w-auto bg-green-700 hover:bg-green-600 text-white px-6 py-4 rounded-2xl font-bold transition"
           >
             {showCreateForm
               ? "Zamknij"
@@ -987,7 +987,7 @@ export default function OrganizerPage() {
                 type="number"
                 step="0.01"
                 min="0"
-                placeholder=" Podaj koszt dłączenia do całuch zawodów, lub pozostaw puste jeśli pobierasz opłatę za poszczególne konkurencje"
+                placeholder=" Podaj koszt dołączenia do całuch zawodów, lub pozostaw puste jeśli pobierasz opłatę za poszczególne konkurencje"
                 value={entryFee}
                 onChange={(e) => setEntryFee(e.target.value)}
                 className="w-full border border-zinc-700 bg-zinc-800 p-4 rounded-xl text-white"

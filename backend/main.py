@@ -534,6 +534,8 @@ def public_shooter_participants(competition: Competition, db):
 def staff_participant(participant: CompetitionParticipant, db):
     public_data = public_participant(participant, db)
     public_data["is_head_judge"] = bool(participant.is_head_judge)
+    public_data["checked_in"] = bool(participant.checked_in)
+    public_data["paid"] = bool(participant.paid)
     return public_data
 
 

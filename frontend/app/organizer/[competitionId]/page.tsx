@@ -34,6 +34,8 @@ type Competition = {
     id: number;
     display_name: string;
     total_fee: string;
+    checked_in: boolean;
+    paid: boolean;
   }[];
   judges: {
     id: number;
@@ -161,6 +163,20 @@ export default function OrganizerCompetitionPage() {
 
     return competition.participants.reduce(
       (sum, participant) => sum + parseFee(participant.total_fee),
+      0
+    );
+  }, [competition]);
+
+  const unpaidParticipantsTotalFee = useMemo(() => {
+    if (!competition) {
+      return 0;
+    }
+
+    return competition.participants.reduce(
+      (sum, participant) =>
+        participant.checked_in && participant.paid
+          ? sum
+          : sum + parseFee(participant.total_fee),
       0
     );
   }, [competition]);
@@ -575,8 +591,14 @@ export default function OrganizerCompetitionPage() {
                     </p>
                   </div>
 
-                  <span className="bg-red-100 text-red-800 px-4 py-2 rounded-xl font-bold">
-                    Do zapłaty
+                  <span className={`px-4 py-2 rounded-xl font-bold ${
+                    unpaidParticipantsTotalFee > 0
+                      ? "bg-red-100 text-red-800"
+                      : "bg-green-100 text-green-800"
+                  }`}>
+                    {unpaidParticipantsTotalFee > 0
+                      ? "Do zapłaty"
+                      : "Potwierdzone"}
                   </span>
                 </div>
 
@@ -593,29 +615,38 @@ export default function OrganizerCompetitionPage() {
                   </p>
                 ) : (
                   <div className="space-y-2">
-                    {competition.participants.map((participant) => (
-                      <div
-                        key={participant.id}
-                        className="bg-gray-100 rounded-xl px-3 py-2 grid grid-cols-[1fr_auto_auto] gap-3 items-center"
-                      >
-                        <p>
-                          {participant.display_name}
-                        </p>
+                    {competition.participants.map((participant) => {
+                      const isConfirmed = participant.checked_in && participant.paid;
 
-                        <p className="font-black text-red-700">
-                          {formatFee(parseFee(participant.total_fee))}
-                        </p>
-
-                        <button
-                          type="button"
-                          onClick={() => removeParticipant(participant)}
-                          className="bg-red-700 hover:bg-red-600 text-white w-8 h-8 rounded-full font-black leading-none transition"
-                          aria-label="Usuń zawodnika z listy zawodów"
+                      return (
+                        <div
+                          key={participant.id}
+                          className="bg-gray-100 rounded-xl px-3 py-2 grid grid-cols-[1fr_auto_auto] gap-3 items-center"
                         >
-                          ×
-                        </button>
-                      </div>
-                    ))}
+                          <p>
+                            {participant.display_name}
+                          </p>
+
+                          <p className={isConfirmed
+                            ? "font-black text-green-700"
+                            : "font-black text-red-700"}
+                          >
+                            {isConfirmed
+                              ? "Potwierdzony"
+                              : formatFee(parseFee(participant.total_fee))}
+                          </p>
+
+                          <button
+                            type="button"
+                            onClick={() => removeParticipant(participant)}
+                            className="bg-red-700 hover:bg-red-600 text-white w-8 h-8 rounded-full font-black leading-none transition"
+                            aria-label="Usuń zawodnika z listy zawodów"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
