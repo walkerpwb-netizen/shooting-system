@@ -21,6 +21,7 @@ type AdminUser = {
   club: string;
   phone_number: string;
   requested_role: string;
+  password_reset_required: boolean;
   status: "online" | "offline";
 };
 
@@ -92,6 +93,7 @@ export default function AdminClient({
   const [userSortField, setUserSortField] = useState<UserSortField>("name");
   const [userSortDirection, setUserSortDirection] = useState<SortDirection>("asc");
   const [expandedCompetitionId, setExpandedCompetitionId] = useState<number | null>(null);
+  const [currentAdminEmail, setCurrentAdminEmail] = useState("");
 
   useEffect(() => {
     if (!isAdmin()) {
@@ -100,6 +102,7 @@ export default function AdminClient({
     }
 
     const token = localStorage.getItem("token");
+    setCurrentAdminEmail(localStorage.getItem("email") || "");
     let ignore = false;
 
     if (!token) {
@@ -353,6 +356,110 @@ export default function AdminClient({
     }
   }
 
+  async function resetUserPassword(user: AdminUser) {
+    const confirmed = window.confirm(
+      `Czy wygenerować link resetowania hasła dla użytkownika ${getUserName(user)}?`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    const token = localStorage.getItem("token");
+
+    try {
+      setMessage("");
+
+      const response = await fetch(
+        apiUrl(`/admin/users/${user.id}/password-reset`),
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.detail || "Nie udało się wygenerować resetu hasła ❌");
+        return;
+      }
+
+      setUsers((currentUsers) =>
+        currentUsers.map((currentUser) =>
+          currentUser.id === user.id
+            ? data.user
+            : currentUser
+        )
+      );
+
+      const resetLink = `${window.location.origin}${data.reset_path}`;
+
+      if (navigator.clipboard) {
+        try {
+          await navigator.clipboard.writeText(resetLink);
+          setMessage(`Link resetowania hasła skopiowany do schowka: ${resetLink} ✅`);
+          return;
+        } catch (clipboardError) {
+          console.error(clipboardError);
+        }
+      }
+
+      setMessage(`Link resetowania hasła: ${resetLink}`);
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    }
+  }
+
+  async function deleteUser(user: AdminUser) {
+    if (user.email === currentAdminEmail) {
+      setMessage("Nie możesz usunąć własnego konta administratora ❌");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Czy na pewno chcesz usunąć użytkownika ${getUserName(user)}? Ta operacja usunie też jego zapisy do zawodów.`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    const token = localStorage.getItem("token");
+
+    try {
+      setMessage("");
+
+      const response = await fetch(
+        apiUrl(`/admin/users/${user.id}`),
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.detail || "Nie udało się usunąć użytkownika ❌");
+        return;
+      }
+
+      setUsers((currentUsers) =>
+        currentUsers.filter((currentUser) => currentUser.id !== user.id)
+      );
+      setMessage("Użytkownik usunięty ✅");
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    }
+  }
+
   function getUserName(user: AdminUser) {
     return user.last_name || user.first_name
       ? `${user.last_name} ${user.first_name}`.trim()
@@ -569,7 +676,7 @@ export default function AdminClient({
             </div>
 
             <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
-              <div className="grid grid-cols-[1.5fr_1fr_1fr_1fr_1fr_1.5fr] gap-4 px-5 py-4 text-sm font-bold text-gray-400 border-b border-zinc-800">
+              <div className="grid grid-cols-[1.4fr_0.8fr_1fr_0.8fr_0.9fr_1.2fr_1.2fr] gap-4 px-5 py-4 text-sm font-bold text-gray-400 border-b border-zinc-800">
                 <button
                   type="button"
                   onClick={() => sortUsers("name")}
@@ -611,6 +718,8 @@ export default function AdminClient({
                 </button>
 
                 <p>Prośba</p>
+
+                <p>Akcje</p>
               </div>
 
             {filteredUsers.length === 0 ? (
@@ -620,7 +729,7 @@ export default function AdminClient({
             ) : filteredUsers.map((user) => (
               <div
                 key={user.id}
-                className={`grid grid-cols-[1.5fr_1fr_1fr_1fr_1fr_1.5fr] gap-4 px-5 py-4 items-center border-b border-zinc-800 last:border-b-0 ${
+                className={`grid grid-cols-[1.4fr_0.8fr_1fr_0.8fr_0.9fr_1.2fr_1.2fr] gap-4 px-5 py-4 items-center border-b border-zinc-800 last:border-b-0 ${
                   user.requested_role
                     ? "bg-yellow-950/20"
                     : ""
@@ -684,9 +793,11 @@ export default function AdminClient({
                 </div>
 
                 <p className={user.is_active ? "text-green-400" : "text-red-400"}>
-                  {user.is_active
-                    ? "aktywne"
-                    : "nieaktywne"}
+                  {user.password_reset_required
+                    ? "reset hasła"
+                    : user.is_active
+                      ? "aktywne"
+                      : "nieaktywne"}
                 </p>
 
                 <p className="text-gray-300">
@@ -722,6 +833,25 @@ export default function AdminClient({
                     brak
                   </p>
                 )}
+
+                <div className="flex flex-col gap-2">
+                  <button
+                    type="button"
+                    onClick={() => resetUserPassword(user)}
+                    className="bg-blue-700 hover:bg-blue-600 text-white px-3 py-2 rounded-lg text-sm font-semibold transition"
+                  >
+                    Reset hasła
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => deleteUser(user)}
+                    disabled={user.email === currentAdminEmail}
+                    className="bg-red-700 hover:bg-red-600 text-white px-3 py-2 rounded-lg text-sm font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    Usuń
+                  </button>
+                </div>
               </div>
             ))}
             </div>

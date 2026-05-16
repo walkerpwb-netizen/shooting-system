@@ -66,6 +66,8 @@ def ensure_schema_updates():
             "last_seen": "VARCHAR",
             "requested_role": "VARCHAR",
             "roles": "VARCHAR",
+            "password_reset_token": "VARCHAR",
+            "password_reset_required": "INTEGER DEFAULT 0",
         }
 
         for column_name, column_definition in user_column_definitions.items():
@@ -169,6 +171,11 @@ class LoginData(BaseModel):
 
 class ForgotPasswordData(BaseModel):
     email: str
+
+
+class ResetPasswordData(BaseModel):
+    token: str
+    password: str
 
 
 class CompetitionData(BaseModel):
@@ -330,8 +337,16 @@ def public_user(user: User):
         "phone_number": user.phone_number or "",
         "last_seen": user.last_seen or "",
         "requested_role": user.requested_role or "",
+        "password_reset_required": bool(user.password_reset_required),
         "status": "online" if is_user_online(user) else "offline",
     }
+
+
+def create_password_reset_token(user: User):
+    token = secrets.token_urlsafe(32)
+    user.password_reset_token = token
+    user.password_reset_required = 1
+    return token
 
 
 def delete_competition_with_dependencies(competition: Competition, db):
@@ -370,6 +385,46 @@ def delete_competition_with_dependencies(competition: Competition, db):
     )
 
     db.delete(competition)
+    db.commit()
+
+
+def delete_user_with_dependencies(user: User, db):
+    participants = (
+        db.query(CompetitionParticipant)
+        .filter(CompetitionParticipant.user_email == user.email)
+        .all()
+    )
+    participant_ids = [
+        participant.id
+        for participant in participants
+    ]
+
+    if participant_ids:
+        (
+            db.query(ParticipantDiscipline)
+            .filter(ParticipantDiscipline.participant_id.in_(participant_ids))
+            .delete(synchronize_session=False)
+        )
+
+        (
+            db.query(DisciplineResult)
+            .filter(DisciplineResult.participant_id.in_(participant_ids))
+            .delete(synchronize_session=False)
+        )
+
+    (
+        db.query(CompetitionParticipant)
+        .filter(CompetitionParticipant.user_email == user.email)
+        .delete(synchronize_session=False)
+    )
+
+    (
+        db.query(JudgeInvitation)
+        .filter(JudgeInvitation.judge_email == user.email)
+        .delete(synchronize_session=False)
+    )
+
+    db.delete(user)
     db.commit()
 
 
@@ -948,6 +1003,66 @@ def admin_reject_role_request(
     return public_user(target_user)
 
 
+@app.post("/admin/users/{user_id}/password-reset")
+def admin_reset_user_password(
+    user_id: int,
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    target_user = (
+        db.query(User)
+        .filter(User.id == user_id)
+        .first()
+    )
+
+    if not target_user:
+        raise HTTPException(
+            status_code=404,
+            detail="Użytkownik nie istnieje"
+        )
+
+    token = create_password_reset_token(target_user)
+    db.commit()
+    db.refresh(target_user)
+
+    return {
+        "message": "Wygenerowano link resetowania hasła",
+        "reset_path": f"/reset-password?token={token}",
+        "user": public_user(target_user),
+    }
+
+
+@app.delete("/admin/users/{user_id}")
+def admin_delete_user(
+    user_id: int,
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    target_user = (
+        db.query(User)
+        .filter(User.id == user_id)
+        .first()
+    )
+
+    if not target_user:
+        raise HTTPException(
+            status_code=404,
+            detail="Użytkownik nie istnieje"
+        )
+
+    if target_user.email == admin.email:
+        raise HTTPException(
+            status_code=400,
+            detail="Nie możesz usunąć własnego konta administratora"
+        )
+
+    delete_user_with_dependencies(target_user, db)
+
+    return {
+        "message": "Użytkownik usunięty"
+    }
+
+
 @app.get("/admin/competitions")
 def admin_get_competitions(
     admin: User = Depends(get_current_admin),
@@ -1137,6 +1252,12 @@ def login(
             "message": "Nieprawidłowy email lub hasło"
         }
 
+    if user.password_reset_required and user.password_reset_token:
+        return {
+            "message": "Hasło wymaga zresetowania",
+            "reset_path": f"/reset-password?token={user.password_reset_token}",
+        }
+
     user.last_seen = datetime.now(timezone.utc).isoformat()
     db.commit()
 
@@ -1180,8 +1301,45 @@ def forgot_password(
             "message": "Jeśli konto istnieje, email został wysłany"
         }
 
+    token = create_password_reset_token(user)
+    db.commit()
+
     return {
-        "message": "Link resetowania hasła został wysłany"
+        "message": "Link resetowania hasła został wysłany",
+        "reset_path": f"/reset-password?token={token}",
+    }
+
+
+@app.post("/reset-password")
+def reset_password(
+    data: ResetPasswordData,
+    db=Depends(get_db),
+):
+    if len(data.password) < 8:
+        raise HTTPException(
+            status_code=400,
+            detail="Hasło musi mieć minimum 8 znaków"
+        )
+
+    user = (
+        db.query(User)
+        .filter(User.password_reset_token == data.token)
+        .first()
+    )
+
+    if not user:
+        raise HTTPException(
+            status_code=404,
+            detail="Nieprawidłowy lub wygasły link resetowania hasła"
+        )
+
+    user.hashed_password = pwd_context.hash(data.password)
+    user.password_reset_token = None
+    user.password_reset_required = 0
+    db.commit()
+
+    return {
+        "message": "Hasło zostało zmienione"
     }
 
 

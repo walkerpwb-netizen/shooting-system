@@ -42,6 +42,16 @@ class User(Base):
         nullable=True,
     )
 
+    password_reset_token = Column(
+        String,
+        nullable=True,
+    )
+
+    password_reset_required = Column(
+        Integer,
+        default=0,
+    )
+
     first_name = Column(
         String,
         nullable=True,

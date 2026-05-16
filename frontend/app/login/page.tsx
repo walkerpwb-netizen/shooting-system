@@ -56,6 +56,15 @@ export default function LoginPage() {
         return;
       }
 
+      if (data.message === "Hasło wymaga zresetowania" && data.reset_path) {
+        setMessage("Administrator wymaga ustawienia nowego hasła. Przekierowuję...");
+
+        setTimeout(() => {
+          window.location.href = data.reset_path;
+        }, 800);
+        return;
+      }
+
       localStorage.setItem("token", data.token);
       localStorage.setItem("email", data.email);
       localStorage.setItem("role", data.role);
