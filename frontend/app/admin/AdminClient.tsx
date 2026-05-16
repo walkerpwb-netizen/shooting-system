@@ -762,11 +762,11 @@ export default function AdminClient({
           </p>
         </div>
 
-        <div className="flex gap-3 mb-8">
+        <div className="mb-8 flex flex-wrap gap-2 sm:gap-3">
           <button
             type="button"
             onClick={() => setActiveTab("users")}
-            className={`ui-button px-5 py-3 rounded-xl font-bold transition ${
+            className={`ui-button min-w-0 px-5 py-3 rounded-xl font-bold transition ${
               activeTab === "users"
                 ? "bg-green-700 text-white"
                 : "bg-zinc-800 text-gray-300 hover:bg-zinc-700"
@@ -778,7 +778,7 @@ export default function AdminClient({
           <button
             type="button"
             onClick={() => setActiveTab("competitions")}
-            className={`ui-button px-5 py-3 rounded-xl font-bold transition ${
+            className={`ui-button min-w-0 px-5 py-3 rounded-xl font-bold transition ${
               activeTab === "competitions"
                 ? "bg-green-700 text-white"
                 : "bg-zinc-800 text-gray-300 hover:bg-zinc-700"
@@ -790,7 +790,7 @@ export default function AdminClient({
           <button
             type="button"
             onClick={() => setActiveTab("settings")}
-            className={`ui-button px-5 py-3 rounded-xl font-bold transition ${
+            className={`ui-button min-w-0 px-5 py-3 rounded-xl font-bold transition ${
               activeTab === "settings"
                 ? "bg-green-700 text-white"
                 : "bg-zinc-800 text-gray-300 hover:bg-zinc-700"
