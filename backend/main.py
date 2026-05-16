@@ -29,6 +29,7 @@ from typing import Optional
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import re
 import secrets
+from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 
@@ -135,6 +136,11 @@ def ensure_schema_updates():
         }
 
         participant_column_definitions = {
+            "first_name": "VARCHAR",
+            "last_name": "VARCHAR",
+            "license_number": "VARCHAR",
+            "club": "VARCHAR",
+            "birth_date": "VARCHAR",
             "entry_type": "VARCHAR DEFAULT 'shooter'",
             "is_head_judge": "INTEGER DEFAULT 0",
             "total_fee": "VARCHAR",
@@ -236,6 +242,15 @@ class JoinDisciplineData(BaseModel):
 class JoinCompetitionData(BaseModel):
     disciplines: list[JoinDisciplineData]
     entry_type: str = "shooter"
+
+
+class ManualParticipantData(BaseModel):
+    first_name: str
+    last_name: str
+    birth_date: str
+    license_number: str
+    club: str
+    disciplines: list[JoinDisciplineData]
 
 
 class JudgeInvitationData(BaseModel):
@@ -489,23 +504,29 @@ def public_participant(participant: CompetitionParticipant, db):
         .filter(User.email == participant.user_email)
         .first()
     )
+    first_name = participant.first_name or (user.first_name if user else "") or ""
+    last_name = participant.last_name or (user.last_name if user else "") or ""
+    license_number = (
+        participant.license_number or (user.license_number if user else "") or ""
+    )
+    club = participant.club or (user.club if user else "") or ""
     display_name = participant.user_email
 
-    if user and user.first_name and user.last_name:
-        display_name = f"{user.last_name} {user.first_name}"
+    if first_name and last_name:
+        display_name = f"{last_name} {first_name}"
 
-        if user.club:
-            display_name = f"{display_name} - {user.club}"
+        if club:
+            display_name = f"{display_name} - {club}"
 
     return {
         "id": participant.id,
         "user_email": participant.user_email,
         "entry_type": participant.entry_type or "shooter",
         "total_fee": participant.total_fee or calculate_participant_total_fee(participant, db),
-        "first_name": user.first_name if user else "",
-        "last_name": user.last_name if user else "",
-        "license_number": user.license_number if user else "",
-        "club": user.club if user else "",
+        "first_name": first_name,
+        "last_name": last_name,
+        "license_number": license_number,
+        "club": club,
         "display_name": display_name,
     }
 
@@ -545,6 +566,12 @@ def participant_payment_row(participant: CompetitionParticipant, db):
         .filter(User.email == participant.user_email)
         .first()
     )
+    first_name = participant.first_name or (user.first_name if user else "") or ""
+    last_name = participant.last_name or (user.last_name if user else "") or ""
+    license_number = (
+        participant.license_number or (user.license_number if user else "") or ""
+    )
+    club = participant.club or (user.club if user else "") or ""
     participant_disciplines = (
         db.query(ParticipantDiscipline)
         .filter(ParticipantDiscipline.participant_id == participant.id)
@@ -565,10 +592,10 @@ def participant_payment_row(participant: CompetitionParticipant, db):
 
     return {
         **public_participant(participant, db),
-        "first_name": user.first_name if user else "",
-        "last_name": user.last_name if user else "",
-        "license_number": user.license_number if user else "",
-        "club": user.club if user else "",
+        "first_name": first_name,
+        "last_name": last_name,
+        "license_number": license_number,
+        "club": club,
         "disciplines": [
             {
                 "id": discipline.id,
@@ -1819,6 +1846,144 @@ def update_organizer_participant_payment_status(
 
     return {
         "message": "Status zawodnika zaktualizowany",
+        "participant": participant_payment_row(participant, db),
+    }
+
+
+@app.post("/organizer/competitions/{competition_id}/manual-participants")
+def organizer_add_manual_participant(
+    competition_id: int,
+    data: ManualParticipantData,
+    user: User = Depends(get_current_organizer),
+    db=Depends(get_db),
+):
+    auto_complete_started_competitions(db)
+
+    competition = (
+        db.query(Competition)
+        .filter(Competition.id == competition_id)
+        .first()
+    )
+
+    if not competition:
+        raise HTTPException(
+            status_code=404,
+            detail="Zawody nie istnieją"
+        )
+
+    if competition.created_by != user.email and not has_role(user, "admin"):
+        raise HTTPException(
+            status_code=403,
+            detail="Nie masz dostępu do tych zawodów"
+        )
+
+    if competition.status != "started":
+        raise HTTPException(
+            status_code=400,
+            detail="Ręczne dodawanie zawodnika jest dostępne tylko w trakcie zawodów"
+        )
+
+    first_name = (data.first_name or "").strip()
+    last_name = (data.last_name or "").strip()
+    birth_date = normalize_birth_date(data.birth_date)
+    license_number = (data.license_number or "").strip()
+    club = (data.club or "").strip()
+
+    if not first_name or not last_name or not birth_date or not license_number or not club:
+        raise HTTPException(
+            status_code=400,
+            detail="Uzupełnij imię, nazwisko, datę urodzenia, licencję albo Brak oraz klub albo Brak"
+        )
+
+    if not data.disciplines:
+        raise HTTPException(
+            status_code=400,
+            detail="Wybierz minimum jedną konkurencję"
+        )
+
+    competition_disciplines = (
+        db.query(Discipline)
+        .filter(Discipline.competition_id == competition.id)
+        .all()
+    )
+    disciplines_by_id = {
+        discipline.id: discipline
+        for discipline in competition_disciplines
+    }
+    allowed_discipline_ids = set(disciplines_by_id.keys())
+
+    for selected_discipline in data.disciplines:
+        if selected_discipline.discipline_id not in allowed_discipline_ids:
+            raise HTTPException(
+                status_code=400,
+                detail="Wybrano konkurencję spoza tych zawodów"
+            )
+
+        if selected_discipline.ammo_type not in ["own", "club"]:
+            raise HTTPException(
+                status_code=400,
+                detail="Wybierz typ amunicji przy każdej konkurencji"
+            )
+
+    if competition.participant_limit:
+        current_shooter_count = (
+            db.query(CompetitionParticipant)
+            .filter(
+                CompetitionParticipant.competition_id == competition.id,
+                or_(
+                    CompetitionParticipant.entry_type == "shooter",
+                    CompetitionParticipant.entry_type.is_(None),
+                ),
+            )
+            .count()
+        )
+
+        if current_shooter_count >= competition.participant_limit:
+            raise HTTPException(
+                status_code=400,
+                detail="Limit zawodników został osiągnięty"
+            )
+
+    now = datetime.now(APP_TIMEZONE).isoformat()
+    participant = CompetitionParticipant(
+        competition_id=competition.id,
+        user_email=f"manual-{uuid4()}@manual.local",
+        first_name=first_name,
+        last_name=last_name,
+        birth_date=birth_date,
+        license_number=license_number,
+        club=club,
+        entry_type="shooter",
+        is_head_judge=0,
+        total_fee=calculate_total_fee_from_selection(
+            competition,
+            data.disciplines,
+            disciplines_by_id,
+        ),
+        checked_in=1,
+        checked_in_at=now,
+        paid=1,
+        paid_at=now,
+    )
+
+    db.add(participant)
+    db.commit()
+    db.refresh(participant)
+
+    for selected_discipline in data.disciplines:
+        participant_discipline = ParticipantDiscipline(
+            participant_id=participant.id,
+            discipline_id=selected_discipline.discipline_id,
+            ammo_type=selected_discipline.ammo_type,
+        )
+
+        db.add(participant_discipline)
+
+    db.commit()
+    db.refresh(participant)
+
+    return {
+        "message": "Zawodnik dodany i opłacony",
         "participant": participant_payment_row(participant, db),
     }
 

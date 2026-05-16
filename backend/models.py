@@ -234,6 +234,31 @@ class CompetitionParticipant(Base):
         nullable=False,
     )
 
+    first_name = Column(
+        String,
+        nullable=True,
+    )
+
+    last_name = Column(
+        String,
+        nullable=True,
+    )
+
+    license_number = Column(
+        String,
+        nullable=True,
+    )
+
+    club = Column(
+        String,
+        nullable=True,
+    )
+
+    birth_date = Column(
+        String,
+        nullable=True,
+    )
+
     entry_type = Column(
         String,
         default="shooter",

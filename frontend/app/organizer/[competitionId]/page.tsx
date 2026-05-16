@@ -53,6 +53,19 @@ type Competition = {
   }[];
 };
 
+type ManualParticipantForm = {
+  first_name: string;
+  last_name: string;
+  birth_date: string;
+  license_number: string;
+  club: string;
+};
+
+type ManualDisciplineSelection = {
+  discipline_id: number;
+  ammo_type: "" | "own" | "club";
+};
+
 function parseFee(value: string) {
   const fee = Number((value || "0").replace(",", "."));
 
@@ -87,6 +100,16 @@ export default function OrganizerCompetitionPage() {
   const [judgeEmail, setJudgeEmail] = useState("");
   const [judgeDiscipline, setJudgeDiscipline] = useState("");
   const [headJudge, setHeadJudge] = useState(false);
+  const [showManualParticipantForm, setShowManualParticipantForm] = useState(false);
+  const [manualParticipant, setManualParticipant] = useState<ManualParticipantForm>({
+    first_name: "",
+    last_name: "",
+    birth_date: "",
+    license_number: "",
+    club: "",
+  });
+  const [manualDisciplines, setManualDisciplines] = useState<ManualDisciplineSelection[]>([]);
+  const [manualSaving, setManualSaving] = useState(false);
 
   useEffect(() => {
     if (!isOrganizer()) {
@@ -180,6 +203,167 @@ export default function OrganizerCompetitionPage() {
       0
     );
   }, [competition]);
+
+  const manualTotalFee = useMemo(() => {
+    if (!competition || manualDisciplines.length === 0) {
+      return 0;
+    }
+
+    const competitionFee = parseFee(competition.entry_fee);
+    let total = competitionFee;
+
+    if (competitionFee === 0) {
+      total += manualDisciplines.reduce((sum, selectedDiscipline) => {
+        const discipline = competition.disciplines.find(
+          (item) => item.id === selectedDiscipline.discipline_id
+        );
+
+        return sum + parseFee(discipline?.entry_fee || "");
+      }, 0);
+    }
+
+    total += manualDisciplines.reduce((sum, selectedDiscipline) => {
+      if (selectedDiscipline.ammo_type !== "club") {
+        return sum;
+      }
+
+      const discipline = competition.disciplines.find(
+        (item) => item.id === selectedDiscipline.discipline_id
+      );
+
+      if (!discipline) {
+        return sum;
+      }
+
+      return sum + parseFee(discipline.ammo_price) * (discipline.shots_count || 0);
+    }, 0);
+
+    return total;
+  }, [competition, manualDisciplines]);
+
+  function updateManualParticipantField(
+    field: keyof ManualParticipantForm,
+    value: string
+  ) {
+    setManualParticipant((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  }
+
+  function toggleManualDiscipline(disciplineId: number, checked: boolean) {
+    setManualDisciplines((current) => {
+      if (!checked) {
+        return current.filter((item) => item.discipline_id !== disciplineId);
+      }
+
+      if (current.some((item) => item.discipline_id === disciplineId)) {
+        return current;
+      }
+
+      return [
+        ...current,
+        {
+          discipline_id: disciplineId,
+          ammo_type: "",
+        },
+      ];
+    });
+  }
+
+  function updateManualAmmoType(
+    disciplineId: number,
+    ammoType: "own" | "club"
+  ) {
+    setManualDisciplines((current) =>
+      current.map((item) =>
+        item.discipline_id === disciplineId
+          ? {
+              ...item,
+              ammo_type: ammoType,
+            }
+          : item
+      )
+    );
+  }
+
+  function resetManualParticipantForm() {
+    setManualParticipant({
+      first_name: "",
+      last_name: "",
+      birth_date: "",
+      license_number: "",
+      club: "",
+    });
+    setManualDisciplines([]);
+    setShowManualParticipantForm(false);
+  }
+
+  async function addManualParticipant() {
+    if (!competition) {
+      return;
+    }
+
+    const missingProfileField = [
+      manualParticipant.last_name,
+      manualParticipant.first_name,
+      manualParticipant.birth_date,
+      manualParticipant.license_number,
+      manualParticipant.club,
+    ].some((value) => !value.trim());
+
+    if (missingProfileField) {
+      setMessage("Uzupełnij dane zawodnika, a przy licencji lub klubie wpisz Brak, jeśli ich nie ma ❌");
+      return;
+    }
+
+    if (manualDisciplines.length === 0) {
+      setMessage("Wybierz minimum jedną konkurencję ❌");
+      return;
+    }
+
+    if (manualDisciplines.some((discipline) => !discipline.ammo_type)) {
+      setMessage("Wybierz typ amunicji przy każdej konkurencji ❌");
+      return;
+    }
+
+    const token = localStorage.getItem("token");
+
+    try {
+      setManualSaving(true);
+      setMessage("");
+
+      const response = await fetch(
+        apiUrl(`/organizer/competitions/${competition.id}/manual-participants`),
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            ...manualParticipant,
+            disciplines: manualDisciplines,
+          }),
+        }
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.detail || "Nie udało się dodać zawodnika ❌");
+        return;
+      }
+
+      setMessage("Zawodnik dodany, obecność i opłata potwierdzone ✅");
+      resetManualParticipantForm();
+      fetchOrganizerCompetitions();
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    } finally {
+      setManualSaving(false);
+    }
+  }
 
   async function inviteJudge() {
     if (!competition) {
@@ -608,6 +792,158 @@ export default function OrganizerCompetitionPage() {
                 >
                   Otwórz listę obecności i opłat
                 </Link>
+
+                {competition.status === "started" && (
+                  <div className="mb-4">
+                    <button
+                      type="button"
+                      onClick={() => setShowManualParticipantForm((current) => !current)}
+                      className="w-full bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-xl font-bold transition"
+                    >
+                      {showManualParticipantForm
+                        ? "Zamknij formularz dodania zawodnika"
+                        : "Dodaj zawodnika ręcznie"}
+                    </button>
+
+                    {showManualParticipantForm && (
+                      <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50 p-4 space-y-4">
+                        <div className="grid md:grid-cols-2 gap-3">
+                          <label className="space-y-1">
+                            <span className="text-sm font-semibold text-gray-700">
+                              Nazwisko
+                            </span>
+                            <input
+                              value={manualParticipant.last_name}
+                              onChange={(event) => updateManualParticipantField("last_name", event.target.value)}
+                              placeholder="Nazwisko"
+                              className="w-full border border-gray-300 rounded-xl px-3 py-3"
+                            />
+                          </label>
+
+                          <label className="space-y-1">
+                            <span className="text-sm font-semibold text-gray-700">
+                              Imię
+                            </span>
+                            <input
+                              value={manualParticipant.first_name}
+                              onChange={(event) => updateManualParticipantField("first_name", event.target.value)}
+                              placeholder="Imię"
+                              className="w-full border border-gray-300 rounded-xl px-3 py-3"
+                            />
+                          </label>
+
+                          <label className="space-y-1">
+                            <span className="text-sm font-semibold text-gray-700">
+                              Data urodzenia
+                            </span>
+                            <input
+                              type="date"
+                              value={manualParticipant.birth_date}
+                              onChange={(event) => updateManualParticipantField("birth_date", event.target.value)}
+                              className="w-full border border-gray-300 rounded-xl px-3 py-3"
+                            />
+                          </label>
+
+                          <label className="space-y-1">
+                            <span className="text-sm font-semibold text-gray-700">
+                              Licencja
+                            </span>
+                            <input
+                              value={manualParticipant.license_number}
+                              onChange={(event) => updateManualParticipantField("license_number", event.target.value)}
+                              placeholder="Nr licencji albo Brak"
+                              className="w-full border border-gray-300 rounded-xl px-3 py-3"
+                            />
+                          </label>
+
+                          <label className="space-y-1 md:col-span-2">
+                            <span className="text-sm font-semibold text-gray-700">
+                              Klub
+                            </span>
+                            <input
+                              value={manualParticipant.club}
+                              onChange={(event) => updateManualParticipantField("club", event.target.value)}
+                              placeholder="Klub albo Brak"
+                              className="w-full border border-gray-300 rounded-xl px-3 py-3"
+                            />
+                          </label>
+                        </div>
+
+                        <div className="space-y-3">
+                          <p className="font-bold">
+                            Konkurencje i amunicja
+                          </p>
+
+                          {competition.disciplines.map((discipline) => {
+                            const selectedDiscipline = manualDisciplines.find(
+                              (item) => item.discipline_id === discipline.id
+                            );
+
+                            return (
+                              <div
+                                key={discipline.id}
+                                className="rounded-xl border border-gray-200 bg-white p-3"
+                              >
+                                <label className="flex items-center gap-2 font-bold">
+                                  <input
+                                    type="checkbox"
+                                    checked={Boolean(selectedDiscipline)}
+                                    onChange={(event) => toggleManualDiscipline(discipline.id, event.target.checked)}
+                                  />
+                                  {discipline.name}
+                                </label>
+
+                                {selectedDiscipline && (
+                                  <div className="grid sm:grid-cols-2 gap-2 mt-3 text-sm">
+                                    <label className="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2">
+                                      <input
+                                        type="radio"
+                                        name={`manual-ammo-${discipline.id}`}
+                                        checked={selectedDiscipline.ammo_type === "own"}
+                                        onChange={() => updateManualAmmoType(discipline.id, "own")}
+                                      />
+                                      Własna amunicja
+                                    </label>
+
+                                    <label className="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2">
+                                      <input
+                                        type="radio"
+                                        name={`manual-ammo-${discipline.id}`}
+                                        checked={selectedDiscipline.ammo_type === "club"}
+                                        onChange={() => updateManualAmmoType(discipline.id, "club")}
+                                      />
+                                      Klubowa amunicja
+                                    </label>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-center">
+                          <p className="text-red-700 font-bold">
+                            Suma do zapłaty
+                          </p>
+                          <p className="text-3xl font-black text-red-700">
+                            {formatFee(manualTotalFee)}
+                          </p>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={addManualParticipant}
+                          disabled={manualSaving}
+                          className="w-full bg-green-700 hover:bg-green-600 disabled:opacity-60 text-white py-3 rounded-xl font-bold transition"
+                        >
+                          {manualSaving
+                            ? "Dodawanie..."
+                            : "Dodaj jako przybył i opłacone"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {competition.participants.length === 0 ? (
                   <p className="text-gray-500">
