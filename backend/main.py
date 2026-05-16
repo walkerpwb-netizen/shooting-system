@@ -128,6 +128,11 @@ def ensure_schema_updates():
                     f"ALTER TABLE disciplines ADD COLUMN {column_name} {column_definition}"
                 )
 
+        connection.exec_driver_sql(
+            "UPDATE disciplines SET name = 'Pistolet' "
+            "WHERE lower(name) IN ('pistol', 'pistolet')"
+        )
+
         participant_columns = {
             row[1]
             for row in connection.exec_driver_sql(
