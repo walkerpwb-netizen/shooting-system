@@ -70,6 +70,13 @@ export default function Navbar() {
           Zawody
         </Link>
 
+        <Link
+          href="/live-results"
+          className="font-bold text-green-100"
+        >
+          Wyniki na Żywo
+        </Link>
+
         {user && (
           <Link href="/profile">
             Profil

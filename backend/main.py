@@ -761,6 +761,121 @@ def discipline_shooters_count(competition_id: int, discipline_id: int, db):
     )
 
 
+def normalize_search_text(value: str):
+    return (value or "").lower()
+
+
+def discipline_firearm_type(discipline: Discipline):
+    text = " ".join([
+        normalize_search_text(discipline.name),
+        normalize_search_text(discipline.description),
+        normalize_search_text(discipline.ammo_type),
+    ])
+
+    shotgun_keywords = ["strzelba", "shotgun", "trap", "skeet", "12/70", "12/76"]
+    rifle_keywords = ["karabin", "rifle", "kbks", "carbine", ".223", ".308"]
+    pistol_keywords = ["pistolet", "pistol", "handgun", "9mm", "19mm", ".45"]
+
+    if any(keyword in text for keyword in shotgun_keywords):
+        return "shotgun"
+
+    if any(keyword in text for keyword in rifle_keywords):
+        return "rifle"
+
+    if any(keyword in text for keyword in pistol_keywords):
+        return "pistol"
+
+    return ""
+
+
+def parse_points(value: str):
+    normalized_value = (value or "").strip().replace(",", ".")
+    match = re.search(r"-?\d+(?:\.\d+)?", normalized_value)
+
+    if not match:
+        return Decimal("0")
+
+    try:
+        return Decimal(match.group(0))
+    except InvalidOperation:
+        return Decimal("0")
+
+
+def format_points(value: Decimal):
+    normalized = value.normalize()
+
+    if normalized == normalized.to_integral():
+        return str(normalized.quantize(Decimal("1")))
+
+    return format(normalized, "f")
+
+
+def live_result_categories(disciplines: list[Discipline]):
+    categories = [
+        {
+            "id": f"discipline-{discipline.id}",
+            "name": discipline.name,
+            "type": "discipline",
+            "discipline_ids": [discipline.id],
+            "disciplines_count": 1,
+        }
+        for discipline in disciplines
+    ]
+
+    aggregate_definitions = [
+        ("pistol", "Suma konkurencji pistoletowych"),
+        ("rifle", "Suma konkurencji karabinowych"),
+        ("shotgun", "Suma konkurencji strzelby"),
+        ("overall", "Ranking ogólny"),
+    ]
+
+    for category_id, category_name in aggregate_definitions:
+        if category_id == "overall":
+            discipline_ids = [discipline.id for discipline in disciplines]
+        else:
+            discipline_ids = [
+                discipline.id
+                for discipline in disciplines
+                if discipline_firearm_type(discipline) == category_id
+            ]
+
+        categories.append({
+            "id": category_id,
+            "name": category_name,
+            "type": "aggregate",
+            "discipline_ids": discipline_ids,
+            "disciplines_count": len(discipline_ids),
+        })
+
+    return categories
+
+
+def live_category_discipline_ids(category_id: str, disciplines: list[Discipline]):
+    if category_id.startswith("discipline-"):
+        try:
+            discipline_id = int(category_id.replace("discipline-", "", 1))
+        except ValueError:
+            return []
+
+        return [
+            discipline.id
+            for discipline in disciplines
+            if discipline.id == discipline_id
+        ]
+
+    if category_id == "overall":
+        return [discipline.id for discipline in disciplines]
+
+    if category_id in ["pistol", "rifle", "shotgun"]:
+        return [
+            discipline.id
+            for discipline in disciplines
+            if discipline_firearm_type(discipline) == category_id
+        ]
+
+    return []
+
+
 def can_leave_competition(competition: Competition):
     competition_date = parse_competition_date(competition.date)
 
@@ -1047,6 +1162,201 @@ def get_competition(
             public_participant(participant, db)
             for participant in participants
         ],
+    }
+
+
+@app.get("/live-results/competitions")
+def get_live_result_competitions(db=Depends(get_db)):
+    auto_complete_started_competitions(db)
+
+    competitions = (
+        db.query(Competition)
+        .filter(Competition.status == "started")
+        .order_by(Competition.id.desc())
+        .all()
+    )
+
+    result = []
+
+    for competition in competitions:
+        shooters_count = len(public_shooter_participants(competition, db))
+
+        result.append({
+            "id": competition.id,
+            "name": competition.name,
+            "date": competition.date,
+            "location": competition.location,
+            "organizer_full_name": competition.organizer_full_name or competition.created_by,
+            "shooters_count": shooters_count,
+        })
+
+    return result
+
+
+@app.get("/live-results/competitions/{competition_id}")
+def get_live_result_competition(
+    competition_id: int,
+    db=Depends(get_db),
+):
+    auto_complete_started_competitions(db)
+
+    competition = (
+        db.query(Competition)
+        .filter(
+            Competition.id == competition_id,
+            Competition.status == "started",
+        )
+        .first()
+    )
+
+    if not competition:
+        raise HTTPException(
+            status_code=404,
+            detail="Zawody nie są aktualnie trwające"
+        )
+
+    disciplines = (
+        db.query(Discipline)
+        .filter(Discipline.competition_id == competition.id)
+        .all()
+    )
+
+    return {
+        "id": competition.id,
+        "name": competition.name,
+        "date": competition.date,
+        "location": competition.location,
+        "organizer_full_name": competition.organizer_full_name or competition.created_by,
+        "categories": live_result_categories(disciplines),
+    }
+
+
+@app.get("/live-results/competitions/{competition_id}/categories/{category_id}")
+def get_live_result_category(
+    competition_id: int,
+    category_id: str,
+    db=Depends(get_db),
+):
+    auto_complete_started_competitions(db)
+
+    competition = (
+        db.query(Competition)
+        .filter(
+            Competition.id == competition_id,
+            Competition.status == "started",
+        )
+        .first()
+    )
+
+    if not competition:
+        raise HTTPException(
+            status_code=404,
+            detail="Zawody nie są aktualnie trwające"
+        )
+
+    disciplines = (
+        db.query(Discipline)
+        .filter(Discipline.competition_id == competition.id)
+        .all()
+    )
+    categories = live_result_categories(disciplines)
+    category = next(
+        (item for item in categories if item["id"] == category_id),
+        None,
+    )
+
+    if not category:
+        raise HTTPException(
+            status_code=404,
+            detail="Kategoria wyników nie istnieje"
+        )
+
+    discipline_ids = live_category_discipline_ids(category_id, disciplines)
+    participants = public_shooter_participants(competition, db)
+    participant_ids = [participant.id for participant in participants]
+    participant_discipline_rows = []
+
+    if participant_ids and discipline_ids:
+        participant_discipline_rows = (
+            db.query(ParticipantDiscipline)
+            .filter(
+                ParticipantDiscipline.participant_id.in_(participant_ids),
+                ParticipantDiscipline.discipline_id.in_(discipline_ids),
+            )
+            .all()
+        )
+
+    discipline_ids_by_participant = {}
+
+    for row in participant_discipline_rows:
+        discipline_ids_by_participant.setdefault(row.participant_id, set()).add(
+            row.discipline_id
+        )
+
+    results = []
+
+    if participant_ids and discipline_ids:
+        results = (
+            db.query(DisciplineResult)
+            .filter(
+                DisciplineResult.competition_id == competition.id,
+                DisciplineResult.participant_id.in_(participant_ids),
+                DisciplineResult.discipline_id.in_(discipline_ids),
+            )
+            .all()
+        )
+
+    points_by_participant = {}
+
+    for result in results:
+        points_by_participant.setdefault(result.participant_id, Decimal("0"))
+        points_by_participant[result.participant_id] += parse_points(result.points)
+
+    rows = []
+
+    for participant in participants:
+        selected_discipline_ids = discipline_ids_by_participant.get(participant.id)
+
+        if not selected_discipline_ids:
+            continue
+
+        participant_data = public_participant(participant, db)
+        points_value = points_by_participant.get(participant.id, Decimal("0"))
+
+        rows.append({
+            "participant_id": participant.id,
+            "display_name": participant_data["display_name"],
+            "first_name": participant_data["first_name"],
+            "last_name": participant_data["last_name"],
+            "license_number": participant_data["license_number"],
+            "club": participant_data["club"],
+            "points": format_points(points_value),
+            "disciplines_count": len(selected_discipline_ids),
+        })
+
+    rows.sort(
+        key=lambda row: (
+            -parse_points(row["points"]),
+            row["last_name"].lower(),
+            row["first_name"].lower(),
+            row["display_name"].lower(),
+        )
+    )
+
+    for index, row in enumerate(rows, start=1):
+        row["place"] = index
+
+    return {
+        "competition": {
+            "id": competition.id,
+            "name": competition.name,
+            "date": competition.date,
+            "location": competition.location,
+            "organizer_full_name": competition.organizer_full_name or competition.created_by,
+        },
+        "category": category,
+        "shooters": rows,
+        "updated_at": datetime.now(APP_TIMEZONE).isoformat(),
     }
 
 
