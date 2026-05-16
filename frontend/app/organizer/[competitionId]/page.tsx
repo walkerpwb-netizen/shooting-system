@@ -837,9 +837,11 @@ export default function OrganizerCompetitionPage() {
                               Data urodzenia
                             </span>
                             <input
-                              type="date"
+                              type="text"
+                              inputMode="numeric"
                               value={manualParticipant.birth_date}
                               onChange={(event) => updateManualParticipantField("birth_date", event.target.value)}
+                              placeholder="Podaj datę urodzenia"
                               className="w-full border border-gray-300 rounded-xl px-3 py-3"
                             />
                           </label>
