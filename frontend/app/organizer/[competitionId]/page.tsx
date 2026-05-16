@@ -91,6 +91,10 @@ function getCompetitionStatusLabel(status: string) {
   return competitionStatusLabels[status] || status;
 }
 
+function canViewCompetitionResults(status: string) {
+  return status === "started" || status === "completed";
+}
+
 function isValidManualBirthDate(value: string) {
   const rawValue = value.trim();
   const isoMatch = rawValue.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -903,6 +907,15 @@ export default function OrganizerCompetitionPage() {
                 >
                   Otwórz listę obecności i opłat
                 </Link>
+
+                {canViewCompetitionResults(competition.status) && (
+                  <Link
+                    href={`/organizer/${competition.id}/results`}
+                    className="block w-full bg-zinc-900 hover:bg-zinc-800 text-white text-center py-3 rounded-xl font-bold mb-4 transition"
+                  >
+                    Otwórz wyniki zawodów
+                  </Link>
+                )}
 
                 {competition.status === "started" && (
                   <div className="mb-4">

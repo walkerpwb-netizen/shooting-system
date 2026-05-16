@@ -83,6 +83,10 @@ function getCompetitionStatusLabel(status: string) {
   return competitionStatusLabels[status] || status;
 }
 
+function canViewCompetitionResults(status: string) {
+  return status === "started" || status === "completed";
+}
+
 function isCompetitionDateReached(dateValue: string) {
   const normalizedDate = dateValue.includes(".")
     ? dateValue.split(".").reverse().join("-")
@@ -1389,6 +1393,18 @@ export default function OrganizerPage() {
                     className="bg-orange-700 hover:bg-orange-600 text-white py-3 rounded-xl font-semibold"
                   >
                     Zakończ
+                  </button>
+                )}
+
+                {canViewCompetitionResults(competition.status) && (
+                  <button
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      router.push(`/organizer/${competition.id}/results`);
+                    }}
+                    className="bg-green-800 hover:bg-green-700 text-white py-3 rounded-xl font-semibold"
+                  >
+                    Wyniki
                   </button>
                 )}
 

@@ -1129,6 +1129,38 @@ def result_category_payload(competition: Competition, category_id: str, db):
     }
 
 
+def get_organizer_result_competition_or_404(
+    competition_id: int,
+    user: User,
+    db,
+):
+    competition = (
+        db.query(Competition)
+        .filter(Competition.id == competition_id)
+        .first()
+    )
+
+    if not competition:
+        raise HTTPException(
+            status_code=404,
+            detail="Zawody nie istnieją"
+        )
+
+    if competition.created_by != user.email and not has_role(user, "admin"):
+        raise HTTPException(
+            status_code=403,
+            detail="Nie masz dostępu do wyników tych zawodów"
+        )
+
+    if competition.status not in ["started", "completed"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Wyniki są dostępne po rozpoczęciu zawodów"
+        )
+
+    return competition
+
+
 def can_leave_competition(competition: Competition):
     competition_date = parse_competition_date(competition.date)
 
@@ -2257,6 +2289,39 @@ def get_organizer_competition_payments(
             "unpaid_total": format_money(total_fee - paid_total),
         },
     }
+
+
+@app.get("/organizer/competitions/{competition_id}/results")
+def get_organizer_competition_results(
+    competition_id: int,
+    user: User = Depends(get_current_organizer),
+    db=Depends(get_db),
+):
+    auto_complete_started_competitions(db)
+    competition = get_organizer_result_competition_or_404(
+        competition_id,
+        user,
+        db,
+    )
+
+    return result_competition_details(competition, db)
+
+
+@app.get("/organizer/competitions/{competition_id}/results/{category_id}")
+def get_organizer_competition_result_category(
+    competition_id: int,
+    category_id: str,
+    user: User = Depends(get_current_organizer),
+    db=Depends(get_db),
+):
+    auto_complete_started_competitions(db)
+    competition = get_organizer_result_competition_or_404(
+        competition_id,
+        user,
+        db,
+    )
+
+    return result_category_payload(competition, category_id, db)
 
 
 @app.put("/organizer/competitions/{competition_id}/participants/{participant_id}/payments")
