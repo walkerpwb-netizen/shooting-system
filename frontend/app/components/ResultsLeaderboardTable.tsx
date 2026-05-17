@@ -7,6 +7,8 @@ import { apiUrl } from "@/lib/api";
 export type ResultShooter = {
   participant_id: number;
   display_name: string;
+  first_name?: string;
+  last_name?: string;
   license_number: string;
   club: string;
   points: string;
@@ -30,6 +32,16 @@ const defaultSettings: ResultsTableSettings = {
   min_width: "820px",
   row_padding_y: "0.75rem",
 };
+
+function shooterName(shooter: ResultShooter) {
+  return [
+    shooter.last_name,
+    shooter.first_name,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    || shooter.display_name;
+}
 
 export default function ResultsLeaderboardTable({
   shooters,
@@ -85,7 +97,7 @@ export default function ResultsLeaderboardTable({
 
     return shooters.filter((shooter) =>
       [
-        shooter.display_name,
+        shooterName(shooter),
         shooter.license_number,
         shooter.club,
       ]
@@ -156,7 +168,7 @@ export default function ResultsLeaderboardTable({
                 </p>
 
                 <p className="font-semibold text-white">
-                  {shooter.display_name}
+                  {shooterName(shooter)}
                 </p>
 
                 <p className="text-gray-300">

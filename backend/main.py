@@ -950,6 +950,15 @@ def public_participant(participant: CompetitionParticipant, db):
     }
 
 
+def participant_result_display_name(participant_data):
+    full_name = " ".join([
+        participant_data["last_name"],
+        participant_data["first_name"],
+    ]).strip()
+
+    return full_name or participant_data["display_name"]
+
+
 def public_shooter_participants(competition: Competition, db):
     query = (
         db.query(CompetitionParticipant)
@@ -1505,7 +1514,7 @@ def result_category_payload(competition: Competition, category_id: str, db):
 
         rows.append({
             "participant_id": participant.id,
-            "display_name": participant_data["display_name"],
+            "display_name": participant_result_display_name(participant_data),
             "first_name": participant_data["first_name"],
             "last_name": participant_data["last_name"],
             "license_number": participant_data["license_number"],
