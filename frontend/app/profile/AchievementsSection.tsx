@@ -103,21 +103,14 @@ export default function AchievementsSection({
               <Link
                 key={achievement.id}
                 href={achievement.historical_path}
-                className="group flex min-w-32 flex-col items-center justify-center px-3 py-2 text-center transition hover:scale-105"
+                className="flex items-center justify-center transition hover:scale-110"
                 title={`${medalLabel}, ${achievement.category_name}, ${achievement.competition_name}`}
+                aria-label={`${medalLabel}, ${achievement.place}. miejsce, ${achievement.category_name}, ${achievement.competition_name}`}
               >
                 <BadgeIcon
                   type={achievement.badge_type}
                   color={color}
                 />
-
-                <span className="mt-3 text-sm font-bold text-zinc-900 dark:text-red-100">
-                  {achievement.place}. miejsce
-                </span>
-
-                <span className="mt-1 text-xs text-zinc-500 group-hover:text-zinc-900 dark:text-zinc-400 dark:group-hover:text-zinc-200">
-                  {achievement.category_name}
-                </span>
               </Link>
             );
           })}
