@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import ResultCategoryList from "@/app/components/ResultCategoryList";
 import { apiUrl } from "@/lib/api";
 
 type LiveCategory = {
@@ -24,22 +25,6 @@ type LiveCompetitionDetails = {
   completed_at: string;
   categories: LiveCategory[];
 };
-
-function categoryDescription(category: LiveCategory) {
-  if (category.type === "discipline") {
-    return "Konkurencja dostępna w tych zawodach";
-  }
-
-  if (category.disciplines_count === 0) {
-    return "Brak pasujących konkurencji w tych zawodach";
-  }
-
-  if (category.disciplines_count === 1) {
-    return "Suma z 1 konkurencji";
-  }
-
-  return `Suma z ${category.disciplines_count} konkurencji`;
-}
 
 export default function LiveCompetitionPage() {
   const params = useParams<{ competitionId: string }>();
@@ -150,27 +135,17 @@ export default function LiveCompetitionPage() {
               </h2>
 
               {disciplineCategories.length === 0 ? (
-                <p className="rounded-xl border border-zinc-800 bg-zinc-900 p-5 text-gray-400">
-                  Brak konkurencji w tych zawodach.
-                </p>
+                <ResultCategoryList
+                  categories={disciplineCategories}
+                  emptyMessage="Brak konkurencji w tych zawodach."
+                  hrefPrefix={`/live-results/${competition.id}`}
+                />
               ) : (
-                <div className="grid gap-4 md:grid-cols-2">
-                  {disciplineCategories.map((category) => (
-                    <Link
-                      key={category.id}
-                      href={`/live-results/${competition.id}/${category.id}`}
-                      className="ui-block rounded-xl border border-zinc-800 bg-zinc-900 p-5 transition hover:border-green-700 hover:bg-zinc-800"
-                    >
-                      <p className="mb-2 text-xl font-bold text-white">
-                        {category.name}
-                      </p>
-
-                      <p className="text-sm text-gray-400">
-                        {categoryDescription(category)}
-                      </p>
-                    </Link>
-                  ))}
-                </div>
+                <ResultCategoryList
+                  categories={disciplineCategories}
+                  emptyMessage="Brak konkurencji w tych zawodach."
+                  hrefPrefix={`/live-results/${competition.id}`}
+                />
               )}
             </section>
 
@@ -179,23 +154,10 @@ export default function LiveCompetitionPage() {
                 Klasyfikacje zbiorcze
               </h2>
 
-              <div className="grid gap-4 md:grid-cols-2">
-                {aggregateCategories.map((category) => (
-                  <Link
-                    key={category.id}
-                    href={`/live-results/${competition.id}/${category.id}`}
-                    className="ui-block rounded-xl border border-zinc-800 bg-zinc-900 p-5 transition hover:border-green-700 hover:bg-zinc-800"
-                  >
-                    <p className="mb-2 text-xl font-bold text-white">
-                      {category.name}
-                    </p>
-
-                    <p className="text-sm text-gray-400">
-                      {categoryDescription(category)}
-                    </p>
-                  </Link>
-                ))}
-              </div>
+              <ResultCategoryList
+                categories={aggregateCategories}
+                hrefPrefix={`/live-results/${competition.id}`}
+              />
             </section>
           </>
         )}

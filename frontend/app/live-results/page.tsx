@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import ResultCompetitionList from "@/app/components/ResultCompetitionList";
 import { apiUrl } from "@/lib/api";
 
 type LiveCompetition = {
@@ -15,12 +15,6 @@ type LiveCompetition = {
   status: string;
   completed_at: string;
 };
-
-function statusLabel(status: string) {
-  return status === "completed"
-    ? "Zakończone - widoczne 24 h"
-    : "Trwają";
-}
 
 export default function LiveResultsPage() {
   const [competitions, setCompetitions] = useState<LiveCompetition[]>([]);
@@ -98,58 +92,14 @@ export default function LiveResultsPage() {
           <p className="text-gray-400">
             Ładowanie zawodów...
           </p>
-        ) : competitions.length === 0 ? (
-          <section className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
-            <h2 className="mb-2 text-2xl font-bold text-white">
-              Brak trwających zawodów
-            </h2>
-
-            <p className="text-gray-400">
-              Lista pojawi się automatycznie, gdy organizator rozpocznie zawody albo zakończy je w ciągu ostatnich 24 godzin.
-            </p>
-          </section>
         ) : (
-          <div className="grid gap-5 md:grid-cols-2">
-            {competitions.map((competition) => (
-              <Link
-                key={competition.id}
-                href={`/live-results/${competition.id}`}
-                className="ui-block group rounded-xl border border-zinc-800 bg-zinc-900 p-6 transition hover:border-green-700 hover:bg-zinc-800"
-              >
-                <div className="mb-4 flex items-center justify-between gap-3">
-                  <span className={`rounded-full px-3 py-1 text-sm font-bold text-white ${
-                    competition.status === "completed"
-                      ? "bg-zinc-700"
-                      : "bg-green-700"
-                  }`}>
-                    {statusLabel(competition.status)}
-                  </span>
-
-                  <span className="text-sm font-semibold text-gray-400">
-                    {competition.shooters_count} zawodników
-                  </span>
-                </div>
-
-                <h2 className="mb-4 text-2xl font-bold text-white group-hover:text-green-200">
-                  {competition.name}
-                </h2>
-
-                <div className="space-y-2 text-sm text-gray-300">
-                  <p>
-                    Organizator: {competition.organizer_full_name || "brak danych"}
-                  </p>
-
-                  <p>
-                    Lokalizacja: {competition.location}
-                  </p>
-
-                  <p>
-                    Data: {competition.date}
-                  </p>
-                </div>
-              </Link>
-            ))}
-          </div>
+          <ResultCompetitionList
+            competitions={competitions}
+            emptyTitle="Brak trwających zawodów"
+            emptyText="Lista pojawi się automatycznie, gdy organizator rozpocznie zawody albo zakończy je w ciągu ostatnich 24 godzin."
+            hrefPrefix="/live-results"
+            live
+          />
         )}
       </div>
     </main>
