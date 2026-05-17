@@ -4,6 +4,8 @@ import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import AchievementsSection from "./AchievementsSection";
+import type { Achievement } from "./AchievementsSection";
 import { apiUrl } from "@/lib/api";
 
 type UserProfile = {
@@ -20,6 +22,7 @@ type UserProfile = {
   phone_number: string;
   requested_role: string;
   profile_complete: boolean;
+  achievements: Achievement[];
 };
 
 type ProfileSettings = {
@@ -555,13 +558,7 @@ export default function ProfilePage() {
                 </aside>
 
                 <section className="flex min-w-0 flex-col items-center text-center">
-                  <div className="w-full max-w-5xl">
-                    <h2 className="text-2xl font-medium text-red-400">
-                      Osiągnięcia
-                    </h2>
-
-                    <div className="min-h-[360px]" aria-label="Osiągnięcia" />
-                  </div>
+                  <AchievementsSection achievements={profile.achievements || []} />
                 </section>
               </div>
 

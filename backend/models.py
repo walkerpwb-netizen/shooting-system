@@ -417,3 +417,71 @@ class DisciplineResult(Base):
         String,
         nullable=False,
     )
+
+
+class Achievement(Base):
+    __tablename__ = "achievements"
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True,
+    )
+
+    user_email = Column(
+        String,
+        index=True,
+        nullable=False,
+    )
+
+    competition_id = Column(
+        Integer,
+        ForeignKey("competitions.id"),
+        nullable=False,
+    )
+
+    participant_id = Column(
+        Integer,
+        ForeignKey("competition_participants.id"),
+        nullable=False,
+    )
+
+    category_id = Column(
+        String,
+        nullable=False,
+    )
+
+    category_name = Column(
+        String,
+        nullable=False,
+    )
+
+    badge_type = Column(
+        String,
+        nullable=False,
+    )
+
+    medal = Column(
+        String,
+        nullable=False,
+    )
+
+    place = Column(
+        Integer,
+        nullable=False,
+    )
+
+    points = Column(
+        String,
+        nullable=False,
+    )
+
+    historical_path = Column(
+        String,
+        nullable=False,
+    )
+
+    awarded_at = Column(
+        String,
+        nullable=False,
+    )

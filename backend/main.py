@@ -18,6 +18,7 @@ from models import (
     ParticipantDiscipline,
     JudgeInvitation,
     DisciplineResult,
+    Achievement,
 )
 
 from passlib.context import CryptContext
@@ -417,6 +418,12 @@ PROFILE_SETTINGS_DEFAULTS = {
     "profile_value_font_size": "1.25rem",
     "profile_row_gap": "2rem",
 }
+ACHIEVEMENT_CATEGORY_IDS = ["pistol", "rifle", "shotgun", "overall"]
+ACHIEVEMENT_MEDALS = {
+    1: "gold",
+    2: "silver",
+    3: "bronze",
+}
 
 
 def primary_role(roles: list[str]):
@@ -703,6 +710,12 @@ def create_password_reset_token(user: User):
 
 def delete_competition_with_dependencies(competition: Competition, db):
     (
+        db.query(Achievement)
+        .filter(Achievement.competition_id == competition.id)
+        .delete(synchronize_session=False)
+    )
+
+    (
         db.query(DisciplineResult)
         .filter(DisciplineResult.competition_id == competition.id)
         .delete(synchronize_session=False)
@@ -718,6 +731,12 @@ def delete_competition_with_dependencies(competition: Competition, db):
     ]
 
     if participant_ids:
+        (
+            db.query(Achievement)
+            .filter(Achievement.participant_id.in_(participant_ids))
+            .delete(synchronize_session=False)
+        )
+
         (
             db.query(ParticipantDiscipline)
             .filter(ParticipantDiscipline.participant_id.in_(participant_ids))
@@ -973,6 +992,12 @@ def delete_user_with_dependencies(user: User, db):
 
 
 def delete_participant_with_dependencies(participant: CompetitionParticipant, db):
+    (
+        db.query(Achievement)
+        .filter(Achievement.participant_id == participant.id)
+        .delete(synchronize_session=False)
+    )
+
     (
         db.query(ParticipantDiscipline)
         .filter(ParticipantDiscipline.participant_id == participant.id)
@@ -1423,10 +1448,7 @@ def is_live_results_competition(competition: Competition):
 
 
 def is_historical_results_competition(competition: Competition):
-    return (
-        competition.status == "completed"
-        and not is_recently_completed_competition(competition)
-    )
+    return competition.status == "completed"
 
 
 def competition_result_summary(competition: Competition, db):
@@ -1622,6 +1644,132 @@ def result_category_payload(competition: Competition, category_id: str, db):
     }
 
 
+def public_achievement(achievement: Achievement, competition: Optional[Competition] = None):
+    return {
+        "id": achievement.id,
+        "competition_id": achievement.competition_id,
+        "competition_name": competition.name if competition else "",
+        "competition_date": competition.date if competition else "",
+        "competition_location": competition.location if competition else "",
+        "category_id": achievement.category_id,
+        "category_name": achievement.category_name,
+        "badge_type": achievement.badge_type,
+        "medal": achievement.medal,
+        "place": achievement.place,
+        "points": achievement.points,
+        "historical_path": achievement.historical_path,
+        "awarded_at": achievement.awarded_at,
+    }
+
+
+def user_achievements(user_email: str, db):
+    if not user_email:
+        return []
+
+    achievements = (
+        db.query(Achievement)
+        .filter(Achievement.user_email == user_email)
+        .order_by(
+            Achievement.awarded_at.desc(),
+            Achievement.competition_id.desc(),
+            Achievement.place.asc(),
+        )
+        .all()
+    )
+    competition_ids = {
+        achievement.competition_id
+        for achievement in achievements
+    }
+    competitions_by_id = {}
+
+    if competition_ids:
+        competitions_by_id = {
+            competition.id: competition
+            for competition in (
+                db.query(Competition)
+                .filter(Competition.id.in_(competition_ids))
+                .all()
+            )
+        }
+
+    return [
+        public_achievement(
+            achievement,
+            competitions_by_id.get(achievement.competition_id),
+        )
+        for achievement in achievements
+    ]
+
+
+def award_achievements_for_competition(competition: Competition, db):
+    shooters_count = len(public_shooter_participants(competition, db))
+
+    (
+        db.query(Achievement)
+        .filter(Achievement.competition_id == competition.id)
+        .delete(synchronize_session=False)
+    )
+
+    if competition.status != "completed" or shooters_count <= 50:
+        return
+
+    participants_by_id = {
+        participant.id: participant
+        for participant in (
+            db.query(CompetitionParticipant)
+            .filter(CompetitionParticipant.competition_id == competition.id)
+            .all()
+        )
+    }
+    participant_emails = {
+        participant.user_email
+        for participant in participants_by_id.values()
+        if participant.user_email
+    }
+    users_by_email = {}
+
+    if participant_emails:
+        users_by_email = {
+            user.email: user
+            for user in (
+                db.query(User)
+                .filter(User.email.in_(participant_emails))
+                .all()
+            )
+        }
+
+    awarded_at = competition.completed_at or now_iso()
+
+    for category_id in ACHIEVEMENT_CATEGORY_IDS:
+        payload = result_category_payload(competition, category_id, db)
+        category = payload["category"]
+
+        if not category["discipline_ids"]:
+            continue
+
+        for shooter in payload["shooters"][:3]:
+            place = shooter["place"]
+            participant = participants_by_id.get(shooter["participant_id"])
+            user = users_by_email.get(participant.user_email) if participant else None
+
+            if not user or not is_profile_complete(user):
+                continue
+
+            db.add(Achievement(
+                user_email=user.email,
+                competition_id=competition.id,
+                participant_id=participant.id,
+                category_id=category_id,
+                category_name=category["name"],
+                badge_type=category_id,
+                medal=ACHIEVEMENT_MEDALS[place],
+                place=place,
+                points=shooter["points"],
+                historical_path=f"/historical-results/{competition.id}/{category_id}",
+                awarded_at=awarded_at,
+            ))
+
+
 def get_organizer_result_competition_or_404(
     competition_id: int,
     user: User,
@@ -1726,6 +1874,7 @@ def auto_complete_started_competitions(db):
                 else None
             )
             mark_competition_completed(competition, completed_at)
+            award_achievements_for_competition(competition, db)
             changed = True
 
     if changed:
@@ -4382,7 +4531,8 @@ def leave_competition(
 
 @app.get("/me")
 def get_me(
-    user: User = Depends(get_current_user)
+    user: User = Depends(get_current_user),
+    db=Depends(get_db),
 ):
     roles = get_user_roles(user)
 
@@ -4400,6 +4550,7 @@ def get_me(
         "phone_number": user.phone_number or "",
         "requested_role": user.requested_role or "",
         "profile_complete": is_profile_complete(user),
+        "achievements": user_achievements(user.email, db),
     }
 
 
@@ -4450,6 +4601,7 @@ def get_participant_profile(
         "phone_number": "",
         "requested_role": "",
         "profile_complete": False,
+        "achievements": user_achievements(participant_user.email, db) if participant_user else [],
     }
 
     if is_owner and participant_user:
@@ -4576,6 +4728,7 @@ def update_me(
         "phone_number": db_user.phone_number or "",
         "requested_role": db_user.requested_role or "",
         "profile_complete": is_profile_complete(db_user),
+        "achievements": user_achievements(db_user.email, db),
     }
 
 @app.delete("/competitions/{competition_id}")
@@ -4852,6 +5005,7 @@ def finish_competition(
         )
 
     mark_competition_completed(competition)
+    award_achievements_for_competition(competition, db)
     db.commit()
 
     return {
