@@ -304,6 +304,14 @@ class UiSettingsData(BaseModel):
     navbar_content_max_width: str
 
 
+class ProfileSettingsData(BaseModel):
+    label_color: str
+    value_color: str
+    label_font_size: str
+    value_font_size: str
+    row_gap: str
+
+
 class AdminGenerateCompetitionData(BaseModel):
     status: str = "started"
     participants_count: int = 12
@@ -401,6 +409,13 @@ UI_SETTINGS_DEFAULTS = {
     "navbar_padding_x": "1.5rem",
     "navbar_padding_y": "0.75rem",
     "navbar_content_max_width": "100%",
+}
+PROFILE_SETTINGS_DEFAULTS = {
+    "profile_label_color": "#f87171",
+    "profile_value_color": "#f9fafb",
+    "profile_label_font_size": "1.125rem",
+    "profile_value_font_size": "1.25rem",
+    "profile_row_gap": "2rem",
 }
 
 
@@ -511,6 +526,34 @@ def validate_ui_settings(data: UiSettingsData):
     return settings
 
 
+def validate_profile_settings(data: ProfileSettingsData):
+    settings = {
+        "profile_label_color": data.label_color.strip(),
+        "profile_value_color": data.value_color.strip(),
+        "profile_label_font_size": data.label_font_size.strip(),
+        "profile_value_font_size": data.value_font_size.strip(),
+        "profile_row_gap": data.row_gap.strip(),
+    }
+    color_pattern = r"^#[0-9a-fA-F]{6}$"
+    size_pattern = r"^\d+(\.\d+)?(px|rem|em|%)$"
+
+    for key in ["profile_label_color", "profile_value_color"]:
+        if not re.fullmatch(color_pattern, settings[key]):
+            raise HTTPException(
+                status_code=400,
+                detail="Kolor profilu musi być w formacie HEX, np. #f87171"
+            )
+
+    for key in ["profile_label_font_size", "profile_value_font_size", "profile_row_gap"]:
+        if not re.fullmatch(size_pattern, settings[key]):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Wartość {key} musi mieć jednostkę px, rem, em albo %"
+            )
+
+    return settings
+
+
 def get_setting_value(key: str, db):
     setting = (
         db.query(AppSetting)
@@ -524,6 +567,7 @@ def get_setting_value(key: str, db):
     defaults = {
         **RESULTS_TABLE_SETTINGS_DEFAULTS,
         **UI_SETTINGS_DEFAULTS,
+        **PROFILE_SETTINGS_DEFAULTS,
     }
 
     return defaults[key]
@@ -557,6 +601,21 @@ def get_ui_settings(db):
     return {
         key: get_setting_value(key, db)
         for key in UI_SETTINGS_DEFAULTS
+    }
+
+
+def get_profile_settings(db):
+    stored_settings = {
+        key: get_setting_value(key, db)
+        for key in PROFILE_SETTINGS_DEFAULTS
+    }
+
+    return {
+        "label_color": stored_settings["profile_label_color"],
+        "value_color": stored_settings["profile_value_color"],
+        "label_font_size": stored_settings["profile_label_font_size"],
+        "value_font_size": stored_settings["profile_value_font_size"],
+        "row_gap": stored_settings["profile_row_gap"],
     }
 
 
@@ -2055,6 +2114,11 @@ def get_public_ui_settings(db=Depends(get_db)):
     return get_ui_settings(db)
 
 
+@app.get("/settings/profile")
+def get_public_profile_settings(db=Depends(get_db)):
+    return get_profile_settings(db)
+
+
 @app.get("/admin/settings/results-table")
 def get_admin_results_table_settings(
     admin: User = Depends(get_current_admin),
@@ -2069,6 +2133,14 @@ def get_admin_ui_settings(
     db=Depends(get_db),
 ):
     return get_ui_settings(db)
+
+
+@app.get("/admin/settings/profile")
+def get_admin_profile_settings(
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    return get_profile_settings(db)
 
 
 @app.put("/admin/settings/results-table")
@@ -2101,6 +2173,22 @@ def update_admin_ui_settings(
     db.commit()
 
     return get_ui_settings(db)
+
+
+@app.put("/admin/settings/profile")
+def update_admin_profile_settings(
+    data: ProfileSettingsData,
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    settings = validate_profile_settings(data)
+
+    for key, value in settings.items():
+        set_setting_value(key, value, db)
+
+    db.commit()
+
+    return get_profile_settings(db)
 
 
 @app.get("/admin/users")

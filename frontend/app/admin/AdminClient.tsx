@@ -72,6 +72,14 @@ type UiSettings = {
   navbar_content_max_width: string;
 };
 
+type ProfileSettings = {
+  label_color: string;
+  value_color: string;
+  label_font_size: string;
+  value_font_size: string;
+  row_gap: string;
+};
+
 const roles = [
   "user",
   "organizer",
@@ -117,6 +125,14 @@ const defaultUiSettings: UiSettings = {
   navbar_content_max_width: "100%",
 };
 
+const defaultProfileSettings: ProfileSettings = {
+  label_color: "#f87171",
+  value_color: "#f9fafb",
+  label_font_size: "1.125rem",
+  value_font_size: "1.25rem",
+  row_gap: "2rem",
+};
+
 const uiCssVariableNames: Record<keyof UiSettings, string> = {
   block_padding: "--ss-block-padding",
   block_min_height: "--ss-block-min-height",
@@ -128,6 +144,14 @@ const uiCssVariableNames: Record<keyof UiSettings, string> = {
   navbar_padding_x: "--ss-navbar-padding-x",
   navbar_padding_y: "--ss-navbar-padding-y",
   navbar_content_max_width: "--ss-navbar-content-max-width",
+};
+
+const profileCssVariableNames: Record<keyof ProfileSettings, string> = {
+  label_color: "--ss-profile-label-color",
+  value_color: "--ss-profile-value-color",
+  label_font_size: "--ss-profile-label-font-size",
+  value_font_size: "--ss-profile-value-font-size",
+  row_gap: "--ss-profile-row-gap",
 };
 
 type AdminClientProps = {
@@ -158,6 +182,7 @@ export default function AdminClient({
   );
   const [resultsTableSettings, setResultsTableSettings] = useState<ResultsTableSettings>(defaultResultsTableSettings);
   const [uiSettings, setUiSettings] = useState<UiSettings>(defaultUiSettings);
+  const [profileSettings, setProfileSettings] = useState<ProfileSettings>(defaultProfileSettings);
   const [testCompetitionStatus, setTestCompetitionStatus] = useState("started");
   const [testCompetitionParticipants, setTestCompetitionParticipants] = useState(12);
   const [testCompetitionDisciplines, setTestCompetitionDisciplines] = useState(3);
@@ -186,7 +211,7 @@ export default function AdminClient({
 
     async function loadAdminData() {
       try {
-        const [usersResponse, competitionsResponse, tableSettingsResponse, uiSettingsResponse] = await Promise.all([
+        const [usersResponse, competitionsResponse, tableSettingsResponse, uiSettingsResponse, profileSettingsResponse] = await Promise.all([
           fetch(
             apiUrl("/admin/users"),
             {
@@ -219,12 +244,21 @@ export default function AdminClient({
               },
             }
           ),
+          fetch(
+            apiUrl("/admin/settings/profile"),
+            {
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            }
+          ),
         ]);
 
         const usersData = await usersResponse.json();
         const competitionsData = await competitionsResponse.json();
         const tableSettingsData = await tableSettingsResponse.json();
         const uiSettingsData = await uiSettingsResponse.json();
+        const profileSettingsData = await profileSettingsResponse.json();
 
         if (ignore) {
           return;
@@ -250,6 +284,11 @@ export default function AdminClient({
           return;
         }
 
+        if (!profileSettingsResponse.ok) {
+          setMessage(profileSettingsData.detail || "Nie udało się pobrać ustawień profilu ❌");
+          return;
+        }
+
         setUsers(usersData);
         setCompetitions(competitionsData);
         setResultsTableSettings({
@@ -268,6 +307,13 @@ export default function AdminClient({
           navbar_padding_x: uiSettingsData.navbar_padding_x || defaultUiSettings.navbar_padding_x,
           navbar_padding_y: uiSettingsData.navbar_padding_y || defaultUiSettings.navbar_padding_y,
           navbar_content_max_width: uiSettingsData.navbar_content_max_width || defaultUiSettings.navbar_content_max_width,
+        });
+        setProfileSettings({
+          label_color: profileSettingsData.label_color || defaultProfileSettings.label_color,
+          value_color: profileSettingsData.value_color || defaultProfileSettings.value_color,
+          label_font_size: profileSettingsData.label_font_size || defaultProfileSettings.label_font_size,
+          value_font_size: profileSettingsData.value_font_size || defaultProfileSettings.value_font_size,
+          row_gap: profileSettingsData.row_gap || defaultProfileSettings.row_gap,
         });
       } catch (error) {
         console.error(error);
@@ -344,6 +390,15 @@ export default function AdminClient({
       document.documentElement.style.setProperty(
         variableName,
         settings[key as keyof UiSettings]
+      );
+    });
+  }
+
+  function applyProfileSettings(settings: ProfileSettings) {
+    Object.entries(profileCssVariableNames).forEach(([key, variableName]) => {
+      document.documentElement.style.setProperty(
+        variableName,
+        settings[key as keyof ProfileSettings]
       );
     });
   }
@@ -578,6 +633,47 @@ export default function AdminClient({
       setUiSettings(nextUiSettings);
       applyUiSettings(nextUiSettings);
       setMessage("Ustawienia UI zapisane ✅");
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    }
+  }
+
+  async function saveProfileSettings() {
+    const token = localStorage.getItem("token");
+
+    try {
+      setMessage("");
+
+      const response = await fetch(
+        apiUrl("/admin/settings/profile"),
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(profileSettings),
+        }
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.detail || "Nie udało się zapisać ustawień profilu ❌");
+        return;
+      }
+
+      const nextProfileSettings = {
+        label_color: data.label_color || defaultProfileSettings.label_color,
+        value_color: data.value_color || defaultProfileSettings.value_color,
+        label_font_size: data.label_font_size || defaultProfileSettings.label_font_size,
+        value_font_size: data.value_font_size || defaultProfileSettings.value_font_size,
+        row_gap: data.row_gap || defaultProfileSettings.row_gap,
+      };
+
+      setProfileSettings(nextProfileSettings);
+      applyProfileSettings(nextProfileSettings);
+      setMessage("Ustawienia profilu zapisane ✅");
     } catch (error) {
       console.error(error);
       setMessage("Błąd połączenia z serwerem ❌");
@@ -1659,6 +1755,108 @@ export default function AdminClient({
               >
                 Zapisz ustawienia UI
               </button>
+
+              <div className="rounded-2xl border border-zinc-800 bg-zinc-950/50 p-5 space-y-5">
+                <div>
+                  <h3 className="text-2xl font-bold text-white">
+                    Profil
+                  </h3>
+
+                  <p className="mt-1 text-sm text-gray-500">
+                    Ustawienia wyglądu danych zawodnika na stronie profilu.
+                  </p>
+                </div>
+
+                <div className="grid md:grid-cols-2 lg:grid-cols-5 gap-4">
+                  <label className="block">
+                    <span className="block text-white font-semibold mb-2">
+                      Kolor etykiet
+                    </span>
+
+                    <input
+                      type="color"
+                      value={profileSettings.label_color}
+                      onChange={(event) => setProfileSettings((currentSettings) => ({
+                        ...currentSettings,
+                        label_color: event.target.value,
+                      }))}
+                      className="h-12 w-full bg-zinc-800 border border-zinc-700 rounded-xl px-2 py-2"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="block text-white font-semibold mb-2">
+                      Kolor wartości
+                    </span>
+
+                    <input
+                      type="color"
+                      value={profileSettings.value_color}
+                      onChange={(event) => setProfileSettings((currentSettings) => ({
+                        ...currentSettings,
+                        value_color: event.target.value,
+                      }))}
+                      className="h-12 w-full bg-zinc-800 border border-zinc-700 rounded-xl px-2 py-2"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="block text-white font-semibold mb-2">
+                      Wielkość etykiet
+                    </span>
+
+                    <input
+                      value={profileSettings.label_font_size}
+                      onChange={(event) => setProfileSettings((currentSettings) => ({
+                        ...currentSettings,
+                        label_font_size: event.target.value,
+                      }))}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
+                      placeholder="1.125rem"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="block text-white font-semibold mb-2">
+                      Wielkość wartości
+                    </span>
+
+                    <input
+                      value={profileSettings.value_font_size}
+                      onChange={(event) => setProfileSettings((currentSettings) => ({
+                        ...currentSettings,
+                        value_font_size: event.target.value,
+                      }))}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
+                      placeholder="1.25rem"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="block text-white font-semibold mb-2">
+                      Odstęp między wierszami
+                    </span>
+
+                    <input
+                      value={profileSettings.row_gap}
+                      onChange={(event) => setProfileSettings((currentSettings) => ({
+                        ...currentSettings,
+                        row_gap: event.target.value,
+                      }))}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
+                      placeholder="2rem"
+                    />
+                  </label>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={saveProfileSettings}
+                  className="ui-button bg-green-700 hover:bg-green-600 text-white px-5 py-3 rounded-xl font-bold transition"
+                >
+                  Zapisz ustawienia profilu
+                </button>
+              </div>
 
               <div className="rounded-2xl border border-zinc-800 bg-zinc-950/50 p-5 space-y-5">
                 <h3 className="text-2xl font-bold text-white">

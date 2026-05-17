@@ -15,6 +15,11 @@
   --ss-navbar-padding-x: 1.5rem;
   --ss-navbar-padding-y: 0.75rem;
   --ss-navbar-content-max-width: 100%;
+  --ss-profile-label-color: #f87171;
+  --ss-profile-value-color: #f9fafb;
+  --ss-profile-label-font-size: 1.125rem;
+  --ss-profile-value-font-size: 1.25rem;
+  --ss-profile-row-gap: 2rem;
 }
 
 @theme inline {
@@ -58,4 +63,20 @@ body {
   margin-right: auto;
   max-width: var(--ss-navbar-content-max-width);
   width: 100%;
+}
+
+.ui-profile-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ss-profile-row-gap);
+}
+
+.ui-profile-label {
+  color: var(--ss-profile-label-color) !important;
+  font-size: var(--ss-profile-label-font-size) !important;
+}
+
+.ui-profile-value {
+  color: var(--ss-profile-value-color) !important;
+  font-size: var(--ss-profile-value-font-size) !important;
 }

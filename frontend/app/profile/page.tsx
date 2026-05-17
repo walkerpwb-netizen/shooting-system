@@ -22,6 +22,14 @@ type UserProfile = {
   profile_complete: boolean;
 };
 
+type ProfileSettings = {
+  label_color: string;
+  value_color: string;
+  label_font_size: string;
+  value_font_size: string;
+  row_gap: string;
+};
+
 const roleRequestLabels: Record<string, string> = {
   organizer: "organizatora",
   judge: "sędziego",
@@ -35,8 +43,22 @@ const profileRoleLabels: Record<string, string> = {
 };
 
 const fieldClassName = "w-full rounded-lg border border-red-900/60 bg-black px-4 py-3 text-red-50 placeholder:text-red-900/70 outline-none transition focus:border-red-500";
-const profileLabelClassName = "text-lg font-medium text-red-400";
-const profileValueClassName = "mt-3 min-h-6 text-xl font-semibold text-red-50";
+const profileLabelClassName = "ui-profile-label font-medium text-red-400";
+const profileValueClassName = "ui-profile-value mt-3 min-h-6 font-semibold text-red-50";
+const defaultProfileSettings: ProfileSettings = {
+  label_color: "#f87171",
+  value_color: "#f9fafb",
+  label_font_size: "1.125rem",
+  value_font_size: "1.25rem",
+  row_gap: "2rem",
+};
+const profileCssVariableNames: Record<keyof ProfileSettings, string> = {
+  label_color: "--ss-profile-label-color",
+  value_color: "--ss-profile-value-color",
+  label_font_size: "--ss-profile-label-font-size",
+  value_font_size: "--ss-profile-value-font-size",
+  row_gap: "--ss-profile-row-gap",
+};
 
 function RequiredLabel({ children }: { children: ReactNode }) {
   return (
@@ -68,6 +90,15 @@ function ProfileField({
 
 function displayValue(value: string, fallback = "Brak") {
   return value.trim() || fallback;
+}
+
+function applyProfileSettings(settings: ProfileSettings) {
+  Object.entries(profileCssVariableNames).forEach(([key, variableName]) => {
+    document.documentElement.style.setProperty(
+      variableName,
+      settings[key as keyof ProfileSettings]
+    );
+  });
 }
 
 function normalizeBirthDateInput(value: string) {
@@ -151,23 +182,41 @@ export default function ProfilePage() {
 
     async function loadProfile() {
       try {
-        const response = await fetch(
-          apiUrl("/me"),
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }
-        );
+        const [profileResponse, profileSettingsResponse] = await Promise.all([
+          fetch(
+            apiUrl("/me"),
+            {
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            }
+          ),
+          fetch(
+            apiUrl("/settings/profile"),
+            {
+              cache: "no-store",
+            }
+          ),
+        ]);
 
-        if (!response.ok) {
+        if (!profileResponse.ok) {
           router.push("/login");
           return;
         }
 
-        const data = await response.json();
+        const data = await profileResponse.json();
+        const settingsData = profileSettingsResponse.ok
+          ? await profileSettingsResponse.json()
+          : defaultProfileSettings;
 
         if (!ignore) {
+          applyProfileSettings({
+            label_color: settingsData.label_color || defaultProfileSettings.label_color,
+            value_color: settingsData.value_color || defaultProfileSettings.value_color,
+            label_font_size: settingsData.label_font_size || defaultProfileSettings.label_font_size,
+            value_font_size: settingsData.value_font_size || defaultProfileSettings.value_font_size,
+            row_gap: settingsData.row_gap || defaultProfileSettings.row_gap,
+          });
           setProfile(data);
           setFirstName(data.first_name || "");
           setLastName(data.last_name || "");
@@ -453,7 +502,7 @@ export default function ProfilePage() {
             <>
               <div className="grid min-h-[calc(100vh-12rem)] gap-12 lg:grid-cols-[320px_minmax(0,1fr)] xl:grid-cols-[380px_minmax(0,1fr)]">
                 <aside className="lg:pt-24">
-                  <dl className="space-y-8">
+                  <dl className="ui-profile-fields">
                     <ProfileField
                       label="Nazwisko"
                       value={displayValue(profile.last_name)}
@@ -470,7 +519,7 @@ export default function ProfilePage() {
                     />
 
                     {isOwnerProfile && (
-                      <div className="space-y-8 pt-2">
+                      <div className="ui-profile-fields pt-2">
                         <ProfileField
                           label="email"
                           value={profile.email}
