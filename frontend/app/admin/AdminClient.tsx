@@ -1773,7 +1773,7 @@ export default function AdminClient({
                   </h3>
 
                   <p className="mt-1 text-sm text-gray-500">
-                    Ustawienia wyglądu danych zawodnika na stronie profilu.
+                    Ustawienia wyglądu danych zawodnika oraz odznaczeń na stronie profilu.
                   </p>
                 </div>
 
@@ -1862,7 +1862,7 @@ export default function AdminClient({
                 <div className="grid md:grid-cols-2 gap-4">
                   <label className="block">
                     <span className="block text-white font-semibold mb-2">
-                      Wielkość ikon odznaczeń
+                      Rozmiar ikon odznaczeń
                     </span>
 
                     <input
@@ -1874,6 +1874,10 @@ export default function AdminClient({
                       className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
                       placeholder="4rem"
                     />
+
+                    <p className="mt-2 text-sm text-gray-500">
+                      Steruje rozmiarem pistoletu, karabinu, strzelby i pucharu w profilu.
+                    </p>
                   </label>
 
                   <label className="block">
