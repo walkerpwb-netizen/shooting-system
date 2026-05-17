@@ -1248,183 +1248,137 @@ export default function OrganizerPage() {
               : "Nie masz jeszcze aktualnych zawodów."}
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-
-          {visibleCompetitions.map((competition) => (
-
-            <div
-              key={competition.id}
-              role="button"
-              tabIndex={0}
-              onClick={() => router.push(`/organizer/${competition.id}`)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  router.push(`/organizer/${competition.id}`);
-                }
-              }}
-              className="ui-block bg-white rounded-3xl p-6 shadow-xl cursor-pointer transition hover:-translate-y-1 hover:shadow-2xl"
-            >
-
-              <div className="flex items-center justify-between mb-4">
-
-                <h2 className="text-2xl font-bold text-black">
-                  {competition.name}
-                </h2>
-
-                <span className="bg-yellow-100 text-yellow-800 px-3 py-1 rounded-full text-sm font-semibold">
-                  {getCompetitionStatusLabel(competition.status)}
-                </span>
-
-              </div>
-
-              {(competition.organizer_logo || competition.sponsor_logo) && (
-                <div className="grid grid-cols-2 gap-3 mb-4">
-                  {competition.organizer_logo && (
-                    <div className="h-16 rounded-xl bg-gray-100 border border-gray-200 flex items-center justify-center overflow-hidden">
-                      <img
-                        src={competition.organizer_logo}
-                        alt="Logo organizatora"
-                        className="h-full w-full object-contain p-2"
-                      />
-                    </div>
-                  )}
-
-                  {competition.sponsor_logo && (
-                    <div className="h-16 rounded-xl bg-gray-100 border border-gray-200 flex items-center justify-center overflow-hidden">
-                      <img
-                        src={competition.sponsor_logo}
-                        alt="Logo sponsora"
-                        className="h-full w-full object-contain p-2"
-                      />
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <div className="space-y-2 text-gray-700">
-
-                <p>
-                  📅 {competition.date}
-                </p>
-
-                <p>
-                  📍 {competition.location}
-                </p>
-
-                {competition.organizer_full_name && (
-                  <p>
-                    🏢 {competition.organizer_full_name}
-                  </p>
-                )}
-
-                {competition.sponsors && (
-                  <p>
-                    🤝 Sponsorzy: {competition.sponsors}
-                  </p>
-                )}
-
-                <p>
-                  🎯 Dyscypliny: {competition.disciplines_count}
-                </p>
-
-                {competition.participant_limit && (
-                  <p>
-                    👥 Limit zawodników: {competition.participants.length}/{competition.participant_limit}
-                  </p>
-                )}
-
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 mt-6">
-
-                <button
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    handleEditCompetition(competition)
-                  }}
-                  disabled={competition.status === "started" || competition.status === "completed"}
-                  className="ui-button bg-blue-600 hover:bg-blue-500 disabled:bg-gray-400 disabled:cursor-not-allowed text-white py-3 rounded-xl font-semibold"
-                >
-                  Edytuj
-                </button>
-
-                {competition.status !== "started" && competition.status !== "completed" && (
-                  <button
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      handleTogglePublication(competition)
-                    }}
-                    className={`ui-button text-white py-3 rounded-xl font-semibold ${
-                      competition.status === "published"
-                        ? "bg-orange-600 hover:bg-orange-500"
-                        : "bg-green-700 hover:bg-green-600"
-                    }`}
-                  >
-                    {competition.status === "published"
-                      ? "Cofnij"
-                      : "Publikuj"}
-                  </button>
-                )}
-
-                {competition.status === "published" && (
-                  <button
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      handleStartCompetition(competition);
-                    }}
-                    disabled={!isCompetitionDateReached(competition.date)}
-                    title={
-                      isCompetitionDateReached(competition.date)
-                        ? ""
-                        : "Zawody można rozpocząć najwcześniej w dniu zawodów"
-                    }
-                    className="ui-button bg-green-800 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white py-3 rounded-xl font-semibold"
-                  >
-                    Rozpocznij
-                  </button>
-                )}
-
-                {competition.status === "started" && (
-                  <button
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      handleFinishCompetition(competition);
-                    }}
-                    className="ui-button bg-orange-700 hover:bg-orange-600 text-white py-3 rounded-xl font-semibold"
-                  >
-                    Zakończ
-                  </button>
-                )}
-
-                {canViewCompetitionResults(competition.status) && (
-                  <button
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      router.push(`/organizer/${competition.id}/results`);
-                    }}
-                    className="ui-button bg-green-800 hover:bg-green-700 text-white py-3 rounded-xl font-semibold"
-                  >
-                    Wyniki
-                  </button>
-                )}
-
-                <button
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    handleDeleteCompetition(competition.id)
-                  }}
-                  disabled={competition.status === "started" || competition.status === "completed"}
-                  className="ui-button bg-red-700 hover:bg-red-600 disabled:bg-gray-400 disabled:cursor-not-allowed text-white py-3 rounded-xl font-semibold"
-                >
-                  Usuń
-                </button>
-
-              </div>
-
+          <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900">
+            <div className="hidden grid-cols-[1.5fr_0.7fr_1fr_1.5fr] gap-4 border-b border-zinc-800 bg-zinc-950/50 px-4 py-3 text-xs font-bold uppercase tracking-wide text-gray-400 lg:grid">
+              <p>Nazwa zawodów</p>
+              <p>Data</p>
+              <p>Lokalizacja</p>
+              <p className="text-right">Buttony</p>
             </div>
 
-          ))}
+            {visibleCompetitions.map((competition) => (
+              <div
+                key={competition.id}
+                className="grid gap-4 border-b border-zinc-800 px-4 py-4 text-sm last:border-b-0 lg:grid-cols-[1.5fr_0.7fr_1fr_1.5fr] lg:items-center"
+              >
+                <div className="min-w-0">
+                  <div className="mb-2 flex flex-wrap gap-2">
+                    <span className="rounded-full bg-yellow-100 px-3 py-1 text-xs font-bold text-yellow-800">
+                      {getCompetitionStatusLabel(competition.status)}
+                    </span>
 
+                    <span className="rounded-full bg-zinc-800 px-3 py-1 text-xs font-bold text-gray-200">
+                      Dyscypliny: {competition.disciplines_count}
+                    </span>
+                  </div>
+
+                  <p className="truncate text-base font-bold text-white">
+                    {competition.name}
+                  </p>
+
+                  <p className="mt-1 text-xs text-gray-400">
+                    Zawodnicy: {competition.participants.length}
+                    {competition.participant_limit
+                      ? `/${competition.participant_limit}`
+                      : " / Bez limitu"}
+                  </p>
+
+                  {(competition.organizer_full_name || competition.sponsors) && (
+                    <p className="mt-1 truncate text-xs text-gray-500">
+                      {[competition.organizer_full_name, competition.sponsors ? `Sponsorzy: ${competition.sponsors}` : ""].filter(Boolean).join(" • ")}
+                    </p>
+                  )}
+                </div>
+
+                <p className="text-gray-300">
+                  {competition.date}
+                </p>
+
+                <p className="text-gray-300">
+                  {competition.location}
+                </p>
+
+                <div className="flex flex-wrap gap-2 lg:justify-end">
+                  <button
+                    type="button"
+                    onClick={() => router.push(`/organizer/${competition.id}`)}
+                    className="ui-button bg-zinc-700 hover:bg-zinc-600 text-white px-4 py-2 rounded-xl font-semibold"
+                  >
+                    Szczegóły
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleEditCompetition(competition)}
+                    disabled={competition.status === "started" || competition.status === "completed"}
+                    className="ui-button bg-blue-600 hover:bg-blue-500 disabled:bg-gray-500 disabled:cursor-not-allowed text-white px-4 py-2 rounded-xl font-semibold"
+                  >
+                    Edytuj
+                  </button>
+
+                  {competition.status !== "started" && competition.status !== "completed" && (
+                    <button
+                      type="button"
+                      onClick={() => handleTogglePublication(competition)}
+                      className={`ui-button text-white px-4 py-2 rounded-xl font-semibold ${
+                        competition.status === "published"
+                          ? "bg-orange-600 hover:bg-orange-500"
+                          : "bg-green-700 hover:bg-green-600"
+                      }`}
+                    >
+                      {competition.status === "published"
+                        ? "Cofnij"
+                        : "Publikuj"}
+                    </button>
+                  )}
+
+                  {competition.status === "published" && (
+                    <button
+                      type="button"
+                      onClick={() => handleStartCompetition(competition)}
+                      disabled={!isCompetitionDateReached(competition.date)}
+                      title={
+                        isCompetitionDateReached(competition.date)
+                          ? ""
+                          : "Zawody można rozpocząć najwcześniej w dniu zawodów"
+                      }
+                      className="ui-button bg-green-800 hover:bg-green-700 disabled:bg-gray-500 disabled:cursor-not-allowed text-white px-4 py-2 rounded-xl font-semibold"
+                    >
+                      Rozpocznij
+                    </button>
+                  )}
+
+                  {competition.status === "started" && (
+                    <button
+                      type="button"
+                      onClick={() => handleFinishCompetition(competition)}
+                      className="ui-button bg-orange-700 hover:bg-orange-600 text-white px-4 py-2 rounded-xl font-semibold"
+                    >
+                      Zakończ
+                    </button>
+                  )}
+
+                  {canViewCompetitionResults(competition.status) && (
+                    <button
+                      type="button"
+                      onClick={() => router.push(`/organizer/${competition.id}/results`)}
+                      className="ui-button bg-green-800 hover:bg-green-700 text-white px-4 py-2 rounded-xl font-semibold"
+                    >
+                      Wyniki
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteCompetition(competition.id)}
+                    disabled={competition.status === "started" || competition.status === "completed"}
+                    className="ui-button bg-red-700 hover:bg-red-600 disabled:bg-gray-500 disabled:cursor-not-allowed text-white px-4 py-2 rounded-xl font-semibold"
+                  >
+                    Usuń
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         )}
 

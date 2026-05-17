@@ -69,91 +69,80 @@ export default function CompetitionCard({
   const freeSlots = participantLimit === null
     ? "Bez limitu"
     : Math.max(participantLimit - shootersCount, 0);
-  const statusLabel = status === "started"
+  const statusLabel = status === "published"
+    ? "Nadchodzące"
+    : status === "started"
     ? "Trwają"
     : status === "completed"
       ? "Zakończone"
       : "";
 
   return (
-    <div className={`ui-block rounded-3xl shadow-xl p-6 border-2 ${
+    <div className={`grid gap-4 border-b border-zinc-800 px-4 py-4 text-sm last:border-b-0 lg:grid-cols-[1.5fr_0.7fr_1fr_1.1fr] lg:items-center ${
       joinedAsJudge
-        ? "bg-blue-50 border-blue-600"
+        ? "bg-blue-950/30"
         : joinedAsShooter
-          ? "bg-green-50 border-green-700"
-          : "bg-white border-transparent"
+          ? "bg-green-950/30"
+          : "bg-zinc-900"
     }`}>
-      {(joinedAsShooter || joinedAsJudge) && (
-        <p className={`inline-block px-3 py-1 rounded-full text-sm font-bold mb-4 ${
-          joinedAsJudge
-            ? "bg-blue-700 text-white"
-            : "bg-green-800 text-white"
-        }`}>
-          {joinedAsJudge
-            ? "Sędziujesz"
-            : "Dołączyłeś"}
-        </p>
-      )}
+      <div className="min-w-0">
+        <div className="mb-2 flex flex-wrap gap-2">
+          {(joinedAsShooter || joinedAsJudge) && (
+            <span className={`rounded-full px-3 py-1 text-xs font-bold ${
+              joinedAsJudge
+                ? "bg-blue-700 text-white"
+                : "bg-green-800 text-white"
+            }`}>
+              {joinedAsJudge
+                ? "Sędziujesz"
+                : "Dołączyłeś"}
+            </span>
+          )}
 
-      {statusLabel && (
-        <p className={`inline-block px-3 py-1 rounded-full text-sm font-bold mb-4 ${
-          status === "started"
-            ? "bg-orange-600 text-white"
-            : "bg-zinc-700 text-white"
-        }`}>
-          {statusLabel}
-        </p>
-      )}
-
-      <div className="grid grid-cols-2 gap-2 mb-4 text-sm font-bold">
-        <div className="rounded-xl bg-zinc-100 px-3 py-2 text-zinc-800">
-          Zapisało się = {shootersCount} Strzelców
+          {statusLabel && (
+            <span className={`rounded-full px-3 py-1 text-xs font-bold ${
+              status === "started"
+                ? "bg-orange-600 text-white"
+                : status === "completed"
+                  ? "bg-zinc-700 text-white"
+                  : "bg-green-900 text-green-100"
+            }`}>
+              {statusLabel}
+            </span>
+          )}
         </div>
 
-        <div className="rounded-xl bg-green-100 px-3 py-2 text-green-900">
-          Wolne miejsca = {freeSlots}
-        </div>
-      </div>
-
-      <h2 className="text-2xl font-bold text-black mb-4">
-        {name}
-      </h2>
-
-      <div className="space-y-2 mb-6">
-
-        <p className="text-gray-700">
-          📅 {date}
+        <p className="truncate text-base font-bold text-white">
+          {name}
         </p>
 
-        <p className="text-gray-700">
-          📍 {location}
+        <p className="mt-1 text-xs text-gray-400">
+          Strzelcy: {shootersCount} • Wolne miejsca: {freeSlots} • Dyscypliny: {disciplinesCount}
         </p>
 
-        {organizerFullName && (
-          <p className="text-gray-700">
-            🏢 {organizerFullName}
+        {(organizerFullName || sponsors) && (
+          <p className="mt-1 truncate text-xs text-gray-500">
+            {[organizerFullName, sponsors ? `Sponsorzy: ${sponsors}` : ""].filter(Boolean).join(" • ")}
           </p>
         )}
-
-        {sponsors && (
-          <p className="text-gray-700">
-            🤝 Sponsorzy: {sponsors}
-          </p>
-        )}
-
-        <p className="text-gray-700">
-          🎯 Dyscypliny: {disciplinesCount}
-        </p>
-
       </div>
 
-      <Link
-        href={`/competitions/${id}`}
-        className="ui-button block w-full text-center bg-green-900 hover:bg-green-800 transition text-white py-3 rounded-xl font-semibold"
-      >
-        Zobacz szczegóły
-      </Link>
+      <p className="text-gray-300">
+        {date}
+      </p>
 
+      <p className="text-gray-300">
+        {location}
+      </p>
+
+      <div className="flex flex-wrap gap-2 lg:justify-end">
+        <Link
+          href={`/competitions/${id}`}
+          className="ui-button bg-green-800 hover:bg-green-700 transition text-white px-4 py-2 rounded-xl font-semibold"
+        >
+          Szczegóły
+        </Link>
+      </div>
     </div>
   );
 }

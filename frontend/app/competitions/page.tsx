@@ -130,22 +130,31 @@ export default async function CompetitionsPage({
             {activeTab.empty}
           </p>
         ) : (
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {visibleCompetitions.map((competition) => (
-              <CompetitionCard
-                key={competition.id}
-                id={competition.id}
-                name={competition.name}
-                date={competition.date}
-                location={competition.location}
-                status={competition.status}
-                organizerFullName={competition.organizer_full_name}
-                sponsors={competition.sponsors}
-                participantLimit={competition.participant_limit}
-                shootersCount={competition.shooters_count}
-                disciplinesCount={competition.disciplines_count}
-              />
-            ))}
+          <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900">
+            <div className="hidden grid-cols-[1.5fr_0.7fr_1fr_1.1fr] gap-4 border-b border-zinc-800 bg-zinc-950/50 px-4 py-3 text-xs font-bold uppercase tracking-wide text-gray-400 lg:grid">
+              <p>Nazwa zawodów</p>
+              <p>Data</p>
+              <p>Lokalizacja</p>
+              <p className="text-right">Buttony</p>
+            </div>
+
+            <div>
+              {visibleCompetitions.map((competition) => (
+                <CompetitionCard
+                  key={competition.id}
+                  id={competition.id}
+                  name={competition.name}
+                  date={competition.date}
+                  location={competition.location}
+                  status={competition.status}
+                  organizerFullName={competition.organizer_full_name}
+                  sponsors={competition.sponsors}
+                  participantLimit={competition.participant_limit}
+                  shootersCount={competition.shooters_count}
+                  disciplinesCount={competition.disciplines_count}
+                />
+              ))}
+            </div>
           </div>
         )}
       </div>
