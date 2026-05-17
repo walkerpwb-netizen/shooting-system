@@ -303,6 +303,7 @@ class UiSettingsData(BaseModel):
 class AdminGenerateCompetitionData(BaseModel):
     status: str = "started"
     participants_count: int = 12
+    disciplines_count: int = 3
     include_results: bool = True
 
 
@@ -729,6 +730,13 @@ def test_participant_disciplines(disciplines: list[Discipline], index: int):
         )
         for discipline in selected_disciplines
     ]
+
+
+def test_discipline_name(template_name: str, index: int):
+    if index < len(TEST_DISCIPLINE_TEMPLATES):
+        return template_name
+
+    return f"{template_name} {index + 1}"
 
 
 def create_test_participant(
@@ -2343,6 +2351,12 @@ def admin_generate_test_competition(
         100,
         "Liczba zawodników"
     )
+    disciplines_count = validate_test_count(
+        data.disciplines_count,
+        1,
+        12,
+        "Liczba dyscyplin"
+    )
     today = datetime.now(APP_TIMEZONE).date()
     competition_date = (
         today + timedelta(days=7)
@@ -2379,10 +2393,11 @@ def admin_generate_test_competition(
 
     disciplines = []
 
-    for template in TEST_DISCIPLINE_TEMPLATES:
+    for index in range(disciplines_count):
+        template = TEST_DISCIPLINE_TEMPLATES[index % len(TEST_DISCIPLINE_TEMPLATES)]
         discipline = Discipline(
             competition_id=competition.id,
-            name=template["name"],
+            name=test_discipline_name(template["name"], index),
             description=template["description"],
             scoring_type=template["scoring_type"],
             shots_count=template["shots_count"],
@@ -2424,6 +2439,7 @@ def admin_generate_test_competition(
         "message": "Wygenerowano zawody testowe",
         "competition_id": competition.id,
         "participants_count": participants_count,
+        "disciplines_count": disciplines_count,
         "results_count": results_count,
     }
 

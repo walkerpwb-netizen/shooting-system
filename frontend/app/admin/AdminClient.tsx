@@ -160,6 +160,7 @@ export default function AdminClient({
   const [uiSettings, setUiSettings] = useState<UiSettings>(defaultUiSettings);
   const [testCompetitionStatus, setTestCompetitionStatus] = useState("started");
   const [testCompetitionParticipants, setTestCompetitionParticipants] = useState(12);
+  const [testCompetitionDisciplines, setTestCompetitionDisciplines] = useState(3);
   const [testCompetitionResults, setTestCompetitionResults] = useState(true);
   const [testTargetCompetitionId, setTestTargetCompetitionId] = useState("");
   const [testParticipantCount, setTestParticipantCount] = useState(10);
@@ -705,6 +706,7 @@ export default function AdminClient({
           body: JSON.stringify({
             status: testCompetitionStatus,
             participants_count: testCompetitionParticipants,
+            disciplines_count: testCompetitionDisciplines,
             include_results: testCompetitionResults,
           }),
         }
@@ -718,7 +720,7 @@ export default function AdminClient({
 
       setTestTargetCompetitionId(String(data.competition_id));
       await reloadCompetitions(token);
-      setMessage(`Wygenerowano zawody #${data.competition_id}, zawodnicy: ${data.participants_count}, wyniki: ${data.results_count} ✅`);
+      setMessage(`Wygenerowano zawody #${data.competition_id}, dyscypliny: ${data.disciplines_count}, zawodnicy: ${data.participants_count}, wyniki: ${data.results_count} ✅`);
     } catch (error) {
       console.error(error);
       setMessage("Błąd połączenia z serwerem ❌");
@@ -1778,6 +1780,21 @@ export default function AdminClient({
                       max={100}
                       value={testCompetitionParticipants}
                       onChange={(event) => setTestCompetitionParticipants(Number(event.target.value))}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="block text-white font-semibold mb-2">
+                      Liczba dyscyplin
+                    </span>
+
+                    <input
+                      type="number"
+                      min={1}
+                      max={12}
+                      value={testCompetitionDisciplines}
+                      onChange={(event) => setTestCompetitionDisciplines(Number(event.target.value))}
                       className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white"
                     />
                   </label>
