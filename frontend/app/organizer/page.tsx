@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { apiUrl } from "@/lib/api";
@@ -61,6 +61,7 @@ type Discipline = {
 };
 
 type OrganizerTab = "current" | "history";
+type NameSortDirection = "asc" | "desc";
 
 const ammoTypes = [
   ".22 LR",
@@ -103,6 +104,12 @@ function isCompetitionDateReached(dateValue: string) {
   return competitionDate <= today;
 }
 
+function nextNameSortDirection(currentDirection: NameSortDirection) {
+  return currentDirection === "asc"
+    ? "desc"
+    : "asc";
+}
+
 export default function OrganizerPage() {
   const router = useRouter();
 
@@ -128,17 +135,45 @@ export default function OrganizerPage() {
   const [loading, setLoading] = useState(false);
   const [editingCompetitionId, setEditingCompetitionId] = useState<number | null>(null);
   const [editingCompetitionStatus, setEditingCompetitionStatus] = useState("");
+  const [competitionNameFilter, setCompetitionNameFilter] = useState("");
+  const [competitionNameSortDirection, setCompetitionNameSortDirection] = useState<NameSortDirection>("asc");
   const canManageDisciplines = !editingCompetitionId || editingCompetitionStatus === "draft";
   const existingDisciplineCount = disciplines.filter((discipline) => discipline.id).length;
   const newDisciplineCount = Math.max(
     disciplines.length - existingDisciplineCount,
     0
   );
-  const visibleCompetitions = competitions.filter((competition) =>
-    activeTab === "history"
-      ? competition.status === "completed"
-      : competition.status !== "completed"
-  );
+  const visibleCompetitions = useMemo(() => {
+    const normalizedFilter = competitionNameFilter.trim().toLowerCase();
+
+    return competitions
+      .filter((competition) =>
+        activeTab === "history"
+          ? competition.status === "completed"
+          : competition.status !== "completed"
+      )
+      .filter((competition) =>
+        competition.name.toLowerCase().includes(normalizedFilter)
+      )
+      .sort((firstCompetition, secondCompetition) => {
+        const sortResult = firstCompetition.name.localeCompare(
+          secondCompetition.name,
+          "pl",
+          {
+            sensitivity: "base",
+          }
+        );
+
+        return competitionNameSortDirection === "asc"
+          ? sortResult
+          : -sortResult;
+      });
+  }, [
+    activeTab,
+    competitionNameFilter,
+    competitionNameSortDirection,
+    competitions,
+  ]);
 
   useEffect(() => {
     if (!isOrganizer()) {
@@ -1241,19 +1276,45 @@ export default function OrganizerPage() {
 
         )}
 
+        <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <input
+            value={competitionNameFilter}
+            onChange={(event) => setCompetitionNameFilter(event.target.value)}
+            placeholder="Filtruj po nazwie zawodów"
+            className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white placeholder:text-gray-500 focus:border-green-700 focus:outline-none md:w-80"
+          />
+
+          <button
+            type="button"
+            onClick={() => setCompetitionNameSortDirection((currentDirection) => nextNameSortDirection(currentDirection))}
+            className="ui-button w-full rounded-lg bg-zinc-800 px-4 py-2 text-sm font-bold text-gray-200 transition hover:bg-zinc-700 md:w-auto"
+          >
+            Nazwa {competitionNameSortDirection === "asc" ? "↑" : "↓"}
+          </button>
+        </div>
+
         {visibleCompetitions.length === 0 ? (
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 text-gray-300">
-            {activeTab === "history"
-              ? "Nie masz jeszcze zakończonych zawodów."
-              : "Nie masz jeszcze aktualnych zawodów."}
+            {competitionNameFilter.trim()
+              ? "Brak zawodów pasujących do filtra."
+              : activeTab === "history"
+                ? "Nie masz jeszcze zakończonych zawodów."
+                : "Nie masz jeszcze aktualnych zawodów."}
           </div>
         ) : (
           <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900">
             <div className="hidden grid-cols-[1.5fr_0.7fr_1fr_1.5fr] gap-4 border-b border-zinc-800 bg-zinc-950/50 px-4 py-3 text-xs font-bold uppercase tracking-wide text-gray-400 lg:grid">
-              <p>Nazwa zawodów</p>
+              <button
+                type="button"
+                onClick={() => setCompetitionNameSortDirection((currentDirection) => nextNameSortDirection(currentDirection))}
+                className="text-left transition hover:text-white"
+              >
+                Nazwa zawodów {competitionNameSortDirection === "asc" ? "↑" : "↓"}
+              </button>
+
               <p>Data</p>
               <p>Lokalizacja</p>
-              <p className="text-right">Buttony</p>
+              <p aria-hidden="true" />
             </div>
 
             {visibleCompetitions.map((competition) => (
