@@ -78,12 +78,12 @@ export default function CompetitionCard({
       : "";
 
   return (
-    <div className={`grid gap-4 border-b border-zinc-800 px-4 py-4 text-sm last:border-b-0 lg:grid-cols-[1.5fr_0.7fr_1fr_1.1fr] lg:items-center ${
+    <div className={`grid gap-4 border-b border-zinc-200 px-4 py-4 text-sm last:border-b-0 dark:border-zinc-800 lg:grid-cols-[1.5fr_0.7fr_1fr_1.1fr] lg:items-center ${
       joinedAsJudge
-        ? "bg-blue-950/30"
+        ? "bg-blue-50 dark:bg-blue-950/30"
         : joinedAsShooter
-          ? "bg-green-950/30"
-          : "bg-zinc-900"
+          ? "bg-green-50 dark:bg-green-950/30"
+          : "bg-white dark:bg-zinc-900"
     }`}>
       <div className="min-w-0">
         <div className="mb-2 flex flex-wrap gap-2">
@@ -112,26 +112,26 @@ export default function CompetitionCard({
           )}
         </div>
 
-        <p className="truncate text-base font-bold text-white">
+        <p className="truncate text-base font-bold text-zinc-950 dark:text-white">
           {name}
         </p>
 
-        <p className="mt-1 text-xs text-gray-400">
+        <p className="mt-1 text-xs text-zinc-600 dark:text-gray-400">
           Strzelcy: {shootersCount} • Wolne miejsca: {freeSlots} • Dyscypliny: {disciplinesCount}
         </p>
 
         {(organizerFullName || sponsors) && (
-          <p className="mt-1 truncate text-xs text-gray-500">
+          <p className="mt-1 truncate text-xs text-zinc-500 dark:text-gray-500">
             {[organizerFullName, sponsors ? `Sponsorzy: ${sponsors}` : ""].filter(Boolean).join(" • ")}
           </p>
         )}
       </div>
 
-      <p className="text-gray-300">
+      <p className="text-zinc-700 dark:text-gray-300">
         {date}
       </p>
 
-      <p className="text-gray-300">
+      <p className="text-zinc-700 dark:text-gray-300">
         {location}
       </p>
 

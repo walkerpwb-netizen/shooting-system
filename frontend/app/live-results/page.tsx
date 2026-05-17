@@ -73,11 +73,11 @@ export default function LiveResultsPage() {
             Na żywo
           </p>
 
-          <h1 className="mb-2 text-4xl font-bold text-white sm:text-5xl">
+          <h1 className="mb-2 text-4xl font-bold text-zinc-950 dark:text-white sm:text-5xl">
             Wyniki na Żywo
           </h1>
 
-          <p className="max-w-2xl text-gray-400">
+          <p className="max-w-2xl text-zinc-600 dark:text-gray-400">
             Aktualnie trwające zawody oraz wyniki dostępne jeszcze przez 24 godziny po zakończeniu.
           </p>
         </div>
@@ -89,7 +89,7 @@ export default function LiveResultsPage() {
         )}
 
         {loading ? (
-          <p className="text-gray-400">
+          <p className="text-zinc-600 dark:text-gray-400">
             Ładowanie zawodów...
           </p>
         ) : (

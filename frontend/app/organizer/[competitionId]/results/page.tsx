@@ -124,11 +124,11 @@ export default function OrganizerResultsPage() {
         )}
 
         {loading ? (
-          <p className="text-gray-400">
+          <p className="text-zinc-600 dark:text-gray-400">
             Ładowanie wyników...
           </p>
         ) : !competition ? (
-          <p className="rounded-xl border border-zinc-800 bg-zinc-900 p-6 text-gray-300">
+          <p className="rounded-xl border border-zinc-200 bg-white p-6 text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-gray-300">
             Wyniki są dostępne po rozpoczęciu zawodów.
           </p>
         ) : (
@@ -138,11 +138,11 @@ export default function OrganizerResultsPage() {
                 Wyniki organizatora
               </p>
 
-              <h1 className="mb-3 text-4xl font-bold text-white sm:text-5xl">
+              <h1 className="mb-3 text-4xl font-bold text-zinc-950 dark:text-white sm:text-5xl">
                 {competition.name}
               </h1>
 
-              <div className="flex flex-wrap gap-x-5 gap-y-2 text-gray-400">
+              <div className="flex flex-wrap gap-x-5 gap-y-2 text-zinc-600 dark:text-gray-400">
                 <span>{competition.location}</span>
                 <span>{competition.date}</span>
                 <span>{statusLabels[competition.status] || competition.status}</span>
@@ -150,7 +150,7 @@ export default function OrganizerResultsPage() {
             </div>
 
             <section className="mb-8">
-              <h2 className="mb-4 text-2xl font-bold text-white">
+              <h2 className="mb-4 text-2xl font-bold text-zinc-950 dark:text-white">
                 Dostępne konkurencje
               </h2>
 
@@ -170,7 +170,7 @@ export default function OrganizerResultsPage() {
             </section>
 
             <section>
-              <h2 className="mb-4 text-2xl font-bold text-white">
+              <h2 className="mb-4 text-2xl font-bold text-zinc-950 dark:text-white">
                 Klasyfikacje zbiorcze
               </h2>
 

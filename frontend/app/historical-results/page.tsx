@@ -67,15 +67,15 @@ export default function HistoricalResultsPage() {
     <main className="min-h-screen px-6 py-10">
       <div className="mx-auto max-w-6xl">
         <div className="mb-8">
-          <p className="mb-3 inline-flex rounded-full border border-zinc-700 bg-zinc-900 px-4 py-2 text-sm font-bold text-zinc-200">
+          <p className="mb-3 inline-flex rounded-full border border-zinc-200 bg-zinc-100 px-4 py-2 text-sm font-bold text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
             Archiwum
           </p>
 
-          <h1 className="mb-2 text-4xl font-bold text-white sm:text-5xl">
+          <h1 className="mb-2 text-4xl font-bold text-zinc-950 dark:text-white sm:text-5xl">
             Wyniki Historyczne
           </h1>
 
-          <p className="max-w-2xl text-gray-400">
+          <p className="max-w-2xl text-zinc-600 dark:text-gray-400">
             Zakończone zawody starsze niż 24 godziny, posortowane od najnowszych.
           </p>
         </div>
@@ -87,7 +87,7 @@ export default function HistoricalResultsPage() {
         )}
 
         {loading ? (
-          <p className="text-gray-400">
+          <p className="text-zinc-600 dark:text-gray-400">
             Ładowanie wyników historycznych...
           </p>
         ) : (

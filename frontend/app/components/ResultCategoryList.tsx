@@ -79,36 +79,36 @@ export default function ResultCategoryList({
 
   if (categories.length === 0) {
     return (
-      <p className="rounded-xl border border-zinc-800 bg-zinc-900 p-5 text-gray-400">
+      <p className="rounded-xl border border-zinc-200 bg-white p-5 text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-gray-400">
         {emptyMessage}
       </p>
     );
   }
 
   return (
-    <section className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900">
-      <div className="flex flex-col gap-3 border-b border-zinc-800 p-4 md:flex-row md:items-center md:justify-between">
+    <section className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="flex flex-col gap-3 border-b border-zinc-200 p-4 dark:border-zinc-800 md:flex-row md:items-center md:justify-between">
         <input
           value={nameFilter}
           onChange={(event) => setNameFilter(event.target.value)}
           placeholder="Filtruj po nazwie"
-          className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white placeholder:text-gray-500 focus:border-green-700 focus:outline-none md:w-80"
+          className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 placeholder:text-zinc-500 focus:border-green-700 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder:text-gray-500 md:w-80"
         />
 
         <button
           type="button"
           onClick={() => setNameSortDirection((currentDirection) => nextSortDirection(currentDirection))}
-          className="ui-button w-full rounded-lg bg-zinc-800 px-4 py-2 text-sm font-bold text-gray-200 transition hover:bg-zinc-700 md:w-auto"
+          className="ui-button w-full rounded-lg bg-zinc-100 px-4 py-2 text-sm font-bold text-zinc-800 transition hover:bg-zinc-200 dark:bg-zinc-800 dark:text-gray-200 dark:hover:bg-zinc-700 md:w-auto"
         >
           Nazwa {nameSortDirection === "asc" ? "↑" : "↓"}
         </button>
       </div>
 
-      <div className="hidden grid-cols-[1.5fr_0.8fr_1fr_1fr] gap-4 border-b border-zinc-800 bg-zinc-950/50 px-4 py-3 text-xs font-bold uppercase tracking-wide text-gray-400 lg:grid">
+      <div className="hidden grid-cols-[1.5fr_0.8fr_1fr_1fr] gap-4 border-b border-zinc-200 bg-zinc-50 px-4 py-3 text-xs font-bold uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950/50 dark:text-gray-400 lg:grid">
         <button
           type="button"
           onClick={() => setNameSortDirection((currentDirection) => nextSortDirection(currentDirection))}
-          className="text-left transition hover:text-white"
+          className="text-left transition hover:text-zinc-950 dark:hover:text-white"
         >
           Nazwa {nameSortDirection === "asc" ? "↑" : "↓"}
         </button>
@@ -119,29 +119,29 @@ export default function ResultCategoryList({
       </div>
 
       {visibleCategories.length === 0 ? (
-        <p className="px-4 py-5 text-gray-400">
+        <p className="px-4 py-5 text-zinc-600 dark:text-gray-400">
           Brak pozycji pasujących do filtra.
         </p>
       ) : visibleCategories.map((category) => (
         <div
           key={category.id}
-          className="grid gap-4 border-b border-zinc-800 px-4 py-4 text-sm last:border-b-0 lg:grid-cols-[1.5fr_0.8fr_1fr_1fr] lg:items-center"
+          className="grid gap-4 border-b border-zinc-200 px-4 py-4 text-sm last:border-b-0 dark:border-zinc-800 lg:grid-cols-[1.5fr_0.8fr_1fr_1fr] lg:items-center"
         >
           <div className="min-w-0">
-            <p className="truncate text-base font-bold text-white">
+            <p className="truncate text-base font-bold text-zinc-950 dark:text-white">
               {category.name}
             </p>
 
-            <p className="mt-1 text-xs text-gray-500">
+            <p className="mt-1 text-xs text-zinc-500 dark:text-gray-500">
               {categoryDescription(category)}
             </p>
           </div>
 
-          <p className="text-gray-300">
+          <p className="text-zinc-700 dark:text-gray-300">
             {categoryTypeLabel(category)}
           </p>
 
-          <p className="text-gray-300">
+          <p className="text-zinc-700 dark:text-gray-300">
             {category.disciplines_count === 1
               ? "1 konkurencja"
               : `${category.disciplines_count} konkurencji`}

@@ -115,27 +115,27 @@ export default function HistoricalLeaderboardPage() {
         )}
 
         {loading ? (
-          <p className="text-gray-400">
+          <p className="text-zinc-600 dark:text-gray-400">
             Ładowanie wyników...
           </p>
         ) : !leaderboard ? (
-          <p className="rounded-xl border border-zinc-800 bg-zinc-900 p-6 text-gray-300">
+          <p className="rounded-xl border border-zinc-200 bg-white p-6 text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-gray-300">
             Ta klasyfikacja nie jest dostępna w historii.
           </p>
         ) : (
           <>
             <div className="mb-8">
               <div className="mb-3 flex flex-wrap items-center gap-3">
-                <span className="rounded-full border border-zinc-700 bg-zinc-900 px-4 py-2 text-sm font-bold text-zinc-200">
+                <span className="rounded-full border border-zinc-200 bg-zinc-100 px-4 py-2 text-sm font-bold text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
                   Wyniki historyczne
                 </span>
               </div>
 
-              <h1 className="mb-3 text-4xl font-bold text-white sm:text-5xl">
+              <h1 className="mb-3 text-4xl font-bold text-zinc-950 dark:text-white sm:text-5xl">
                 {leaderboard.category.name}
               </h1>
 
-              <p className="text-gray-400">
+              <p className="text-zinc-600 dark:text-gray-400">
                 {leaderboard.competition.name} • {leaderboard.competition.location} • {leaderboard.competition.date}
               </p>
             </div>

@@ -100,25 +100,25 @@ export default function HistoricalCompetitionPage() {
         )}
 
         {loading ? (
-          <p className="text-gray-400">
+          <p className="text-zinc-600 dark:text-gray-400">
             Ładowanie kategorii...
           </p>
         ) : !competition ? (
-          <p className="rounded-xl border border-zinc-800 bg-zinc-900 p-6 text-gray-300">
+          <p className="rounded-xl border border-zinc-200 bg-white p-6 text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-gray-300">
             Te zawody nie są dostępne w wynikach historycznych.
           </p>
         ) : (
           <>
             <div className="mb-8">
-              <p className="mb-3 inline-flex rounded-full border border-zinc-700 bg-zinc-900 px-4 py-2 text-sm font-bold text-zinc-200">
+              <p className="mb-3 inline-flex rounded-full border border-zinc-200 bg-zinc-100 px-4 py-2 text-sm font-bold text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
                 Wyniki historyczne
               </p>
 
-              <h1 className="mb-3 text-4xl font-bold text-white sm:text-5xl">
+              <h1 className="mb-3 text-4xl font-bold text-zinc-950 dark:text-white sm:text-5xl">
                 {competition.name}
               </h1>
 
-              <div className="flex flex-wrap gap-x-5 gap-y-2 text-gray-400">
+              <div className="flex flex-wrap gap-x-5 gap-y-2 text-zinc-600 dark:text-gray-400">
                 <span>{competition.location}</span>
                 <span>{competition.date}</span>
                 <span>{competition.organizer_full_name}</span>
@@ -126,7 +126,7 @@ export default function HistoricalCompetitionPage() {
             </div>
 
             <section className="mb-8">
-              <h2 className="mb-4 text-2xl font-bold text-white">
+              <h2 className="mb-4 text-2xl font-bold text-zinc-950 dark:text-white">
                 Dostępne konkurencje
               </h2>
 
@@ -146,7 +146,7 @@ export default function HistoricalCompetitionPage() {
             </section>
 
             <section>
-              <h2 className="mb-4 text-2xl font-bold text-white">
+              <h2 className="mb-4 text-2xl font-bold text-zinc-950 dark:text-white">
                 Klasyfikacje zbiorcze
               </h2>
 

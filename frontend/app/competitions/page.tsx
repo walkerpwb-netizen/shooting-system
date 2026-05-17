@@ -100,11 +100,11 @@ export default async function CompetitionsPage({
     <main className="min-h-screen px-6 py-10">
       <div className="max-w-6xl mx-auto">
         <div className="mb-10">
-          <h1 className="text-5xl font-bold text-white mb-2">
+          <h1 className="text-5xl font-bold text-zinc-950 dark:text-white mb-2">
             {activeTab.title}
           </h1>
 
-          <p className="text-gray-400">
+          <p className="text-zinc-600 dark:text-gray-400">
             Opublikowane zawody strzeleckie
           </p>
         </div>
@@ -117,7 +117,7 @@ export default async function CompetitionsPage({
               className={`ui-button px-5 py-3 rounded-xl font-bold transition ${
                 activeTab.key === tab.key
                   ? "bg-green-700 text-white"
-                  : "bg-zinc-800 text-gray-300 hover:bg-zinc-700"
+                  : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-gray-300 dark:hover:bg-zinc-700"
               }`}
             >
               {tab.label}
