@@ -300,7 +300,86 @@ class UiSettingsData(BaseModel):
     navbar_content_max_width: str
 
 
+class AdminGenerateCompetitionData(BaseModel):
+    status: str = "started"
+    participants_count: int = 12
+    include_results: bool = True
+
+
+class AdminGenerateParticipantsData(BaseModel):
+    competition_id: int
+    count: int = 10
+    checked_in: bool = True
+    paid: bool = True
+    include_results: bool = False
+
+
+class AdminGenerateResultsData(BaseModel):
+    competition_id: int
+    overwrite: bool = True
+
+
 ALLOWED_ROLES = ["user", "organizer", "judge", "admin"]
+TEST_COMPETITION_STATUSES = ["draft", "published", "started", "completed"]
+TEST_FIRST_NAMES = [
+    "Jan",
+    "Anna",
+    "Piotr",
+    "Katarzyna",
+    "Tomasz",
+    "Marta",
+    "Michał",
+    "Agnieszka",
+    "Paweł",
+    "Magdalena",
+]
+TEST_LAST_NAMES = [
+    "Kowalski",
+    "Nowak",
+    "Wiśniewski",
+    "Wójcik",
+    "Kowalczyk",
+    "Kamiński",
+    "Lewandowski",
+    "Zieliński",
+    "Szymański",
+    "Woźniak",
+]
+TEST_CLUBS = [
+    "Test Klub Alfa",
+    "Test Klub Bravo",
+    "Test Klub Cel",
+    "Test Klub Delta",
+]
+TEST_DISCIPLINE_TEMPLATES = [
+    {
+        "name": "Pistolet sportowy TEST",
+        "description": "Konkurencja testowa pistoletowa",
+        "scoring_type": "points",
+        "shots_count": 10,
+        "ammo_type": "9mm",
+        "ammo_price": "1.20",
+        "entry_fee": "25.00",
+    },
+    {
+        "name": "Karabin sportowy TEST",
+        "description": "Konkurencja testowa karabinowa",
+        "scoring_type": "points",
+        "shots_count": 10,
+        "ammo_type": ".223",
+        "ammo_price": "2.50",
+        "entry_fee": "30.00",
+    },
+    {
+        "name": "Strzelba dynamiczna TEST",
+        "description": "Konkurencja testowa strzelbowa",
+        "scoring_type": "points",
+        "shots_count": 8,
+        "ammo_type": "12/70",
+        "ammo_price": "2.00",
+        "entry_fee": "35.00",
+    },
+]
 RESULTS_TABLE_SETTINGS_DEFAULTS = {
     "grid_template_columns": "80px 1.6fr 1fr 1.1fr 120px",
     "min_width": "820px",
@@ -559,6 +638,12 @@ def create_password_reset_token(user: User):
 
 
 def delete_competition_with_dependencies(competition: Competition, db):
+    (
+        db.query(DisciplineResult)
+        .filter(DisciplineResult.competition_id == competition.id)
+        .delete(synchronize_session=False)
+    )
+
     participant_ids = [
         participant.id
         for participant in (
@@ -595,6 +680,185 @@ def delete_competition_with_dependencies(competition: Competition, db):
 
     db.delete(competition)
     db.commit()
+
+
+def validate_test_count(value: int, minimum: int, maximum: int, label: str):
+    if value < minimum or value > maximum:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{label} musi być od {minimum} do {maximum}"
+        )
+
+    return value
+
+
+def test_person_data(competition_id: int, index: int):
+    first_name = TEST_FIRST_NAMES[index % len(TEST_FIRST_NAMES)]
+    last_name = TEST_LAST_NAMES[(index * 3) % len(TEST_LAST_NAMES)]
+    club = TEST_CLUBS[index % len(TEST_CLUBS)]
+    year = 1975 + (index % 28)
+    month = (index % 12) + 1
+    day = (index % 27) + 1
+
+    return {
+        "first_name": first_name,
+        "last_name": last_name,
+        "club": club,
+        "birth_date": f"{year:04d}-{month:02d}-{day:02d}",
+        "license_number": f"TEST-{competition_id}-{index + 1:03d}",
+    }
+
+
+def test_participant_disciplines(disciplines: list[Discipline], index: int):
+    if not disciplines:
+        return []
+
+    selected_disciplines = [
+        discipline
+        for discipline_index, discipline in enumerate(disciplines)
+        if (index + discipline_index) % 3 != 0
+    ]
+
+    if not selected_disciplines:
+        selected_disciplines = [disciplines[index % len(disciplines)]]
+
+    return [
+        JoinDisciplineData(
+            discipline_id=discipline.id,
+            ammo_type="club" if (index + discipline.id) % 2 == 0 else "own",
+        )
+        for discipline in selected_disciplines
+    ]
+
+
+def create_test_participant(
+    competition: Competition,
+    disciplines: list[Discipline],
+    index: int,
+    checked_in: bool,
+    paid: bool,
+    db,
+):
+    selected_disciplines = test_participant_disciplines(disciplines, index)
+    disciplines_by_id = {
+        discipline.id: discipline
+        for discipline in disciplines
+    }
+    person = test_person_data(competition.id, index)
+    timestamp = now_iso()
+
+    participant = CompetitionParticipant(
+        competition_id=competition.id,
+        user_email=f"test-{competition.id}-{index + 1}-{uuid4()}@test.local",
+        first_name=person["first_name"],
+        last_name=person["last_name"],
+        birth_date=person["birth_date"],
+        license_number=person["license_number"],
+        club=person["club"],
+        entry_type="shooter",
+        is_head_judge=0,
+        total_fee=calculate_total_fee_from_selection(
+            competition,
+            selected_disciplines,
+            disciplines_by_id,
+        ),
+        checked_in=1 if checked_in else 0,
+        checked_in_at=timestamp if checked_in else None,
+        paid=1 if paid else 0,
+        paid_at=timestamp if paid else None,
+    )
+
+    db.add(participant)
+    db.flush()
+
+    for selected_discipline in selected_disciplines:
+        db.add(ParticipantDiscipline(
+            participant_id=participant.id,
+            discipline_id=selected_discipline.discipline_id,
+            ammo_type=selected_discipline.ammo_type,
+        ))
+
+    return participant
+
+
+def test_result_points(participant: CompetitionParticipant, discipline: Discipline):
+    max_points = Decimal(discipline.shots_count or 10) * Decimal("10")
+    spread = Decimal((participant.id * 7 + discipline.id * 11) % 32)
+    bonus = Decimal((participant.id + discipline.id) % 10) / Decimal("10")
+    points = max_points - spread + bonus
+
+    if points < 0:
+        points = Decimal("0")
+
+    return format_points(points)
+
+
+def generate_test_results_for_competition(
+    competition: Competition,
+    judge_email: str,
+    overwrite: bool,
+    db,
+):
+    participant_disciplines = (
+        db.query(ParticipantDiscipline)
+        .all()
+    )
+    participants_by_id = {
+        participant.id: participant
+        for participant in (
+            db.query(CompetitionParticipant)
+            .filter(
+                CompetitionParticipant.competition_id == competition.id,
+                CompetitionParticipant.entry_type == "shooter",
+            )
+            .all()
+        )
+    }
+    disciplines_by_id = {
+        discipline.id: discipline
+        for discipline in (
+            db.query(Discipline)
+            .filter(Discipline.competition_id == competition.id)
+            .all()
+        )
+    }
+    changed_count = 0
+
+    for participant_discipline in participant_disciplines:
+        participant = participants_by_id.get(participant_discipline.participant_id)
+        discipline = disciplines_by_id.get(participant_discipline.discipline_id)
+
+        if not participant or not discipline:
+            continue
+
+        result = (
+            db.query(DisciplineResult)
+            .filter(
+                DisciplineResult.participant_id == participant.id,
+                DisciplineResult.discipline_id == discipline.id,
+            )
+            .first()
+        )
+        points = test_result_points(participant, discipline)
+
+        if result:
+            if not overwrite:
+                continue
+
+            result.points = points
+            result.judge_email = judge_email
+        else:
+            db.add(DisciplineResult(
+                competition_id=competition.id,
+                discipline_id=discipline.id,
+                participant_id=participant.id,
+                judge_email=judge_email,
+                points=points,
+            ))
+
+        changed_count += 1
+
+    return changed_count
 
 
 def delete_user_with_dependencies(user: User, db):
@@ -2052,6 +2316,264 @@ def admin_delete_competition(
     }
 
 
+@app.post("/admin/test-data/competition")
+def admin_generate_test_competition(
+    data: AdminGenerateCompetitionData,
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    if data.status not in TEST_COMPETITION_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail="Nieprawidłowy status zawodów testowych"
+        )
+
+    participants_count = validate_test_count(
+        data.participants_count,
+        0,
+        100,
+        "Liczba zawodników"
+    )
+    today = datetime.now(APP_TIMEZONE).date()
+    competition_date = (
+        today + timedelta(days=7)
+        if data.status in ["draft", "published"]
+        else today
+    )
+    status_suffix = {
+        "draft": "szkic",
+        "published": "opublikowane",
+        "started": "live",
+        "completed": "historyczne",
+    }[data.status]
+    competition = Competition(
+        name=f"TEST Generator {status_suffix} {datetime.now(APP_TIMEZONE).strftime('%Y-%m-%d %H:%M')}",
+        date=competition_date.isoformat(),
+        location="Strzelnica testowa",
+        entry_fee="",
+        organizer_full_name="Generator danych testowych",
+        organizer_logo="",
+        sponsors="",
+        sponsor_logo="",
+        participant_limit=max(participants_count + 20, 50),
+        status=data.status,
+        completed_at=(
+            (datetime.now(APP_TIMEZONE) - timedelta(hours=25)).isoformat()
+            if data.status == "completed"
+            else None
+        ),
+        created_by=admin.email,
+    )
+
+    db.add(competition)
+    db.flush()
+
+    disciplines = []
+
+    for template in TEST_DISCIPLINE_TEMPLATES:
+        discipline = Discipline(
+            competition_id=competition.id,
+            name=template["name"],
+            description=template["description"],
+            scoring_type=template["scoring_type"],
+            shots_count=template["shots_count"],
+            ammo_type=template["ammo_type"],
+            ammo_price=template["ammo_price"],
+            entry_fee=template["entry_fee"],
+        )
+        db.add(discipline)
+        db.flush()
+        disciplines.append(discipline)
+
+    checked_in = data.status in ["started", "completed"]
+    paid = data.status in ["started", "completed"]
+
+    for index in range(participants_count):
+        create_test_participant(
+            competition,
+            disciplines,
+            index,
+            checked_in,
+            paid,
+            db,
+        )
+
+    results_count = 0
+
+    if data.include_results and data.status in ["started", "completed"]:
+        results_count = generate_test_results_for_competition(
+            competition,
+            admin.email,
+            True,
+            db,
+        )
+
+    db.commit()
+    db.refresh(competition)
+
+    return {
+        "message": "Wygenerowano zawody testowe",
+        "competition_id": competition.id,
+        "participants_count": participants_count,
+        "results_count": results_count,
+    }
+
+
+@app.post("/admin/test-data/participants")
+def admin_generate_test_participants(
+    data: AdminGenerateParticipantsData,
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    count = validate_test_count(data.count, 1, 100, "Liczba zawodników")
+    competition = (
+        db.query(Competition)
+        .filter(Competition.id == data.competition_id)
+        .first()
+    )
+
+    if not competition:
+        raise HTTPException(
+            status_code=404,
+            detail="Zawody nie istnieją"
+        )
+
+    disciplines = (
+        db.query(Discipline)
+        .filter(Discipline.competition_id == competition.id)
+        .all()
+    )
+
+    if not disciplines:
+        raise HTTPException(
+            status_code=400,
+            detail="Te zawody nie mają konkurencji"
+        )
+
+    existing_count = (
+        db.query(CompetitionParticipant)
+        .filter(
+            CompetitionParticipant.competition_id == competition.id,
+            CompetitionParticipant.entry_type == "shooter",
+        )
+        .count()
+    )
+
+    if competition.participant_limit and existing_count + count > competition.participant_limit:
+        raise HTTPException(
+            status_code=400,
+            detail="Limit zawodników zostałby przekroczony"
+        )
+
+    participants = []
+
+    for index in range(existing_count, existing_count + count):
+        participants.append(create_test_participant(
+            competition,
+            disciplines,
+            index,
+            data.checked_in,
+            data.paid,
+            db,
+        ))
+
+    results_count = 0
+
+    if data.include_results:
+        if competition.status not in ["started", "completed"]:
+            raise HTTPException(
+                status_code=400,
+                detail="Wyniki można generować po rozpoczęciu zawodów"
+            )
+
+        results_count = generate_test_results_for_competition(
+            competition,
+            admin.email,
+            False,
+            db,
+        )
+
+    db.commit()
+
+    return {
+        "message": "Wygenerowano zawodników testowych",
+        "competition_id": competition.id,
+        "participants_count": len(participants),
+        "results_count": results_count,
+    }
+
+
+@app.post("/admin/test-data/results")
+def admin_generate_test_results(
+    data: AdminGenerateResultsData,
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    competition = (
+        db.query(Competition)
+        .filter(Competition.id == data.competition_id)
+        .first()
+    )
+
+    if not competition:
+        raise HTTPException(
+            status_code=404,
+            detail="Zawody nie istnieją"
+        )
+
+    if competition.status not in ["started", "completed"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Wyniki można generować po rozpoczęciu zawodów"
+        )
+
+    results_count = generate_test_results_for_competition(
+        competition,
+        admin.email,
+        data.overwrite,
+        db,
+    )
+    db.commit()
+
+    return {
+        "message": "Wygenerowano wyniki testowe",
+        "competition_id": competition.id,
+        "results_count": results_count,
+    }
+
+
+@app.delete("/admin/test-data/competitions/{competition_id}/results")
+def admin_reset_test_results(
+    competition_id: int,
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    competition = (
+        db.query(Competition)
+        .filter(Competition.id == competition_id)
+        .first()
+    )
+
+    if not competition:
+        raise HTTPException(
+            status_code=404,
+            detail="Zawody nie istnieją"
+        )
+
+    deleted_count = (
+        db.query(DisciplineResult)
+        .filter(DisciplineResult.competition_id == competition.id)
+        .delete(synchronize_session=False)
+    )
+    db.commit()
+
+    return {
+        "message": "Wyniki zawodów zostały wyczyszczone",
+        "competition_id": competition.id,
+        "results_count": deleted_count,
+    }
+
+
 @app.post("/register")
 def register(
     data: RegisterData,
@@ -3240,10 +3762,10 @@ def get_judge_discipline_shooters(
         shooters.append({
             "participant_id": participant.id,
             "user_email": participant.user_email,
-            "first_name": shooter.first_name if shooter else "",
-            "last_name": shooter.last_name if shooter else "",
-            "license_number": shooter.license_number if shooter else "",
-            "club": shooter.club if shooter else "",
+            "first_name": participant.first_name or (shooter.first_name if shooter else "") or "",
+            "last_name": participant.last_name or (shooter.last_name if shooter else "") or "",
+            "license_number": participant.license_number or (shooter.license_number if shooter else "") or "",
+            "club": participant.club or (shooter.club if shooter else "") or "",
             "points": result.points if result else "",
         })
 

@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { apiUrl } from "@/lib/api";
 import { isAdmin } from "@/lib/auth";
 
-type AdminTab = "users" | "competitions" | "settings";
+type AdminTab = "users" | "competitions" | "settings" | "test-data";
 type UserSortField = "name" | "status" | "role" | "account" | "phone";
 type SortDirection = "asc" | "desc";
 
@@ -91,6 +91,13 @@ const requestedRoleLabels: Record<string, string> = {
   judge: "sędzia",
 };
 
+const competitionStatusLabels: Record<string, string> = {
+  draft: "szkic",
+  published: "opublikowane",
+  started: "rozpoczęte / live",
+  completed: "zakończone / historyczne",
+};
+
 const defaultResultsTableSettings: ResultsTableSettings = {
   grid_template_columns: "80px 1.6fr 1fr 1.1fr 120px",
   min_width: "820px",
@@ -151,6 +158,16 @@ export default function AdminClient({
   );
   const [resultsTableSettings, setResultsTableSettings] = useState<ResultsTableSettings>(defaultResultsTableSettings);
   const [uiSettings, setUiSettings] = useState<UiSettings>(defaultUiSettings);
+  const [testCompetitionStatus, setTestCompetitionStatus] = useState("started");
+  const [testCompetitionParticipants, setTestCompetitionParticipants] = useState(12);
+  const [testCompetitionResults, setTestCompetitionResults] = useState(true);
+  const [testTargetCompetitionId, setTestTargetCompetitionId] = useState("");
+  const [testParticipantCount, setTestParticipantCount] = useState(10);
+  const [testParticipantsCheckedIn, setTestParticipantsCheckedIn] = useState(true);
+  const [testParticipantsPaid, setTestParticipantsPaid] = useState(true);
+  const [testParticipantResults, setTestParticipantResults] = useState(false);
+  const [testOverwriteResults, setTestOverwriteResults] = useState(true);
+  const [testWorking, setTestWorking] = useState(false);
 
   useEffect(() => {
     if (!isAdmin()) {
@@ -328,6 +345,24 @@ export default function AdminClient({
         settings[key as keyof UiSettings]
       );
     });
+  }
+
+  async function reloadCompetitions(token: string | null) {
+    const response = await fetch(
+      apiUrl("/admin/competitions"),
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    );
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.detail || "Nie udało się odświeżyć zawodów");
+    }
+
+    setCompetitions(data);
   }
 
   function getRoleNames(user: AdminUser) {
@@ -652,6 +687,179 @@ export default function AdminClient({
     }
   }
 
+  async function generateTestCompetition() {
+    const token = localStorage.getItem("token");
+
+    try {
+      setTestWorking(true);
+      setMessage("");
+
+      const response = await fetch(
+        apiUrl("/admin/test-data/competition"),
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            status: testCompetitionStatus,
+            participants_count: testCompetitionParticipants,
+            include_results: testCompetitionResults,
+          }),
+        }
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.detail || "Nie udało się wygenerować zawodów testowych ❌");
+        return;
+      }
+
+      setTestTargetCompetitionId(String(data.competition_id));
+      await reloadCompetitions(token);
+      setMessage(`Wygenerowano zawody #${data.competition_id}, zawodnicy: ${data.participants_count}, wyniki: ${data.results_count} ✅`);
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    } finally {
+      setTestWorking(false);
+    }
+  }
+
+  async function generateTestParticipants() {
+    if (!testTargetCompetitionId) {
+      setMessage("Wybierz zawody do uzupełnienia ❌");
+      return;
+    }
+
+    const token = localStorage.getItem("token");
+
+    try {
+      setTestWorking(true);
+      setMessage("");
+
+      const response = await fetch(
+        apiUrl("/admin/test-data/participants"),
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            competition_id: Number(testTargetCompetitionId),
+            count: testParticipantCount,
+            checked_in: testParticipantsCheckedIn,
+            paid: testParticipantsPaid,
+            include_results: testParticipantResults,
+          }),
+        }
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.detail || "Nie udało się wygenerować zawodników ❌");
+        return;
+      }
+
+      await reloadCompetitions(token);
+      setMessage(`Dodano zawodników: ${data.participants_count}, wyniki: ${data.results_count} ✅`);
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    } finally {
+      setTestWorking(false);
+    }
+  }
+
+  async function generateTestResults() {
+    if (!testTargetCompetitionId) {
+      setMessage("Wybierz zawody do wygenerowania wyników ❌");
+      return;
+    }
+
+    const token = localStorage.getItem("token");
+
+    try {
+      setTestWorking(true);
+      setMessage("");
+
+      const response = await fetch(
+        apiUrl("/admin/test-data/results"),
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            competition_id: Number(testTargetCompetitionId),
+            overwrite: testOverwriteResults,
+          }),
+        }
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.detail || "Nie udało się wygenerować wyników ❌");
+        return;
+      }
+
+      setMessage(`Wygenerowano lub zaktualizowano wyników: ${data.results_count} ✅`);
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    } finally {
+      setTestWorking(false);
+    }
+  }
+
+  async function resetTestResults() {
+    if (!testTargetCompetitionId) {
+      setMessage("Wybierz zawody do wyczyszczenia wyników ❌");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Czy na pewno wyczyścić wyniki w wybranych zawodach?"
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    const token = localStorage.getItem("token");
+
+    try {
+      setTestWorking(true);
+      setMessage("");
+
+      const response = await fetch(
+        apiUrl(`/admin/test-data/competitions/${testTargetCompetitionId}/results`),
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.detail || "Nie udało się wyczyścić wyników ❌");
+        return;
+      }
+
+      setMessage(`Wyczyszczono wyników: ${data.results_count} ✅`);
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    } finally {
+      setTestWorking(false);
+    }
+  }
+
   function getUserName(user: AdminUser) {
     return user.last_name || user.first_name
       ? `${user.last_name} ${user.first_name}`.trim()
@@ -797,6 +1005,18 @@ export default function AdminClient({
             }`}
           >
             Settings
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab("test-data")}
+            className={`ui-button min-w-0 px-5 py-3 rounded-xl font-bold transition ${
+              activeTab === "test-data"
+                ? "bg-green-700 text-white"
+                : "bg-zinc-800 text-gray-300 hover:bg-zinc-700"
+            }`}
+          >
+            Test danych
           </button>
         </div>
 
@@ -1233,7 +1453,7 @@ export default function AdminClient({
               })}
             </div>
           </section>
-        ) : (
+        ) : activeTab === "settings" ? (
           <section className="ui-block bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
             <div className="mb-6">
               <h2 className="text-3xl font-bold text-white mb-2">
@@ -1505,6 +1725,217 @@ export default function AdminClient({
                 Zapisz ustawienia tabeli
               </button>
               </div>
+            </div>
+          </section>
+        ) : (
+          <section className="space-y-6">
+            <div className="ui-block bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+              <h2 className="text-3xl font-bold text-white mb-2">
+                Test danych
+              </h2>
+
+              <p className="text-gray-400">
+                Generuj kontrolowane dane do sprawdzania list zawodników, opłat i tabel wyników.
+              </p>
+            </div>
+
+            <div className="grid gap-6 lg:grid-cols-3">
+              <section className="ui-block bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+                <h3 className="text-2xl font-bold text-white mb-4">
+                  Generuj zawody
+                </h3>
+
+                <div className="space-y-4">
+                  <label className="block">
+                    <span className="block text-white font-semibold mb-2">
+                      Status zawodów
+                    </span>
+
+                    <select
+                      value={testCompetitionStatus}
+                      onChange={(event) => setTestCompetitionStatus(event.target.value)}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white"
+                    >
+                      {Object.entries(competitionStatusLabels).map(([status, label]) => (
+                        <option
+                          key={status}
+                          value={status}
+                        >
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="block">
+                    <span className="block text-white font-semibold mb-2">
+                      Liczba zawodników
+                    </span>
+
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={testCompetitionParticipants}
+                      onChange={(event) => setTestCompetitionParticipants(Number(event.target.value))}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white"
+                    />
+                  </label>
+
+                  <label className="flex items-center gap-3 text-gray-200">
+                    <input
+                      type="checkbox"
+                      checked={testCompetitionResults}
+                      onChange={(event) => setTestCompetitionResults(event.target.checked)}
+                      className="accent-green-700"
+                    />
+
+                    <span>
+                      Od razu wygeneruj wyniki
+                    </span>
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={generateTestCompetition}
+                    disabled={testWorking}
+                    className="ui-button w-full bg-green-700 hover:bg-green-600 disabled:bg-zinc-700 disabled:cursor-not-allowed text-white px-5 py-3 rounded-xl font-bold transition"
+                  >
+                    Generuj zawody
+                  </button>
+                </div>
+              </section>
+
+              <section className="ui-block bg-zinc-900 border border-zinc-800 rounded-2xl p-6 lg:col-span-2">
+                <h3 className="text-2xl font-bold text-white mb-4">
+                  Generuj do istniejących zawodów
+                </h3>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <label className="block md:col-span-2">
+                    <span className="block text-white font-semibold mb-2">
+                      Zawody
+                    </span>
+
+                    <select
+                      value={testTargetCompetitionId}
+                      onChange={(event) => setTestTargetCompetitionId(event.target.value)}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white"
+                    >
+                      <option value="">
+                        Wybierz zawody
+                      </option>
+
+                      {competitions.map((competition) => (
+                        <option
+                          key={competition.id}
+                          value={competition.id}
+                        >
+                          #{competition.id} {competition.name} ({competition.status})
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="block">
+                    <span className="block text-white font-semibold mb-2">
+                      Ilu zawodników dodać
+                    </span>
+
+                    <input
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={testParticipantCount}
+                      onChange={(event) => setTestParticipantCount(Number(event.target.value))}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white"
+                    />
+                  </label>
+
+                  <div className="space-y-3 rounded-2xl border border-zinc-800 bg-zinc-950/50 p-4">
+                    <label className="flex items-center gap-3 text-gray-200">
+                      <input
+                        type="checkbox"
+                        checked={testParticipantsCheckedIn}
+                        onChange={(event) => setTestParticipantsCheckedIn(event.target.checked)}
+                        className="accent-green-700"
+                      />
+
+                      <span>
+                        Oznacz obecność
+                      </span>
+                    </label>
+
+                    <label className="flex items-center gap-3 text-gray-200">
+                      <input
+                        type="checkbox"
+                        checked={testParticipantsPaid}
+                        onChange={(event) => setTestParticipantsPaid(event.target.checked)}
+                        className="accent-green-700"
+                      />
+
+                      <span>
+                        Oznacz opłacenie
+                      </span>
+                    </label>
+
+                    <label className="flex items-center gap-3 text-gray-200">
+                      <input
+                        type="checkbox"
+                        checked={testParticipantResults}
+                        onChange={(event) => setTestParticipantResults(event.target.checked)}
+                        className="accent-green-700"
+                      />
+
+                      <span>
+                        Dodaj wyniki po wygenerowaniu
+                      </span>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="mt-5 flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    onClick={generateTestParticipants}
+                    disabled={testWorking}
+                    className="ui-button bg-green-700 hover:bg-green-600 disabled:bg-zinc-700 disabled:cursor-not-allowed text-white px-5 py-3 rounded-xl font-bold transition"
+                  >
+                    Generuj zawodników
+                  </button>
+
+                  <label className="flex items-center gap-3 text-gray-200">
+                    <input
+                      type="checkbox"
+                      checked={testOverwriteResults}
+                      onChange={(event) => setTestOverwriteResults(event.target.checked)}
+                      className="accent-green-700"
+                    />
+
+                    <span>
+                      Nadpisuj istniejące wyniki
+                    </span>
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={generateTestResults}
+                    disabled={testWorking}
+                    className="ui-button bg-blue-700 hover:bg-blue-600 disabled:bg-zinc-700 disabled:cursor-not-allowed text-white px-5 py-3 rounded-xl font-bold transition"
+                  >
+                    Generuj wyniki
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={resetTestResults}
+                    disabled={testWorking}
+                    className="ui-button bg-red-700 hover:bg-red-600 disabled:bg-zinc-700 disabled:cursor-not-allowed text-white px-5 py-3 rounded-xl font-bold transition"
+                  >
+                    Reset wyników
+                  </button>
+                </div>
+              </section>
             </div>
           </section>
         )}
