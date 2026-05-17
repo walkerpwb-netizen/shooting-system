@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useSyncExternalStore } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { apiUrl } from "@/lib/api";
@@ -590,9 +591,12 @@ export default function JoinCompetitionPanel({
               key={participant.id}
               className="border border-zinc-700 rounded-xl p-4"
             >
-              <p className="font-bold">
+              <Link
+                href={`/profile/${participant.id}`}
+                className="font-bold transition hover:text-green-300"
+              >
                 {index + 1}. {participant.display_name}
-              </p>
+              </Link>
             </div>
           ))}
         </div>

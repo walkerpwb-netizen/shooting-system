@@ -49,6 +49,10 @@ app = FastAPI()
 oauth2_scheme = OAuth2PasswordBearer(
     tokenUrl="login"
 )
+optional_oauth2_scheme = OAuth2PasswordBearer(
+    tokenUrl="login",
+    auto_error=False,
+)
 
 Base.metadata.create_all(bind=engine)
 
@@ -1741,6 +1745,42 @@ def get_current_user(
             status_code=401,
             detail="Użytkownik nie istnieje"
         )
+
+    user.last_seen = datetime.now(timezone.utc).isoformat()
+    db.commit()
+
+    return user
+
+
+def get_optional_current_user(
+    token: Optional[str] = Depends(optional_oauth2_scheme),
+    db=Depends(get_db),
+):
+    if not token:
+        return None
+
+    try:
+        payload = jwt.decode(
+            token,
+            SECRET_KEY,
+            algorithms=[ALGORITHM]
+        )
+    except JWTError:
+        return None
+
+    email = payload.get("sub")
+
+    if email is None:
+        return None
+
+    user = (
+        db.query(User)
+        .filter(User.email == email)
+        .first()
+    )
+
+    if not user:
+        return None
 
     user.last_seen = datetime.now(timezone.utc).isoformat()
     db.commit()
@@ -4273,6 +4313,72 @@ def get_me(
         "requested_role": user.requested_role or "",
         "profile_complete": is_profile_complete(user),
     }
+
+
+@app.get("/participants/{participant_id}/profile")
+def get_participant_profile(
+    participant_id: int,
+    current_user: Optional[User] = Depends(get_optional_current_user),
+    db=Depends(get_db),
+):
+    participant = (
+        db.query(CompetitionParticipant)
+        .filter(CompetitionParticipant.id == participant_id)
+        .first()
+    )
+
+    if not participant:
+        raise HTTPException(
+            status_code=404,
+            detail="Nie znaleziono zawodnika"
+        )
+
+    participant_user = (
+        db.query(User)
+        .filter(User.email == participant.user_email)
+        .first()
+    )
+    public_data = public_participant(participant, db)
+    is_owner = bool(
+        current_user
+        and participant_user
+        and current_user.email == participant_user.email
+    )
+    roles = get_user_roles(participant_user) if participant_user else []
+
+    response = {
+        "participant_id": participant.id,
+        "first_name": public_data["first_name"],
+        "last_name": public_data["last_name"],
+        "club": public_data["club"],
+        "is_owner": is_owner,
+        "email": "",
+        "role": "",
+        "roles": [],
+        "is_active": False,
+        "license_number": "",
+        "judge_license_number": "",
+        "birth_date": "",
+        "phone_number": "",
+        "requested_role": "",
+        "profile_complete": False,
+    }
+
+    if is_owner and participant_user:
+        response.update({
+            "email": participant_user.email,
+            "role": primary_role(roles),
+            "roles": roles,
+            "is_active": bool(participant_user.is_active),
+            "license_number": participant_user.license_number or "",
+            "judge_license_number": participant_user.judge_license_number or "",
+            "birth_date": participant_user.birth_date or "",
+            "phone_number": participant_user.phone_number or "",
+            "requested_role": participant_user.requested_role or "",
+            "profile_complete": is_profile_complete(participant_user),
+        })
+
+    return response
 
 
 @app.post("/me/role-request")

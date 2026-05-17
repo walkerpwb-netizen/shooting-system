@@ -399,9 +399,12 @@ export default function OrganizerPaymentsPage() {
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div>
-                            <p className="text-lg font-black text-white">
+                            <Link
+                              href={`/profile/${participant.id}`}
+                              className="text-lg font-black text-white transition hover:text-green-300"
+                            >
                               {participantName(participant)}
-                            </p>
+                            </Link>
                             {isComplete && (
                               <p className="mt-1 text-sm font-bold text-green-400">
                                 Potwierdzony
@@ -603,9 +606,12 @@ export default function OrganizerPaymentsPage() {
                         key={participant.id}
                         className="grid grid-cols-[1.5fr_1fr_1.1fr_1.4fr_0.8fr_0.9fr_0.9fr_1.7fr] gap-3 px-3 py-2 items-center text-sm border-b border-zinc-800 last:border-b-0 hover:bg-zinc-800/40"
                       >
-                        <p className="text-white font-semibold">
+                        <Link
+                          href={`/profile/${participant.id}`}
+                          className="font-semibold text-white transition hover:text-green-300"
+                        >
                           {participantName(participant)}
-                        </p>
+                        </Link>
 
                         <p className="text-gray-300">
                           {participant.license_number || "brak"}

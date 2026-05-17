@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 
 import { apiUrl } from "@/lib/api";
 
@@ -167,9 +168,12 @@ export default function ResultsLeaderboardTable({
                   {shooter.place}
                 </p>
 
-                <p className="font-semibold text-zinc-950 dark:text-white">
+                <Link
+                  href={`/profile/${shooter.participant_id}`}
+                  className="font-semibold text-zinc-950 transition hover:text-green-700 dark:text-white dark:hover:text-green-300"
+                >
                   {shooterName(shooter)}
-                </p>
+                </Link>
 
                 <p className="text-zinc-700 dark:text-gray-300">
                   {shooter.license_number || "brak"}

@@ -372,9 +372,12 @@ export default function JudgeDisciplinePage() {
                     key={shooter.participant_id}
                     className="grid grid-cols-[1.5fr_1fr_1.2fr_0.8fr_1fr] gap-3 px-3 py-2 items-center text-sm border-b border-zinc-800 last:border-b-0 hover:bg-zinc-800/40"
                   >
-                    <p className="text-white font-semibold">
+                    <Link
+                      href={`/profile/${shooter.participant_id}`}
+                      className="font-semibold text-white transition hover:text-green-300"
+                    >
                       {getShooterName(shooter)}
-                    </p>
+                    </Link>
 
                     <p className="text-gray-300">
                       {shooter.license_number || "brak"}

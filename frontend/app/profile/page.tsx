@@ -34,14 +34,40 @@ const profileRoleLabels: Record<string, string> = {
   admin: "Administrator",
 };
 
-const fieldClassName = "w-full border border-gray-300 rounded-xl px-4 py-3 text-black placeholder:text-gray-400";
+const fieldClassName = "w-full rounded-lg border border-red-900/60 bg-black px-4 py-3 text-red-50 placeholder:text-red-900/70 outline-none transition focus:border-red-500";
+const profileLabelClassName = "text-lg font-medium text-red-400";
+const profileValueClassName = "mt-3 min-h-6 text-xl font-semibold text-red-50";
 
 function RequiredLabel({ children }: { children: ReactNode }) {
   return (
-    <span className="block text-sm font-semibold text-gray-600 mb-1">
-      {children} <span className="text-red-600">*</span>
+    <span className="mb-2 block text-sm font-semibold text-red-300">
+      {children} <span className="text-red-500">*</span>
     </span>
   );
+}
+
+function ProfileField({
+  label,
+  value,
+}: {
+  label: string;
+  value: ReactNode;
+}) {
+  return (
+    <div>
+      <dt className={profileLabelClassName}>
+        {label}
+      </dt>
+
+      <dd className={profileValueClassName}>
+        {value || "-"}
+      </dd>
+    </div>
+  );
+}
+
+function displayValue(value: string, fallback = "Brak") {
+  return value.trim() || fallback;
 }
 
 function normalizeBirthDateInput(value: string) {
@@ -241,15 +267,6 @@ export default function ProfilePage() {
     }
   }
 
-  function logout() {
-    localStorage.removeItem("token");
-    localStorage.removeItem("role");
-    localStorage.removeItem("roles");
-    localStorage.removeItem("email");
-
-    router.push("/");
-  }
-
   async function sendRoleRequest(role: "organizer" | "judge") {
     const token = localStorage.getItem("token");
 
@@ -300,325 +317,269 @@ export default function ProfilePage() {
     }
   }
 
+  const isOwnerProfile = true;
+  const rolesText = profile?.roles
+    .map((role) => profileRoleLabels[role] || role)
+    .join(", ");
+
   return (
-    <main className="min-h-screen px-6 py-10">
-      <div className="max-w-3xl mx-auto">
-        <h1 className="text-5xl font-bold text-white mb-8">
-          Profil
-        </h1>
-
-        <div className="bg-white rounded-3xl shadow-xl p-8">
-          {loading ? (
-            <p className="text-black">
-              Ładowanie profilu...
+    <main className="min-h-screen bg-black px-6 py-8 text-red-400 sm:px-10 lg:px-14">
+      {loading ? (
+        <p className="text-red-100">
+          Ładowanie profilu...
+        </p>
+      ) : profile ? (
+        <div className="mx-auto w-full max-w-[1800px]">
+          {!profile.profile_complete && (
+            <p className="mb-8 max-w-2xl rounded-lg border border-yellow-500/50 bg-yellow-400/10 px-4 py-3 text-yellow-100">
+              Uzupełnij profil, aby móc dołączyć do zawodów.
             </p>
-          ) : profile ? (
-            <div className="space-y-6">
-              <div className="grid md:grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm text-gray-500 mb-1">
-                    Email
-                  </p>
+          )}
 
-                  <p className="text-xl font-bold text-black">
-                    {profile.email}
-                  </p>
-                </div>
+          {editing ? (
+            <section className="max-w-5xl">
+              <h1 className="mb-10 text-4xl font-bold text-red-400 sm:text-5xl">
+                Profil
+              </h1>
 
-                <div>
-                  <p className="text-sm text-gray-500 mb-1">
-                    Status konta
-                  </p>
+              <p className="mb-6 text-sm text-red-200">
+                Pola oznaczone <span className="font-bold text-red-500">*</span> są wymagane do zapisania się na zawody.
+              </p>
 
-                  <p className="text-xl font-bold text-black">
-                    {profile.is_active
-                      ? "Aktywne"
-                      : "Nieaktywne"}
-                  </p>
-                </div>
+              <div className="grid gap-5 md:grid-cols-2">
+                <label>
+                  <RequiredLabel>Imię</RequiredLabel>
+                  <input
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                    placeholder="Podaj imię"
+                    className={fieldClassName}
+                  />
+                </label>
 
+                <label>
+                  <RequiredLabel>Nazwisko</RequiredLabel>
+                  <input
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                    placeholder="Podaj nazwisko"
+                    className={fieldClassName}
+                  />
+                </label>
+
+                <label>
+                  <span className="mb-2 block text-sm font-semibold text-red-300">
+                    Klub
+                  </span>
+                  <input
+                    value={club}
+                    onChange={(e) => setClub(e.target.value)}
+                    placeholder="Podaj klub"
+                    className={fieldClassName}
+                  />
+                </label>
+
+                <label>
+                  <span className="mb-2 block text-sm font-semibold text-red-300">
+                    Nr. Licencji Zawodniczej
+                  </span>
+                  <input
+                    value={licenseNumber}
+                    onChange={(e) => setLicenseNumber(e.target.value)}
+                    placeholder="Nr. Licencji Zawodniczej"
+                    className={fieldClassName}
+                  />
+                </label>
+
+                <label>
+                  <span className="mb-2 block text-sm font-semibold text-red-300">
+                    Nr. Licencji Sędziowskiej
+                  </span>
+                  <input
+                    value={judgeLicenseNumber}
+                    onChange={(e) => setJudgeLicenseNumber(e.target.value)}
+                    placeholder="Nr. Licencji Sędziowskiej"
+                    className={fieldClassName}
+                  />
+                </label>
+
+                <label>
+                  <RequiredLabel>Data urodzenia</RequiredLabel>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={birthDate}
+                    onChange={(e) => setBirthDate(e.target.value)}
+                    placeholder="Podaj datę urodzenia"
+                    className={fieldClassName}
+                  />
+                </label>
+
+                <label>
+                  <RequiredLabel>Nr telefonu</RequiredLabel>
+                  <input
+                    type="tel"
+                    inputMode="tel"
+                    value={phoneNumber}
+                    onChange={(e) => setPhoneNumber(e.target.value)}
+                    placeholder="Podaj nr telefonu"
+                    className={fieldClassName}
+                  />
+                </label>
               </div>
 
-              {!profile.profile_complete && (
-                <p className="bg-yellow-50 border border-yellow-200 text-yellow-900 rounded-xl p-4">
-                  Uzupełnij profil, aby móc dołączyć do zawodów.
-                </p>
-              )}
+              <div className="mt-8 flex flex-wrap gap-4">
+                <button
+                  onClick={saveProfile}
+                  disabled={saving}
+                  className="bg-green-900 px-5 py-3 font-semibold text-white transition hover:bg-green-800 disabled:opacity-50"
+                >
+                  {saving
+                    ? "Zapisywanie..."
+                    : "Zapisz profil"}
+                </button>
 
-              {editing ? (
-                <>
-                  <p className="text-sm text-gray-500">
-                    Pola oznaczone <span className="text-red-600 font-bold">*</span> są wymagane do zapisania się na zawody.
-                  </p>
+                {profile.profile_complete && (
+                  <button
+                    onClick={() => setEditing(false)}
+                    className="bg-zinc-800 px-5 py-3 font-semibold text-white transition hover:bg-zinc-700"
+                  >
+                    Anuluj
+                  </button>
+                )}
+              </div>
+            </section>
+          ) : (
+            <>
+              <div className="grid min-h-[calc(100vh-12rem)] gap-12 lg:grid-cols-[320px_minmax(0,1fr)] xl:grid-cols-[380px_minmax(0,1fr)]">
+                <aside className="lg:pt-24">
+                  <dl className="space-y-8">
+                    <ProfileField
+                      label="Nazwisko"
+                      value={displayValue(profile.last_name)}
+                    />
 
-                  <div className="grid md:grid-cols-2 gap-4">
-                    <label>
-                      <RequiredLabel>Imię</RequiredLabel>
-                      <input
-                        value={firstName}
-                        onChange={(e) => setFirstName(e.target.value)}
-                        placeholder="Podaj imię"
-                        className={fieldClassName}
-                      />
-                    </label>
+                    <ProfileField
+                      label="Imię"
+                      value={displayValue(profile.first_name)}
+                    />
 
-                    <label>
-                      <RequiredLabel>Nazwisko</RequiredLabel>
-                      <input
-                        value={lastName}
-                        onChange={(e) => setLastName(e.target.value)}
-                        placeholder="Podaj nazwisko"
-                        className={fieldClassName}
-                      />
-                    </label>
+                    <ProfileField
+                      label="Klub"
+                      value={displayValue(profile.club)}
+                    />
 
-                    <label>
-                      <span className="block text-sm font-semibold text-gray-600 mb-1">
-                        Nr. Licencji Zawodniczej
-                      </span>
-                      <input
-                        value={licenseNumber}
-                        onChange={(e) => setLicenseNumber(e.target.value)}
-                        placeholder="Nr. Licencji Zawodniczej"
-                        className={fieldClassName}
-                      />
-                    </label>
+                    {isOwnerProfile && (
+                      <div className="space-y-8 pt-2">
+                        <ProfileField
+                          label="email"
+                          value={profile.email}
+                        />
 
-                    <label>
-                      <span className="block text-sm font-semibold text-gray-600 mb-1">
-                        Nr. Licencji Sędziowskiej
-                      </span>
-                      <input
-                        value={judgeLicenseNumber}
-                        onChange={(e) => setJudgeLicenseNumber(e.target.value)}
-                        placeholder="Nr. Licencji Sędziowskiej"
-                        className={fieldClassName}
-                      />
-                    </label>
+                        <ProfileField
+                          label="Nr. Licencji Zawodniczej"
+                          value={displayValue(profile.license_number)}
+                        />
 
-                    <label>
-                      <span className="block text-sm font-semibold text-gray-600 mb-1">
-                        Klub
-                      </span>
-                      <input
-                        value={club}
-                        onChange={(e) => setClub(e.target.value)}
-                        placeholder="Podaj klub"
-                        className={fieldClassName}
-                      />
-                    </label>
+                        <ProfileField
+                          label="Nr. licencji sędziowskiej"
+                          value={displayValue(profile.judge_license_number)}
+                        />
 
-                    <label>
-                      <RequiredLabel>Data urodzenia</RequiredLabel>
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        value={birthDate}
-                        onChange={(e) => setBirthDate(e.target.value)}
-                        placeholder="Podaj datę urodzenia"
-                        className={fieldClassName}
-                      />
-                    </label>
+                        <ProfileField
+                          label="Data Urodzenia"
+                          value={displayValue(profile.birth_date)}
+                        />
 
-                    <label>
-                      <RequiredLabel>Nr telefonu</RequiredLabel>
-                      <input
-                        type="tel"
-                        inputMode="tel"
-                        value={phoneNumber}
-                        onChange={(e) => setPhoneNumber(e.target.value)}
-                        placeholder="Podaj nr telefonu"
-                        className={fieldClassName}
-                      />
-                    </label>
-                  </div>
+                        <ProfileField
+                          label="Telefon"
+                          value={displayValue(profile.phone_number, "Brak numeru")}
+                        />
 
-                  <div className="flex gap-4">
-                    <button
-                      onClick={saveProfile}
-                      disabled={saving}
-                      className="bg-green-900 text-white px-5 py-3 rounded-xl font-semibold hover:bg-green-800 disabled:opacity-50 transition"
-                    >
-                      {saving
-                        ? "Zapisywanie..."
-                        : "Zapisz profil"}
-                    </button>
-
-                    {profile.profile_complete && (
-                      <button
-                        onClick={() => setEditing(false)}
-                        className="bg-gray-700 text-white px-5 py-3 rounded-xl font-semibold hover:bg-gray-600 transition"
-                      >
-                        Anuluj
-                      </button>
+                        <ProfileField
+                          label="Rola w systemie"
+                          value={rolesText || "Brak"}
+                        />
+                      </div>
                     )}
+                  </dl>
+                </aside>
+
+                <section className="flex min-w-0 flex-col items-center text-center">
+                  <h1 className="text-2xl font-medium text-red-400">
+                    Profil
+                  </h1>
+
+                  <div className="mt-14 w-full max-w-5xl">
+                    <h2 className="text-2xl font-medium text-red-400">
+                      Osiągnięcia
+                    </h2>
+
+                    <div className="min-h-[360px]" aria-label="Osiągnięcia" />
                   </div>
-                </>
-              ) : (
-                <>
-                  <div className="grid md:grid-cols-2 gap-4">
-                    <div>
-                      <p className="text-sm text-gray-500 mb-1">
-                        Imię
-                      </p>
+                </section>
+              </div>
 
-                      <p className="text-xl font-bold text-black">
-                        {profile.first_name}
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className="text-sm text-gray-500 mb-1">
-                        Nazwisko
-                      </p>
-
-                      <p className="text-xl font-bold text-black">
-                        {profile.last_name}
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className="text-sm text-gray-500 mb-1">
-                        Nr. Licencji Zawodniczej
-                      </p>
-
-                      <p className="text-xl font-bold text-black">
-                        {profile.license_number || "Brak"}
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className="text-sm text-gray-500 mb-1">
-                        Nr. Licencji Sędziowskiej
-                      </p>
-
-                      <p className="text-xl font-bold text-black">
-                        {profile.judge_license_number || "Brak"}
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className="text-sm text-gray-500 mb-1">
-                        Klub
-                      </p>
-
-                      <p className="text-xl font-bold text-black">
-                        {profile.club || "Brak"}
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className="text-sm text-gray-500 mb-1">
-                        Data urodzenia
-                      </p>
-
-                      <p className="text-xl font-bold text-black">
-                        {profile.birth_date || "Brak"}
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className="text-sm text-gray-500 mb-1">
-                        Telefon
-                      </p>
-
-                      <p className="text-xl font-bold text-black">
-                        {profile.phone_number || "Brak numeru"}
-                      </p>
-                    </div>
-
-                    <div className="md:col-span-2">
-                      <p className="text-sm text-gray-500 mb-1">
-                        Rola
-                      </p>
-
-                      <p className="text-xl font-bold text-black">
-                        {profile.roles
-                          .map((role) => profileRoleLabels[role] || role)
-                          .join(", ")}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex gap-4">
+              {isOwnerProfile && (
+                <section className="mt-8 flex flex-col gap-5 border-t border-red-950 pt-8">
+                  <div className="flex flex-wrap gap-4">
                     <button
                       onClick={() => setEditing(true)}
-                      className="bg-green-900 text-white px-5 py-3 rounded-xl font-semibold hover:bg-green-800 transition"
+                      className="bg-green-900 px-5 py-3 font-semibold text-white transition hover:bg-green-800"
                     >
                       Edytuj profil
                     </button>
 
-                    <button
-                      onClick={logout}
-                      className="bg-red-700 text-white px-5 py-3 rounded-xl font-semibold hover:bg-red-600 transition"
-                    >
-                      Wyloguj
-                    </button>
+                    {!profile.roles.includes("admin") && !profile.requested_role && !profile.roles.includes("organizer") && (
+                      <button
+                        type="button"
+                        onClick={() => sendRoleRequest("organizer")}
+                        disabled={sendingRoleRequest}
+                        className="bg-blue-700 px-5 py-3 font-semibold text-white transition hover:bg-blue-600 disabled:opacity-50"
+                      >
+                        Poproś o rolę organizatora
+                      </button>
+                    )}
+
+                    {!profile.roles.includes("admin") && !profile.requested_role && !profile.roles.includes("judge") && (
+                      <button
+                        type="button"
+                        onClick={() => sendRoleRequest("judge")}
+                        disabled={sendingRoleRequest}
+                        className="bg-zinc-800 px-5 py-3 font-semibold text-white transition hover:bg-zinc-700 disabled:opacity-50"
+                      >
+                        Poproś o rolę sędziego
+                      </button>
+                    )}
                   </div>
 
-                  {!profile.roles.includes("admin") && (
-                    <div className="border border-gray-200 rounded-2xl p-5">
-                      <h2 className="text-xl font-bold text-black mb-2">
-                        Uprawnienia
-                      </h2>
-
-                      {profile.requested_role ? (
-                        <p className="text-gray-700">
-                          Twoja prośba o rolę {roleRequestLabels[profile.requested_role] || profile.requested_role} oczekuje na decyzję administratora.
-                        </p>
-                      ) : profile.roles.includes("organizer") && profile.roles.includes("judge") ? (
-                        <p className="text-gray-700">
-                          Masz już komplet uprawnień organizatora i sędziego.
-                        </p>
-                      ) : (
-                        <>
-                          <p className="text-gray-600 mb-4">
-                            Możesz poprosić administratora o nadanie dodatkowej roli w systemie.
-                          </p>
-
-                          <div className="flex flex-wrap gap-3">
-                            {!profile.roles.includes("organizer") && (
-                              <button
-                                type="button"
-                                onClick={() => sendRoleRequest("organizer")}
-                                disabled={sendingRoleRequest}
-                                className="bg-blue-700 text-white px-5 py-3 rounded-xl font-semibold hover:bg-blue-600 disabled:opacity-50 transition"
-                              >
-                                Poproś o rolę organizatora
-                              </button>
-                            )}
-
-                            {!profile.roles.includes("judge") && (
-                              <button
-                                type="button"
-                                onClick={() => sendRoleRequest("judge")}
-                                disabled={sendingRoleRequest}
-                                className="bg-zinc-800 text-white px-5 py-3 rounded-xl font-semibold hover:bg-zinc-700 disabled:opacity-50 transition"
-                              >
-                                Poproś o rolę sędziego
-                              </button>
-                            )}
-                          </div>
-                        </>
-                      )}
-                    </div>
+                  {!profile.roles.includes("admin") && profile.requested_role && (
+                    <p className="text-red-100">
+                      Twoja prośba o rolę {roleRequestLabels[profile.requested_role] || profile.requested_role} oczekuje na decyzję administratora.
+                    </p>
                   )}
-                </>
-              )}
 
-              {message && (
-                <p className="text-black font-medium">
-                  {message}
-                </p>
+                  {!profile.roles.includes("admin") && !profile.requested_role && profile.roles.includes("organizer") && profile.roles.includes("judge") && (
+                    <p className="text-red-100">
+                      Masz już komplet uprawnień organizatora i sędziego.
+                    </p>
+                  )}
+                </section>
               )}
-            </div>
-          ) : (
-            <p className="text-black">
-              Nie udało się pobrać profilu.
+            </>
+          )}
+
+          {message && (
+            <p className="mt-6 font-medium text-red-100">
+              {message}
             </p>
           )}
         </div>
-      </div>
+      ) : (
+        <p className="text-red-100">
+          Nie udało się pobrać profilu.
+        </p>
+      )}
     </main>
   );
 }

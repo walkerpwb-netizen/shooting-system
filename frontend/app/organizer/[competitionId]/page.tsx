@@ -1122,9 +1122,12 @@ export default function OrganizerCompetitionPage() {
                           key={participant.id}
                           className="bg-gray-100 rounded-xl px-3 py-2 grid grid-cols-[1fr_auto_auto] gap-3 items-center"
                         >
-                          <p>
+                          <Link
+                            href={`/profile/${participant.id}`}
+                            className="font-semibold text-gray-900 transition hover:text-green-700"
+                          >
                             {participant.display_name}
-                          </p>
+                          </Link>
 
                           <p className={isConfirmed
                             ? "font-black text-green-700"
