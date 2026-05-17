@@ -501,7 +501,7 @@ export default function ProfilePage() {
           ) : (
             <>
               <div className="grid min-h-[calc(100vh-12rem)] gap-12 lg:grid-cols-[320px_minmax(0,1fr)] xl:grid-cols-[380px_minmax(0,1fr)]">
-                <aside className="lg:pt-24">
+                <aside>
                   <dl className="ui-profile-fields">
                     <ProfileField
                       label="Nazwisko"
@@ -555,11 +555,7 @@ export default function ProfilePage() {
                 </aside>
 
                 <section className="flex min-w-0 flex-col items-center text-center">
-                  <h1 className="text-2xl font-medium text-red-400">
-                    Profil
-                  </h1>
-
-                  <div className="mt-14 w-full max-w-5xl">
+                  <div className="w-full max-w-5xl">
                     <h2 className="text-2xl font-medium text-red-400">
                       Osiągnięcia
                     </h2>
