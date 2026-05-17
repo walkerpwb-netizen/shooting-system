@@ -78,6 +78,8 @@ type ProfileSettings = {
   label_font_size: string;
   value_font_size: string;
   row_gap: string;
+  achievement_icon_size: string;
+  achievement_gap: string;
 };
 
 const roles = [
@@ -131,6 +133,8 @@ const defaultProfileSettings: ProfileSettings = {
   label_font_size: "1.125rem",
   value_font_size: "1.25rem",
   row_gap: "2rem",
+  achievement_icon_size: "4rem",
+  achievement_gap: "1.25rem",
 };
 
 const uiCssVariableNames: Record<keyof UiSettings, string> = {
@@ -152,6 +156,8 @@ const profileCssVariableNames: Record<keyof ProfileSettings, string> = {
   label_font_size: "--ss-profile-label-font-size",
   value_font_size: "--ss-profile-value-font-size",
   row_gap: "--ss-profile-row-gap",
+  achievement_icon_size: "--ss-profile-achievement-icon-size",
+  achievement_gap: "--ss-profile-achievement-gap",
 };
 
 type AdminClientProps = {
@@ -314,6 +320,8 @@ export default function AdminClient({
           label_font_size: profileSettingsData.label_font_size || defaultProfileSettings.label_font_size,
           value_font_size: profileSettingsData.value_font_size || defaultProfileSettings.value_font_size,
           row_gap: profileSettingsData.row_gap || defaultProfileSettings.row_gap,
+          achievement_icon_size: profileSettingsData.achievement_icon_size || defaultProfileSettings.achievement_icon_size,
+          achievement_gap: profileSettingsData.achievement_gap || defaultProfileSettings.achievement_gap,
         });
       } catch (error) {
         console.error(error);
@@ -669,6 +677,8 @@ export default function AdminClient({
         label_font_size: data.label_font_size || defaultProfileSettings.label_font_size,
         value_font_size: data.value_font_size || defaultProfileSettings.value_font_size,
         row_gap: data.row_gap || defaultProfileSettings.row_gap,
+        achievement_icon_size: data.achievement_icon_size || defaultProfileSettings.achievement_icon_size,
+        achievement_gap: data.achievement_gap || defaultProfileSettings.achievement_gap,
       };
 
       setProfileSettings(nextProfileSettings);
@@ -1845,6 +1855,40 @@ export default function AdminClient({
                       }))}
                       className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
                       placeholder="2rem"
+                    />
+                  </label>
+                </div>
+
+                <div className="grid md:grid-cols-2 gap-4">
+                  <label className="block">
+                    <span className="block text-white font-semibold mb-2">
+                      Wielkość ikon odznaczeń
+                    </span>
+
+                    <input
+                      value={profileSettings.achievement_icon_size}
+                      onChange={(event) => setProfileSettings((currentSettings) => ({
+                        ...currentSettings,
+                        achievement_icon_size: event.target.value,
+                      }))}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
+                      placeholder="4rem"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="block text-white font-semibold mb-2">
+                      Odstęp między odznaczeniami
+                    </span>
+
+                    <input
+                      value={profileSettings.achievement_gap}
+                      onChange={(event) => setProfileSettings((currentSettings) => ({
+                        ...currentSettings,
+                        achievement_gap: event.target.value,
+                      }))}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
+                      placeholder="1.25rem"
                     />
                   </label>
                 </div>

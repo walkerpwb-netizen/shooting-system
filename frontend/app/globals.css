@@ -20,6 +20,8 @@
   --ss-profile-label-font-size: 1.125rem;
   --ss-profile-value-font-size: 1.25rem;
   --ss-profile-row-gap: 2rem;
+  --ss-profile-achievement-icon-size: 4rem;
+  --ss-profile-achievement-gap: 1.25rem;
 }
 
 @theme inline {
@@ -79,4 +81,16 @@ body {
 .ui-profile-value {
   color: var(--ss-profile-value-color) !important;
   font-size: var(--ss-profile-value-font-size) !important;
+}
+
+.ui-achievements-grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--ss-profile-achievement-gap);
+}
+
+.ui-achievement-icon {
+  height: var(--ss-profile-achievement-icon-size);
+  width: auto;
 }

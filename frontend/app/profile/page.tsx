@@ -31,6 +31,8 @@ type ProfileSettings = {
   label_font_size: string;
   value_font_size: string;
   row_gap: string;
+  achievement_icon_size: string;
+  achievement_gap: string;
 };
 
 const roleRequestLabels: Record<string, string> = {
@@ -45,7 +47,7 @@ const profileRoleLabels: Record<string, string> = {
   admin: "Administrator",
 };
 
-const fieldClassName = "w-full rounded-lg border border-red-900/60 bg-black px-4 py-3 text-red-50 placeholder:text-red-900/70 outline-none transition focus:border-red-500";
+const fieldClassName = "w-full rounded-lg border border-red-300 bg-white px-4 py-3 text-zinc-950 placeholder:text-zinc-400 outline-none transition focus:border-red-500 dark:border-red-900/60 dark:bg-black dark:text-red-50 dark:placeholder:text-red-900/70";
 const profileLabelClassName = "ui-profile-label font-medium text-red-400";
 const profileValueClassName = "ui-profile-value mt-3 min-h-6 font-semibold text-red-50";
 const defaultProfileSettings: ProfileSettings = {
@@ -54,6 +56,8 @@ const defaultProfileSettings: ProfileSettings = {
   label_font_size: "1.125rem",
   value_font_size: "1.25rem",
   row_gap: "2rem",
+  achievement_icon_size: "4rem",
+  achievement_gap: "1.25rem",
 };
 const profileCssVariableNames: Record<keyof ProfileSettings, string> = {
   label_color: "--ss-profile-label-color",
@@ -61,11 +65,13 @@ const profileCssVariableNames: Record<keyof ProfileSettings, string> = {
   label_font_size: "--ss-profile-label-font-size",
   value_font_size: "--ss-profile-value-font-size",
   row_gap: "--ss-profile-row-gap",
+  achievement_icon_size: "--ss-profile-achievement-icon-size",
+  achievement_gap: "--ss-profile-achievement-gap",
 };
 
 function RequiredLabel({ children }: { children: ReactNode }) {
   return (
-    <span className="mb-2 block text-sm font-semibold text-red-300">
+    <span className="mb-2 block text-sm font-semibold text-red-700 dark:text-red-300">
       {children} <span className="text-red-500">*</span>
     </span>
   );
@@ -219,6 +225,8 @@ export default function ProfilePage() {
             label_font_size: settingsData.label_font_size || defaultProfileSettings.label_font_size,
             value_font_size: settingsData.value_font_size || defaultProfileSettings.value_font_size,
             row_gap: settingsData.row_gap || defaultProfileSettings.row_gap,
+            achievement_icon_size: settingsData.achievement_icon_size || defaultProfileSettings.achievement_icon_size,
+            achievement_gap: settingsData.achievement_gap || defaultProfileSettings.achievement_gap,
           });
           setProfile(data);
           setFirstName(data.first_name || "");
@@ -375,15 +383,15 @@ export default function ProfilePage() {
     .join(", ");
 
   return (
-    <main className="min-h-screen bg-black px-6 py-8 text-red-400 sm:px-10 lg:px-14">
+    <main className="min-h-screen bg-white px-6 py-8 text-zinc-950 dark:bg-black dark:text-red-400 sm:px-10 lg:px-14">
       {loading ? (
-        <p className="text-red-100">
+        <p className="text-zinc-700 dark:text-red-100">
           Ładowanie profilu...
         </p>
       ) : profile ? (
         <div className="mx-auto w-full max-w-[1800px]">
           {!profile.profile_complete && (
-            <p className="mb-8 max-w-2xl rounded-lg border border-yellow-500/50 bg-yellow-400/10 px-4 py-3 text-yellow-100">
+            <p className="mb-8 max-w-2xl rounded-lg border border-yellow-500/50 bg-yellow-400/10 px-4 py-3 text-yellow-900 dark:text-yellow-100">
               Uzupełnij profil, aby móc dołączyć do zawodów.
             </p>
           )}
@@ -394,7 +402,7 @@ export default function ProfilePage() {
                 Profil
               </h1>
 
-              <p className="mb-6 text-sm text-red-200">
+              <p className="mb-6 text-sm text-red-700 dark:text-red-200">
                 Pola oznaczone <span className="font-bold text-red-500">*</span> są wymagane do zapisania się na zawody.
               </p>
 
@@ -420,7 +428,7 @@ export default function ProfilePage() {
                 </label>
 
                 <label>
-                  <span className="mb-2 block text-sm font-semibold text-red-300">
+                  <span className="mb-2 block text-sm font-semibold text-red-700 dark:text-red-300">
                     Klub
                   </span>
                   <input
@@ -432,7 +440,7 @@ export default function ProfilePage() {
                 </label>
 
                 <label>
-                  <span className="mb-2 block text-sm font-semibold text-red-300">
+                  <span className="mb-2 block text-sm font-semibold text-red-700 dark:text-red-300">
                     Nr. Licencji Zawodniczej
                   </span>
                   <input
@@ -444,7 +452,7 @@ export default function ProfilePage() {
                 </label>
 
                 <label>
-                  <span className="mb-2 block text-sm font-semibold text-red-300">
+                  <span className="mb-2 block text-sm font-semibold text-red-700 dark:text-red-300">
                     Nr. Licencji Sędziowskiej
                   </span>
                   <input
@@ -563,7 +571,7 @@ export default function ProfilePage() {
               </div>
 
               {isOwnerProfile && (
-                <section className="mt-8 flex flex-col gap-5 border-t border-red-950 pt-8">
+                <section className="mt-8 flex flex-col gap-5 border-t border-red-200 pt-8 dark:border-red-950">
                   <div className="flex flex-wrap gap-4">
                     <button
                       onClick={() => setEditing(true)}
@@ -596,13 +604,13 @@ export default function ProfilePage() {
                   </div>
 
                   {!profile.roles.includes("admin") && profile.requested_role && (
-                    <p className="text-red-100">
+                    <p className="text-zinc-700 dark:text-red-100">
                       Twoja prośba o rolę {roleRequestLabels[profile.requested_role] || profile.requested_role} oczekuje na decyzję administratora.
                     </p>
                   )}
 
                   {!profile.roles.includes("admin") && !profile.requested_role && profile.roles.includes("organizer") && profile.roles.includes("judge") && (
-                    <p className="text-red-100">
+                    <p className="text-zinc-700 dark:text-red-100">
                       Masz już komplet uprawnień organizatora i sędziego.
                     </p>
                   )}
@@ -612,13 +620,13 @@ export default function ProfilePage() {
           )}
 
           {message && (
-            <p className="mt-6 font-medium text-red-100">
+            <p className="mt-6 font-medium text-zinc-700 dark:text-red-100">
               {message}
             </p>
           )}
         </div>
       ) : (
-        <p className="text-red-100">
+        <p className="text-zinc-700 dark:text-red-100">
           Nie udało się pobrać profilu.
         </p>
       )}

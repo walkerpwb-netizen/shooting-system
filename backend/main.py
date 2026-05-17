@@ -311,6 +311,8 @@ class ProfileSettingsData(BaseModel):
     label_font_size: str
     value_font_size: str
     row_gap: str
+    achievement_icon_size: str = "4rem"
+    achievement_gap: str = "1.25rem"
 
 
 class AdminGenerateCompetitionData(BaseModel):
@@ -417,6 +419,8 @@ PROFILE_SETTINGS_DEFAULTS = {
     "profile_label_font_size": "1.125rem",
     "profile_value_font_size": "1.25rem",
     "profile_row_gap": "2rem",
+    "profile_achievement_icon_size": "4rem",
+    "profile_achievement_gap": "1.25rem",
 }
 ACHIEVEMENT_CATEGORY_IDS = ["pistol", "rifle", "shotgun", "overall"]
 ACHIEVEMENT_MEDALS = {
@@ -540,6 +544,8 @@ def validate_profile_settings(data: ProfileSettingsData):
         "profile_label_font_size": data.label_font_size.strip(),
         "profile_value_font_size": data.value_font_size.strip(),
         "profile_row_gap": data.row_gap.strip(),
+        "profile_achievement_icon_size": data.achievement_icon_size.strip(),
+        "profile_achievement_gap": data.achievement_gap.strip(),
     }
     color_pattern = r"^#[0-9a-fA-F]{6}$"
     size_pattern = r"^\d+(\.\d+)?(px|rem|em|%)$"
@@ -551,7 +557,13 @@ def validate_profile_settings(data: ProfileSettingsData):
                 detail="Kolor profilu musi być w formacie HEX, np. #f87171"
             )
 
-    for key in ["profile_label_font_size", "profile_value_font_size", "profile_row_gap"]:
+    for key in [
+        "profile_label_font_size",
+        "profile_value_font_size",
+        "profile_row_gap",
+        "profile_achievement_icon_size",
+        "profile_achievement_gap",
+    ]:
         if not re.fullmatch(size_pattern, settings[key]):
             raise HTTPException(
                 status_code=400,
@@ -623,6 +635,8 @@ def get_profile_settings(db):
         "label_font_size": stored_settings["profile_label_font_size"],
         "value_font_size": stored_settings["profile_value_font_size"],
         "row_gap": stored_settings["profile_row_gap"],
+        "achievement_icon_size": stored_settings["profile_achievement_icon_size"],
+        "achievement_gap": stored_settings["profile_achievement_gap"],
     }
 
 

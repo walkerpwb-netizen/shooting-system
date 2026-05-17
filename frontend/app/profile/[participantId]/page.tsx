@@ -33,6 +33,8 @@ type ProfileSettings = {
   label_font_size: string;
   value_font_size: string;
   row_gap: string;
+  achievement_icon_size: string;
+  achievement_gap: string;
 };
 
 const profileRoleLabels: Record<string, string> = {
@@ -50,6 +52,8 @@ const defaultProfileSettings: ProfileSettings = {
   label_font_size: "1.125rem",
   value_font_size: "1.25rem",
   row_gap: "2rem",
+  achievement_icon_size: "4rem",
+  achievement_gap: "1.25rem",
 };
 const profileCssVariableNames: Record<keyof ProfileSettings, string> = {
   label_color: "--ss-profile-label-color",
@@ -57,6 +61,8 @@ const profileCssVariableNames: Record<keyof ProfileSettings, string> = {
   label_font_size: "--ss-profile-label-font-size",
   value_font_size: "--ss-profile-value-font-size",
   row_gap: "--ss-profile-row-gap",
+  achievement_icon_size: "--ss-profile-achievement-icon-size",
+  achievement_gap: "--ss-profile-achievement-gap",
 };
 
 function ProfileField({
@@ -140,6 +146,8 @@ export default function ParticipantProfilePage() {
             label_font_size: settingsData.label_font_size || defaultProfileSettings.label_font_size,
             value_font_size: settingsData.value_font_size || defaultProfileSettings.value_font_size,
             row_gap: settingsData.row_gap || defaultProfileSettings.row_gap,
+            achievement_icon_size: settingsData.achievement_icon_size || defaultProfileSettings.achievement_icon_size,
+            achievement_gap: settingsData.achievement_gap || defaultProfileSettings.achievement_gap,
           });
           setProfile(data);
         }
@@ -164,9 +172,9 @@ export default function ParticipantProfilePage() {
     .join(", ");
 
   return (
-    <main className="min-h-screen bg-black px-6 py-8 text-red-400 sm:px-10 lg:px-14">
+    <main className="min-h-screen bg-white px-6 py-8 text-zinc-950 dark:bg-black dark:text-red-400 sm:px-10 lg:px-14">
       {loading ? (
-        <p className="text-red-100">
+        <p className="text-zinc-700 dark:text-red-100">
           Ładowanie profilu...
         </p>
       ) : profile ? (
@@ -229,7 +237,7 @@ export default function ParticipantProfilePage() {
           </section>
         </div>
       ) : (
-        <p className="text-red-100">
+        <p className="text-zinc-700 dark:text-red-100">
           Nie udało się pobrać profilu.
         </p>
       )}
