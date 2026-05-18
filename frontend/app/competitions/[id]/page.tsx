@@ -1,7 +1,6 @@
 import JoinCompetitionPanel from "./JoinCompetitionPanel";
 import LogoPreviewLink from "./LogoPreviewLink";
 
-import ShareCompetitionButton from "@/app/components/ShareCompetitionButton";
 import { apiUrl } from "@/lib/api";
 
 type CompetitionPageProps = {
@@ -67,13 +66,6 @@ export default async function CompetitionPage({
         <h1 className="text-4xl font-bold">
           {competition.name}
         </h1>
-
-        {competition.status === "published" && (
-          <ShareCompetitionButton
-            competitionId={competition.id}
-            className="ui-button shrink-0 bg-blue-700 hover:bg-blue-600 text-white px-5 py-3 rounded-xl font-bold transition"
-          />
-        )}
       </div>
 
       <div className="grid lg:grid-cols-2 gap-6">

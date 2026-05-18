@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import ShareCompetitionButton from "../components/ShareCompetitionButton";
 import { apiUrl } from "@/lib/api";
 import { isOrganizer } from "@/lib/auth";
 
@@ -87,6 +86,10 @@ function getCompetitionStatusLabel(status: string) {
 
 function canViewCompetitionResults(status: string) {
   return status === "started" || status === "completed";
+}
+
+function hasJoinedCompetition(competition: Competition) {
+  return competition.participants.length > 0 || competition.judges.length > 0;
 }
 
 function isCompetitionDateReached(dateValue: string) {
@@ -544,6 +547,11 @@ export default function OrganizerPage() {
     }
 
     if (competition.status === "published") {
+      if (hasJoinedCompetition(competition)) {
+        setMessage("Nie można cofnąć publikacji zawodów, do których ktoś już dołączył ❌");
+        return;
+      }
+
       handleUnpublishCompetition(competition.id);
       return;
     }
@@ -554,8 +562,8 @@ export default function OrganizerPage() {
   function handleEditCompetition(
     competition: Competition
   ) {
-    if (competition.status === "started") {
-      setMessage("Rozpoczętych zawodów nie można edytować ❌");
+    if (competition.status !== "draft") {
+      setMessage("Opublikowanych, rozpoczętych lub zakończonych zawodów nie można edytować ❌");
       return;
     }
 
@@ -1369,33 +1377,34 @@ export default function OrganizerPage() {
                     Szczegóły
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={() => handleEditCompetition(competition)}
-                    disabled={competition.status === "started" || competition.status === "completed"}
-                    className="ui-button bg-blue-600 hover:bg-blue-500 disabled:bg-gray-500 disabled:cursor-not-allowed text-white px-4 py-2 rounded-xl font-semibold"
-                  >
-                    Edytuj
-                  </button>
-
-                  {competition.status !== "started" && competition.status !== "completed" && (
+                  {competition.status === "draft" && (
                     <button
                       type="button"
-                      onClick={() => handleTogglePublication(competition)}
-                      className={`ui-button text-white px-4 py-2 rounded-xl font-semibold ${
-                        competition.status === "published"
-                          ? "bg-orange-600 hover:bg-orange-500"
-                          : "bg-green-700 hover:bg-green-600"
-                      }`}
+                      onClick={() => handleEditCompetition(competition)}
+                      className="ui-button bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl font-semibold"
                     >
-                      {competition.status === "published"
-                        ? "Cofnij"
-                        : "Publikuj"}
+                      Edytuj
                     </button>
                   )}
 
-                  {competition.status === "published" && (
-                    <ShareCompetitionButton competitionId={competition.id} />
+                  {competition.status === "draft" && (
+                    <button
+                      type="button"
+                      onClick={() => handleTogglePublication(competition)}
+                      className="ui-button bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded-xl font-semibold"
+                    >
+                      Publikuj
+                    </button>
+                  )}
+
+                  {competition.status === "published" && !hasJoinedCompetition(competition) && (
+                    <button
+                      type="button"
+                      onClick={() => handleTogglePublication(competition)}
+                      className="ui-button bg-orange-600 hover:bg-orange-500 text-white px-4 py-2 rounded-xl font-semibold"
+                    >
+                      Cofnij
+                    </button>
                   )}
 
                   {competition.status === "published" && (

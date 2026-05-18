@@ -4939,6 +4939,24 @@ def unpublish_competition(
             detail="Nie można cofnąć publikacji rozpoczętych lub zakończonych zawodów"
         )
 
+    if competition.status != "published":
+        raise HTTPException(
+            status_code=400,
+            detail="Tylko opublikowane zawody można cofnąć do szkicu"
+        )
+
+    participants_count = (
+        db.query(CompetitionParticipant)
+        .filter(CompetitionParticipant.competition_id == competition.id)
+        .count()
+    )
+
+    if participants_count > 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Nie można cofnąć publikacji zawodów, do których ktoś już dołączył"
+        )
+
     competition.status = "draft"
     db.commit()
 
