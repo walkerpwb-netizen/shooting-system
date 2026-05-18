@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import ShareCompetitionButton from "../components/ShareCompetitionButton";
 import { apiUrl } from "@/lib/api";
 import { isOrganizer } from "@/lib/auth";
 
@@ -1391,6 +1392,10 @@ export default function OrganizerPage() {
                         ? "Cofnij"
                         : "Publikuj"}
                     </button>
+                  )}
+
+                  {competition.status === "published" && (
+                    <ShareCompetitionButton competitionId={competition.id} />
                   )}
 
                   {competition.status === "published" && (
