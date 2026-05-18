@@ -1,58 +1,29 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { apiUrl } from "@/lib/api";
 
-type RankingScope = "national" | "voivodeship" | "county";
 type RankingMetric = "overall" | "pistol" | "rifle" | "shotgun";
-
-type RankingRegion = {
-  postal_code: string;
-  voivodeship_key: string;
-  voivodeship_name: string;
-  county_key: string;
-  county_name: string;
-};
 
 type RankingRow = {
   place: number;
   user_id: number;
   display_name: string;
   club: string;
-  postal_code: string;
-  city: string;
-  voivodeship: string;
-  county: string;
   points: string;
 };
 
 type RankingResponse = {
-  scope: RankingScope;
+  scope: "national";
   metric: RankingMetric;
   metric_label: string;
   limit: number;
   minimum_discipline_shooters: number;
-  reference_region: RankingRegion | null;
   message: string;
   rows: RankingRow[];
   updated_at: string;
 };
-
-const scopes: Array<{ id: RankingScope; label: string }> = [
-  {
-    id: "national",
-    label: "Ranking Krajowy",
-  },
-  {
-    id: "voivodeship",
-    label: "Ranking Wojewódzki",
-  },
-  {
-    id: "county",
-    label: "Ranking Powiatowy",
-  },
-];
 
 const metrics: Array<{ id: RankingMetric; label: string }> = [
   {
@@ -73,37 +44,11 @@ const metrics: Array<{ id: RankingMetric; label: string }> = [
   },
 ];
 
-function scopeDescription(ranking: RankingResponse | null, scope: RankingScope) {
-  if (!ranking) {
-    return "";
-  }
-
-  if (scope === "national") {
-    return "Top 1000 zawodników z najwyższą sumą punktów w Polsce.";
-  }
-
-  if (!ranking.reference_region) {
-    return ranking.message;
-  }
-
-  if (scope === "voivodeship") {
-    return `Ranking dla województwa: ${ranking.reference_region.voivodeship_name}.`;
-  }
-
-  return `Ranking dla powiatu: ${ranking.reference_region.county_name}.`;
-}
-
 export default function RankingPage() {
-  const [scope, setScope] = useState<RankingScope>("national");
   const [metric, setMetric] = useState<RankingMetric>("overall");
   const [ranking, setRanking] = useState<RankingResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
-
-  const activeDescription = useMemo(
-    () => scopeDescription(ranking, scope),
-    [ranking, scope]
-  );
 
   useEffect(() => {
     let active = true;
@@ -112,15 +57,9 @@ export default function RankingPage() {
       try {
         setLoading(true);
 
-        const token = localStorage.getItem("token");
         const response = await fetch(
-          apiUrl(`/rankings?scope=${scope}&metric=${metric}`),
+          apiUrl(`/rankings?metric=${metric}`),
           {
-            headers: token
-              ? {
-                  Authorization: `Bearer ${token}`,
-                }
-              : undefined,
             cache: "no-store",
           }
         );
@@ -157,38 +96,25 @@ export default function RankingPage() {
     return () => {
       active = false;
     };
-  }, [metric, scope]);
+  }, [metric]);
 
   return (
     <main className="min-h-screen bg-white px-6 py-8 text-zinc-950 dark:bg-black dark:text-red-400 sm:px-10 lg:px-14">
       <div className="mx-auto w-full max-w-7xl">
         <div className="mb-8">
           <h1 className="text-4xl font-bold text-red-400 sm:text-5xl">
-            Ranking
+            Ranking Krajowy
           </h1>
 
           <p className="mt-3 max-w-3xl text-zinc-600 dark:text-red-100">
-            W rankingu biorą udział zawodnicy z uzupełnionym kodem pocztowym. Wyniki liczą tylko konkurencje z minimum 50 zawodnikami.
+            Top 1000 zawodników z najwyższą sumą punktów. Wyniki liczą tylko konkurencje z minimum 50 zawodnikami.
           </p>
         </div>
 
-        <div className="mb-6 flex flex-col gap-4 border-b border-red-200 pb-6 dark:border-red-950 lg:flex-row lg:items-end lg:justify-between">
-          <div className="flex flex-wrap gap-3">
-            {scopes.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => setScope(item.id)}
-                className={`px-4 py-3 font-semibold transition ${
-                  scope === item.id
-                    ? "bg-red-700 text-white"
-                    : "bg-zinc-100 text-zinc-800 hover:bg-zinc-200 dark:bg-zinc-900 dark:text-red-100 dark:hover:bg-zinc-800"
-                }`}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
+        <div className="mb-6 flex flex-col gap-4 border-b border-red-200 pb-6 dark:border-red-950 sm:flex-row sm:items-end sm:justify-between">
+          <p className="font-semibold text-zinc-700 dark:text-red-100">
+            Ranking Krajowy
+          </p>
 
           <label className="w-full max-w-sm">
             <span className="mb-2 block text-sm font-semibold text-red-700 dark:text-red-300">
@@ -211,13 +137,7 @@ export default function RankingPage() {
           </label>
         </div>
 
-        {activeDescription && (
-          <p className="mb-5 text-zinc-700 dark:text-red-100">
-            {activeDescription}
-          </p>
-        )}
-
-        {message && scope !== "national" && !ranking?.reference_region && (
+        {message && (
           <p className="mb-6 border border-yellow-500/50 bg-yellow-400/10 px-4 py-3 text-yellow-900 dark:text-yellow-100">
             {message}
           </p>
@@ -230,20 +150,18 @@ export default function RankingPage() {
         ) : ranking && ranking.rows.length > 0 ? (
           <section className="overflow-hidden border border-red-200 dark:border-red-950">
             <div className="overflow-x-auto">
-              <div className="grid min-w-[980px] grid-cols-[5rem_minmax(15rem,1.4fr)_minmax(10rem,1fr)_minmax(10rem,1fr)_minmax(10rem,1fr)_9rem] gap-4 bg-red-700 px-4 py-3 text-sm font-bold uppercase text-white">
+              <div className="grid min-w-[720px] grid-cols-[5rem_minmax(16rem,1.5fr)_minmax(10rem,1fr)_9rem] gap-4 bg-red-700 px-4 py-3 text-sm font-bold uppercase text-white">
                 <span>Miejsce</span>
                 <span>Zawodnik</span>
                 <span>Klub</span>
-                <span>Miejscowość</span>
-                <span>Region</span>
                 <span className="text-right">Punkty</span>
               </div>
 
-              <div className="min-w-[980px] divide-y divide-red-100 dark:divide-red-950">
+              <div className="min-w-[720px] divide-y divide-red-100 dark:divide-red-950">
                 {ranking.rows.map((row) => (
                   <div
                     key={`${row.user_id}-${row.place}`}
-                    className="grid grid-cols-[5rem_minmax(15rem,1.4fr)_minmax(10rem,1fr)_minmax(10rem,1fr)_minmax(10rem,1fr)_9rem] gap-4 px-4 py-4 text-sm sm:text-base"
+                    className="grid grid-cols-[5rem_minmax(16rem,1.5fr)_minmax(10rem,1fr)_9rem] gap-4 px-4 py-4 text-sm sm:text-base"
                   >
                     <span className="font-black text-red-700 dark:text-red-300">
                       {row.place}
@@ -255,14 +173,6 @@ export default function RankingPage() {
 
                     <span className="min-w-0 text-zinc-700 dark:text-red-100">
                       {row.club || "Brak"}
-                    </span>
-
-                    <span className="min-w-0 text-zinc-700 dark:text-red-100">
-                      {row.city || "Nie podano"}
-                    </span>
-
-                    <span className="min-w-0 text-zinc-700 dark:text-red-100">
-                      {scope === "county" ? row.county : row.voivodeship}
                     </span>
 
                     <span className="text-right font-bold text-zinc-950 dark:text-white">

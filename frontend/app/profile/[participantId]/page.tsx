@@ -22,8 +22,6 @@ type ParticipantProfile = {
   judge_license_number: string;
   birth_date: string;
   phone_number: string;
-  postal_code: string;
-  city: string;
   requested_role: string;
   profile_complete: boolean;
   achievements: Achievement[];
@@ -223,16 +221,6 @@ export default function ParticipantProfilePage() {
                   <ProfileField
                     label="Telefon"
                     value={displayValue(profile.phone_number, "Brak numeru")}
-                  />
-
-                  <ProfileField
-                    label="Kod Pocztowy"
-                    value={displayValue(profile.postal_code, "Nie podano")}
-                  />
-
-                  <ProfileField
-                    label="Miejscowość"
-                    value={displayValue(profile.city, "Nie podano")}
                   />
 
                   <ProfileField

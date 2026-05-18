@@ -87,16 +87,6 @@ class User(Base):
         nullable=True,
     )
 
-    postal_code = Column(
-        String,
-        nullable=True,
-    )
-
-    city = Column(
-        String,
-        nullable=True,
-    )
-
     last_seen = Column(
         String,
         nullable=True,
