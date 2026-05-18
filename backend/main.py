@@ -1716,15 +1716,13 @@ def user_achievements(user_email: str, db):
 
 
 def award_achievements_for_competition(competition: Competition, db):
-    shooters_count = len(public_shooter_participants(competition, db))
-
     (
         db.query(Achievement)
         .filter(Achievement.competition_id == competition.id)
         .delete(synchronize_session=False)
     )
 
-    if competition.status != "completed" or shooters_count <= 50:
+    if competition.status != "completed":
         return
 
     participants_by_id = {
@@ -1757,11 +1755,12 @@ def award_achievements_for_competition(competition: Competition, db):
     for category_id in ACHIEVEMENT_CATEGORY_IDS:
         payload = result_category_payload(competition, category_id, db)
         category = payload["category"]
+        category_shooters = payload["shooters"]
 
-        if not category["discipline_ids"]:
+        if not category["discipline_ids"] or len(category_shooters) <= 50:
             continue
 
-        for shooter in payload["shooters"][:3]:
+        for shooter in category_shooters[:3]:
             place = shooter["place"]
             participant = participants_by_id.get(shooter["participant_id"])
             user = users_by_email.get(participant.user_email) if participant else None
@@ -1927,7 +1926,27 @@ def backfill_participant_total_fees():
         db.close()
 
 
+def backfill_completed_competition_achievements():
+    db = SessionLocal()
+
+    try:
+        competitions = (
+            db.query(Competition)
+            .filter(Competition.status == "completed")
+            .all()
+        )
+
+        for competition in competitions:
+            award_achievements_for_competition(competition, db)
+
+        if competitions:
+            db.commit()
+    finally:
+        db.close()
+
+
 backfill_participant_total_fees()
+backfill_completed_competition_achievements()
 
 
 def get_current_user(
