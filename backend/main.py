@@ -886,15 +886,7 @@ def create_test_participant(
 
 
 def test_result_points(participant: CompetitionParticipant, discipline: Discipline):
-    max_points = Decimal(discipline.shots_count or 10) * Decimal("10")
-    spread = Decimal((participant.id * 7 + discipline.id * 11) % 32)
-    bonus = Decimal((participant.id + discipline.id) % 10) / Decimal("10")
-    points = max_points - spread + bonus
-
-    if points < 0:
-        points = Decimal("0")
-
-    return format_points(points)
+    return str((participant.id * 37 + discipline.id * 17) % 100)
 
 
 def generate_test_results_for_competition(
