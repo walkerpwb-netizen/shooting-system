@@ -428,6 +428,7 @@ ACHIEVEMENT_MEDALS = {
     2: "silver",
     3: "bronze",
 }
+MIN_STATISTICS_DISCIPLINE_SHOOTERS = 50
 
 
 def primary_role(roles: list[str]):
@@ -1333,6 +1334,181 @@ def format_points(value: Decimal):
         return str(normalized.quantize(Decimal("1")))
 
     return format(normalized, "f")
+
+
+def format_average_points(total: Decimal, starts_count: int):
+    if starts_count <= 0:
+        return "0"
+
+    average = (total / Decimal(starts_count)).quantize(
+        Decimal("0.01"),
+        rounding=ROUND_HALF_UP,
+    )
+    return format_points(average)
+
+
+def empty_statistics_group():
+    return {
+        "starts_count": 0,
+        "points_sum": "0",
+        "average_points": "0",
+    }
+
+
+def discipline_statistics_shooters_count(
+    competition: Competition,
+    discipline_id: int,
+    db,
+):
+    participant_ids = [
+        participant.id
+        for participant in public_shooter_participants(competition, db)
+    ]
+
+    if not participant_ids:
+        return 0
+
+    return (
+        db.query(ParticipantDiscipline)
+        .filter(
+            ParticipantDiscipline.discipline_id == discipline_id,
+            ParticipantDiscipline.participant_id.in_(participant_ids),
+        )
+        .count()
+    )
+
+
+def user_competition_statistics(user: User, db):
+    statistics = {
+        "pistol": {
+            "starts_count": 0,
+            "points_sum": Decimal("0"),
+        },
+        "rifle": {
+            "starts_count": 0,
+            "points_sum": Decimal("0"),
+        },
+        "shotgun": {
+            "starts_count": 0,
+            "points_sum": Decimal("0"),
+        },
+    }
+    total_points_sum = Decimal("0")
+
+    participants = (
+        db.query(CompetitionParticipant)
+        .filter(
+            CompetitionParticipant.user_email == user.email,
+            or_(
+                CompetitionParticipant.entry_type == "shooter",
+                CompetitionParticipant.entry_type.is_(None),
+            ),
+        )
+        .all()
+    )
+    participant_ids = [
+        participant.id
+        for participant in participants
+    ]
+
+    if not participant_ids:
+        return {
+            "minimum_discipline_shooters": MIN_STATISTICS_DISCIPLINE_SHOOTERS,
+            "categories": {
+                "pistol": empty_statistics_group(),
+                "rifle": empty_statistics_group(),
+                "shotgun": empty_statistics_group(),
+            },
+            "total_points_sum": "0",
+            "updated_at": datetime.now(APP_TIMEZONE).isoformat(),
+        }
+
+    results = (
+        db.query(DisciplineResult)
+        .filter(DisciplineResult.participant_id.in_(participant_ids))
+        .all()
+    )
+    discipline_ids = {
+        result.discipline_id
+        for result in results
+    }
+    competition_ids = {
+        result.competition_id
+        for result in results
+    }
+
+    disciplines_by_id = {}
+    competitions_by_id = {}
+
+    if discipline_ids:
+        disciplines_by_id = {
+            discipline.id: discipline
+            for discipline in (
+                db.query(Discipline)
+                .filter(Discipline.id.in_(discipline_ids))
+                .all()
+            )
+        }
+
+    if competition_ids:
+        competitions_by_id = {
+            competition.id: competition
+            for competition in (
+                db.query(Competition)
+                .filter(Competition.id.in_(competition_ids))
+                .all()
+            )
+        }
+
+    eligible_discipline_ids = set()
+
+    for discipline in disciplines_by_id.values():
+        competition = competitions_by_id.get(discipline.competition_id)
+
+        if not competition:
+            continue
+
+        if (
+            discipline_statistics_shooters_count(competition, discipline.id, db)
+            >= MIN_STATISTICS_DISCIPLINE_SHOOTERS
+        ):
+            eligible_discipline_ids.add(discipline.id)
+
+    for result in results:
+        if result.discipline_id not in eligible_discipline_ids:
+            continue
+
+        discipline = disciplines_by_id.get(result.discipline_id)
+
+        if not discipline:
+            continue
+
+        points = parse_points(result.points)
+        firearm_type = discipline_firearm_type(discipline)
+        total_points_sum += points
+
+        if firearm_type not in statistics:
+            continue
+
+        statistics[firearm_type]["starts_count"] += 1
+        statistics[firearm_type]["points_sum"] += points
+
+    return {
+        "minimum_discipline_shooters": MIN_STATISTICS_DISCIPLINE_SHOOTERS,
+        "categories": {
+            firearm_type: {
+                "starts_count": category_statistics["starts_count"],
+                "points_sum": format_points(category_statistics["points_sum"]),
+                "average_points": format_average_points(
+                    category_statistics["points_sum"],
+                    category_statistics["starts_count"],
+                ),
+            }
+            for firearm_type, category_statistics in statistics.items()
+        },
+        "total_points_sum": format_points(total_points_sum),
+        "updated_at": datetime.now(APP_TIMEZONE).isoformat(),
+    }
 
 
 def live_result_categories(disciplines: list[Discipline]):
@@ -4577,6 +4753,14 @@ def get_me(
         "profile_complete": is_profile_complete(user),
         "achievements": user_achievements(user.email, db),
     }
+
+
+@app.get("/me/statistics")
+def get_my_statistics(
+    user: User = Depends(get_current_user),
+    db=Depends(get_db),
+):
+    return user_competition_statistics(user, db)
 
 
 @app.get("/participants/{participant_id}/profile")

@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import AchievementsSection from "./AchievementsSection";
@@ -579,6 +580,13 @@ export default function ProfilePage() {
                     >
                       Edytuj profil
                     </button>
+
+                    <Link
+                      href="/profile/statistics"
+                      className="bg-red-700 px-5 py-3 font-semibold text-white transition hover:bg-red-600"
+                    >
+                      Moje Statystyki
+                    </Link>
 
                     {!profile.roles.includes("admin") && !profile.requested_role && !profile.roles.includes("organizer") && (
                       <button
