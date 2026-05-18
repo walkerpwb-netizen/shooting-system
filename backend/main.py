@@ -75,6 +75,8 @@ def ensure_schema_updates():
             "club": "VARCHAR",
             "birth_date": "VARCHAR",
             "phone_number": "VARCHAR",
+            "postal_code": "VARCHAR",
+            "city": "VARCHAR",
             "last_seen": "VARCHAR",
             "requested_role": "VARCHAR",
             "roles": "VARCHAR",
@@ -235,6 +237,8 @@ class ProfileData(BaseModel):
     club: str = ""
     birth_date: str
     phone_number: str = ""
+    postal_code: str = ""
+    city: str = ""
 
 
 class UserRoleData(BaseModel):
@@ -429,6 +433,33 @@ ACHIEVEMENT_MEDALS = {
     3: "bronze",
 }
 MIN_STATISTICS_DISCIPLINE_SHOOTERS = 50
+RANKING_LIMIT = 1000
+RANKING_SCOPES = ["national", "voivodeship", "county"]
+RANKING_METRICS = ["overall", "pistol", "rifle", "shotgun"]
+RANKING_METRIC_LABELS = {
+    "overall": "Suma ogólna",
+    "pistol": "Suma punktów pistolet",
+    "rifle": "Suma punktów karabin",
+    "shotgun": "Suma punktów strzelba",
+}
+POSTAL_VOIVODESHIP_RANGES = [
+    (0, 9, "mazowieckie"),
+    (10, 14, "warmińsko-mazurskie"),
+    (15, 19, "podlaskie"),
+    (20, 24, "lubelskie"),
+    (25, 29, "świętokrzyskie"),
+    (30, 34, "małopolskie"),
+    (35, 39, "podkarpackie"),
+    (40, 44, "śląskie"),
+    (45, 49, "opolskie"),
+    (50, 59, "dolnośląskie"),
+    (60, 64, "wielkopolskie"),
+    (65, 69, "lubuskie"),
+    (70, 78, "zachodniopomorskie"),
+    (79, 84, "pomorskie"),
+    (85, 89, "kujawsko-pomorskie"),
+    (90, 99, "łódzkie"),
+]
 
 
 def primary_role(roles: list[str]):
@@ -675,6 +706,46 @@ def normalize_phone_number(value: str):
     return f"+{digits}" if has_plus_prefix else digits
 
 
+def normalize_postal_code(value: str):
+    digits = re.sub(r"\D", "", value or "")
+
+    if not digits:
+        return ""
+
+    if len(digits) != 5:
+        return ""
+
+    return f"{digits[:2]}-{digits[2:]}"
+
+
+def postal_code_region(value: str):
+    postal_code = normalize_postal_code(value)
+
+    if not postal_code:
+        return None
+
+    prefix_two = int(postal_code[:2])
+    voivodeship = ""
+
+    for start, end, name in POSTAL_VOIVODESHIP_RANGES:
+        if start <= prefix_two <= end:
+            voivodeship = name
+            break
+
+    if not voivodeship:
+        return None
+
+    county_prefix = postal_code[:4]
+
+    return {
+        "postal_code": postal_code,
+        "voivodeship_key": voivodeship,
+        "voivodeship_name": voivodeship.capitalize(),
+        "county_key": county_prefix,
+        "county_name": f"Region kodowy {county_prefix}",
+    }
+
+
 def is_profile_complete(user: User):
     return all([
         (user.first_name or "").strip(),
@@ -709,6 +780,7 @@ def public_user(user: User):
         "last_name": user.last_name or "",
         "club": user.club or "",
         "phone_number": user.phone_number or "",
+        "city": user.city or "",
         "last_seen": user.last_seen or "",
         "requested_role": user.requested_role or "",
         "password_reset_required": bool(user.password_reset_required),
@@ -1508,6 +1580,101 @@ def user_competition_statistics(user: User, db):
         },
         "total_points_sum": format_points(total_points_sum),
         "updated_at": datetime.now(APP_TIMEZONE).isoformat(),
+    }
+
+
+def ranking_points_for_metric(statistics, metric: str):
+    if metric == "overall":
+        return parse_points(statistics["total_points_sum"])
+
+    return parse_points(statistics["categories"][metric]["points_sum"])
+
+
+def ranking_rows(scope: str, metric: str, current_user: Optional[User], db):
+    reference_region = None
+
+    if scope in ["voivodeship", "county"]:
+        if not current_user:
+            return {
+                "rows": [],
+                "reference_region": None,
+                "message": "Zaloguj się, aby zobaczyć ranking regionalny.",
+            }
+
+        reference_region = postal_code_region(current_user.postal_code or "")
+
+        if not reference_region:
+            return {
+                "rows": [],
+                "reference_region": None,
+                "message": "Uzupełnij kod pocztowy w profilu, aby zobaczyć ranking regionalny.",
+            }
+
+    users = db.query(User).all()
+    rows = []
+
+    for user in users:
+        if not is_profile_complete(user):
+            continue
+
+        user_region = postal_code_region(user.postal_code or "")
+
+        if not user_region:
+            continue
+
+        if (
+            scope == "voivodeship"
+            and user_region["voivodeship_key"] != reference_region["voivodeship_key"]
+        ):
+            continue
+
+        if (
+            scope == "county"
+            and user_region["county_key"] != reference_region["county_key"]
+        ):
+            continue
+
+        statistics = user_competition_statistics(user, db)
+        points_value = ranking_points_for_metric(statistics, metric)
+
+        if points_value <= 0:
+            continue
+
+        rows.append({
+            "user_id": user.id,
+            "display_name": " ".join([
+                user.last_name or "",
+                user.first_name or "",
+            ]).strip() or user.email,
+            "first_name": user.first_name or "",
+            "last_name": user.last_name or "",
+            "club": user.club or "",
+            "postal_code": user.postal_code or "",
+            "city": user.city or "",
+            "voivodeship": user_region["voivodeship_name"],
+            "county": user_region["county_name"],
+            "points_value": points_value,
+            "points": format_points(points_value),
+        })
+
+    rows.sort(
+        key=lambda row: (
+            -row["points_value"],
+            row["last_name"].lower(),
+            row["first_name"].lower(),
+            row["display_name"].lower(),
+        )
+    )
+    rows = rows[:RANKING_LIMIT]
+
+    for index, row in enumerate(rows, start=1):
+        row["place"] = index
+        del row["points_value"]
+
+    return {
+        "rows": rows,
+        "reference_region": reference_region,
+        "message": "",
     }
 
 
@@ -4730,6 +4897,40 @@ def leave_competition(
     }
 
 
+@app.get("/rankings")
+def get_rankings(
+    scope: str = "national",
+    metric: str = "overall",
+    current_user: Optional[User] = Depends(get_optional_current_user),
+    db=Depends(get_db),
+):
+    if scope not in RANKING_SCOPES:
+        raise HTTPException(
+            status_code=400,
+            detail="Nieprawidłowy zakres rankingu"
+        )
+
+    if metric not in RANKING_METRICS:
+        raise HTTPException(
+            status_code=400,
+            detail="Nieprawidłowa klasyfikacja rankingu"
+        )
+
+    ranking = ranking_rows(scope, metric, current_user, db)
+
+    return {
+        "scope": scope,
+        "metric": metric,
+        "metric_label": RANKING_METRIC_LABELS[metric],
+        "limit": RANKING_LIMIT,
+        "minimum_discipline_shooters": MIN_STATISTICS_DISCIPLINE_SHOOTERS,
+        "reference_region": ranking["reference_region"],
+        "message": ranking["message"],
+        "rows": ranking["rows"],
+        "updated_at": datetime.now(APP_TIMEZONE).isoformat(),
+    }
+
+
 @app.get("/me")
 def get_me(
     user: User = Depends(get_current_user),
@@ -4749,6 +4950,9 @@ def get_me(
         "club": user.club or "",
         "birth_date": user.birth_date or "",
         "phone_number": user.phone_number or "",
+        "postal_code": user.postal_code or "",
+        "city": user.city or "",
+        "ranking_region": postal_code_region(user.postal_code or ""),
         "requested_role": user.requested_role or "",
         "profile_complete": is_profile_complete(user),
         "achievements": user_achievements(user.email, db),
@@ -4808,6 +5012,9 @@ def get_participant_profile(
         "judge_license_number": "",
         "birth_date": "",
         "phone_number": "",
+        "postal_code": "",
+        "city": "",
+        "ranking_region": None,
         "requested_role": "",
         "profile_complete": False,
         "achievements": user_achievements(participant_user.email, db) if participant_user else [],
@@ -4823,6 +5030,9 @@ def get_participant_profile(
             "judge_license_number": participant_user.judge_license_number or "",
             "birth_date": participant_user.birth_date or "",
             "phone_number": participant_user.phone_number or "",
+            "postal_code": participant_user.postal_code or "",
+            "city": participant_user.city or "",
+            "ranking_region": postal_code_region(participant_user.postal_code or ""),
             "requested_role": participant_user.requested_role or "",
             "profile_complete": is_profile_complete(participant_user),
         })
@@ -4892,6 +5102,8 @@ def update_me(
     last_name = data.last_name.strip()
     birth_date = normalize_birth_date(data.birth_date)
     phone_number = normalize_phone_number(data.phone_number)
+    postal_code = normalize_postal_code(data.postal_code)
+    city = data.city.strip()
 
     if not all([first_name, last_name, data.birth_date.strip(), data.phone_number.strip()]):
         raise HTTPException(
@@ -4911,6 +5123,12 @@ def update_me(
             detail="Podaj poprawny numer telefonu"
         )
 
+    if data.postal_code.strip() and not postal_code:
+        raise HTTPException(
+            status_code=400,
+            detail="Podaj poprawny kod pocztowy, np. 00-001"
+        )
+
     db_user.first_name = first_name
     db_user.last_name = last_name
     db_user.license_number = data.license_number.strip()
@@ -4918,6 +5136,8 @@ def update_me(
     db_user.club = data.club.strip()
     db_user.birth_date = birth_date
     db_user.phone_number = phone_number
+    db_user.postal_code = postal_code
+    db_user.city = city
 
     db.commit()
     roles = get_user_roles(db_user)
@@ -4935,6 +5155,9 @@ def update_me(
         "club": db_user.club or "",
         "birth_date": db_user.birth_date,
         "phone_number": db_user.phone_number or "",
+        "postal_code": db_user.postal_code or "",
+        "city": db_user.city or "",
+        "ranking_region": postal_code_region(db_user.postal_code or ""),
         "requested_role": db_user.requested_role or "",
         "profile_complete": is_profile_complete(db_user),
         "achievements": user_achievements(db_user.email, db),

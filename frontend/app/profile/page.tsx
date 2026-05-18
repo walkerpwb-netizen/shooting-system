@@ -21,6 +21,8 @@ type UserProfile = {
   club: string;
   birth_date: string;
   phone_number: string;
+  postal_code: string;
+  city: string;
   requested_role: string;
   profile_complete: boolean;
   achievements: Achievement[];
@@ -163,6 +165,20 @@ function normalizePhoneInput(value: string) {
   return hasPlusPrefix ? `+${digits}` : digits;
 }
 
+function normalizePostalCodeInput(value: string) {
+  const digits = value.replace(/\D/g, "");
+
+  if (!digits) {
+    return "";
+  }
+
+  if (digits.length !== 5) {
+    return "";
+  }
+
+  return `${digits.slice(0, 2)}-${digits.slice(2)}`;
+}
+
 export default function ProfilePage() {
   const router = useRouter();
 
@@ -180,6 +196,8 @@ export default function ProfilePage() {
   const [club, setClub] = useState("");
   const [birthDate, setBirthDate] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
+  const [postalCode, setPostalCode] = useState("");
+  const [city, setCity] = useState("");
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -237,6 +255,8 @@ export default function ProfilePage() {
           setClub(data.club || "");
           setBirthDate(data.birth_date || "");
           setPhoneNumber(data.phone_number || "");
+          setPostalCode(data.postal_code || "");
+          setCity(data.city || "");
           setEditing(!data.profile_complete);
         }
       } catch (error) {
@@ -275,6 +295,7 @@ export default function ProfilePage() {
 
     const normalizedBirthDate = normalizeBirthDateInput(birthDate);
     const normalizedPhoneNumber = normalizePhoneInput(phoneNumber);
+    const normalizedPostalCode = normalizePostalCodeInput(postalCode);
 
     if (!normalizedBirthDate) {
       setMessage("Podaj poprawną datę urodzenia, np. 1987-03-18 albo 18.03.1987 ❌");
@@ -283,6 +304,11 @@ export default function ProfilePage() {
 
     if (!normalizedPhoneNumber) {
       setMessage("Podaj poprawny numer telefonu, minimum 7 cyfr ❌");
+      return;
+    }
+
+    if (postalCode.trim() && !normalizedPostalCode) {
+      setMessage("Podaj poprawny kod pocztowy, np. 00-001 ❌");
       return;
     }
 
@@ -306,6 +332,8 @@ export default function ProfilePage() {
             club: club.trim(),
             birth_date: normalizedBirthDate,
             phone_number: normalizedPhoneNumber,
+            postal_code: normalizedPostalCode,
+            city: city.trim(),
           }),
         }
       );
@@ -487,6 +515,38 @@ export default function ProfilePage() {
                     className={fieldClassName}
                   />
                 </label>
+
+                <label>
+                  <span className="mb-2 block text-sm font-semibold text-red-700 dark:text-red-300">
+                    Kod Pocztowy
+                  </span>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={postalCode}
+                    onChange={(e) => setPostalCode(e.target.value)}
+                    placeholder="Podaj kod pocztowy"
+                    className={fieldClassName}
+                  />
+                  <span className="mt-2 block text-sm text-zinc-600 dark:text-red-200">
+                    Podaj kod pocztowy jeśli chcesz brać udział w rankingach.
+                  </span>
+                </label>
+
+                <label>
+                  <span className="mb-2 block text-sm font-semibold text-red-700 dark:text-red-300">
+                    Miejscowość
+                  </span>
+                  <input
+                    value={city}
+                    onChange={(e) => setCity(e.target.value)}
+                    placeholder="Podaj miejscowość"
+                    className={fieldClassName}
+                  />
+                  <span className="mt-2 block text-sm text-zinc-600 dark:text-red-200">
+                    Podaj miejscowość zgodną z kodem pocztowym, jeśli chcesz brać udział w rankingach.
+                  </span>
+                </label>
               </div>
 
               <div className="mt-8 flex flex-wrap gap-4">
@@ -555,6 +615,16 @@ export default function ProfilePage() {
                         <ProfileField
                           label="Telefon"
                           value={displayValue(profile.phone_number, "Brak numeru")}
+                        />
+
+                        <ProfileField
+                          label="Kod Pocztowy"
+                          value={displayValue(profile.postal_code, "Nie podano")}
+                        />
+
+                        <ProfileField
+                          label="Miejscowość"
+                          value={displayValue(profile.city, "Nie podano")}
                         />
 
                         <ProfileField

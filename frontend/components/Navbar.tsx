@@ -129,6 +129,10 @@ export default function Navbar() {
           Wyniki Historyczne
         </Link>
 
+        <Link href="/ranking">
+          Ranking
+        </Link>
+
         {user && (
           <Link href="/profile">
             Profil
@@ -242,6 +246,14 @@ export default function Navbar() {
                 className="py-3"
               >
                 Wyniki Historyczne
+              </Link>
+
+              <Link
+                href="/ranking"
+                onClick={() => setMobileMenuOpen(false)}
+                className="py-3"
+              >
+                Ranking
               </Link>
 
               {user && (
