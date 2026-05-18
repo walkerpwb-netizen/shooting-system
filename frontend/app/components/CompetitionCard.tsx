@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import ShareCompetitionButton from "./ShareCompetitionButton";
 import { apiUrl } from "@/lib/api";
 
 type CompetitionCardProps = {
@@ -136,6 +137,10 @@ export default function CompetitionCard({
       </p>
 
       <div className="flex flex-wrap gap-2 lg:justify-end">
+        {status === "published" && (
+          <ShareCompetitionButton competitionId={id} />
+        )}
+
         <Link
           href={`/competitions/${id}`}
           className="ui-button bg-green-800 hover:bg-green-700 transition text-white px-4 py-2 rounded-xl font-semibold"
