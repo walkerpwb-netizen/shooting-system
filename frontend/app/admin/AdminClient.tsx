@@ -692,7 +692,7 @@ export default function AdminClient({
 
   async function resetUserPassword(user: AdminUser) {
     const confirmed = window.confirm(
-      `Czy wygenerować link resetowania hasła dla użytkownika ${getUserName(user)}?`
+      `Czy wysłać link resetowania hasła do użytkownika ${getUserName(user)}?`
     );
 
     if (!confirmed) {
@@ -729,19 +729,7 @@ export default function AdminClient({
         )
       );
 
-      const resetLink = `${window.location.origin}${data.reset_path}`;
-
-      if (navigator.clipboard) {
-        try {
-          await navigator.clipboard.writeText(resetLink);
-          setMessage(`Link resetowania hasła skopiowany do schowka: ${resetLink} ✅`);
-          return;
-        } catch (clipboardError) {
-          console.error(clipboardError);
-        }
-      }
-
-      setMessage(`Link resetowania hasła: ${resetLink}`);
+      setMessage(data.message + " ✅");
     } catch (error) {
       console.error(error);
       setMessage("Błąd połączenia z serwerem ❌");

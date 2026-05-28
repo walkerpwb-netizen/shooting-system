@@ -56,12 +56,8 @@ export default function LoginPage() {
         return;
       }
 
-      if (data.message === "Hasło wymaga zresetowania" && data.reset_path) {
-        setMessage("Administrator wymaga ustawienia nowego hasła. Przekierowuję...");
-
-        setTimeout(() => {
-          window.location.href = data.reset_path;
-        }, 800);
+      if (data.message?.startsWith("Hasło wymaga zresetowania")) {
+        setMessage(`${data.message} ❌`);
         return;
       }
 

@@ -11,6 +11,7 @@ from mailer import (
     MailConfigurationError,
     MailDeliveryError,
     send_activation_email,
+    send_password_reset_email,
 )
 
 from models import (
@@ -611,6 +612,10 @@ def create_password_reset_token(user: User):
     user.password_reset_token = token
     user.password_reset_required = 1
     return token
+
+
+def password_reset_link(token: str):
+    return f"{settings.frontend_url}/reset-password?token={token}"
 
 
 def delete_competition_with_dependencies(competition: Competition, db):
@@ -2630,12 +2635,23 @@ def admin_reset_user_password(
         )
 
     token = create_password_reset_token(target_user)
-    db.commit()
-    db.refresh(target_user)
+
+    try:
+        send_password_reset_email(
+            target_user.email,
+            password_reset_link(token),
+        )
+        db.commit()
+        db.refresh(target_user)
+    except (MailConfigurationError, MailDeliveryError) as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=503,
+            detail="Nie udało się wysłać emaila resetowania hasła. Spróbuj ponownie później."
+        ) from exc
 
     return {
-        "message": "Wygenerowano link resetowania hasła",
-        "reset_path": f"/reset-password?token={token}",
+        "message": "Link resetowania hasła został wysłany na email użytkownika",
         "user": public_user(target_user),
     }
 
@@ -3139,8 +3155,7 @@ def login(
 
     if user.password_reset_required and user.password_reset_token:
         return {
-            "message": "Hasło wymaga zresetowania",
-            "reset_path": f"/reset-password?token={user.password_reset_token}",
+            "message": "Hasło wymaga zresetowania. Sprawdź email z linkiem do ustawienia nowego hasła",
         }
 
     user.last_seen = datetime.now(timezone.utc).isoformat()
@@ -3187,11 +3202,22 @@ def forgot_password(
         }
 
     token = create_password_reset_token(user)
-    db.commit()
+
+    try:
+        send_password_reset_email(
+            user.email,
+            password_reset_link(token),
+        )
+        db.commit()
+    except (MailConfigurationError, MailDeliveryError) as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=503,
+            detail="Nie udało się wysłać emaila resetowania hasła. Spróbuj ponownie później."
+        ) from exc
 
     return {
         "message": "Link resetowania hasła został wysłany",
-        "reset_path": f"/reset-password?token={token}",
     }
 
 

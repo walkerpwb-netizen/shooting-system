@@ -10,7 +10,6 @@ export default function ForgotPasswordPage() {
 
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
-  const [resetLink, setResetLink] = useState("");
 
   async function handleForgotPassword() {
     setMessage("");
@@ -24,7 +23,6 @@ export default function ForgotPasswordPage() {
 
     try {
       setLoading(true);
-      setResetLink("");
 
       const response = await fetch(
         apiUrl("/forgot-password"),
@@ -41,11 +39,12 @@ export default function ForgotPasswordPage() {
 
       const data = await response.json();
 
-      setMessage(data.message + " ✅");
-
-      if (data.reset_path) {
-        setResetLink(`${window.location.origin}${data.reset_path}`);
+      if (!response.ok) {
+        setMessage(data.detail || "Nie udało się wysłać linku resetującego ❌");
+        return;
       }
+
+      setMessage(data.message + " ✅");
 
     } catch (error) {
       console.error(error);
@@ -99,15 +98,6 @@ export default function ForgotPasswordPage() {
             <p className="text-center text-black font-medium">
               {message}
             </p>
-          )}
-
-          {resetLink && (
-            <Link
-              href={resetLink}
-              className="text-center text-green-900 font-semibold break-all"
-            >
-              Przejdź do ustawienia nowego hasła
-            </Link>
           )}
 
         </form>
