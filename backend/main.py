@@ -861,6 +861,12 @@ def delete_user_with_dependencies(user: User, db):
 
     if participant_ids:
         (
+            db.query(Achievement)
+            .filter(Achievement.participant_id.in_(participant_ids))
+            .delete(synchronize_session=False)
+        )
+
+        (
             db.query(ParticipantDiscipline)
             .filter(ParticipantDiscipline.participant_id.in_(participant_ids))
             .delete(synchronize_session=False)
