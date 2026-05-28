@@ -5,8 +5,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import or_
 
-from database import engine
-from database import Base
 from database import SessionLocal
 from config import settings
 
@@ -54,123 +52,6 @@ optional_oauth2_scheme = OAuth2PasswordBearer(
     tokenUrl="login",
     auto_error=False,
 )
-
-Base.metadata.create_all(bind=engine)
-
-
-def ensure_schema_updates():
-    with engine.begin() as connection:
-        user_columns = {
-            row[1]
-            for row in connection.exec_driver_sql("PRAGMA table_info(users)")
-        }
-
-        user_column_definitions = {
-            "is_active": "INTEGER DEFAULT 1",
-            "activation_token": "VARCHAR",
-            "first_name": "VARCHAR",
-            "last_name": "VARCHAR",
-            "license_number": "VARCHAR",
-            "judge_license_number": "VARCHAR",
-            "club": "VARCHAR",
-            "birth_date": "VARCHAR",
-            "phone_number": "VARCHAR",
-            "last_seen": "VARCHAR",
-            "requested_role": "VARCHAR",
-            "roles": "VARCHAR",
-            "password_reset_token": "VARCHAR",
-            "password_reset_required": "INTEGER DEFAULT 0",
-        }
-
-        for column_name, column_definition in user_column_definitions.items():
-            if column_name not in user_columns:
-                connection.exec_driver_sql(
-                    f"ALTER TABLE users ADD COLUMN {column_name} {column_definition}"
-                )
-
-        connection.exec_driver_sql(
-            "UPDATE users SET roles = COALESCE(NULLIF(role, ''), 'user') "
-            "WHERE roles IS NULL OR roles = ''"
-        )
-
-        competition_columns = {
-            row[1]
-            for row in connection.exec_driver_sql("PRAGMA table_info(competitions)")
-        }
-
-        if "entry_fee" not in competition_columns:
-            connection.exec_driver_sql(
-                "ALTER TABLE competitions ADD COLUMN entry_fee VARCHAR"
-            )
-
-        competition_column_definitions = {
-            "organizer_full_name": "VARCHAR",
-            "organizer_logo": "VARCHAR",
-            "sponsors": "VARCHAR",
-            "sponsor_logo": "VARCHAR",
-            "participant_limit": "INTEGER",
-            "completed_at": "VARCHAR",
-        }
-
-        for column_name, column_definition in competition_column_definitions.items():
-            if column_name not in competition_columns:
-                connection.exec_driver_sql(
-                    f"ALTER TABLE competitions ADD COLUMN {column_name} {column_definition}"
-                )
-
-        discipline_columns = {
-            row[1]
-            for row in connection.exec_driver_sql("PRAGMA table_info(disciplines)")
-        }
-
-        discipline_column_definitions = {
-            "ammo_type": "VARCHAR",
-            "ammo_price": "VARCHAR",
-            "entry_fee": "VARCHAR",
-        }
-
-        for column_name, column_definition in discipline_column_definitions.items():
-            if column_name not in discipline_columns:
-                connection.exec_driver_sql(
-                    f"ALTER TABLE disciplines ADD COLUMN {column_name} {column_definition}"
-                )
-
-        connection.exec_driver_sql(
-            "UPDATE disciplines SET name = 'Pistolet' "
-            "WHERE lower(name) IN ('pistol', 'pistolet')"
-        )
-
-        participant_columns = {
-            row[1]
-            for row in connection.exec_driver_sql(
-                "PRAGMA table_info(competition_participants)"
-            )
-        }
-
-        participant_column_definitions = {
-            "first_name": "VARCHAR",
-            "last_name": "VARCHAR",
-            "license_number": "VARCHAR",
-            "club": "VARCHAR",
-            "birth_date": "VARCHAR",
-            "entry_type": "VARCHAR DEFAULT 'shooter'",
-            "is_head_judge": "INTEGER DEFAULT 0",
-            "total_fee": "VARCHAR",
-            "checked_in": "INTEGER DEFAULT 0",
-            "checked_in_at": "VARCHAR",
-            "paid": "INTEGER DEFAULT 0",
-            "paid_at": "VARCHAR",
-        }
-
-        for column_name, column_definition in participant_column_definitions.items():
-            if column_name not in participant_columns:
-                connection.exec_driver_sql(
-                    f"ALTER TABLE competition_participants ADD COLUMN {column_name} {column_definition}"
-                )
-
-
-if settings.is_sqlite_database:
-    ensure_schema_updates()
 
 app.add_middleware(
     CORSMiddleware,
