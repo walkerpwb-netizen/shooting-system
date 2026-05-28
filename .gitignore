@@ -7,3 +7,6 @@ __pycache__/
 .env
 backend/database.db
 backend/shooting.db
+.env.*
+!.env.example
+backend/*.db.backup-*
