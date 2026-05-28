@@ -161,7 +161,7 @@ export default function RegisterPage() {
               </p>
 
               <Link
-                href={activationLink.replace("http://localhost:3000", "")}
+                href={activationLink}
                 className="text-green-900 font-semibold break-all"
               >
                 Aktywuj konto

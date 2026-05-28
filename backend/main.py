@@ -8,6 +8,7 @@ from sqlalchemy import or_
 from database import engine
 from database import Base
 from database import SessionLocal
+from config import settings
 
 from models import (
     AppSetting,
@@ -35,7 +36,6 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 
-SECRET_KEY = "SUPER_SECRET_KEY"
 ALGORITHM = "HS256"
 APP_TIMEZONE = ZoneInfo("Europe/Warsaw")
 PROFILE_DATE_FORMATS = ("%Y-%m-%d", "%d.%m.%Y", "%d-%m-%Y", "%d/%m/%Y")
@@ -169,17 +169,13 @@ def ensure_schema_updates():
                 )
 
 
-ensure_schema_updates()
+if settings.is_sqlite_database:
+    ensure_schema_updates()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://192.99.43.63",
-        "http://192.99.43.63:3000",
-    ],
-    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|192\.99\.43\.63)(:\d+)?",
+    allow_origins=settings.cors_origins,
+    allow_origin_regex=settings.cors_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -2187,7 +2183,7 @@ def get_current_user(
     try:
         payload = jwt.decode(
             token,
-            SECRET_KEY,
+            settings.secret_key,
             algorithms=[ALGORITHM]
         )
 
@@ -2233,7 +2229,7 @@ def get_optional_current_user(
     try:
         payload = jwt.decode(
             token,
-            SECRET_KEY,
+            settings.secret_key,
             algorithms=[ALGORITHM]
         )
     except JWTError:
@@ -3179,7 +3175,7 @@ def register(
     return {
         "message": "Konto utworzone. Sprawdź email i aktywuj konto",
         "email": new_user.email,
-        "activation_link": f"http://localhost:3000/activate?token={activation_token}",
+        "activation_link": f"{settings.frontend_url}/activate?token={activation_token}",
     }
 
 
@@ -3259,7 +3255,7 @@ def login(
 
     token = jwt.encode(
         payload,
-        SECRET_KEY,
+        settings.secret_key,
         algorithm=ALGORITHM
     )
 
