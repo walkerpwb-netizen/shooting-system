@@ -4,7 +4,7 @@ import Navbar from "@/components/Navbar";
 import GlobalUiSettings from "./components/GlobalUiSettings";
 
 export const metadata: Metadata = {
-  title: "Shooting System",
+  title: "System Strzelecki",
   description: "System zawodów strzeleckich",
 };
 
