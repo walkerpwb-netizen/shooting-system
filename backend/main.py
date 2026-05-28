@@ -7,6 +7,11 @@ from sqlalchemy import or_
 
 from database import SessionLocal
 from config import settings
+from mailer import (
+    MailConfigurationError,
+    MailDeliveryError,
+    send_activation_email,
+)
 
 from models import (
     AppSetting,
@@ -3049,14 +3054,23 @@ def register(
 
     db.add(new_user)
 
-    db.commit()
+    activation_link = f"{settings.frontend_url}/activate?token={activation_token}"
 
-    db.refresh(new_user)
+    try:
+        db.flush()
+        send_activation_email(new_user.email, activation_link)
+        db.commit()
+        db.refresh(new_user)
+    except (MailConfigurationError, MailDeliveryError) as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=503,
+            detail="Nie udało się wysłać emaila aktywacyjnego. Spróbuj ponownie później."
+        ) from exc
 
     return {
         "message": "Konto utworzone. Sprawdź email i aktywuj konto",
         "email": new_user.email,
-        "activation_link": f"{settings.frontend_url}/activate?token={activation_token}",
     }
 
 

@@ -12,7 +12,6 @@ export default function RegisterPage() {
 
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
-  const [activationLink, setActivationLink] = useState("");
 
   function validatePassword(password: string) {
     const hasUppercase = /[A-Z]/.test(password);
@@ -46,7 +45,6 @@ export default function RegisterPage() {
 
     try {
       setLoading(true);
-      setActivationLink("");
 
       const response = await fetch(
         apiUrl("/register"),
@@ -70,7 +68,6 @@ export default function RegisterPage() {
       }
 
       setMessage("Konto zostało utworzone. Aktywuj je linkiem z emaila ✅");
-      setActivationLink(data.activation_link || "");
 
       setEmail("");
       setPassword("");
@@ -152,21 +149,6 @@ export default function RegisterPage() {
             <p className="text-center text-black font-medium">
               {message}
             </p>
-          )}
-
-          {activationLink && (
-            <div className="border border-green-200 bg-green-50 rounded-xl p-4">
-              <p className="text-sm text-gray-700 mb-2">
-                Tryb testowy: kliknij link aktywacyjny konta.
-              </p>
-
-              <Link
-                href={activationLink}
-                className="text-green-900 font-semibold break-all"
-              >
-                Aktywuj konto
-              </Link>
-            </div>
           )}
 
         </form>
