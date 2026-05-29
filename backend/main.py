@@ -4870,6 +4870,30 @@ def get_my_statistics(
     return user_competition_statistics(user, db)
 
 
+@app.delete("/me")
+def delete_my_account(
+    user: User = Depends(get_current_user),
+    db=Depends(get_db),
+):
+    db_user = (
+        db.query(User)
+        .filter(User.email == user.email)
+        .first()
+    )
+
+    if not db_user:
+        raise HTTPException(
+            status_code=404,
+            detail="Użytkownik nie istnieje"
+        )
+
+    delete_user_with_dependencies(db_user, db)
+
+    return {
+        "message": "Konto zostało usunięte"
+    }
+
+
 @app.get("/participants/{participant_id}/profile")
 def get_participant_profile(
     participant_id: int,

@@ -171,6 +171,7 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false);
   const [sendingRoleRequest, setSendingRoleRequest] = useState(false);
   const [requestingPasswordReset, setRequestingPasswordReset] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
   const [message, setMessage] = useState("");
   const [editing, setEditing] = useState(false);
 
@@ -422,6 +423,69 @@ export default function ProfilePage() {
       setMessage("Błąd połączenia z serwerem ❌");
     } finally {
       setRequestingPasswordReset(false);
+    }
+  }
+
+  async function deleteAccount() {
+    const token = localStorage.getItem("token");
+
+    if (!token) {
+      router.push("/login");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Czy na pewno chcesz trwale usunąć swoje konto? Ta operacja usunie też Twoje zapisy do zawodów i nie da się jej cofnąć."
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    const confirmationText = window.prompt(
+      "Aby potwierdzić trwałe usunięcie konta, wpisz USUN KONTO"
+    );
+
+    if (confirmationText !== "USUN KONTO") {
+      setMessage("Usuwanie konta anulowane.");
+      return;
+    }
+
+    try {
+      setDeletingAccount(true);
+      setMessage("");
+
+      const response = await fetch(
+        apiUrl("/me"),
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.detail || "Nie udało się usunąć konta ❌");
+        return;
+      }
+
+      localStorage.removeItem("token");
+      localStorage.removeItem("email");
+      localStorage.removeItem("role");
+      localStorage.removeItem("roles");
+      setMessage(data.message + " ✅");
+
+      setTimeout(() => {
+        router.push("/");
+      }, 800);
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    } finally {
+      setDeletingAccount(false);
     }
   }
 
@@ -681,6 +745,19 @@ export default function ProfilePage() {
                       Masz już komplet uprawnień organizatora i sędziego.
                     </p>
                   )}
+
+                  <div className="border-t border-red-200 pt-5 dark:border-red-950">
+                    <button
+                      type="button"
+                      onClick={deleteAccount}
+                      disabled={deletingAccount}
+                      className="bg-red-900 px-5 py-3 font-semibold text-white transition hover:bg-red-800 disabled:opacity-50"
+                    >
+                      {deletingAccount
+                        ? "Usuwanie konta..."
+                        : "Usuń konto"}
+                    </button>
+                  </div>
                 </section>
               )}
             </>
