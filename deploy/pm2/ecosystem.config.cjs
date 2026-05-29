@@ -1,0 +1,35 @@
+module.exports = {
+  apps: [
+    {
+      name: "shooting-frontend",
+      cwd: "/home/ubuntu/shooting-system/frontend",
+      script: "node_modules/next/dist/bin/next",
+      args: "start -H 127.0.0.1 -p 3000",
+      exec_mode: "fork",
+      instances: 1,
+      autorestart: true,
+      watch: false,
+      filter_env: [
+        "DBUS_",
+        "LC_",
+        "LESS",
+        "LS_COLORS",
+        "OLDPWD",
+        "PM2_USAGE",
+        "SHLVL",
+        "SSH_",
+        "TERM",
+        "XDG_",
+      ],
+      max_memory_restart: "512M",
+      merge_logs: true,
+      log_date_format: "YYYY-MM-DD HH:mm:ss Z",
+      env: {
+        NODE_ENV: "production",
+        NEXT_TELEMETRY_DISABLED: "1",
+        NEXT_PUBLIC_API_URL: "/api",
+        API_URL: "http://127.0.0.1:8000",
+      },
+    },
+  ],
+};
