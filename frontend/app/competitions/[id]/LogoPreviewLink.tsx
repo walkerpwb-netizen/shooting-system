@@ -1,5 +1,7 @@
 "use client";
 
+import Image from "next/image";
+
 type LogoPreviewLinkProps = {
   src: string;
   alt: string;
@@ -58,12 +60,15 @@ export default function LogoPreviewLink({
       type="button"
       onClick={openPreview}
       title={title}
-      className="h-full w-full flex items-center justify-center cursor-zoom-in"
+      className="relative h-full w-full flex items-center justify-center cursor-zoom-in"
     >
-      <img
+      <Image
         src={src}
         alt={alt}
-        className="h-full w-full object-contain p-2"
+        fill
+        sizes="120px"
+        className="object-contain p-2"
+        unoptimized
       />
     </button>
   );

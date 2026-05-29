@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 
 export type Achievement = {
@@ -76,9 +77,11 @@ export default function AchievementsSection({
                 title={`${medalLabel}, ${achievement.category_name}, ${achievement.competition_name}`}
                 aria-label={`${medalLabel}, ${achievement.place}. miejsce, ${achievement.category_name}, ${achievement.competition_name}`}
               >
-                <img
+                <Image
                   src={iconSrc}
                   alt=""
+                  width={64}
+                  height={64}
                   className="ui-achievement-icon"
                   aria-hidden="true"
                 />

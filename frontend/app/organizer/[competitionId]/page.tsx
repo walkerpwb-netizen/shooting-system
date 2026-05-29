@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
@@ -677,21 +678,27 @@ export default function OrganizerCompetitionPage() {
               {(competition.organizer_logo || competition.sponsor_logo) && (
                 <div className="grid grid-cols-2 gap-3 mb-5">
                   {competition.organizer_logo && (
-                    <div className="h-20 rounded-xl bg-gray-100 border border-gray-200 flex items-center justify-center overflow-hidden">
-                      <img
+                    <div className="relative h-20 rounded-xl bg-gray-100 border border-gray-200 flex items-center justify-center overflow-hidden">
+                      <Image
                         src={competition.organizer_logo}
                         alt="Logo organizatora"
-                        className="h-full w-full object-contain p-2"
+                        fill
+                        sizes="160px"
+                        className="object-contain p-2"
+                        unoptimized
                       />
                     </div>
                   )}
 
                   {competition.sponsor_logo && (
-                    <div className="h-20 rounded-xl bg-gray-100 border border-gray-200 flex items-center justify-center overflow-hidden">
-                      <img
+                    <div className="relative h-20 rounded-xl bg-gray-100 border border-gray-200 flex items-center justify-center overflow-hidden">
+                      <Image
                         src={competition.sponsor_logo}
                         alt="Logo sponsora"
-                        className="h-full w-full object-contain p-2"
+                        fill
+                        sizes="160px"
+                        className="object-contain p-2"
+                        unoptimized
                       />
                     </div>
                   )}

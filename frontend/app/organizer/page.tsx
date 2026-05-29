@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -133,9 +134,6 @@ export default function OrganizerPage() {
   const [message, setMessage] = useState("");
   const [disciplineCount, setDisciplineCount] = useState(0);
   const [disciplines, setDisciplines] = useState<Discipline[]>([]);
-  const [judgeEmailByCompetition, setJudgeEmailByCompetition] = useState<Record<number, string>>({});
-  const [judgeDisciplineByCompetition, setJudgeDisciplineByCompetition] = useState<Record<number, string>>({});
-  const [headJudgeByCompetition, setHeadJudgeByCompetition] = useState<Record<number, boolean>>({});
   const [loading, setLoading] = useState(false);
   const [editingCompetitionId, setEditingCompetitionId] = useState<number | null>(null);
   const [editingCompetitionStatus, setEditingCompetitionStatus] = useState("");
@@ -252,111 +250,6 @@ export default function OrganizerPage() {
       setCompetitions(data);
     } catch (error) {
       console.error(error);
-    }
-  }
-
-  async function inviteJudge(competition: Competition) {
-    const token = localStorage.getItem("token");
-    const judgeEmail = judgeEmailByCompetition[competition.id] || "";
-    const disciplineValue = judgeDisciplineByCompetition[competition.id] || "";
-
-    if (!judgeEmail) {
-      setMessage("Wybierz sędziego ❌");
-      return;
-    }
-
-    try {
-      setMessage("");
-
-      const response = await fetch(
-        apiUrl(`/competitions/${competition.id}/judge-invitations`),
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            judge_email: judgeEmail,
-            discipline_ids: disciplineValue
-              ? [Number(disciplineValue)]
-              : [],
-            is_head_judge: Boolean(headJudgeByCompetition[competition.id]),
-          }),
-        }
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        setMessage(data.detail || "Nie udało się przypisać sędziego ❌");
-        return;
-      }
-
-      setMessage("Sędzia przypisany do zawodów ✅");
-      setJudgeEmailByCompetition({
-        ...judgeEmailByCompetition,
-        [competition.id]: "",
-      });
-      setJudgeDisciplineByCompetition({
-        ...judgeDisciplineByCompetition,
-        [competition.id]: "",
-      });
-      setHeadJudgeByCompetition({
-        ...headJudgeByCompetition,
-        [competition.id]: false,
-      });
-      fetchOrganizerCompetitions();
-    } catch (error) {
-      console.error(error);
-      setMessage("Błąd połączenia z serwerem ❌");
-    }
-  }
-
-  async function removeJudgeAssignment(
-    competition: Competition,
-    assignment: Competition["judge_assignments"][number]
-  ) {
-    const confirmed = window.confirm(
-      "Czy usunąć to przypisanie sędziego?"
-    );
-
-    if (!confirmed) {
-      return;
-    }
-
-    const token = localStorage.getItem("token");
-
-    try {
-      setMessage("");
-
-      const response = await fetch(
-        apiUrl(`/competitions/${competition.id}/judge-invitations/remove`),
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            judge_email: assignment.judge_email,
-            discipline_id: assignment.discipline_id,
-          }),
-        }
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        setMessage(data.detail || "Nie udało się usunąć przypisania sędziego ❌");
-        return;
-      }
-
-      setMessage("Przypisanie sędziego usunięte ✅");
-      fetchOrganizerCompetitions();
-    } catch (error) {
-      console.error(error);
-      setMessage("Błąd połączenia z serwerem ❌");
     }
   }
 
@@ -948,12 +841,15 @@ export default function OrganizerPage() {
                     Logo organizatora
                   </p>
 
-                  <div className="h-28 rounded-xl border border-dashed border-zinc-600 bg-zinc-900 flex items-center justify-center overflow-hidden mb-3">
+                  <div className="relative h-28 rounded-xl border border-dashed border-zinc-600 bg-zinc-900 flex items-center justify-center overflow-hidden mb-3">
                     {organizerLogo ? (
-                      <img
+                      <Image
                         src={organizerLogo}
                         alt="Logo organizatora"
-                        className="h-full w-full object-contain p-2"
+                        fill
+                        sizes="(min-width: 768px) 240px, 100vw"
+                        className="object-contain p-2"
+                        unoptimized
                       />
                     ) : (
                       <span className="text-gray-500 text-sm font-semibold">
@@ -988,12 +884,15 @@ export default function OrganizerPage() {
                     Logo sponsora
                   </p>
 
-                  <div className="h-28 rounded-xl border border-dashed border-zinc-600 bg-zinc-900 flex items-center justify-center overflow-hidden mb-3">
+                  <div className="relative h-28 rounded-xl border border-dashed border-zinc-600 bg-zinc-900 flex items-center justify-center overflow-hidden mb-3">
                     {sponsorLogo ? (
-                      <img
+                      <Image
                         src={sponsorLogo}
                         alt="Logo sponsora"
-                        className="h-full w-full object-contain p-2"
+                        fill
+                        sizes="(min-width: 768px) 240px, 100vw"
+                        className="object-contain p-2"
+                        unoptimized
                       />
                     ) : (
                       <span className="text-gray-500 text-sm font-semibold">
