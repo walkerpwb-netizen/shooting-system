@@ -1,0 +1,14 @@
+name: CI and Production Deploy
+
+on:
+  workflow_dispatch:
+
+jobs:
+  manual-dispatch-entrypoint:
+    name: Manual dispatch entrypoint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Explain production workflow branch
+        run: |
+          echo "Select the env-config branch when manually running this workflow."
+          echo "The full production CI and deploy workflow lives on env-config."
