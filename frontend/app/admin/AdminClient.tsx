@@ -263,6 +263,18 @@ export default function AdminClient({
   const [testOverwriteResults, setTestOverwriteResults] = useState(true);
   const [testWorking, setTestWorking] = useState(false);
 
+  function selectTab(tab: AdminTab) {
+    setActiveTab(tab);
+    router.replace(
+      tab === "users"
+        ? "/admin"
+        : `/admin?tab=${tab}`,
+      {
+        scroll: false,
+      }
+    );
+  }
+
   useEffect(() => {
     if (!isAdmin()) {
       router.push("/");
@@ -1225,7 +1237,7 @@ export default function AdminClient({
         <div className="mb-8 flex flex-wrap gap-2 sm:gap-3">
           <button
             type="button"
-            onClick={() => setActiveTab("users")}
+            onClick={() => selectTab("users")}
             className={`ui-button min-w-0 px-5 py-3 rounded-xl font-bold transition ${
               activeTab === "users"
                 ? "bg-green-700 text-white"
@@ -1237,7 +1249,7 @@ export default function AdminClient({
 
           <button
             type="button"
-            onClick={() => setActiveTab("competitions")}
+            onClick={() => selectTab("competitions")}
             className={`ui-button min-w-0 px-5 py-3 rounded-xl font-bold transition ${
               activeTab === "competitions"
                 ? "bg-green-700 text-white"
@@ -1249,7 +1261,7 @@ export default function AdminClient({
 
           <button
             type="button"
-            onClick={() => setActiveTab("settings")}
+            onClick={() => selectTab("settings")}
             className={`ui-button min-w-0 px-5 py-3 rounded-xl font-bold transition ${
               activeTab === "settings"
                 ? "bg-green-700 text-white"
@@ -1261,7 +1273,7 @@ export default function AdminClient({
 
           <button
             type="button"
-            onClick={() => setActiveTab("monitoring")}
+            onClick={() => selectTab("monitoring")}
             className={`ui-button min-w-0 px-5 py-3 rounded-xl font-bold transition ${
               activeTab === "monitoring"
                 ? "bg-green-700 text-white"
@@ -1273,7 +1285,7 @@ export default function AdminClient({
 
           <button
             type="button"
-            onClick={() => setActiveTab("test-data")}
+            onClick={() => selectTab("test-data")}
             className={`ui-button min-w-0 px-5 py-3 rounded-xl font-bold transition ${
               activeTab === "test-data"
                 ? "bg-green-700 text-white"
