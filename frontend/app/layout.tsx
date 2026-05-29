@@ -5,7 +5,7 @@ import GlobalUiSettings from "./components/GlobalUiSettings";
 
 export const metadata: Metadata = {
   title: "System Strzelecki",
-  description: "System zawodów strzeleckich",
+  description: "System Organizacji Zawodów Strzeleckich",
 };
 
 export default function RootLayout({
