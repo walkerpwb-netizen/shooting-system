@@ -14,6 +14,8 @@ BACKEND_UNIT_DST="${BACKEND_UNIT_DST:-/etc/systemd/system/shooting-backend.servi
 NGINX_CONF_SRC="${NGINX_CONF_SRC:-deploy/nginx/shooting-system.conf}"
 NGINX_CONF_DST="${NGINX_CONF_DST:-/etc/nginx/sites-available/shooting-system}"
 BACKEND_VENV="${BACKEND_VENV:-backend/venv}"
+HEALTH_CHECK_ATTEMPTS="${HEALTH_CHECK_ATTEMPTS:-10}"
+HEALTH_CHECK_SLEEP_SECONDS="${HEALTH_CHECK_SLEEP_SECONDS:-2}"
 
 log() {
   printf '\n== %s ==\n' "$*"
@@ -31,6 +33,25 @@ run() {
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || fail "Missing required command: $1"
+}
+
+run_with_retry() {
+  local attempt
+
+  for attempt in $(seq 1 "$HEALTH_CHECK_ATTEMPTS"); do
+    printf '+ %s\n' "$*"
+    if "$@"; then
+      return 0
+    fi
+
+    if [[ "$attempt" -lt "$HEALTH_CHECK_ATTEMPTS" ]]; then
+      printf 'Attempt %s/%s failed; retrying in %ss...\n' \
+        "$attempt" "$HEALTH_CHECK_ATTEMPTS" "$HEALTH_CHECK_SLEEP_SECONDS" >&2
+      sleep "$HEALTH_CHECK_SLEEP_SECONDS"
+    fi
+  done
+
+  fail "Command failed after $HEALTH_CHECK_ATTEMPTS attempts: $*"
 }
 
 ensure_clean_worktree() {
@@ -192,11 +213,11 @@ reload_nginx() {
 run_health_checks() {
   log "Running health checks"
   run systemctl is-active postgresql
-  run curl -fsS http://127.0.0.1:8000/health
+  run_with_retry curl -fsS http://127.0.0.1:8000/health
   printf '\n'
-  run curl -fsS https://system-strzelecki.pl/api/health
+  run_with_retry curl -fsS https://system-strzelecki.pl/api/health
   printf '\n'
-  run curl -fsSI https://system-strzelecki.pl/
+  run_with_retry curl -fsSI https://system-strzelecki.pl/
 }
 
 main() {
