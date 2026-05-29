@@ -49,11 +49,7 @@ The deploy job runs only when all CI jobs pass and the workflow is on `refs/head
 
 Manual deploys can be started with `workflow_dispatch` from the `env-config` branch.
 
-Automatic deploys on push to `env-config` are disabled until this repository variable is set:
-
-```text
-PRODUCTION_DEPLOY_ENABLED=true
-```
+Pushes to `env-config` automatically deploy to production after CI succeeds.
 
 Required GitHub repository secrets for deploy:
 
@@ -65,3 +61,6 @@ PRODUCTION_SSH_KEY=<private SSH key allowed to run the deploy script>
 
 Optional secret:
 
+```text
+PRODUCTION_SSH_PORT=22
+```

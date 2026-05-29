@@ -92,8 +92,7 @@ jobs:
       - backend
     if: >-
       github.ref == 'refs/heads/env-config' &&
-      (github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'push' && vars.PRODUCTION_DEPLOY_ENABLED == 'true'))
+      (github.event_name == 'workflow_dispatch' || github.event_name == 'push')
     environment: production
 
     steps:
