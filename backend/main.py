@@ -3,7 +3,7 @@ from fastapi import Depends, HTTPException
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy import or_
+from sqlalchemy import or_, text
 
 from database import SessionLocal
 from config import settings
@@ -37,8 +37,13 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import hashlib
 import json
 import math
+import os
+import platform
 import re
 import secrets
+import shutil
+import subprocess
+from pathlib import Path
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -48,6 +53,32 @@ APP_TIMEZONE = ZoneInfo("Europe/Warsaw")
 PROFILE_DATE_FORMATS = ("%Y-%m-%d", "%d.%m.%Y", "%d-%m-%Y", "%d/%m/%Y")
 PASSWORD_RESET_LIMIT = 3
 PASSWORD_RESET_WINDOW = timedelta(hours=1)
+BACKUP_DIR = Path("/home/ubuntu/backups/shooting-system/postgres")
+MONITORED_LOG_FILES = [
+    {
+        "name": "Frontend error",
+        "path": Path("/home/ubuntu/.pm2/logs/shooting-frontend-error.log"),
+    },
+    {
+        "name": "Frontend output",
+        "path": Path("/home/ubuntu/.pm2/logs/shooting-frontend-out.log"),
+    },
+    {
+        "name": "PM2 daemon",
+        "path": Path("/home/ubuntu/.pm2/pm2.log"),
+    },
+    {
+        "name": "Nginx error",
+        "path": Path("/var/log/nginx/error.log"),
+    },
+]
+MONITORED_SERVICES = [
+    "shooting-backend.service",
+    "pm2-ubuntu.service",
+    "nginx.service",
+    "postgresql.service",
+    "shooting-postgres-backup.timer",
+]
 
 pwd_context = CryptContext(
     schemes=["bcrypt"],
@@ -2266,10 +2297,291 @@ def get_current_judge(
     return user
 
 
+def utc_now_iso():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def run_monitoring_command(command: list[str], timeout: float = 2.0):
+    env = os.environ.copy()
+    env.setdefault("HOME", "/home/ubuntu")
+    env.setdefault("PM2_HOME", "/home/ubuntu/.pm2")
+
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            check=False,
+            env=env,
+            text=True,
+            timeout=timeout,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {
+            "ok": False,
+            "stdout": "",
+            "stderr": str(exc),
+            "returncode": None,
+        }
+
+    return {
+        "ok": result.returncode == 0,
+        "stdout": result.stdout.strip(),
+        "stderr": result.stderr.strip(),
+        "returncode": result.returncode,
+    }
+
+
+def service_status(service_name: str):
+    active_result = run_monitoring_command([
+        "systemctl",
+        "is-active",
+        service_name,
+    ])
+    enabled_result = run_monitoring_command([
+        "systemctl",
+        "is-enabled",
+        service_name,
+    ])
+
+    active = active_result["stdout"] or "unknown"
+    enabled = enabled_result["stdout"] or "unknown"
+
+    return {
+        "name": service_name,
+        "active": active,
+        "enabled": enabled,
+        "ok": active == "active",
+    }
+
+
+def database_status(db):
+    started_at = datetime.now(timezone.utc)
+
+    try:
+        db.execute(text("SELECT 1"))
+    except Exception as exc:
+        return {
+            "ok": False,
+            "latency_ms": None,
+            "error": str(exc),
+        }
+
+    latency_ms = (
+        datetime.now(timezone.utc) - started_at
+    ).total_seconds() * 1000
+
+    return {
+        "ok": True,
+        "latency_ms": round(latency_ms, 2),
+        "error": "",
+    }
+
+
+def disk_status(path: str = "/"):
+    usage = shutil.disk_usage(path)
+
+    return {
+        "path": path,
+        "total_bytes": usage.total,
+        "used_bytes": usage.used,
+        "free_bytes": usage.free,
+        "used_percent": round((usage.used / usage.total) * 100, 1),
+    }
+
+
+def file_summary(log_file: dict):
+    path = log_file["path"]
+
+    if not path.exists():
+        return {
+            "name": log_file["name"],
+            "path": str(path),
+            "exists": False,
+            "size_bytes": 0,
+            "modified_at": "",
+        }
+
+    stat = path.stat()
+
+    return {
+        "name": log_file["name"],
+        "path": str(path),
+        "exists": True,
+        "size_bytes": stat.st_size,
+        "modified_at": datetime.fromtimestamp(
+            stat.st_mtime,
+            tz=timezone.utc,
+        ).isoformat(),
+    }
+
+
+def tail_text(path: Path, max_lines: int = 30, max_chars: int = 4000):
+    if not path.exists() or not path.is_file():
+        return []
+
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as file:
+            lines = file.readlines()[-max_lines:]
+    except OSError:
+        return []
+
+    trimmed = "".join(lines)[-max_chars:]
+
+    return [
+        line.rstrip()
+        for line in trimmed.splitlines()
+        if line.rstrip()
+    ]
+
+
+def backup_status():
+    backups = sorted(
+        BACKUP_DIR.glob("shooting-system-*.dump"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    ) if BACKUP_DIR.exists() else []
+
+    latest_backup = None
+
+    if backups:
+        latest = backups[0]
+        stat = latest.stat()
+        latest_backup = {
+            "name": latest.name,
+            "path": str(latest),
+            "size_bytes": stat.st_size,
+            "modified_at": datetime.fromtimestamp(
+                stat.st_mtime,
+                tz=timezone.utc,
+            ).isoformat(),
+        }
+
+    return {
+        "directory": str(BACKUP_DIR),
+        "count": len(backups),
+        "latest": latest_backup,
+    }
+
+
+def pm2_status():
+    result = run_monitoring_command([
+        "pm2",
+        "jlist",
+    ])
+
+    if not result["ok"]:
+        return {
+            "ok": False,
+            "processes": [],
+            "error": result["stderr"] or result["stdout"],
+        }
+
+    try:
+        processes = json.loads(result["stdout"] or "[]")
+    except json.JSONDecodeError as exc:
+        return {
+            "ok": False,
+            "processes": [],
+            "error": str(exc),
+        }
+
+    summarized_processes = []
+
+    for process in processes:
+        env = process.get("pm2_env", {})
+        monitor = process.get("monit", {})
+        summarized_processes.append({
+            "name": process.get("name", ""),
+            "status": env.get("status", ""),
+            "pid": process.get("pid"),
+            "restart_count": env.get("restart_time", 0),
+            "uptime_ms": (
+                int(datetime.now(timezone.utc).timestamp() * 1000)
+                - int(env.get("pm_uptime") or 0)
+            ) if env.get("pm_uptime") else None,
+            "memory_bytes": monitor.get("memory", 0),
+            "cpu_percent": monitor.get("cpu", 0),
+        })
+
+    return {
+        "ok": all(
+            process["status"] == "online"
+            for process in summarized_processes
+        ),
+        "processes": summarized_processes,
+        "error": "",
+    }
+
+
+def system_status(db):
+    services = [
+        service_status(service_name)
+        for service_name in MONITORED_SERVICES
+    ]
+    database = database_status(db)
+    pm2 = pm2_status()
+    disk = disk_status("/")
+    backups = backup_status()
+    logs = [
+        file_summary(log_file)
+        for log_file in MONITORED_LOG_FILES
+    ]
+    recent_logs = {
+        log_file["name"]: tail_text(log_file["path"])
+        for log_file in MONITORED_LOG_FILES
+        if log_file["name"] in {"Frontend error", "Nginx error"}
+    }
+
+    ok = (
+        database["ok"]
+        and pm2["ok"]
+        and all(service["ok"] for service in services)
+        and disk["used_percent"] < 90
+        and backups["count"] > 0
+    )
+
+    return {
+        "status": "ok" if ok else "warning",
+        "generated_at": utc_now_iso(),
+        "hostname": platform.node(),
+        "environment": {
+            "python": platform.python_version(),
+            "platform": platform.platform(),
+        },
+        "database": database,
+        "services": services,
+        "pm2": pm2,
+        "disk": disk,
+        "backups": backups,
+        "logs": logs,
+        "recent_logs": recent_logs,
+    }
+
+
 @app.get("/")
 def root():
     return {
         "message": "Backend działa poprawnie"
+    }
+
+
+@app.get("/health")
+def health(db=Depends(get_db)):
+    database = database_status(db)
+
+    if not database["ok"]:
+        raise HTTPException(
+            status_code=503,
+            detail="Baza danych nie odpowiada"
+        )
+
+    return {
+        "status": "ok",
+        "generated_at": utc_now_iso(),
+        "database": {
+            "ok": True,
+            "latency_ms": database["latency_ms"],
+        },
     }
 
 
@@ -2521,6 +2833,14 @@ def get_admin_profile_settings(
     db=Depends(get_db),
 ):
     return get_profile_settings(db)
+
+
+@app.get("/admin/monitoring")
+def get_admin_monitoring(
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    return system_status(db)
 
 
 @app.put("/admin/settings/results-table")

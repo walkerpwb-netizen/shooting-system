@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { apiUrl } from "@/lib/api";
 import { isAdmin } from "@/lib/auth";
 
-type AdminTab = "users" | "competitions" | "settings" | "test-data";
+type AdminTab = "users" | "competitions" | "settings" | "monitoring" | "test-data";
 type UserSortField = "name" | "status" | "role" | "account" | "phone";
 type SortDirection = "asc" | "desc";
 
@@ -51,6 +51,67 @@ type AdminCompetition = {
     phone_number: string;
   };
   disciplines: AdminDiscipline[];
+};
+
+type MonitoringService = {
+  name: string;
+  active: string;
+  enabled: string;
+  ok: boolean;
+};
+
+type MonitoringProcess = {
+  name: string;
+  status: string;
+  pid: number | null;
+  restart_count: number;
+  uptime_ms: number | null;
+  memory_bytes: number;
+  cpu_percent: number;
+};
+
+type MonitoringLog = {
+  name: string;
+  path: string;
+  exists: boolean;
+  size_bytes: number;
+  modified_at: string;
+};
+
+type MonitoringData = {
+  status: "ok" | "warning";
+  generated_at: string;
+  hostname: string;
+  database: {
+    ok: boolean;
+    latency_ms: number | null;
+    error: string;
+  };
+  services: MonitoringService[];
+  pm2: {
+    ok: boolean;
+    processes: MonitoringProcess[];
+    error: string;
+  };
+  disk: {
+    path: string;
+    total_bytes: number;
+    used_bytes: number;
+    free_bytes: number;
+    used_percent: number;
+  };
+  backups: {
+    directory: string;
+    count: number;
+    latest: {
+      name: string;
+      path: string;
+      size_bytes: number;
+      modified_at: string;
+    } | null;
+  };
+  logs: MonitoringLog[];
+  recent_logs: Record<string, string[]>;
 };
 
 type ResultsTableSettings = {
@@ -172,6 +233,7 @@ export default function AdminClient({
   const [activeTab, setActiveTab] = useState<AdminTab>(initialTab);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [competitions, setCompetitions] = useState<AdminCompetition[]>([]);
+  const [monitoring, setMonitoring] = useState<MonitoringData | null>(null);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [userSearch, setUserSearch] = useState("");
@@ -217,7 +279,7 @@ export default function AdminClient({
 
     async function loadAdminData() {
       try {
-        const [usersResponse, competitionsResponse, tableSettingsResponse, uiSettingsResponse, profileSettingsResponse] = await Promise.all([
+        const [usersResponse, competitionsResponse, tableSettingsResponse, uiSettingsResponse, profileSettingsResponse, monitoringResponse] = await Promise.all([
           fetch(
             apiUrl("/admin/users"),
             {
@@ -258,6 +320,14 @@ export default function AdminClient({
               },
             }
           ),
+          fetch(
+            apiUrl("/admin/monitoring"),
+            {
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            }
+          ),
         ]);
 
         const usersData = await usersResponse.json();
@@ -265,6 +335,7 @@ export default function AdminClient({
         const tableSettingsData = await tableSettingsResponse.json();
         const uiSettingsData = await uiSettingsResponse.json();
         const profileSettingsData = await profileSettingsResponse.json();
+        const monitoringData = await monitoringResponse.json();
 
         if (ignore) {
           return;
@@ -295,8 +366,14 @@ export default function AdminClient({
           return;
         }
 
+        if (!monitoringResponse.ok) {
+          setMessage(monitoringData.detail || "Nie udało się pobrać monitoringu ❌");
+          return;
+        }
+
         setUsers(usersData);
         setCompetitions(competitionsData);
+        setMonitoring(monitoringData);
         setResultsTableSettings({
           grid_template_columns: tableSettingsData.grid_template_columns || defaultResultsTableSettings.grid_template_columns,
           min_width: tableSettingsData.min_width || defaultResultsTableSettings.min_width,
@@ -427,6 +504,35 @@ export default function AdminClient({
     }
 
     setCompetitions(data);
+  }
+
+  async function reloadMonitoring() {
+    const token = localStorage.getItem("token");
+
+    try {
+      setMessage("");
+
+      const response = await fetch(
+        apiUrl("/admin/monitoring"),
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.detail || "Nie udało się odświeżyć monitoringu ❌");
+        return;
+      }
+
+      setMonitoring(data);
+      setMessage("Monitoring odświeżony");
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    }
   }
 
   function getRoleNames(user: AdminUser) {
@@ -1008,6 +1114,56 @@ export default function AdminClient({
       : "↓";
   }
 
+  function formatBytes(bytes: number) {
+    if (!Number.isFinite(bytes) || bytes <= 0) {
+      return "0 B";
+    }
+
+    const units = ["B", "KB", "MB", "GB", "TB"];
+    const unitIndex = Math.min(
+      Math.floor(Math.log(bytes) / Math.log(1024)),
+      units.length - 1
+    );
+    const value = bytes / Math.pow(1024, unitIndex);
+
+    return `${value.toFixed(value >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+  }
+
+  function formatDateTime(value: string) {
+    if (!value) {
+      return "brak";
+    }
+
+    return new Intl.DateTimeFormat(
+      "pl-PL",
+      {
+        dateStyle: "short",
+        timeStyle: "medium",
+      }
+    ).format(new Date(value));
+  }
+
+  function formatDuration(milliseconds: number | null) {
+    if (!milliseconds || milliseconds < 0) {
+      return "brak";
+    }
+
+    const totalSeconds = Math.floor(milliseconds / 1000);
+    const days = Math.floor(totalSeconds / 86400);
+    const hours = Math.floor((totalSeconds % 86400) / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+
+    if (days > 0) {
+      return `${days} d ${hours} h`;
+    }
+
+    if (hours > 0) {
+      return `${hours} h ${minutes} min`;
+    }
+
+    return `${minutes} min`;
+  }
+
   const filteredUsers = users
     .filter((user) => {
       const searchValue = [
@@ -1101,6 +1257,18 @@ export default function AdminClient({
             }`}
           >
             Settings
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab("monitoring")}
+            className={`ui-button min-w-0 px-5 py-3 rounded-xl font-bold transition ${
+              activeTab === "monitoring"
+                ? "bg-green-700 text-white"
+                : "bg-zinc-800 text-gray-300 hover:bg-zinc-700"
+            }`}
+          >
+            Monitoring
           </button>
 
           <button
@@ -1962,6 +2130,252 @@ export default function AdminClient({
               </button>
               </div>
             </div>
+          </section>
+        ) : activeTab === "monitoring" ? (
+          <section className="space-y-6">
+            <div className="ui-block bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h2 className="text-3xl font-bold text-white mb-2">
+                    Monitoring
+                  </h2>
+
+                  <p className="text-gray-400">
+                    Stan usług, bazy danych, backupów i najważniejszych logów produkcyjnych.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={reloadMonitoring}
+                  className="ui-button w-fit bg-green-700 hover:bg-green-600 text-white px-5 py-3 rounded-xl font-bold transition"
+                >
+                  Odśwież
+                </button>
+              </div>
+            </div>
+
+            {!monitoring ? (
+              <p className="text-gray-400">
+                Brak danych monitoringu.
+              </p>
+            ) : (
+              <>
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                  <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
+                    <p className="text-sm font-bold text-gray-500 uppercase">
+                      Status
+                    </p>
+
+                    <p className={`mt-2 text-3xl font-bold ${
+                      monitoring.status === "ok"
+                        ? "text-green-400"
+                        : "text-yellow-300"
+                    }`}>
+                      {monitoring.status === "ok"
+                        ? "OK"
+                        : "Uwaga"}
+                    </p>
+
+                    <p className="mt-2 text-sm text-gray-400">
+                      {formatDateTime(monitoring.generated_at)}
+                    </p>
+                  </div>
+
+                  <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
+                    <p className="text-sm font-bold text-gray-500 uppercase">
+                      Baza danych
+                    </p>
+
+                    <p className={`mt-2 text-3xl font-bold ${
+                      monitoring.database.ok
+                        ? "text-green-400"
+                        : "text-red-400"
+                    }`}>
+                      {monitoring.database.ok
+                        ? "online"
+                        : "problem"}
+                    </p>
+
+                    <p className="mt-2 text-sm text-gray-400">
+                      Latencja: {monitoring.database.latency_ms ?? "brak"} ms
+                    </p>
+                  </div>
+
+                  <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
+                    <p className="text-sm font-bold text-gray-500 uppercase">
+                      Dysk
+                    </p>
+
+                    <p className={`mt-2 text-3xl font-bold ${
+                      monitoring.disk.used_percent < 80
+                        ? "text-green-400"
+                        : monitoring.disk.used_percent < 90
+                          ? "text-yellow-300"
+                          : "text-red-400"
+                    }`}>
+                      {monitoring.disk.used_percent}%
+                    </p>
+
+                    <p className="mt-2 text-sm text-gray-400">
+                      Wolne: {formatBytes(monitoring.disk.free_bytes)}
+                    </p>
+                  </div>
+
+                  <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
+                    <p className="text-sm font-bold text-gray-500 uppercase">
+                      Backupy PostgreSQL
+                    </p>
+
+                    <p className={`mt-2 text-3xl font-bold ${
+                      monitoring.backups.latest
+                        ? "text-green-400"
+                        : "text-red-400"
+                    }`}>
+                      {monitoring.backups.count}
+                    </p>
+
+                    <p className="mt-2 text-sm text-gray-400">
+                      Ostatni: {monitoring.backups.latest
+                        ? formatDateTime(monitoring.backups.latest.modified_at)
+                        : "brak"}
+                    </p>
+                  </div>
+                </div>
+
+                <section className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
+                  <div className="grid grid-cols-[1.4fr_0.8fr_0.8fr_0.7fr] gap-4 px-5 py-4 text-sm font-bold text-gray-400 border-b border-zinc-800">
+                    <p>Usługa</p>
+                    <p>Aktywna</p>
+                    <p>Autostart</p>
+                    <p>Status</p>
+                  </div>
+
+                  {monitoring.services.map((service) => (
+                    <div
+                      key={service.name}
+                      className="grid grid-cols-[1.4fr_0.8fr_0.8fr_0.7fr] gap-4 px-5 py-4 border-b border-zinc-800 last:border-b-0"
+                    >
+                      <p className="text-white font-semibold">
+                        {service.name}
+                      </p>
+
+                      <p className="text-gray-300">
+                        {service.active}
+                      </p>
+
+                      <p className="text-gray-300">
+                        {service.enabled}
+                      </p>
+
+                      <p className={service.ok ? "text-green-400" : "text-red-400"}>
+                        {service.ok ? "OK" : "problem"}
+                      </p>
+                    </div>
+                  ))}
+                </section>
+
+                <div className="grid gap-6 lg:grid-cols-2">
+                  <section className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
+                    <h3 className="text-2xl font-bold text-white mb-4">
+                      PM2
+                    </h3>
+
+                    {monitoring.pm2.processes.length === 0 ? (
+                      <p className="text-gray-400">
+                        Brak procesów PM2.
+                      </p>
+                    ) : monitoring.pm2.processes.map((process) => (
+                      <div
+                        key={process.name}
+                        className="border-b border-zinc-800 py-4 first:pt-0 last:border-b-0 last:pb-0"
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-white font-bold">
+                            {process.name}
+                          </p>
+
+                          <span className={process.status === "online" ? "text-green-400" : "text-red-400"}>
+                            {process.status}
+                          </span>
+                        </div>
+
+                        <div className="mt-3 grid grid-cols-2 gap-3 text-sm text-gray-400">
+                          <p>PID: {process.pid ?? "brak"}</p>
+                          <p>Restartów: {process.restart_count}</p>
+                          <p>Uptime: {formatDuration(process.uptime_ms)}</p>
+                          <p>RAM: {formatBytes(process.memory_bytes)}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </section>
+
+                  <section className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
+                    <h3 className="text-2xl font-bold text-white mb-4">
+                      Logi
+                    </h3>
+
+                    <div className="space-y-3">
+                      {monitoring.logs.map((log) => (
+                        <div
+                          key={log.path}
+                          className="flex items-start justify-between gap-4 rounded-xl bg-zinc-950/60 px-4 py-3"
+                        >
+                          <div>
+                            <p className="text-white font-semibold">
+                              {log.name}
+                            </p>
+
+                            <p className="text-xs text-gray-500 break-all">
+                              {log.path}
+                            </p>
+                          </div>
+
+                          <div className="text-right text-sm">
+                            <p className={log.exists ? "text-gray-300" : "text-red-400"}>
+                              {log.exists ? formatBytes(log.size_bytes) : "brak"}
+                            </p>
+
+                            <p className="text-gray-500">
+                              {formatDateTime(log.modified_at)}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                </div>
+
+                <section className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
+                  <h3 className="text-2xl font-bold text-white mb-4">
+                    Ostatnie błędy
+                  </h3>
+
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    {Object.entries(monitoring.recent_logs).map(([name, lines]) => (
+                      <div
+                        key={name}
+                        className="rounded-xl bg-zinc-950/80 border border-zinc-800 p-4"
+                      >
+                        <p className="text-white font-bold mb-3">
+                          {name}
+                        </p>
+
+                        {lines.length === 0 ? (
+                          <p className="text-gray-500">
+                            Brak wpisów.
+                          </p>
+                        ) : (
+                          <pre className="max-h-72 overflow-auto whitespace-pre-wrap text-xs leading-5 text-gray-300">
+                            {lines.join("\n")}
+                          </pre>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              </>
+            )}
           </section>
         ) : (
           <section className="space-y-6">
