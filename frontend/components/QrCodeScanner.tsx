@@ -124,6 +124,7 @@ export default function QrCodeScanner() {
   const animationFrameRef = useRef<number | null>(null);
   const scanningRef = useRef(false);
   const detectingRef = useRef(false);
+  const digitalZoomRef = useRef(1);
   const barcodeDetectorRef = useRef<InstanceType<BarcodeDetectorConstructor> | null>(null);
   const lastScanValueRef = useRef("");
   const lastScanAtRef = useRef(0);
@@ -139,6 +140,7 @@ export default function QrCodeScanner() {
   const [torchEnabled, setTorchEnabled] = useState(false);
   const [zoomRange, setZoomRange] = useState<CameraCapabilities["zoom"] | null>(null);
   const [zoomValue, setZoomValue] = useState(1);
+  const [digitalZoom, setDigitalZoom] = useState(1);
   const [cameraHint, setCameraHint] = useState("");
 
   const latestScan = history[0];
@@ -267,6 +269,13 @@ export default function QrCodeScanner() {
     } as MediaTrackConstraints).catch(() => undefined);
   }
 
+  function setDigitalScanZoom(value: number) {
+    const nextZoom = Math.min(3, Math.max(1, value));
+
+    digitalZoomRef.current = nextZoom;
+    setDigitalZoom(nextZoom);
+  }
+
   async function toggleTorch() {
     const [videoTrack] = streamRef.current?.getVideoTracks() || [];
 
@@ -358,7 +367,24 @@ export default function QrCodeScanner() {
       if (width > 0 && height > 0) {
         canvas.width = width;
         canvas.height = height;
-        context.drawImage(video, 0, 0, width, height);
+
+        const digitalScanZoom = digitalZoomRef.current;
+        const sourceWidth = width / digitalScanZoom;
+        const sourceHeight = height / digitalScanZoom;
+        const sourceX = (width - sourceWidth) / 2;
+        const sourceY = (height - sourceHeight) / 2;
+
+        context.drawImage(
+          video,
+          sourceX,
+          sourceY,
+          sourceWidth,
+          sourceHeight,
+          0,
+          0,
+          width,
+          height
+        );
 
         if (barcodeDetectorRef.current && !detectingRef.current) {
           detectingRef.current = true;
@@ -414,6 +440,12 @@ export default function QrCodeScanner() {
           ? {
             deviceId: {
               exact: selectedDeviceId,
+            },
+            width: {
+              ideal: 1920,
+            },
+            height: {
+              ideal: 1080,
             },
           }
           : {
@@ -589,7 +621,10 @@ export default function QrCodeScanner() {
               ref={videoRef}
               muted
               playsInline
-              className="h-full w-full object-cover"
+              style={{
+                transform: `scale(${digitalZoom})`,
+              }}
+              className="h-full w-full object-cover transition-transform"
             />
 
             {!scanning && (
@@ -601,12 +636,28 @@ export default function QrCodeScanner() {
             <div className="pointer-events-none absolute inset-8 rounded-2xl border-2 border-green-400/80 shadow-[0_0_0_999px_rgba(0,0,0,0.25)]" />
           </button>
 
-          {(zoomRange || torchSupported) && scanning && (
+          {scanning && (
             <div className="flex flex-col gap-3 border-t border-zinc-800 bg-zinc-950 p-4 sm:flex-row sm:items-center">
+              <label className="flex flex-1 items-center gap-3 text-sm text-gray-300">
+                <span className="font-bold">
+                  Zoom cyfrowy
+                </span>
+
+                <input
+                  type="range"
+                  min={1}
+                  max={3}
+                  step={0.1}
+                  value={digitalZoom}
+                  onChange={(event) => setDigitalScanZoom(Number(event.target.value))}
+                  className="w-full"
+                />
+              </label>
+
               {zoomRange && (
                 <label className="flex flex-1 items-center gap-3 text-sm text-gray-300">
                   <span className="font-bold">
-                    Zoom
+                    Zoom aparatu
                   </span>
 
                   <input
