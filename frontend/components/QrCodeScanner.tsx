@@ -22,6 +22,42 @@ type ScanHistoryItem = {
   parsed: ParsedQrPayload;
 };
 
+type BarcodeDetectionResult = {
+  rawValue?: string;
+};
+
+type BarcodeDetectorConstructor = new (options?: {
+  formats?: string[];
+}) => {
+  detect(source: CanvasImageSource): Promise<BarcodeDetectionResult[]>;
+};
+
+type CameraCapabilities = MediaTrackCapabilities & {
+  focusMode?: string[];
+  torch?: boolean;
+  zoom?: {
+    min: number;
+    max: number;
+    step?: number;
+  };
+};
+
+type CameraConstraintSet = MediaTrackConstraintSet & {
+  focusMode?: string;
+  pointsOfInterest?: {
+    x: number;
+    y: number;
+  }[];
+  torch?: boolean;
+  zoom?: number;
+};
+
+declare global {
+  interface Window {
+    BarcodeDetector?: BarcodeDetectorConstructor;
+  }
+}
+
 function parseQrPayload(value: string): ParsedQrPayload {
   try {
     const parsed = JSON.parse(value);
@@ -81,10 +117,14 @@ function formatScanTime(value: string) {
 }
 
 export default function QrCodeScanner() {
+  const scannerRef = useRef<HTMLElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const animationFrameRef = useRef<number | null>(null);
+  const scanningRef = useRef(false);
+  const detectingRef = useRef(false);
+  const barcodeDetectorRef = useRef<InstanceType<BarcodeDetectorConstructor> | null>(null);
   const lastScanValueRef = useRef("");
   const lastScanAtRef = useRef(0);
 
@@ -94,6 +134,12 @@ export default function QrCodeScanner() {
   const [starting, setStarting] = useState(false);
   const [message, setMessage] = useState("");
   const [history, setHistory] = useState<ScanHistoryItem[]>([]);
+  const [fullscreenScanner, setFullscreenScanner] = useState(false);
+  const [torchSupported, setTorchSupported] = useState(false);
+  const [torchEnabled, setTorchEnabled] = useState(false);
+  const [zoomRange, setZoomRange] = useState<CameraCapabilities["zoom"] | null>(null);
+  const [zoomValue, setZoomValue] = useState(1);
+  const [cameraHint, setCameraHint] = useState("");
 
   const latestScan = history[0];
 
@@ -114,7 +160,18 @@ export default function QrCodeScanner() {
     setDevices(videoDevices);
 
     if (!selectedDeviceId && videoDevices[0]) {
-      setSelectedDeviceId(videoDevices[0].deviceId);
+      const environmentDevice = videoDevices.find((device) =>
+        /back|rear|environment|tyl/i.test(device.label)
+        && !/tele|zoom/i.test(device.label)
+      );
+
+      setSelectedDeviceId((environmentDevice || videoDevices[0]).deviceId);
+    }
+  }
+
+  async function exitFullscreen() {
+    if (document.fullscreenElement) {
+      await document.exitFullscreen().catch(() => undefined);
     }
   }
 
@@ -124,6 +181,8 @@ export default function QrCodeScanner() {
       animationFrameRef.current = null;
     }
 
+    scanningRef.current = false;
+    detectingRef.current = false;
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
 
@@ -133,6 +192,123 @@ export default function QrCodeScanner() {
 
     setScanning(false);
     setStarting(false);
+    setFullscreenScanner(false);
+    setTorchSupported(false);
+    setTorchEnabled(false);
+    setZoomRange(null);
+    exitFullscreen();
+  }
+
+  async function applyCameraTuning(stream: MediaStream) {
+    const [videoTrack] = stream.getVideoTracks();
+
+    if (!videoTrack) {
+      return;
+    }
+
+    const capabilities = videoTrack.getCapabilities() as CameraCapabilities;
+    const advanced: CameraConstraintSet[] = [];
+    const hints: string[] = [];
+
+    if (capabilities.focusMode?.includes("continuous")) {
+      advanced.push({
+        focusMode: "continuous",
+      });
+      hints.push("autofocus");
+    }
+
+    if (capabilities.zoom) {
+      const nextZoom = capabilities.zoom.min || 1;
+
+      setZoomRange(capabilities.zoom);
+      setZoomValue(nextZoom);
+      advanced.push({
+        zoom: nextZoom,
+      });
+      hints.push("zoom min.");
+    } else {
+      setZoomRange(null);
+    }
+
+    setTorchSupported(Boolean(capabilities.torch));
+
+    if (advanced.length > 0) {
+      await videoTrack.applyConstraints({
+        advanced,
+      } as MediaTrackConstraints).catch(() => undefined);
+    }
+
+    setCameraHint(
+      hints.length > 0
+        ? `Kamera: ${hints.join(", ")}`
+        : "Kamera aktywna"
+    );
+  }
+
+  async function setCameraZoom(value: number) {
+    const [videoTrack] = streamRef.current?.getVideoTracks() || [];
+
+    if (!videoTrack || !zoomRange) {
+      return;
+    }
+
+    const nextZoom = Math.min(
+      zoomRange.max,
+      Math.max(zoomRange.min, value)
+    );
+
+    setZoomValue(nextZoom);
+    await videoTrack.applyConstraints({
+      advanced: [
+        {
+          zoom: nextZoom,
+        } as CameraConstraintSet,
+      ],
+    } as MediaTrackConstraints).catch(() => undefined);
+  }
+
+  async function toggleTorch() {
+    const [videoTrack] = streamRef.current?.getVideoTracks() || [];
+
+    if (!videoTrack || !torchSupported) {
+      return;
+    }
+
+    const nextTorchState = !torchEnabled;
+
+    await videoTrack.applyConstraints({
+      advanced: [
+        {
+          torch: nextTorchState,
+        } as CameraConstraintSet,
+      ],
+    } as MediaTrackConstraints);
+
+    setTorchEnabled(nextTorchState);
+  }
+
+  async function focusAtCenter() {
+    const [videoTrack] = streamRef.current?.getVideoTracks() || [];
+
+    if (!videoTrack) {
+      return;
+    }
+
+    await videoTrack.applyConstraints({
+      advanced: [
+        {
+          focusMode: "single-shot",
+          pointsOfInterest: [
+            {
+              x: 0.5,
+              y: 0.5,
+            },
+          ],
+        } as CameraConstraintSet,
+      ],
+    } as MediaTrackConstraints).catch(() => {
+      setMessage("Przytrzymaj kod w środku ramki.");
+    });
   }
 
   function registerScan(value: string) {
@@ -161,9 +337,14 @@ export default function QrCodeScanner() {
 
     setMessage("Kod QR odczytany.");
     navigator.vibrate?.(80);
+    stopScanner();
   }
 
   function scanFrame() {
+    if (!scanningRef.current) {
+      return;
+    }
+
     const video = videoRef.current;
     const canvas = canvasRef.current;
     const context = canvas?.getContext("2d", {
@@ -178,6 +359,22 @@ export default function QrCodeScanner() {
         canvas.width = width;
         canvas.height = height;
         context.drawImage(video, 0, 0, width, height);
+
+        if (barcodeDetectorRef.current && !detectingRef.current) {
+          detectingRef.current = true;
+          barcodeDetectorRef.current.detect(canvas)
+            .then((codes) => {
+              const value = codes[0]?.rawValue;
+
+              if (value) {
+                registerScan(value);
+              }
+            })
+            .catch(() => undefined)
+            .finally(() => {
+              detectingRef.current = false;
+            });
+        }
 
         const imageData = context.getImageData(0, 0, width, height);
         const code = jsQR(
@@ -195,7 +392,9 @@ export default function QrCodeScanner() {
       }
     }
 
-    animationFrameRef.current = requestAnimationFrame(scanFrame);
+    if (scanningRef.current) {
+      animationFrameRef.current = requestAnimationFrame(scanFrame);
+    }
   }
 
   async function startScanner() {
@@ -221,20 +420,38 @@ export default function QrCodeScanner() {
             facingMode: {
               ideal: "environment",
             },
+            width: {
+              ideal: 1920,
+            },
+            height: {
+              ideal: 1080,
+            },
           },
       });
 
       streamRef.current = stream;
+      await applyCameraTuning(stream);
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
       }
 
+      const BarcodeDetector = window.BarcodeDetector as BarcodeDetectorConstructor | undefined;
+
+      barcodeDetectorRef.current = BarcodeDetector
+        ? new BarcodeDetector({
+          formats: ["qr_code"],
+        })
+        : null;
+
       await loadCameras();
+      scanningRef.current = true;
       setScanning(true);
+      setFullscreenScanner(true);
       setStarting(false);
       setMessage("Skaner aktywny.");
+      await scannerRef.current?.requestFullscreen?.().catch(() => undefined);
       animationFrameRef.current = requestAnimationFrame(scanFrame);
     } catch (error) {
       console.error(error);
@@ -254,12 +471,22 @@ export default function QrCodeScanner() {
 
   useEffect(() => {
     return () => {
-      stopScanner();
+      if (animationFrameRef.current !== null) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+
+      streamRef.current?.getTracks().forEach((track) => track.stop());
     };
   }, []);
 
   return (
-    <section className="space-y-6">
+    <section
+      ref={scannerRef}
+      className={fullscreenScanner
+        ? "fixed inset-0 z-50 overflow-y-auto bg-black p-3 sm:p-6"
+        : "space-y-6"
+      }
+    >
       <div className="ui-block bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
@@ -336,11 +563,28 @@ export default function QrCodeScanner() {
             {message}
           </p>
         )}
+
+        {cameraHint && scanning && (
+          <p className="mt-3 text-sm text-gray-500">
+            {cameraHint}
+          </p>
+        )}
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+      <div className={fullscreenScanner
+        ? "grid gap-4 xl:grid-cols-[1.2fr_0.8fr]"
+        : "grid gap-6 xl:grid-cols-[1.2fr_0.8fr]"
+      }>
         <section className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
-          <div className="relative aspect-[4/3] bg-black">
+          <button
+            type="button"
+            onClick={focusAtCenter}
+            className={fullscreenScanner
+              ? "relative block h-[70svh] w-full bg-black"
+              : "relative block aspect-[4/3] w-full bg-black"
+            }
+            aria-label="Ustaw ostrość na środku kadru"
+          >
             <video
               ref={videoRef}
               muted
@@ -355,7 +599,39 @@ export default function QrCodeScanner() {
             )}
 
             <div className="pointer-events-none absolute inset-8 rounded-2xl border-2 border-green-400/80 shadow-[0_0_0_999px_rgba(0,0,0,0.25)]" />
-          </div>
+          </button>
+
+          {(zoomRange || torchSupported) && scanning && (
+            <div className="flex flex-col gap-3 border-t border-zinc-800 bg-zinc-950 p-4 sm:flex-row sm:items-center">
+              {zoomRange && (
+                <label className="flex flex-1 items-center gap-3 text-sm text-gray-300">
+                  <span className="font-bold">
+                    Zoom
+                  </span>
+
+                  <input
+                    type="range"
+                    min={zoomRange.min}
+                    max={zoomRange.max}
+                    step={zoomRange.step || 0.1}
+                    value={zoomValue}
+                    onChange={(event) => setCameraZoom(Number(event.target.value))}
+                    className="w-full"
+                  />
+                </label>
+              )}
+
+              {torchSupported && (
+                <button
+                  type="button"
+                  onClick={toggleTorch}
+                  className="ui-button bg-zinc-700 hover:bg-zinc-600 text-white px-4 py-2 rounded-xl text-sm font-bold transition"
+                >
+                  {torchEnabled ? "Lampa off" : "Lampa on"}
+                </button>
+              )}
+            </div>
+          )}
 
           <canvas
             ref={canvasRef}
