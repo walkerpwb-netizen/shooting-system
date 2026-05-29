@@ -34,6 +34,9 @@ from jose import JWTError
 from datetime import datetime, timedelta, timezone, time
 from typing import Optional
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+import hashlib
+import json
+import math
 import re
 import secrets
 from uuid import uuid4
@@ -43,6 +46,8 @@ from zoneinfo import ZoneInfo
 ALGORITHM = "HS256"
 APP_TIMEZONE = ZoneInfo("Europe/Warsaw")
 PROFILE_DATE_FORMATS = ("%Y-%m-%d", "%d.%m.%Y", "%d-%m-%Y", "%d/%m/%Y")
+PASSWORD_RESET_LIMIT = 3
+PASSWORD_RESET_WINDOW = timedelta(hours=1)
 
 pwd_context = CryptContext(
     schemes=["bcrypt"],
@@ -616,6 +621,76 @@ def create_password_reset_token(user: User):
 
 def password_reset_link(token: str):
     return f"{settings.frontend_url}/reset-password?token={token}"
+
+
+def password_reset_rate_limit_key(email: str):
+    normalized_email = email.strip().lower()
+    email_hash = hashlib.sha256(normalized_email.encode("utf-8")).hexdigest()
+
+    return f"password_reset_rate:{email_hash}"
+
+
+def enforce_password_reset_rate_limit(email: str, db) -> None:
+    now = datetime.now(timezone.utc)
+    key = password_reset_rate_limit_key(email)
+    setting = (
+        db.query(AppSetting)
+        .filter(AppSetting.key == key)
+        .first()
+    )
+    window_started_at = now
+    count = 0
+
+    if setting:
+        try:
+            state = json.loads(setting.value)
+            window_started_at = datetime.fromisoformat(state.get("window_started_at", ""))
+            count = int(state.get("count", 0))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            window_started_at = now
+            count = 0
+
+        if window_started_at.tzinfo is None:
+            window_started_at = window_started_at.replace(tzinfo=timezone.utc)
+
+    elapsed = now - window_started_at
+
+    if elapsed >= PASSWORD_RESET_WINDOW:
+        window_started_at = now
+        count = 0
+
+    if count >= PASSWORD_RESET_LIMIT:
+        retry_after_seconds = max(
+            60,
+            int((PASSWORD_RESET_WINDOW - elapsed).total_seconds()),
+        )
+        retry_after_minutes = math.ceil(retry_after_seconds / 60)
+        raise HTTPException(
+            status_code=429,
+            detail=f"Limit resetów hasła został wykorzystany. Spróbuj ponownie za około {retry_after_minutes} min."
+        )
+
+    value = json.dumps({
+        "window_started_at": window_started_at.isoformat(),
+        "count": count + 1,
+    })
+
+    if setting:
+        setting.value = value
+    else:
+        db.add(AppSetting(
+            key=key,
+            value=value,
+        ))
+
+
+def send_password_reset_for_user(user: User, db) -> None:
+    enforce_password_reset_rate_limit(user.email, db)
+    token = create_password_reset_token(user)
+    send_password_reset_email(
+        user.email,
+        password_reset_link(token),
+    )
 
 
 def delete_competition_with_dependencies(competition: Competition, db):
@@ -2634,13 +2709,8 @@ def admin_reset_user_password(
             detail="Użytkownik nie istnieje"
         )
 
-    token = create_password_reset_token(target_user)
-
     try:
-        send_password_reset_email(
-            target_user.email,
-            password_reset_link(token),
-        )
+        send_password_reset_for_user(target_user, db)
         db.commit()
         db.refresh(target_user)
     except (MailConfigurationError, MailDeliveryError) as exc:
@@ -3201,13 +3271,8 @@ def forgot_password(
             "message": "Jeśli konto istnieje, email został wysłany"
         }
 
-    token = create_password_reset_token(user)
-
     try:
-        send_password_reset_email(
-            user.email,
-            password_reset_link(token),
-        )
+        send_password_reset_for_user(user, db)
         db.commit()
     except (MailConfigurationError, MailDeliveryError) as exc:
         db.rollback()
@@ -3218,6 +3283,38 @@ def forgot_password(
 
     return {
         "message": "Link resetowania hasła został wysłany",
+    }
+
+
+@app.post("/me/password-reset")
+def request_my_password_reset(
+    user: User = Depends(get_current_user),
+    db=Depends(get_db),
+):
+    db_user = (
+        db.query(User)
+        .filter(User.email == user.email)
+        .first()
+    )
+
+    if not db_user:
+        raise HTTPException(
+            status_code=404,
+            detail="Użytkownik nie istnieje"
+        )
+
+    try:
+        send_password_reset_for_user(db_user, db)
+        db.commit()
+    except (MailConfigurationError, MailDeliveryError) as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=503,
+            detail="Nie udało się wysłać emaila resetowania hasła. Spróbuj ponownie później."
+        ) from exc
+
+    return {
+        "message": "Link resetowania hasła został wysłany na Twój email",
     }
 
 

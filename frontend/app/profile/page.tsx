@@ -170,6 +170,7 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [sendingRoleRequest, setSendingRoleRequest] = useState(false);
+  const [requestingPasswordReset, setRequestingPasswordReset] = useState(false);
   const [message, setMessage] = useState("");
   const [editing, setEditing] = useState(false);
 
@@ -375,6 +376,52 @@ export default function ProfilePage() {
       setMessage("Błąd połączenia z serwerem ❌");
     } finally {
       setSendingRoleRequest(false);
+    }
+  }
+
+  async function requestPasswordReset() {
+    const token = localStorage.getItem("token");
+
+    if (!token) {
+      router.push("/login");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Czy wysłać link resetowania hasła na Twój adres email?"
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setRequestingPasswordReset(true);
+      setMessage("");
+
+      const response = await fetch(
+        apiUrl("/me/password-reset"),
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.detail || "Nie udało się wysłać linku resetującego ❌");
+        return;
+      }
+
+      setMessage(data.message + " ✅");
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    } finally {
+      setRequestingPasswordReset(false);
     }
   }
 
@@ -588,6 +635,17 @@ export default function ProfilePage() {
                     >
                       Moje Statystyki
                     </Link>
+
+                    <button
+                      type="button"
+                      onClick={requestPasswordReset}
+                      disabled={requestingPasswordReset}
+                      className="bg-zinc-800 px-5 py-3 font-semibold text-white transition hover:bg-zinc-700 disabled:opacity-50"
+                    >
+                      {requestingPasswordReset
+                        ? "Wysyłanie..."
+                        : "Zresetuj hasło"}
+                    </button>
 
                     {!profile.roles.includes("admin") && !profile.requested_role && !profile.roles.includes("organizer") && (
                       <button
