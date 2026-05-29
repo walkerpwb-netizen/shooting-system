@@ -5,8 +5,9 @@ import { useRouter } from "next/navigation";
 
 import { apiUrl } from "@/lib/api";
 import { isAdmin } from "@/lib/auth";
+import QrCodeScanner from "@/components/QrCodeScanner";
 
-type AdminTab = "users" | "competitions" | "settings" | "monitoring" | "test-data";
+type AdminTab = "users" | "competitions" | "settings" | "monitoring" | "qr-scanner" | "test-data";
 type UserSortField = "name" | "status" | "role" | "account" | "phone";
 type SortDirection = "asc" | "desc";
 
@@ -1285,6 +1286,18 @@ export default function AdminClient({
 
           <button
             type="button"
+            onClick={() => selectTab("qr-scanner")}
+            className={`ui-button min-w-0 px-5 py-3 rounded-xl font-bold transition ${
+              activeTab === "qr-scanner"
+                ? "bg-green-700 text-white"
+                : "bg-zinc-800 text-gray-300 hover:bg-zinc-700"
+            }`}
+          >
+            QR skaner
+          </button>
+
+          <button
+            type="button"
             onClick={() => selectTab("test-data")}
             className={`ui-button min-w-0 px-5 py-3 rounded-xl font-bold transition ${
               activeTab === "test-data"
@@ -2389,6 +2402,8 @@ export default function AdminClient({
               </>
             )}
           </section>
+        ) : activeTab === "qr-scanner" ? (
+          <QrCodeScanner />
         ) : (
           <section className="space-y-6">
             <div className="ui-block bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
