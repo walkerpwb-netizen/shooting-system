@@ -199,7 +199,7 @@ export default function Navbar() {
             className="text-lg font-bold"
             onClick={() => setMobileMenuOpen(false)}
           >
-            Shooting System
+            SYSTEM ORGANIZACJI ZAWODÓW STRZELECKICH
           </Link>
 
           <button

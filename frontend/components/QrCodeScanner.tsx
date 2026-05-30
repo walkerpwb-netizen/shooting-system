@@ -52,10 +52,79 @@ type CameraConstraintSet = MediaTrackConstraintSet & {
   zoom?: number;
 };
 
+const LAPTOP_DEFAULT_DIGITAL_ZOOM = 1.2;
+const MOBILE_DEFAULT_DIGITAL_ZOOM = 1;
+
 declare global {
   interface Window {
     BarcodeDetector?: BarcodeDetectorConstructor;
   }
+}
+
+function isLikelyMobileDevice() {
+  if (typeof navigator === "undefined") {
+    return false;
+  }
+
+  return /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent)
+    || (navigator.maxTouchPoints > 1 && /macintosh/i.test(navigator.userAgent));
+}
+
+function hasCameraLabels(devices: CameraDevice[]) {
+  return devices.some((device) => !/^Kamera \d+$/i.test(device.label));
+}
+
+function scoreCameraDevice(device: CameraDevice, index: number) {
+  const label = device.label.toLowerCase();
+  const isFront = /front|przedni/.test(label);
+  const isRear = /back|rear|environment|tyl|tyln/.test(label);
+  const isUltraWide = /ultra[\s-]?wide|ultraszer|ultra szer|0\.5/.test(label);
+  const isWide = /wide|szerok|dwuobiektyw|dual|triple|podwoj|podwój/.test(label);
+  const isTele = /tele|zoom|2x|3x|telephoto/.test(label);
+  const isPlainRear = /^(tylny aparat|back camera|rear camera)$/.test(label.trim());
+
+  let score = 0;
+
+  if (isPlainRear) {
+    score += 100;
+  }
+
+  if (isRear) {
+    score += 60;
+  }
+
+  if (/main|standard|1x/.test(label)) {
+    score += 25;
+  }
+
+  if (isFront) {
+    score -= 80;
+  }
+
+  if (isUltraWide) {
+    score -= 70;
+  } else if (isWide) {
+    score -= 45;
+  }
+
+  if (isTele) {
+    score -= 45;
+  }
+
+  return score - index * 0.01;
+}
+
+function pickPreferredCamera(devices: CameraDevice[]) {
+  if (devices.length === 0) {
+    return null;
+  }
+
+  return [...devices]
+    .map((device, index) => ({
+      device,
+      score: scoreCameraDevice(device, index),
+    }))
+    .sort((left, right) => right.score - left.score)[0].device;
 }
 
 function parseQrPayload(value: string): ParsedQrPayload {
@@ -145,30 +214,76 @@ export default function QrCodeScanner() {
 
   const latestScan = history[0];
 
+  async function getVideoDevices() {
+    const mediaDevices = await navigator.mediaDevices.enumerateDevices();
+
+    return mediaDevices
+      .filter((device) => device.kind === "videoinput")
+      .map((device, index) => ({
+        deviceId: device.deviceId,
+        label: device.label || `Kamera ${index + 1}`,
+      }));
+  }
+
   async function loadCameras() {
     if (!navigator.mediaDevices?.enumerateDevices) {
       setMessage("Kamera nie jest dostępna w tej przeglądarce.");
       return;
     }
 
-    const mediaDevices = await navigator.mediaDevices.enumerateDevices();
-    const videoDevices = mediaDevices
-      .filter((device) => device.kind === "videoinput")
-      .map((device, index) => ({
-        deviceId: device.deviceId,
-        label: device.label || `Kamera ${index + 1}`,
-      }));
+    const videoDevices = await getVideoDevices();
 
     setDevices(videoDevices);
 
     if (!selectedDeviceId && videoDevices[0]) {
-      const environmentDevice = videoDevices.find((device) =>
-        /back|rear|environment|tyl/i.test(device.label)
-        && !/tele|zoom/i.test(device.label)
-      );
+      const preferredDevice = pickPreferredCamera(videoDevices);
 
-      setSelectedDeviceId((environmentDevice || videoDevices[0]).deviceId);
+      setSelectedDeviceId((preferredDevice || videoDevices[0]).deviceId);
     }
+  }
+
+  async function getPreferredDeviceIdForStart() {
+    if (selectedDeviceId) {
+      return selectedDeviceId;
+    }
+
+    const videoDevices = await getVideoDevices();
+
+    setDevices(videoDevices);
+
+    if (hasCameraLabels(videoDevices)) {
+      const preferredDevice = pickPreferredCamera(videoDevices);
+
+      if (preferredDevice) {
+        setSelectedDeviceId(preferredDevice.deviceId);
+        return preferredDevice.deviceId;
+      }
+    }
+
+    if (isLikelyMobileDevice()) {
+      const permissionStream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          facingMode: {
+            ideal: "environment",
+          },
+        },
+      }).catch(() => null);
+
+      permissionStream?.getTracks().forEach((track) => track.stop());
+
+      const labeledDevices = await getVideoDevices();
+      const preferredDevice = pickPreferredCamera(labeledDevices);
+
+      setDevices(labeledDevices);
+
+      if (preferredDevice) {
+        setSelectedDeviceId(preferredDevice.deviceId);
+        return preferredDevice.deviceId;
+      }
+    }
+
+    return "";
   }
 
   async function exitFullscreen() {
@@ -434,12 +549,20 @@ export default function QrCodeScanner() {
       setMessage("");
       stopScanner();
 
+      const mobileDevice = isLikelyMobileDevice();
+      const initialDigitalZoom = mobileDevice
+        ? MOBILE_DEFAULT_DIGITAL_ZOOM
+        : LAPTOP_DEFAULT_DIGITAL_ZOOM;
+      const preferredDeviceId = await getPreferredDeviceIdForStart();
+
+      setDigitalScanZoom(initialDigitalZoom);
+
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: false,
-        video: selectedDeviceId
+        video: preferredDeviceId
           ? {
             deviceId: {
-              exact: selectedDeviceId,
+              exact: preferredDeviceId,
             },
             width: {
               ideal: 1920,
@@ -608,14 +731,11 @@ export default function QrCodeScanner() {
         : "grid gap-6 xl:grid-cols-[1.2fr_0.8fr]"
       }>
         <section className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
-          <button
-            type="button"
-            onClick={focusAtCenter}
+          <div
             className={fullscreenScanner
-              ? "relative block h-[70svh] w-full bg-black"
-              : "relative block aspect-[4/3] w-full bg-black"
+              ? "relative h-[70svh] w-full overflow-hidden bg-black"
+              : "relative aspect-[4/3] w-full overflow-hidden bg-black"
             }
-            aria-label="Ustaw ostrość na środku kadru"
           >
             <video
               ref={videoRef}
@@ -627,62 +747,97 @@ export default function QrCodeScanner() {
               className="h-full w-full object-cover transition-transform"
             />
 
+            {scanning && (
+              <button
+                type="button"
+                onClick={focusAtCenter}
+                className="absolute inset-0 z-10 cursor-crosshair"
+                aria-label="Ustaw ostrość na środku kadru"
+              />
+            )}
+
             {!scanning && (
-              <div className="absolute inset-0 flex items-center justify-center bg-zinc-950 text-gray-500">
+              <div className="absolute inset-0 z-20 flex items-center justify-center bg-zinc-950 text-gray-500">
                 Kamera nieaktywna
               </div>
             )}
 
-            <div className="pointer-events-none absolute inset-8 rounded-2xl border-2 border-green-400/80 shadow-[0_0_0_999px_rgba(0,0,0,0.25)]" />
-          </button>
+            <div className="pointer-events-none absolute inset-8 z-20 rounded-2xl border-2 border-green-400/80 shadow-[0_0_0_999px_rgba(0,0,0,0.25)]" />
 
-          {scanning && (
-            <div className="flex flex-col gap-3 border-t border-zinc-800 bg-zinc-950 p-4 sm:flex-row sm:items-center">
-              <label className="flex flex-1 items-center gap-3 text-sm text-gray-300">
-                <span className="font-bold">
-                  Zoom cyfrowy
-                </span>
+            {scanning && (
+              <>
+                <div className="pointer-events-none absolute inset-y-6 left-3 right-3 z-30 flex items-center justify-between">
+                  <label
+                    className="pointer-events-auto flex h-full max-h-72 w-12 flex-col items-center justify-center gap-3 rounded-full border border-white/10 bg-black/45 px-2 py-4 text-[11px] font-bold text-white/80 shadow-lg backdrop-blur"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <span className="sr-only">
+                      Zoom cyfrowy
+                    </span>
 
-                <input
-                  type="range"
-                  min={1}
-                  max={3}
-                  step={0.1}
-                  value={digitalZoom}
-                  onChange={(event) => setDigitalScanZoom(Number(event.target.value))}
-                  className="w-full"
-                />
-              </label>
+                    <input
+                      type="range"
+                      min={1}
+                      max={3}
+                      step={0.1}
+                      value={digitalZoom}
+                      onChange={(event) => setDigitalScanZoom(Number(event.target.value))}
+                      className="h-full max-h-56 accent-green-400"
+                      style={{
+                        writingMode: "vertical-lr",
+                        direction: "rtl",
+                      }}
+                      aria-label="Zoom cyfrowy"
+                    />
 
-              {zoomRange && (
-                <label className="flex flex-1 items-center gap-3 text-sm text-gray-300">
-                  <span className="font-bold">
-                    Zoom aparatu
-                  </span>
+                    <span aria-hidden="true">
+                      x{digitalZoom.toFixed(1)}
+                    </span>
+                  </label>
 
-                  <input
-                    type="range"
-                    min={zoomRange.min}
-                    max={zoomRange.max}
-                    step={zoomRange.step || 0.1}
-                    value={zoomValue}
-                    onChange={(event) => setCameraZoom(Number(event.target.value))}
-                    className="w-full"
-                  />
-                </label>
-              )}
+                  {zoomRange && (
+                    <label
+                      className="pointer-events-auto flex h-full max-h-72 w-12 flex-col items-center justify-center gap-3 rounded-full border border-white/10 bg-black/45 px-2 py-4 text-[11px] font-bold text-white/80 shadow-lg backdrop-blur"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <span className="sr-only">
+                        Zoom aparatu
+                      </span>
 
-              {torchSupported && (
-                <button
-                  type="button"
-                  onClick={toggleTorch}
-                  className="ui-button bg-zinc-700 hover:bg-zinc-600 text-white px-4 py-2 rounded-xl text-sm font-bold transition"
-                >
-                  {torchEnabled ? "Lampa off" : "Lampa on"}
-                </button>
-              )}
-            </div>
-          )}
+                      <input
+                        type="range"
+                        min={zoomRange.min}
+                        max={zoomRange.max}
+                        step={zoomRange.step || 0.1}
+                        value={zoomValue}
+                        onChange={(event) => setCameraZoom(Number(event.target.value))}
+                        className="h-full max-h-56 accent-green-400"
+                        style={{
+                          writingMode: "vertical-lr",
+                          direction: "rtl",
+                        }}
+                        aria-label="Zoom aparatu"
+                      />
+
+                      <span aria-hidden="true">
+                        x{zoomValue.toFixed(1)}
+                      </span>
+                    </label>
+                  )}
+                </div>
+
+                {torchSupported && (
+                  <button
+                    type="button"
+                    onClick={toggleTorch}
+                    className="ui-button absolute bottom-4 left-1/2 z-40 -translate-x-1/2 rounded-xl bg-black/55 px-5 py-2 text-sm font-bold text-white shadow-lg backdrop-blur transition hover:bg-black/70"
+                  >
+                    {torchEnabled ? "Lampa off" : "Lampa on"}
+                  </button>
+                )}
+              </>
+            )}
+          </div>
 
           <canvas
             ref={canvasRef}
