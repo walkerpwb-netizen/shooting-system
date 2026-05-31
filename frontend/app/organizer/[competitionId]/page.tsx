@@ -42,6 +42,7 @@ type Competition = {
     id: number;
     user_email: string;
     display_name: string;
+    judge_license_number: string;
     is_head_judge: boolean;
   }[];
   judge_assignments: {
@@ -50,8 +51,20 @@ type Competition = {
     discipline_id: number | null;
     discipline_name: string;
     display_name: string;
+    judge_license_number: string;
     is_head_judge: boolean;
   }[];
+};
+
+type JudgeSearchResult = {
+  id: number;
+  email: string;
+  first_name: string;
+  last_name: string;
+  club: string;
+  phone_number: string;
+  judge_license_number: string;
+  judge_license_valid_until: string;
 };
 
 type ManualParticipantForm = {
@@ -140,7 +153,9 @@ export default function OrganizerCompetitionPage() {
   const [competitions, setCompetitions] = useState<Competition[]>([]);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
-  const [judgeEmail, setJudgeEmail] = useState("");
+  const [judgeLicenseSearch, setJudgeLicenseSearch] = useState("");
+  const [judgeSearchLoading, setJudgeSearchLoading] = useState(false);
+  const [selectedJudge, setSelectedJudge] = useState<JudgeSearchResult | null>(null);
   const [judgeDiscipline, setJudgeDiscipline] = useState("");
   const [headJudge, setHeadJudge] = useState(false);
   const [showManualParticipantForm, setShowManualParticipantForm] = useState(false);
@@ -214,15 +229,16 @@ export default function OrganizerCompetitionPage() {
     ]);
   }, [competition]);
 
-  const availableJudges = useMemo(() => {
+  const headJudgeAssigned = useMemo(() => {
     if (!competition) {
-      return [];
+      return false;
     }
 
-    return competition.judges.filter(
-      (judge) => !assignedJudgeEmails.has(judge.user_email)
+    return competition.judge_assignments.some(
+      (assignment) => assignment.is_head_judge
     );
-  }, [assignedJudgeEmails, competition]);
+  }, [competition]);
+
 
   const participantsTotalFee = useMemo(() => {
     if (!competition) {
@@ -481,13 +497,67 @@ export default function OrganizerCompetitionPage() {
     }
   }
 
+  function judgeDisplayName(judge: JudgeSearchResult) {
+    return [judge.last_name, judge.first_name].filter(Boolean).join(" ")
+      || judge.email;
+  }
+
+  async function searchJudgeByLicense() {
+    const licenseNumber = judgeLicenseSearch.trim();
+
+    if (!licenseNumber) {
+      setMessage("Wpisz numer licencji sędziego ❌");
+      return;
+    }
+
+    const token = localStorage.getItem("token");
+
+    try {
+      setJudgeSearchLoading(true);
+      setSelectedJudge(null);
+      setMessage("");
+
+      const response = await fetch(
+        apiUrl(`/organizer/judges/search?license_number=${encodeURIComponent(licenseNumber)}`),
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.detail || "Nie znaleziono sędziego ❌");
+        return;
+      }
+
+      setSelectedJudge(data);
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    } finally {
+      setJudgeSearchLoading(false);
+    }
+  }
+
   async function inviteJudge() {
     if (!competition) {
       return;
     }
 
-    if (!judgeEmail) {
-      setMessage("Wybierz sędziego ❌");
+    if (!selectedJudge) {
+      setMessage("Najpierw wyszukaj sędziego po numerze licencji ❌");
+      return;
+    }
+
+    if (headJudge && headJudgeAssigned) {
+      setMessage("Sędzia główny jest już przypisany do tych zawodów ❌");
+      return;
+    }
+
+    if (!headJudge && !judgeDiscipline) {
+      setMessage("Wybierz konkurencję albo zaznacz sędziego głównego ❌");
       return;
     }
 
@@ -505,10 +575,8 @@ export default function OrganizerCompetitionPage() {
             Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
-            judge_email: judgeEmail,
-            discipline_ids: judgeDiscipline
-              ? [Number(judgeDiscipline)]
-              : [],
+            judge_license_number: selectedJudge.judge_license_number,
+            discipline_ids: headJudge ? [] : [Number(judgeDiscipline)],
             is_head_judge: headJudge,
           }),
         }
@@ -522,7 +590,8 @@ export default function OrganizerCompetitionPage() {
       }
 
       setMessage("Sędzia przypisany do zawodów ✅");
-      setJudgeEmail("");
+      setJudgeLicenseSearch("");
+      setSelectedJudge(null);
       setJudgeDiscipline("");
       setHeadJudge(false);
       fetchOrganizerCompetitions();
@@ -531,6 +600,7 @@ export default function OrganizerCompetitionPage() {
       setMessage("Błąd połączenia z serwerem ❌");
     }
   }
+
 
   async function removeJudgeAssignment(
     assignment: Competition["judge_assignments"][number]
@@ -759,22 +829,29 @@ export default function OrganizerCompetitionPage() {
 
                 {competition.judges.length === 0 ? (
                   <p className="text-gray-500">
-                    Brak sędziów zapisanych do tych zawodów.
+                    Brak sędziów dodanych do tych zawodów.
                   </p>
                 ) : (
                   <div className="space-y-2">
                     {competition.judges.map((judge) => (
-                      <p
+                      <div
                         key={judge.id}
                         className="bg-green-50 rounded-xl px-3 py-2"
                       >
-                        {judge.display_name}
-                        {assignedJudgeEmails.has(judge.user_email) && (
-                          <span className="ml-2 text-green-800 font-bold">
-                            przypisany
-                          </span>
+                        <p className="font-semibold">
+                          {judge.display_name}
+                          {assignedJudgeEmails.has(judge.user_email) && (
+                            <span className="ml-2 text-green-800 font-bold">
+                              przypisany
+                            </span>
+                          )}
+                        </p>
+                        {judge.judge_license_number && (
+                          <p className="text-sm text-gray-600">
+                            Licencja: {judge.judge_license_number}
+                          </p>
                         )}
-                      </p>
+                      </div>
                     ))}
                   </div>
                 )}
@@ -799,6 +876,9 @@ export default function OrganizerCompetitionPage() {
                         <div>
                           <p>{assignment.display_name}</p>
                           <p className="text-sm text-gray-600">
+                            {assignment.judge_license_number && (
+                              <>Licencja: {assignment.judge_license_number} • </>
+                            )}
                             {assignment.discipline_name}
                             {assignment.is_head_judge && (
                               <span className="ml-2 text-green-800 font-bold">
@@ -822,40 +902,61 @@ export default function OrganizerCompetitionPage() {
                 )}
               </div>
 
-              <div className="bg-white rounded-3xl p-6 text-black shadow-xl space-y-3">
+              <div className="bg-white rounded-3xl p-6 text-black shadow-xl space-y-4">
                 <h2 className="text-2xl font-bold">
                   Przypisz sędziego do funkcji
                 </h2>
 
-                {availableJudges.length === 0 && (
-                  <p className="text-gray-600 text-sm">
-                    Na tej liście pojawią się tylko wolni sędziowie, którzy dołączyli do tych zawodów jako sędzia i nie mają jeszcze przypisanej funkcji.
-                  </p>
+                <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+                  <input
+                    type="text"
+                    value={judgeLicenseSearch}
+                    onChange={(event) => {
+                      setJudgeLicenseSearch(event.target.value);
+                      setSelectedJudge(null);
+                    }}
+                    placeholder="Wpisz numer licencji sędziego"
+                    className="w-full border border-gray-300 rounded-xl px-3 py-3"
+                  />
+
+                  <button
+                    type="button"
+                    onClick={searchJudgeByLicense}
+                    disabled={judgeSearchLoading || !judgeLicenseSearch.trim()}
+                    className="bg-zinc-900 hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed text-white px-5 py-3 rounded-xl font-semibold transition"
+                  >
+                    {judgeSearchLoading ? "Szukam..." : "Szukaj"}
+                  </button>
+                </div>
+
+                {selectedJudge && (
+                  <div className="rounded-2xl border border-green-200 bg-green-50 p-4">
+                    <p className="font-bold text-green-950">
+                      {judgeDisplayName(selectedJudge)}
+                    </p>
+                    <p className="text-sm text-green-900">
+                      Licencja: {selectedJudge.judge_license_number}
+                    </p>
+                    {selectedJudge.judge_license_valid_until && (
+                      <p className="text-sm text-green-900">
+                        Ważna do: {selectedJudge.judge_license_valid_until}
+                      </p>
+                    )}
+                    {selectedJudge.club && (
+                      <p className="text-sm text-green-900">
+                        Klub: {selectedJudge.club}
+                      </p>
+                    )}
+                  </div>
                 )}
-
-                <select
-                  value={judgeEmail}
-                  onChange={(event) => setJudgeEmail(event.target.value)}
-                  className="w-full border border-gray-300 rounded-xl px-3 py-3"
-                >
-                  <option value="">Wybierz sędziego</option>
-
-                  {availableJudges.map((judge) => (
-                    <option
-                      key={judge.id}
-                      value={judge.user_email}
-                    >
-                      {judge.display_name}
-                    </option>
-                  ))}
-                </select>
 
                 <select
                   value={judgeDiscipline}
                   onChange={(event) => setJudgeDiscipline(event.target.value)}
-                  className="w-full border border-gray-300 rounded-xl px-3 py-3"
+                  disabled={headJudge}
+                  className="w-full border border-gray-300 rounded-xl px-3 py-3 disabled:bg-gray-100 disabled:text-gray-500"
                 >
-                  <option value="">Całe zawody</option>
+                  <option value="">Wybierz konkurencję</option>
 
                   {competition.disciplines.map((discipline) => (
                     <option
@@ -871,15 +972,28 @@ export default function OrganizerCompetitionPage() {
                   <input
                     type="checkbox"
                     checked={headJudge}
-                    onChange={(event) => setHeadJudge(event.target.checked)}
+                    onChange={(event) => {
+                      setHeadJudge(event.target.checked);
+
+                      if (event.target.checked) {
+                        setJudgeDiscipline("");
+                      }
+                    }}
+                    disabled={headJudgeAssigned}
                   />
                   Sędzia główny zawodów
                 </label>
 
+                {headJudgeAssigned && (
+                  <p className="text-sm font-semibold text-yellow-700">
+                    Sędzia główny jest już przypisany do tych zawodów.
+                  </p>
+                )}
+
                 <button
                   type="button"
                   onClick={inviteJudge}
-                  disabled={availableJudges.length === 0 || !judgeEmail}
+                  disabled={!selectedJudge || (!headJudge && !judgeDiscipline)}
                   className="w-full bg-green-700 hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed text-white py-3 rounded-xl font-semibold transition"
                 >
                   Przypisz sędziego

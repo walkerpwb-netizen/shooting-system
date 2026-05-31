@@ -191,7 +191,8 @@ class ManualParticipantData(BaseModel):
 
 
 class JudgeInvitationData(BaseModel):
-    judge_email: str
+    judge_license_number: str = ""
+    judge_email: str = ""
     discipline_ids: list[int] = []
     is_head_judge: bool = False
 
@@ -752,6 +753,34 @@ def organizer_display_name(user: User):
     )
 
 
+def judge_by_license_number(license_number: str, db):
+    license_key = normalize_unique_key(license_number)
+
+    if not license_key:
+        return None
+
+    return (
+        db.query(User)
+        .filter(
+            or_(
+                User.judge_license_number_key == license_key,
+                func.lower(User.judge_license_number) == license_key,
+            )
+        )
+        .first()
+    )
+
+
+def judge_search_response(judge: User):
+    data = public_user(judge)
+    data.update({
+        "judge_license_number": judge.judge_license_number or "",
+        "judge_license_valid_until": getattr(judge, "judge_license_valid_until", "") or "",
+    })
+
+    return data
+
+
 def create_password_reset_token(user: User):
     token = secrets.token_urlsafe(32)
     user.password_reset_token = token
@@ -1164,6 +1193,7 @@ def public_participant(participant: CompetitionParticipant, db):
         "first_name": first_name,
         "last_name": last_name,
         "license_number": license_number,
+        "judge_license_number": user.judge_license_number if user else "",
         "club": club,
         "display_name": display_name,
     }
@@ -2885,23 +2915,43 @@ def get_my_competition_entry(
     user: User = Depends(get_current_user),
     db=Depends(get_db),
 ):
-    participant = (
+    shooter_participant = (
         db.query(CompetitionParticipant)
         .filter(
             CompetitionParticipant.competition_id == competition_id,
             CompetitionParticipant.user_email == user.email,
+            or_(
+                CompetitionParticipant.entry_type == "shooter",
+                CompetitionParticipant.entry_type.is_(None),
+            ),
         )
         .first()
     )
 
-    if not participant:
+    if shooter_participant:
         return {
-            "entry_type": "",
+            "entry_type": "shooter",
+            "is_head_judge": False,
+        }
+
+    judge_participant = (
+        db.query(CompetitionParticipant)
+        .filter(
+            CompetitionParticipant.competition_id == competition_id,
+            CompetitionParticipant.user_email == user.email,
+            CompetitionParticipant.entry_type == "judge",
+        )
+        .first()
+    )
+
+    if judge_participant:
+        return {
+            "entry_type": "judge",
+            "is_head_judge": bool(judge_participant.is_head_judge),
         }
 
     return {
-        "entry_type": participant.entry_type or "shooter",
-        "is_head_judge": bool(participant.is_head_judge),
+        "entry_type": "",
     }
 
 
@@ -3943,6 +3993,18 @@ def get_my_competitions(
                             db,
                         )["display_name"]
                     ),
+                    "judge_license_number": (
+                        public_participant(
+                            db.query(CompetitionParticipant)
+                            .filter(
+                                CompetitionParticipant.competition_id == competition.id,
+                                CompetitionParticipant.user_email == invitation.judge_email,
+                                CompetitionParticipant.entry_type == "judge",
+                            )
+                            .first(),
+                            db,
+                        )["judge_license_number"]
+                    ),
                 }
                 for invitation in judge_invitations
                 if db.query(CompetitionParticipant)
@@ -4338,10 +4400,27 @@ def get_judges(
     )
 
     return [
-        public_user(judge)
+        judge_search_response(judge)
         for judge in judges
         if has_role(judge, "judge")
     ]
+
+
+@app.get("/organizer/judges/search")
+def search_judge_by_license(
+    license_number: str = "",
+    user: User = Depends(get_current_organizer),
+    db=Depends(get_db),
+):
+    judge = judge_by_license_number(license_number, db)
+
+    if not judge or not has_role(judge, "judge"):
+        raise HTTPException(
+            status_code=404,
+            detail="Nie znaleziono sędziego z takim numerem licencji"
+        )
+
+    return judge_search_response(judge)
 
 
 @app.post("/competitions/{competition_id}/judge-invitations")
@@ -4363,41 +4442,33 @@ def invite_judge(
             detail="Zawody nie istnieją"
         )
 
-    if competition.created_by != user.email:
+    if competition.created_by != user.email and not has_role(user, "admin"):
         raise HTTPException(
             status_code=403,
             detail="Brak dostępu"
         )
 
-    participant = (
-        db.query(CompetitionParticipant)
-        .filter(
-            CompetitionParticipant.competition_id == competition.id,
-            CompetitionParticipant.user_email == data.judge_email,
-            CompetitionParticipant.entry_type == "judge",
-        )
-        .first()
-    )
+    judge = judge_by_license_number(data.judge_license_number, db)
 
-    if not participant:
+    if not judge and data.judge_email:
+        judge = (
+            db.query(User)
+            .filter(User.email == data.judge_email)
+            .first()
+        )
+
+    if not judge or not has_role(judge, "judge"):
+        raise HTTPException(
+            status_code=404,
+            detail="Nie znaleziono sędziego z takim numerem licencji"
+        )
+
+    selected_discipline_ids = [] if data.is_head_judge else data.discipline_ids
+
+    if not data.is_head_judge and not selected_discipline_ids:
         raise HTTPException(
             status_code=400,
-            detail="Wybrany użytkownik nie dołączył do tych zawodów jako sędzia"
-        )
-
-    existing_assignment = (
-        db.query(JudgeInvitation)
-        .filter(
-            JudgeInvitation.competition_id == competition.id,
-            JudgeInvitation.judge_email == participant.user_email,
-        )
-        .first()
-    )
-
-    if existing_assignment or participant.is_head_judge:
-        raise HTTPException(
-            status_code=400,
-            detail="Ten sędzia ma już przypisaną funkcję w tych zawodach"
+            detail="Wybierz konkurencję albo oznacz sędziego jako głównego"
         )
 
     competition_disciplines = (
@@ -4405,103 +4476,130 @@ def invite_judge(
         .filter(Discipline.competition_id == competition.id)
         .all()
     )
-    disciplines_by_id = {
-        discipline.id: discipline
+    allowed_discipline_ids = {
+        discipline.id
         for discipline in competition_disciplines
     }
-    allowed_discipline_ids = set(disciplines_by_id.keys())
 
-    for discipline_id in data.discipline_ids:
+    for discipline_id in selected_discipline_ids:
         if discipline_id not in allowed_discipline_ids:
             raise HTTPException(
                 status_code=400,
                 detail="Wybrano konkurencję spoza tych zawodów"
             )
 
+    participant = (
+        db.query(CompetitionParticipant)
+        .filter(
+            CompetitionParticipant.competition_id == competition.id,
+            CompetitionParticipant.user_email == judge.email,
+            CompetitionParticipant.entry_type == "judge",
+        )
+        .first()
+    )
+
     if data.is_head_judge:
-        existing_head_judge = (
-            db.query(CompetitionParticipant)
+        existing_head_assignment = (
+            db.query(JudgeInvitation)
             .filter(
-                CompetitionParticipant.competition_id == competition.id,
-                CompetitionParticipant.entry_type == "judge",
-                CompetitionParticipant.is_head_judge == 1,
+                JudgeInvitation.competition_id == competition.id,
+                JudgeInvitation.is_head_judge == 1,
             )
             .first()
         )
 
-        if existing_head_judge:
-            existing_head_judge.is_head_judge = 0
-
-        (
-            db.query(JudgeInvitation)
-            .filter(JudgeInvitation.competition_id == competition.id)
-            .update(
-                {
-                    JudgeInvitation.is_head_judge: 0,
-                }
+        if existing_head_assignment and existing_head_assignment.judge_email != judge.email:
+            raise HTTPException(
+                status_code=400,
+                detail="Sędzia główny jest już przypisany do tych zawodów"
             )
+
+        if participant and participant.is_head_judge:
+            raise HTTPException(
+                status_code=400,
+                detail="Ten sędzia jest już sędzią głównym tych zawodów"
+            )
+    else:
+        if participant and participant.is_head_judge:
+            raise HTTPException(
+                status_code=400,
+                detail="Ten sędzia jest już sędzią głównym tych zawodów"
+            )
+
+        duplicate_assignment = (
+            db.query(JudgeInvitation)
+            .filter(
+                JudgeInvitation.competition_id == competition.id,
+                JudgeInvitation.judge_email == judge.email,
+                JudgeInvitation.discipline_id.in_(selected_discipline_ids),
+            )
+            .first()
         )
 
-    participant.is_head_judge = 1 if data.is_head_judge else 0
+        if duplicate_assignment:
+            raise HTTPException(
+                status_code=400,
+                detail="Ten sędzia jest już przypisany do wybranej konkurencji"
+            )
 
-    if data.discipline_ids:
+    if not participant:
+        participant = CompetitionParticipant(
+            competition_id=competition.id,
+            user_email=judge.email,
+            entry_type="judge",
+            is_head_judge=0,
+            total_fee="0.00",
+            checked_in=1,
+            checked_in_at=datetime.now(APP_TIMEZONE).isoformat(),
+            paid=1,
+            paid_at=datetime.now(APP_TIMEZONE).isoformat(),
+        )
+        db.add(participant)
+        db.commit()
+        db.refresh(participant)
+
+    if data.is_head_judge:
         (
             db.query(ParticipantDiscipline)
-            .filter(
-                ParticipantDiscipline.participant_id == participant.id,
-                ParticipantDiscipline.discipline_id.in_(data.discipline_ids),
-            )
-            .delete(synchronize_session=False)
+            .filter(ParticipantDiscipline.participant_id == participant.id)
+            .delete()
         )
-
-    for discipline_id in data.discipline_ids:
-        participant_discipline = ParticipantDiscipline(
-            participant_id=participant.id,
-            discipline_id=discipline_id,
-            ammo_type="judge",
-        )
-        db.add(participant_discipline)
-
-    if data.discipline_ids:
         (
             db.query(JudgeInvitation)
             .filter(
                 JudgeInvitation.competition_id == competition.id,
-                JudgeInvitation.judge_email == participant.user_email,
-                JudgeInvitation.discipline_id.in_(data.discipline_ids),
-            )
-            .delete(synchronize_session=False)
-        )
-
-        for discipline_id in data.discipline_ids:
-            db.add(JudgeInvitation(
-                competition_id=competition.id,
-                judge_email=participant.user_email,
-                discipline_id=discipline_id,
-                is_head_judge=1 if data.is_head_judge else 0,
-            ))
-    else:
-        (
-            db.query(JudgeInvitation)
-            .filter(
-                JudgeInvitation.competition_id == competition.id,
-                JudgeInvitation.judge_email == participant.user_email,
-                JudgeInvitation.discipline_id.is_(None),
+                JudgeInvitation.judge_email == judge.email,
             )
             .delete()
         )
-
+        participant.is_head_judge = 1
         db.add(JudgeInvitation(
             competition_id=competition.id,
-            judge_email=participant.user_email,
+            judge_email=judge.email,
             discipline_id=None,
-            is_head_judge=1 if data.is_head_judge else 0,
+            is_head_judge=1,
         ))
+    else:
+        participant.is_head_judge = 0
+
+        for discipline_id in selected_discipline_ids:
+            db.add(ParticipantDiscipline(
+                participant_id=participant.id,
+                discipline_id=discipline_id,
+                ammo_type="judge",
+            ))
+            db.add(JudgeInvitation(
+                competition_id=competition.id,
+                judge_email=judge.email,
+                discipline_id=discipline_id,
+                is_head_judge=0,
+            ))
 
     db.commit()
 
     return {
-        "message": "Sędzia został przypisany do zawodów"
+        "message": "Sędzia został przypisany do zawodów",
+        "judge": judge_search_response(judge),
     }
 
 
@@ -4524,7 +4622,7 @@ def remove_judge_assignment(
             detail="Zawody nie istnieją"
         )
 
-    if competition.created_by != user.email:
+    if competition.created_by != user.email and not has_role(user, "admin"):
         raise HTTPException(
             status_code=403,
             detail="Brak dostępu"
@@ -4580,18 +4678,24 @@ def remove_judge_assignment(
             detail="Nie znaleziono takiego przypisania sędziego"
         )
 
-    has_head_assignment = (
+    remaining_assignments = (
         db.query(JudgeInvitation)
         .filter(
             JudgeInvitation.competition_id == competition.id,
             JudgeInvitation.judge_email == data.judge_email,
-            JudgeInvitation.is_head_judge == 1,
         )
-        .first()
+        .all()
+    )
+    has_head_assignment = any(
+        bool(assignment.is_head_judge)
+        for assignment in remaining_assignments
     )
 
     if not has_head_assignment:
         participant.is_head_judge = 0
+
+    if not remaining_assignments:
+        delete_participant_with_dependencies(participant, db)
 
     db.commit()
 
@@ -5056,19 +5160,13 @@ def join_competition(
             detail="Uzupełnij dane konta w profilu, aby dołączyć do zawodów"
         )
 
-    if data.entry_type not in ["shooter", "judge"]:
+    if data.entry_type != "shooter":
         raise HTTPException(
             status_code=400,
-            detail="Nieprawidłowy typ zapisu"
+            detail="Do zawodów można dołączyć tylko jako strzelec"
         )
 
-    if data.entry_type == "judge" and not has_role(user, "judge"):
-        raise HTTPException(
-            status_code=403,
-            detail="Tylko sędzia może dołączyć do zawodów jako sędzia"
-        )
-
-    if data.entry_type == "shooter" and not data.disciplines:
+    if not data.disciplines:
         raise HTTPException(
             status_code=400,
             detail="Wybierz minimum jedną konkurencję"
@@ -5103,15 +5201,16 @@ def join_competition(
         .filter(
             CompetitionParticipant.competition_id == competition.id,
             CompetitionParticipant.user_email == user.email,
+            or_(
+                CompetitionParticipant.entry_type == "shooter",
+                CompetitionParticipant.entry_type.is_(None),
+            ),
         )
         .first()
     )
 
-    if data.entry_type == "shooter" and competition.participant_limit:
-        existing_is_shooter = (
-            existing_participant
-            and (existing_participant.entry_type or "shooter") == "shooter"
-        )
+    if competition.participant_limit:
+        existing_is_shooter = bool(existing_participant)
         current_shooter_count = (
             db.query(CompetitionParticipant)
             .filter(
@@ -5132,16 +5231,12 @@ def join_competition(
 
     if existing_participant:
         participant = existing_participant
-        participant.entry_type = data.entry_type
+        participant.entry_type = "shooter"
         participant.is_head_judge = 0
-        participant.total_fee = (
-            "0.00"
-            if data.entry_type == "judge"
-            else calculate_total_fee_from_selection(
-                competition,
-                data.disciplines,
-                disciplines_by_id,
-            )
+        participant.total_fee = calculate_total_fee_from_selection(
+            competition,
+            data.disciplines,
+            disciplines_by_id,
         )
 
         (
@@ -5153,16 +5248,12 @@ def join_competition(
         participant = CompetitionParticipant(
             competition_id=competition.id,
             user_email=user.email,
-            entry_type=data.entry_type,
+            entry_type="shooter",
             is_head_judge=0,
-            total_fee=(
-                "0.00"
-                if data.entry_type == "judge"
-                else calculate_total_fee_from_selection(
-                    competition,
-                    data.disciplines,
-                    disciplines_by_id,
-                )
+            total_fee=calculate_total_fee_from_selection(
+                competition,
+                data.disciplines,
+                disciplines_by_id,
             ),
         )
 
@@ -5223,6 +5314,10 @@ def leave_competition(
         .filter(
             CompetitionParticipant.competition_id == competition.id,
             CompetitionParticipant.user_email == user.email,
+            or_(
+                CompetitionParticipant.entry_type == "shooter",
+                CompetitionParticipant.entry_type.is_(None),
+            ),
         )
         .first()
     )
@@ -5230,7 +5325,7 @@ def leave_competition(
     if not participant:
         raise HTTPException(
             status_code=404,
-            detail="Nie jesteś zapisany na te zawody"
+            detail="Nie jesteś zapisany na te zawody jako strzelec"
         )
 
     delete_participant_with_dependencies(participant, db)

@@ -9,16 +9,6 @@ import { apiUrl } from "@/lib/api";
 const subscribeToUserEmail = () => () => {};
 const getUserEmailSnapshot = () => localStorage.getItem("email") || "";
 const getServerUserEmailSnapshot = () => "";
-const getUserRolesSnapshot = () => {
-  const roles = localStorage.getItem("roles");
-
-  if (roles) {
-    return roles;
-  }
-
-  return localStorage.getItem("role") || "";
-};
-
 type Participant = {
   id: number;
   user_email: string;
@@ -64,18 +54,12 @@ export default function JoinCompetitionPanel({
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [showForm, setShowForm] = useState(false);
-  const [entryType, setEntryType] = useState<"shooter" | "judge">("shooter");
   const [currentEntryType, setCurrentEntryType] = useState("");
   const [selectedDisciplines, setSelectedDisciplines] = useState<SelectedDiscipline[]>([]);
   const currentUserEmail = useSyncExternalStore(
     subscribeToUserEmail,
     getUserEmailSnapshot,
     getServerUserEmailSnapshot
-  );
-  const userRolesSnapshot = useSyncExternalStore(
-    subscribeToUserEmail,
-    getUserRolesSnapshot,
-    () => ""
   );
 
   useEffect(() => {
@@ -191,7 +175,10 @@ export default function JoinCompetitionPanel({
   const currentUserParticipant = participants.find(
     (participant) => participant.user_email === currentUserEmail
   );
-  const userIsJoined = Boolean(currentUserParticipant || currentEntryType);
+  const userIsJoined = Boolean(
+    currentUserParticipant || currentEntryType === "shooter"
+  );
+  const assignedAsJudge = currentEntryType === "judge" && !userIsJoined;
   const waitingForOrganizerApproval = Boolean(
     competitionStatus === "started"
     && currentEntryType === "shooter"
@@ -202,10 +189,6 @@ export default function JoinCompetitionPanel({
     && participants.length >= participantLimit
     && !userIsJoined
   );
-  const userRoles = userRolesSnapshot
-    .split(",")
-    .filter(Boolean);
-  const canJoinAsJudge = userRoles.includes("judge");
   const competitionFee = selectedDisciplines.length > 0
     ? parsePrice(competitionEntryFee)
     : 0;
@@ -236,20 +219,19 @@ export default function JoinCompetitionPanel({
       return;
     }
 
-    if (entryType === "shooter" && selectedDisciplines.length === 0) {
+    if (selectedDisciplines.length === 0) {
       setMessage("Wybierz minimum jedną konkurencję ❌");
       return;
     }
 
     if (
-      entryType === "shooter"
-      && selectedDisciplines.some((discipline) => !discipline.ammo_type)
+      selectedDisciplines.some((discipline) => !discipline.ammo_type)
     ) {
       setMessage("Wybierz typ amunicji przy każdej konkurencji ❌");
       return;
     }
 
-    if (entryType === "shooter" && participantLimitReached) {
+    if (participantLimitReached) {
       setMessage("Limit zawodników został osiągnięty ❌");
       return;
     }
@@ -267,10 +249,8 @@ export default function JoinCompetitionPanel({
             Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
-            entry_type: entryType,
-            disciplines: entryType === "judge"
-              ? []
-              : selectedDisciplines,
+            entry_type: "shooter",
+            disciplines: selectedDisciplines,
           }),
         }
       );
@@ -284,13 +264,11 @@ export default function JoinCompetitionPanel({
 
       setParticipants(data.participants);
       setShowForm(false);
-      setCurrentEntryType(entryType);
+      setCurrentEntryType("shooter");
       setMessage(
-        entryType === "judge"
-          ? "Dołączono do zawodów jako sędzia ✅"
-          : competitionStatus === "started"
-            ? "Zgłoszenie przyjęte. Pojawisz się na liście po potwierdzeniu udziału i opłaty przez organizatora ✅"
-            : "Jesteś zapisany na zawody ✅"
+        competitionStatus === "started"
+          ? "Zgłoszenie przyjęte. Pojawisz się na liście po potwierdzeniu udziału i opłaty przez organizatora ✅"
+          : "Jesteś zapisany na zawody ✅"
       );
     } catch (error) {
       console.error(error);
@@ -382,9 +360,7 @@ export default function JoinCompetitionPanel({
 
           {userIsJoined && (
             <p className="font-semibold">
-              {currentEntryType === "judge"
-                ? "Jesteś zapisany jako sędzia."
-                : "Jesteś zapisany jako zawodnik."}
+              Jesteś zapisany jako zawodnik.
             </p>
           )}
         </div>
@@ -394,39 +370,6 @@ export default function JoinCompetitionPanel({
             Dołącz do zawodów
           </h3>
 
-          {canJoinAsJudge && (
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => setEntryType("shooter")}
-                className={`py-3 rounded-xl font-semibold transition ${
-                  entryType === "shooter"
-                    ? "bg-green-800 text-white"
-                    : "bg-zinc-800 text-gray-300 hover:bg-zinc-700"
-                }`}
-              >
-                Jako strzelec
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setEntryType("judge")}
-                className={`py-3 rounded-xl font-semibold transition ${
-                  entryType === "judge"
-                    ? "bg-green-800 text-white"
-                    : "bg-zinc-800 text-gray-300 hover:bg-zinc-700"
-                }`}
-              >
-                Jako sędzia
-              </button>
-            </div>
-          )}
-
-          {entryType === "judge" ? (
-            <p className="border border-blue-800 bg-blue-950/30 rounded-xl p-4 text-blue-100">
-              Dołączasz jako sędzia. Opłata startowa nie jest naliczana i nie będziesz widoczny na publicznej liście zawodników.
-            </p>
-          ) : (
           <div className="space-y-4">
             {disciplines.map((discipline) => {
               const selected = isDisciplineSelected(discipline.id);
@@ -494,9 +437,7 @@ export default function JoinCompetitionPanel({
               );
             })}
           </div>
-          )}
 
-          {entryType === "shooter" && (
           <div className="border border-red-700 bg-red-950/30 rounded-xl p-5 text-center">
             <p className="text-red-400 text-sm font-semibold mb-1">
               Suma do zapłaty
@@ -510,7 +451,6 @@ export default function JoinCompetitionPanel({
               Opłatę uiszczasz w dniu zawodów organizatorowi.
             </p>
           </div>
-          )}
 
           <p className="border border-yellow-700 bg-yellow-950/30 rounded-xl p-4 text-yellow-200 text-center">
             Wypisanie się z zawodów jest możliwe najpóźniej 48 godzin przed zawodami.
@@ -520,10 +460,10 @@ export default function JoinCompetitionPanel({
             <button
               type="button"
               onClick={joinCompetition}
-              disabled={loading || (entryType === "shooter" && participantLimitReached)}
+              disabled={loading || participantLimitReached}
               className="bg-green-800 hover:bg-green-700 disabled:opacity-50 transition text-white py-3 rounded-xl font-semibold"
             >
-              {participantLimitReached && entryType === "shooter"
+              {participantLimitReached
                 ? "Limit miejsc osiągnięty"
                 : loading
                   ? "Zapisywanie..."
@@ -541,6 +481,12 @@ export default function JoinCompetitionPanel({
         </div>
       ) : (
         <div className="space-y-3">
+          {assignedAsJudge && (
+            <div className="border border-blue-700 bg-blue-950/30 rounded-xl p-4 text-blue-100">
+              Organizator przypisał Cię do tych zawodów jako sędziego.
+            </div>
+          )}
+
           {waitingForOrganizerApproval ? (
             <div className="border border-yellow-700 bg-yellow-950/30 rounded-xl p-4 text-yellow-100">
               Zgłoszenie przyjęte. Pojawisz się na liście zawodników po potwierdzeniu udziału i opłaty przez organizatora.
@@ -554,9 +500,7 @@ export default function JoinCompetitionPanel({
             >
               {loading
                 ? "Wypisywanie..."
-                : currentEntryType === "judge"
-                  ? "Wypisz się jako sędzia"
-                  : "Wypisz się"}
+                : "Wypisz się"}
             </button>
           ) : (
             <button
@@ -565,10 +509,10 @@ export default function JoinCompetitionPanel({
                 setMessage("");
                 setShowForm(true);
               }}
-              disabled={participantLimitReached && !canJoinAsJudge}
+              disabled={participantLimitReached}
               className="w-full bg-green-800 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition text-white py-4 rounded-xl font-semibold"
             >
-              {participantLimitReached && !canJoinAsJudge
+              {participantLimitReached
                 ? "Limit miejsc osiągnięty"
                 : "Zapisz się"}
             </button>

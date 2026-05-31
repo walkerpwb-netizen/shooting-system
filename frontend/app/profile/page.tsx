@@ -653,14 +653,31 @@ export default function ProfilePage() {
   const rolesText = profile?.roles
     .map((role) => profileRoleLabels[role] || role)
     .join(", ");
+  const hasShooterRole = Boolean(
+    profile
+    && (profile.profile_complete || profile.roles.includes("shooter"))
+  );
+  const canRequestExtraRoles = Boolean(
+    profile
+    && hasShooterRole
+    && !profile.roles.includes("admin")
+  );
+  const showOrganizerData = Boolean(
+    profile
+    && (profile.roles.includes("organizer") || profile.roles.includes("admin"))
+  );
+  const showJudgeData = Boolean(
+    profile
+    && (profile.roles.includes("judge") || profile.roles.includes("admin"))
+  );
   const showOrganizerButton = Boolean(
     profile
-    && !profile.roles.includes("admin")
+    && canRequestExtraRoles
     && (!profile.roles.includes("organizer") || !profile.organizer_name)
   );
   const showJudgeButton = Boolean(
     profile
-    && !profile.roles.includes("admin")
+    && canRequestExtraRoles
     && (!profile.roles.includes("judge") || !profile.judge_license_number)
   );
 
@@ -689,6 +706,17 @@ export default function ProfilePage() {
               </p>
 
               <div className="grid gap-5 md:grid-cols-2">
+                <label>
+                  <span className="mb-2 block text-sm font-semibold text-red-700 dark:text-red-300">
+                    email
+                  </span>
+                  <input
+                    value={profile.email}
+                    readOnly
+                    className={fieldClassName}
+                  />
+                </label>
+
                 <label>
                   <RequiredLabel>Imię</RequiredLabel>
                   <input
@@ -860,20 +888,26 @@ export default function ProfilePage() {
                           value={profile.no_license ? "Nie posiada" : displayValue(profile.license_number)}
                         />
 
-                        <ProfileField
-                          label="Nazwa organizatora"
-                          value={displayValue(profile.organizer_name)}
-                        />
+                        {showOrganizerData && (
+                          <ProfileField
+                            label="Nazwa organizatora"
+                            value={displayValue(profile.organizer_name)}
+                          />
+                        )}
 
-                        <ProfileField
-                          label="Nr. licencji sędziowskiej"
-                          value={displayValue(profile.judge_license_number)}
-                        />
+                        {showJudgeData && (
+                          <>
+                            <ProfileField
+                              label="Nr. licencji sędziowskiej"
+                              value={displayValue(profile.judge_license_number)}
+                            />
 
-                        <ProfileField
-                          label="Ważność licencji sędziowskiej"
-                          value={displayValue(profile.judge_license_valid_until)}
-                        />
+                            <ProfileField
+                              label="Ważność licencji sędziowskiej"
+                              value={displayValue(profile.judge_license_valid_until)}
+                            />
+                          </>
+                        )}
 
                         <ProfileField
                           label="Data Urodzenia"
@@ -885,10 +919,12 @@ export default function ProfilePage() {
                           value={displayValue(profile.phone_number, "Brak numeru")}
                         />
 
-                        <ProfileField
-                          label="Rola w systemie"
-                          value={rolesText || "Brak"}
-                        />
+                        {hasShooterRole && (
+                          <ProfileField
+                            label="Rola w systemie"
+                            value={rolesText || "Brak"}
+                          />
+                        )}
                       </div>
                     )}
                   </dl>
@@ -909,12 +945,14 @@ export default function ProfilePage() {
                       Edytuj profil
                     </button>
 
-                    <Link
-                      href="/profile/statistics"
-                      className="bg-red-700 px-5 py-3 font-semibold text-white transition hover:bg-red-600"
-                    >
-                      Moje Statystyki
-                    </Link>
+                    {hasShooterRole && (
+                      <Link
+                        href="/profile/statistics"
+                        className="bg-red-700 px-5 py-3 font-semibold text-white transition hover:bg-red-600"
+                      >
+                        Moje Statystyki
+                      </Link>
+                    )}
 
                     <button
                       type="button"
@@ -960,7 +998,7 @@ export default function ProfilePage() {
                     </p>
                   )}
 
-                  {!showOrganizerButton && !showJudgeButton && !profile.roles.includes("admin") && (
+                  {canRequestExtraRoles && !showOrganizerButton && !showJudgeButton && (
                     <p className="text-zinc-700 dark:text-red-100">
                       Masz już komplet uprawnień organizatora i sędziego.
                     </p>

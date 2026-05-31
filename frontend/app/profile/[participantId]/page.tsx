@@ -175,6 +175,14 @@ export default function ParticipantProfilePage() {
   const rolesText = profile?.roles
     .map((role) => profileRoleLabels[role] || role)
     .join(", ");
+  const hasShooterRole = Boolean(
+    profile
+    && (profile.profile_complete || profile.roles.includes("shooter"))
+  );
+  const showJudgeData = Boolean(
+    profile
+    && (profile.roles.includes("judge") || profile.roles.includes("admin"))
+  );
 
   return (
     <main className="min-h-screen bg-white px-6 py-8 text-zinc-950 dark:bg-black dark:text-red-400 sm:px-10 lg:px-14">
@@ -218,15 +226,19 @@ export default function ParticipantProfilePage() {
                     value={profile.no_license ? "Nie posiada" : displayValue(profile.license_number)}
                   />
 
-                  <ProfileField
-                    label="Nr. licencji sędziowskiej"
-                    value={displayValue(profile.judge_license_number)}
-                  />
+                  {showJudgeData && (
+                    <>
+                      <ProfileField
+                        label="Nr. licencji sędziowskiej"
+                        value={displayValue(profile.judge_license_number)}
+                      />
 
-                  <ProfileField
-                    label="Ważność licencji sędziowskiej"
-                    value={displayValue(profile.judge_license_valid_until)}
-                  />
+                      <ProfileField
+                        label="Ważność licencji sędziowskiej"
+                        value={displayValue(profile.judge_license_valid_until)}
+                      />
+                    </>
+                  )}
 
                   <ProfileField
                     label="Data Urodzenia"
@@ -238,10 +250,12 @@ export default function ParticipantProfilePage() {
                     value={displayValue(profile.phone_number, "Brak numeru")}
                   />
 
-                  <ProfileField
-                    label="Rola w systemie"
-                    value={rolesText || "Brak"}
-                  />
+                  {hasShooterRole && (
+                    <ProfileField
+                      label="Rola w systemie"
+                      value={rolesText || "Brak"}
+                    />
+                  )}
                 </div>
               )}
             </dl>
