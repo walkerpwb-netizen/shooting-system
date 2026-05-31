@@ -17,10 +17,15 @@ type UserProfile = {
   first_name: string;
   last_name: string;
   license_number: string;
+  no_license: boolean;
   judge_license_number: string;
+  judge_license_valid_until: string;
   club: string;
+  no_club: boolean;
+  voivodeship: string;
   birth_date: string;
   phone_number: string;
+  organizer_name: string;
   requested_role: string;
   profile_complete: boolean;
   achievements: Achievement[];
@@ -36,19 +41,42 @@ type ProfileSettings = {
   achievement_gap: string;
 };
 
+type RoleDialog = "organizer" | "judge" | null;
+
 const roleRequestLabels: Record<string, string> = {
   organizer: "organizatora",
   judge: "sędziego",
 };
 
 const profileRoleLabels: Record<string, string> = {
-  user: "Strzelec",
+  user: "Użytkownik",
+  shooter: "Strzelec",
   organizer: "Organizator",
   judge: "Sędzia",
   admin: "Administrator",
 };
 
-const fieldClassName = "w-full rounded-lg border border-red-300 bg-white px-4 py-3 text-zinc-950 placeholder:text-zinc-400 outline-none transition focus:border-red-500 dark:border-red-900/60 dark:bg-black dark:text-red-50 dark:placeholder:text-red-900/70";
+const voivodeships = [
+  "dolnośląskie",
+  "kujawsko-pomorskie",
+  "lubelskie",
+  "lubuskie",
+  "łódzkie",
+  "małopolskie",
+  "mazowieckie",
+  "opolskie",
+  "podkarpackie",
+  "podlaskie",
+  "pomorskie",
+  "śląskie",
+  "świętokrzyskie",
+  "warmińsko-mazurskie",
+  "wielkopolskie",
+  "zachodniopomorskie",
+];
+
+const fieldClassName = "w-full rounded-lg border border-red-300 bg-white px-4 py-3 text-zinc-950 placeholder:text-zinc-400 outline-none transition focus:border-red-500 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500 dark:border-red-900/60 dark:bg-black dark:text-red-50 dark:placeholder:text-red-900/70 dark:disabled:bg-zinc-950 dark:disabled:text-zinc-600";
+const checkboxClassName = "h-5 w-5 rounded border-red-300 text-green-700 focus:ring-green-700";
 const profileLabelClassName = "ui-profile-label font-medium text-red-400";
 const profileValueClassName = "ui-profile-value mt-3 min-h-6 font-semibold text-red-50";
 const defaultProfileSettings: ProfileSettings = {
@@ -151,8 +179,60 @@ function normalizeBirthDateInput(value: string) {
   ].join("-");
 }
 
+function normalizeFutureDateInput(value: string) {
+  const trimmedValue = value.trim();
+  const isoMatch = trimmedValue.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const polishMatch = trimmedValue.match(/^(\d{2})[./-](\d{2})[./-](\d{4})$/);
+  const dateParts = isoMatch
+    ? {
+        year: Number(isoMatch[1]),
+        month: Number(isoMatch[2]),
+        day: Number(isoMatch[3]),
+      }
+    : polishMatch
+      ? {
+          year: Number(polishMatch[3]),
+          month: Number(polishMatch[2]),
+          day: Number(polishMatch[1]),
+        }
+      : null;
+
+  if (!dateParts) {
+    return "";
+  }
+
+  const date = new Date(
+    Date.UTC(dateParts.year, dateParts.month - 1, dateParts.day)
+  );
+  const isValidDate = date.getUTCFullYear() === dateParts.year
+    && date.getUTCMonth() === dateParts.month - 1
+    && date.getUTCDate() === dateParts.day;
+
+  if (!isValidDate || dateParts.year < 1900) {
+    return "";
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  if (new Date(`${date.toISOString().slice(0, 10)}T00:00:00`) < today) {
+    return "";
+  }
+
+  return [
+    String(dateParts.year).padStart(4, "0"),
+    String(dateParts.month).padStart(2, "0"),
+    String(dateParts.day).padStart(2, "0"),
+  ].join("-");
+}
+
 function normalizePhoneInput(value: string) {
   const trimmedValue = value.trim();
+
+  if (!trimmedValue) {
+    return "";
+  }
+
   const hasPlusPrefix = trimmedValue.startsWith("+");
   const digits = trimmedValue.replace(/\D/g, "");
 
@@ -161,6 +241,11 @@ function normalizePhoneInput(value: string) {
   }
 
   return hasPlusPrefix ? `+${digits}` : digits;
+}
+
+function syncStoredRoles(profile: UserProfile) {
+  localStorage.setItem("role", profile.role);
+  localStorage.setItem("roles", profile.roles.join(","));
 }
 
 export default function ProfilePage() {
@@ -174,14 +259,21 @@ export default function ProfilePage() {
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [message, setMessage] = useState("");
   const [editing, setEditing] = useState(false);
+  const [roleDialog, setRoleDialog] = useState<RoleDialog>(null);
 
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [licenseNumber, setLicenseNumber] = useState("");
-  const [judgeLicenseNumber, setJudgeLicenseNumber] = useState("");
+  const [noLicense, setNoLicense] = useState(false);
   const [club, setClub] = useState("");
+  const [noClub, setNoClub] = useState(false);
+  const [voivodeship, setVoivodeship] = useState("");
   const [birthDate, setBirthDate] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
+  const [rolePhoneNumber, setRolePhoneNumber] = useState("");
+  const [organizerName, setOrganizerName] = useState("");
+  const [roleJudgeLicenseNumber, setRoleJudgeLicenseNumber] = useState("");
+  const [judgeLicenseValidUntil, setJudgeLicenseValidUntil] = useState("");
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -235,10 +327,16 @@ export default function ProfilePage() {
           setFirstName(data.first_name || "");
           setLastName(data.last_name || "");
           setLicenseNumber(data.license_number || "");
-          setJudgeLicenseNumber(data.judge_license_number || "");
+          setNoLicense(Boolean(data.no_license));
           setClub(data.club || "");
+          setNoClub(Boolean(data.no_club));
+          setVoivodeship(data.voivodeship || "");
           setBirthDate(data.birth_date || "");
           setPhoneNumber(data.phone_number || "");
+          setOrganizerName(data.organizer_name || "");
+          setRolePhoneNumber(data.phone_number || "");
+          setRoleJudgeLicenseNumber(data.judge_license_number || "");
+          setJudgeLicenseValidUntil(data.judge_license_valid_until || "");
           setEditing(!data.profile_complete);
         }
       } catch (error) {
@@ -265,13 +363,18 @@ export default function ProfilePage() {
       return;
     }
 
-    if (
-      !firstName.trim()
-      || !lastName.trim()
-      || !birthDate.trim()
-      || !phoneNumber.trim()
-    ) {
+    if (!firstName.trim() || !lastName.trim() || !voivodeship || !birthDate.trim()) {
       setMessage("Wypełnij wszystkie wymagane pola ❌");
+      return;
+    }
+
+    if (!noClub && !club.trim()) {
+      setMessage("Podaj klub albo zaznacz, że jeszcze go nie posiadasz ❌");
+      return;
+    }
+
+    if (!noLicense && !licenseNumber.trim()) {
+      setMessage("Podaj numer licencji zawodniczej albo zaznacz, że jeszcze jej nie posiadasz ❌");
       return;
     }
 
@@ -283,8 +386,8 @@ export default function ProfilePage() {
       return;
     }
 
-    if (!normalizedPhoneNumber) {
-      setMessage("Podaj poprawny numer telefonu, minimum 7 cyfr ❌");
+    if (phoneNumber.trim() && !normalizedPhoneNumber) {
+      setMessage("Podaj poprawny numer telefonu, minimum 7 cyfr, albo zostaw pole puste ❌");
       return;
     }
 
@@ -303,9 +406,11 @@ export default function ProfilePage() {
           body: JSON.stringify({
             first_name: firstName.trim(),
             last_name: lastName.trim(),
-            license_number: licenseNumber.trim(),
-            judge_license_number: judgeLicenseNumber.trim(),
-            club: club.trim(),
+            license_number: noLicense ? "" : licenseNumber.trim(),
+            no_license: noLicense,
+            club: noClub ? "" : club.trim(),
+            no_club: noClub,
+            voivodeship,
             birth_date: normalizedBirthDate,
             phone_number: normalizedPhoneNumber,
           }),
@@ -320,8 +425,9 @@ export default function ProfilePage() {
       }
 
       setProfile(data);
+      syncStoredRoles(data);
       setEditing(false);
-      setMessage("Profil zapisany ✅");
+      setMessage("Profil zapisany. Otrzymujesz status Strzelca ✅");
     } catch (error) {
       console.error(error);
       setMessage("Błąd połączenia z serwerem ❌");
@@ -330,12 +436,69 @@ export default function ProfilePage() {
     }
   }
 
-  async function sendRoleRequest(role: "organizer" | "judge") {
+  function openRoleDialog(role: "organizer" | "judge") {
+    if (!profile?.profile_complete) {
+      setMessage("Najpierw uzupełnij dane konta, aby otrzymać status Strzelca.");
+      setEditing(true);
+      return;
+    }
+
+    setRoleDialog(role);
+    setMessage("");
+    setRolePhoneNumber(profile.phone_number || phoneNumber);
+    setOrganizerName(profile.organizer_name || organizerName);
+    setRoleJudgeLicenseNumber(profile.judge_license_number || "");
+    setJudgeLicenseValidUntil(profile.judge_license_valid_until || "");
+  }
+
+  async function submitRoleRequest() {
     const token = localStorage.getItem("token");
 
     if (!token) {
       router.push("/login");
       return;
+    }
+
+    if (!roleDialog) {
+      return;
+    }
+
+    const body: Record<string, string> = {
+      role: roleDialog,
+    };
+
+    if (roleDialog === "organizer") {
+      const normalizedPhoneNumber = normalizePhoneInput(rolePhoneNumber);
+
+      if (!organizerName.trim()) {
+        setMessage("Podaj nazwę organizatora ❌");
+        return;
+      }
+
+      if (!normalizedPhoneNumber) {
+        setMessage("Podaj poprawny numer telefonu organizatora ❌");
+        return;
+      }
+
+      body.organizer_name = organizerName.trim();
+      body.phone_number = normalizedPhoneNumber;
+    }
+
+    if (roleDialog === "judge") {
+      const normalizedValidUntil = normalizeFutureDateInput(judgeLicenseValidUntil);
+
+      if (!roleJudgeLicenseNumber.trim()) {
+        setMessage("Podaj numer licencji sędziowskiej ❌");
+        return;
+      }
+
+      if (!normalizedValidUntil) {
+        setMessage("Podaj poprawną przyszłą datę ważności licencji sędziowskiej ❌");
+        return;
+      }
+
+      body.judge_license_number = roleJudgeLicenseNumber.trim();
+      body.judge_license_valid_until = normalizedValidUntil;
     }
 
     try {
@@ -350,28 +513,25 @@ export default function ProfilePage() {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({
-            role,
-          }),
+          body: JSON.stringify(body),
         }
       );
 
       const data = await response.json();
 
       if (!response.ok) {
-        setMessage(data.detail || "Nie udało się wysłać prośby ❌");
+        setMessage(data.detail || "Nie udało się przyznać roli ❌");
         return;
       }
 
-      setProfile((currentProfile) =>
-        currentProfile
-          ? {
-              ...currentProfile,
-              requested_role: data.requested_role,
-            }
-          : currentProfile
-      );
-      setMessage("Prośba została wysłana do administratora ✅");
+      setProfile(data);
+      syncStoredRoles(data);
+      setPhoneNumber(data.phone_number || "");
+      setOrganizerName(data.organizer_name || "");
+      setRoleJudgeLicenseNumber(data.judge_license_number || "");
+      setJudgeLicenseValidUntil(data.judge_license_valid_until || "");
+      setRoleDialog(null);
+      setMessage(`${data.message || "Rola została przyznana"} ✅`);
     } catch (error) {
       console.error(error);
       setMessage("Błąd połączenia z serwerem ❌");
@@ -493,6 +653,16 @@ export default function ProfilePage() {
   const rolesText = profile?.roles
     .map((role) => profileRoleLabels[role] || role)
     .join(", ");
+  const showOrganizerButton = Boolean(
+    profile
+    && !profile.roles.includes("admin")
+    && (!profile.roles.includes("organizer") || !profile.organizer_name)
+  );
+  const showJudgeButton = Boolean(
+    profile
+    && !profile.roles.includes("admin")
+    && (!profile.roles.includes("judge") || !profile.judge_license_number)
+  );
 
   return (
     <main className="min-h-screen bg-white px-6 py-8 text-zinc-950 dark:bg-black dark:text-red-400 sm:px-10 lg:px-14">
@@ -504,7 +674,7 @@ export default function ProfilePage() {
         <div className="mx-auto w-full max-w-[1800px]">
           {!profile.profile_complete && (
             <p className="mb-8 max-w-2xl rounded-lg border border-yellow-500/50 bg-yellow-400/10 px-4 py-3 text-yellow-900 dark:text-yellow-100">
-              Uzupełnij profil, aby móc dołączyć do zawodów.
+              Uzupełnij profil, aby otrzymać status Strzelca i móc dołączyć do zawodów.
             </p>
           )}
 
@@ -515,7 +685,7 @@ export default function ProfilePage() {
               </h1>
 
               <p className="mb-6 text-sm text-red-700 dark:text-red-200">
-                Pola oznaczone <span className="font-bold text-red-500">*</span> są wymagane do zapisania się na zawody.
+                Pola oznaczone <span className="font-bold text-red-500">*</span> są wymagane do zapisania się na zawody. Telefon jest opcjonalny, chyba że prosisz o rolę organizatora.
               </p>
 
               <div className="grid gap-5 md:grid-cols-2">
@@ -540,65 +710,96 @@ export default function ProfilePage() {
                 </label>
 
                 <label>
-                  <span className="mb-2 block text-sm font-semibold text-red-700 dark:text-red-300">
-                    Klub
-                  </span>
-                  <input
-                    value={club}
-                    onChange={(e) => setClub(e.target.value)}
-                    placeholder="Podaj klub"
+                  <RequiredLabel>Województwo</RequiredLabel>
+                  <select
+                    value={voivodeship}
+                    onChange={(e) => setVoivodeship(e.target.value)}
                     className={fieldClassName}
-                  />
-                </label>
-
-                <label>
-                  <span className="mb-2 block text-sm font-semibold text-red-700 dark:text-red-300">
-                    Nr. Licencji Zawodniczej
-                  </span>
-                  <input
-                    value={licenseNumber}
-                    onChange={(e) => setLicenseNumber(e.target.value)}
-                    placeholder="Nr. Licencji Zawodniczej"
-                    className={fieldClassName}
-                  />
-                </label>
-
-                <label>
-                  <span className="mb-2 block text-sm font-semibold text-red-700 dark:text-red-300">
-                    Nr. Licencji Sędziowskiej
-                  </span>
-                  <input
-                    value={judgeLicenseNumber}
-                    onChange={(e) => setJudgeLicenseNumber(e.target.value)}
-                    placeholder="Nr. Licencji Sędziowskiej"
-                    className={fieldClassName}
-                  />
+                  >
+                    <option value="">Wybierz województwo</option>
+                    {voivodeships.map((item) => (
+                      <option key={item} value={item}>
+                        {item}
+                      </option>
+                    ))}
+                  </select>
                 </label>
 
                 <label>
                   <RequiredLabel>Data urodzenia</RequiredLabel>
                   <input
-                    type="text"
-                    inputMode="numeric"
+                    type="date"
                     value={birthDate}
                     onChange={(e) => setBirthDate(e.target.value)}
-                    placeholder="Podaj datę urodzenia"
                     className={fieldClassName}
                   />
                 </label>
 
+                <div>
+                  <RequiredLabel>Klub</RequiredLabel>
+                  <input
+                    value={club}
+                    onChange={(e) => setClub(e.target.value)}
+                    placeholder="Podaj klub"
+                    disabled={noClub}
+                    className={fieldClassName}
+                  />
+                  <label className="mt-3 flex items-center gap-3 text-sm font-semibold text-red-700 dark:text-red-200">
+                    <input
+                      type="checkbox"
+                      checked={noClub}
+                      onChange={(event) => {
+                        setNoClub(event.target.checked);
+
+                        if (event.target.checked) {
+                          setClub("");
+                        }
+                      }}
+                      className={checkboxClassName}
+                    />
+                    Jeszcze nie posiadam klubu
+                  </label>
+                </div>
+
+                <div>
+                  <RequiredLabel>Nr. Licencji Zawodniczej</RequiredLabel>
+                  <input
+                    value={licenseNumber}
+                    onChange={(e) => setLicenseNumber(e.target.value)}
+                    placeholder="Nr. Licencji Zawodniczej"
+                    disabled={noLicense}
+                    className={fieldClassName}
+                  />
+                  <label className="mt-3 flex items-center gap-3 text-sm font-semibold text-red-700 dark:text-red-200">
+                    <input
+                      type="checkbox"
+                      checked={noLicense}
+                      onChange={(event) => {
+                        setNoLicense(event.target.checked);
+
+                        if (event.target.checked) {
+                          setLicenseNumber("");
+                        }
+                      }}
+                      className={checkboxClassName}
+                    />
+                    Jeszcze nie posiadam licencji zawodniczej
+                  </label>
+                </div>
+
                 <label>
-                  <RequiredLabel>Nr telefonu</RequiredLabel>
+                  <span className="mb-2 block text-sm font-semibold text-red-700 dark:text-red-300">
+                    Telefon
+                  </span>
                   <input
                     type="tel"
                     inputMode="tel"
                     value={phoneNumber}
                     onChange={(e) => setPhoneNumber(e.target.value)}
-                    placeholder="Podaj nr telefonu"
+                    placeholder="Opcjonalnie"
                     className={fieldClassName}
                   />
                 </label>
-
               </div>
 
               <div className="mt-8 flex flex-wrap gap-4">
@@ -638,8 +839,13 @@ export default function ProfilePage() {
                     />
 
                     <ProfileField
+                      label="Województwo"
+                      value={displayValue(profile.voivodeship)}
+                    />
+
+                    <ProfileField
                       label="Klub"
-                      value={displayValue(profile.club)}
+                      value={profile.no_club ? "Nie posiada" : displayValue(profile.club)}
                     />
 
                     {isOwnerProfile && (
@@ -651,12 +857,22 @@ export default function ProfilePage() {
 
                         <ProfileField
                           label="Nr. Licencji Zawodniczej"
-                          value={displayValue(profile.license_number)}
+                          value={profile.no_license ? "Nie posiada" : displayValue(profile.license_number)}
+                        />
+
+                        <ProfileField
+                          label="Nazwa organizatora"
+                          value={displayValue(profile.organizer_name)}
                         />
 
                         <ProfileField
                           label="Nr. licencji sędziowskiej"
                           value={displayValue(profile.judge_license_number)}
+                        />
+
+                        <ProfileField
+                          label="Ważność licencji sędziowskiej"
+                          value={displayValue(profile.judge_license_valid_until)}
                         />
 
                         <ProfileField
@@ -711,36 +927,40 @@ export default function ProfilePage() {
                         : "Zresetuj hasło"}
                     </button>
 
-                    {!profile.roles.includes("admin") && !profile.requested_role && !profile.roles.includes("organizer") && (
+                    {showOrganizerButton && (
                       <button
                         type="button"
-                        onClick={() => sendRoleRequest("organizer")}
+                        onClick={() => openRoleDialog("organizer")}
                         disabled={sendingRoleRequest}
                         className="bg-blue-700 px-5 py-3 font-semibold text-white transition hover:bg-blue-600 disabled:opacity-50"
                       >
-                        Poproś o rolę organizatora
+                        {profile.roles.includes("organizer")
+                          ? "Uzupełnij dane organizatora"
+                          : "Poproś o rolę organizatora"}
                       </button>
                     )}
 
-                    {!profile.roles.includes("admin") && !profile.requested_role && !profile.roles.includes("judge") && (
+                    {showJudgeButton && (
                       <button
                         type="button"
-                        onClick={() => sendRoleRequest("judge")}
+                        onClick={() => openRoleDialog("judge")}
                         disabled={sendingRoleRequest}
                         className="bg-zinc-800 px-5 py-3 font-semibold text-white transition hover:bg-zinc-700 disabled:opacity-50"
                       >
-                        Poproś o rolę sędziego
+                        {profile.roles.includes("judge")
+                          ? "Uzupełnij dane sędziego"
+                          : "Poproś o rolę sędziego"}
                       </button>
                     )}
                   </div>
 
                   {!profile.roles.includes("admin") && profile.requested_role && (
                     <p className="text-zinc-700 dark:text-red-100">
-                      Twoja prośba o rolę {roleRequestLabels[profile.requested_role] || profile.requested_role} oczekuje na decyzję administratora.
+                      Wcześniejsza prośba o rolę {roleRequestLabels[profile.requested_role] || profile.requested_role} zostanie zastąpiona automatycznym nadaniem roli po uzupełnieniu wymaganych danych.
                     </p>
                   )}
 
-                  {!profile.roles.includes("admin") && !profile.requested_role && profile.roles.includes("organizer") && profile.roles.includes("judge") && (
+                  {!showOrganizerButton && !showJudgeButton && !profile.roles.includes("admin") && (
                     <p className="text-zinc-700 dark:text-red-100">
                       Masz już komplet uprawnień organizatora i sędziego.
                     </p>
@@ -767,6 +987,86 @@ export default function ProfilePage() {
             <p className="mt-6 font-medium text-zinc-700 dark:text-red-100">
               {message}
             </p>
+          )}
+
+          {roleDialog && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 px-4 py-6">
+              <div className="w-full max-w-lg rounded-xl border border-red-900/60 bg-white p-6 text-zinc-950 shadow-2xl dark:bg-zinc-950 dark:text-red-50">
+                <h2 className="mb-5 text-2xl font-bold text-red-500">
+                  {roleDialog === "organizer"
+                    ? "Rola organizatora"
+                    : "Rola sędziego"}
+                </h2>
+
+                {roleDialog === "organizer" ? (
+                  <div className="space-y-4">
+                    <label>
+                      <RequiredLabel>Telefon</RequiredLabel>
+                      <input
+                        type="tel"
+                        inputMode="tel"
+                        value={rolePhoneNumber}
+                        onChange={(e) => setRolePhoneNumber(e.target.value)}
+                        placeholder="Numer telefonu organizatora"
+                        className={fieldClassName}
+                      />
+                    </label>
+
+                    <label>
+                      <RequiredLabel>Nazwa Organizatora</RequiredLabel>
+                      <input
+                        value={organizerName}
+                        onChange={(e) => setOrganizerName(e.target.value)}
+                        placeholder="Oficjalna nazwa organizatora"
+                        className={fieldClassName}
+                      />
+                    </label>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <label>
+                      <RequiredLabel>Nr. Licencji sędziowskiej</RequiredLabel>
+                      <input
+                        value={roleJudgeLicenseNumber}
+                        onChange={(e) => setRoleJudgeLicenseNumber(e.target.value)}
+                        placeholder="Numer licencji sędziowskiej"
+                        className={fieldClassName}
+                      />
+                    </label>
+
+                    <label>
+                      <RequiredLabel>Data ważności</RequiredLabel>
+                      <input
+                        type="date"
+                        value={judgeLicenseValidUntil}
+                        onChange={(e) => setJudgeLicenseValidUntil(e.target.value)}
+                        className={fieldClassName}
+                      />
+                    </label>
+                  </div>
+                )}
+
+                <div className="mt-6 grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={submitRoleRequest}
+                    disabled={sendingRoleRequest}
+                    className="bg-green-800 px-5 py-3 font-semibold text-white transition hover:bg-green-700 disabled:opacity-50"
+                  >
+                    {sendingRoleRequest ? "Zapisywanie..." : "OK"}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setRoleDialog(null)}
+                    disabled={sendingRoleRequest}
+                    className="bg-zinc-800 px-5 py-3 font-semibold text-white transition hover:bg-zinc-700 disabled:opacity-50"
+                  >
+                    Anuluj
+                  </button>
+                </div>
+              </div>
+            </div>
           )}
         </div>
       ) : (

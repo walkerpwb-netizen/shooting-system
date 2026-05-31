@@ -72,7 +72,34 @@ class User(Base):
         nullable=True,
     )
 
+    judge_license_number_key = Column(
+        String,
+        unique=True,
+        index=True,
+        nullable=True,
+    )
+
+    judge_license_valid_until = Column(
+        String,
+        nullable=True,
+    )
+
     club = Column(
+        String,
+        nullable=True,
+    )
+
+    no_club = Column(
+        Integer,
+        default=0,
+    )
+
+    no_license = Column(
+        Integer,
+        default=0,
+    )
+
+    voivodeship = Column(
         String,
         nullable=True,
     )
@@ -94,6 +121,18 @@ class User(Base):
 
     requested_role = Column(
         String,
+        nullable=True,
+    )
+
+    organizer_name = Column(
+        String,
+        nullable=True,
+    )
+
+    organizer_name_key = Column(
+        String,
+        unique=True,
+        index=True,
         nullable=True,
     )
 

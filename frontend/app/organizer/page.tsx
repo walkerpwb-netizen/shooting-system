@@ -125,7 +125,6 @@ export default function OrganizerPage() {
   const [date, setDate] = useState("");
   const [location, setLocation] = useState("");
   const [entryFee, setEntryFee] = useState("");
-  const [organizerFullName, setOrganizerFullName] = useState("");
   const [organizerLogo, setOrganizerLogo] = useState("");
   const [sponsors, setSponsors] = useState("");
   const [sponsorLogo, setSponsorLogo] = useState("");
@@ -191,7 +190,6 @@ export default function OrganizerPage() {
     setDate("");
     setLocation("");
     setEntryFee("");
-    setOrganizerFullName("");
     setOrganizerLogo("");
     setSponsors("");
     setSponsorLogo("");
@@ -465,7 +463,6 @@ export default function OrganizerPage() {
     setDate(competition.date);
     setLocation(competition.location);
     setEntryFee(competition.entry_fee || "");
-    setOrganizerFullName(competition.organizer_full_name || "");
     setOrganizerLogo(competition.organizer_logo || "");
     setSponsors(competition.sponsors || "");
     setSponsorLogo(competition.sponsor_logo || "");
@@ -583,7 +580,6 @@ export default function OrganizerPage() {
             date,
             location,
             entry_fee: entryFee,
-            organizer_full_name: organizerFullName,
             organizer_logo: organizerLogo,
             sponsors,
             sponsor_logo: sponsorLogo,
@@ -796,14 +792,6 @@ export default function OrganizerPage() {
                 placeholder="Lokalizacja"
                 value={location}
                 onChange={(e) => setLocation(e.target.value)}
-                className="w-full border border-zinc-700 bg-zinc-800 p-4 rounded-xl text-white"
-              />
-
-              <input
-                type="text"
-                placeholder="Podaj pełną nazwę organizatora"
-                value={organizerFullName}
-                onChange={(e) => setOrganizerFullName(e.target.value)}
                 className="w-full border border-zinc-700 bg-zinc-800 p-4 rounded-xl text-white"
               />
 

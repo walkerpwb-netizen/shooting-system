@@ -146,13 +146,15 @@ type ProfileSettings = {
 
 const roles = [
   "user",
+  "shooter",
   "organizer",
   "judge",
   "admin",
 ];
 
 const roleLabels: Record<string, string> = {
-  user: "Strzelec",
+  user: "użytkownik",
+  shooter: "strzelec",
   organizer: "organizator",
   judge: "sędzia",
   admin: "administrator",

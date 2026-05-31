@@ -3,7 +3,7 @@ from fastapi import Depends, HTTPException
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy import or_, text
+from sqlalchemy import func, or_, text
 
 from database import SessionLocal
 from config import settings
@@ -150,8 +150,10 @@ class ProfileData(BaseModel):
     first_name: str
     last_name: str
     license_number: str = ""
-    judge_license_number: str = ""
+    no_license: bool = False
     club: str = ""
+    no_club: bool = False
+    voivodeship: str = ""
     birth_date: str
     phone_number: str = ""
 
@@ -163,6 +165,10 @@ class UserRoleData(BaseModel):
 
 class RoleRequestData(BaseModel):
     role: str
+    phone_number: str = ""
+    organizer_name: str = ""
+    judge_license_number: str = ""
+    judge_license_valid_until: str = ""
 
 
 class JoinDisciplineData(BaseModel):
@@ -254,7 +260,25 @@ class AdminGenerateResultsData(BaseModel):
     overwrite: bool = True
 
 
-ALLOWED_ROLES = ["user", "organizer", "judge", "admin"]
+ALLOWED_ROLES = ["user", "shooter", "organizer", "judge", "admin"]
+POLISH_VOIVODESHIPS = [
+    "dolnośląskie",
+    "kujawsko-pomorskie",
+    "lubelskie",
+    "lubuskie",
+    "łódzkie",
+    "małopolskie",
+    "mazowieckie",
+    "opolskie",
+    "podkarpackie",
+    "podlaskie",
+    "pomorskie",
+    "śląskie",
+    "świętokrzyskie",
+    "warmińsko-mazurskie",
+    "wielkopolskie",
+    "zachodniopomorskie",
+]
 TEST_COMPETITION_STATUSES = ["draft", "published", "started", "completed"]
 TEST_FIRST_NAMES = [
     "Jan",
@@ -359,7 +383,7 @@ RANKING_METRIC_LABELS = {
 
 
 def primary_role(roles: list[str]):
-    for role in ["admin", "organizer", "judge", "user"]:
+    for role in ["admin", "organizer", "judge", "shooter", "user"]:
         if role in roles:
             return role
 
@@ -602,13 +626,69 @@ def normalize_phone_number(value: str):
     return f"+{digits}" if has_plus_prefix else digits
 
 
+def normalize_text(value: str):
+    return re.sub(r"\s+", " ", (value or "").strip())
+
+
+def normalize_unique_key(value: str):
+    normalized_value = normalize_text(value).lower()
+
+    return normalized_value or ""
+
+
+def normalize_voivodeship(value: str):
+    normalized_value = normalize_text(value).lower()
+
+    for voivodeship in POLISH_VOIVODESHIPS:
+        if normalized_value == voivodeship.lower():
+            return voivodeship
+
+    return ""
+
+
+def normalize_optional_phone_number(value: str):
+    if not (value or "").strip():
+        return ""
+
+    return normalize_phone_number(value)
+
+
+def normalize_valid_until_date(value: str):
+    raw_value = (value or "").strip()
+
+    for date_format in PROFILE_DATE_FORMATS:
+        try:
+            parsed_date = datetime.strptime(raw_value, date_format).date()
+        except ValueError:
+            continue
+
+        today = datetime.now(APP_TIMEZONE).date()
+
+        if parsed_date < today or parsed_date.year < 1900:
+            return ""
+
+        return parsed_date.isoformat()
+
+    return ""
+
+
 def is_profile_complete(user: User):
+    has_club = bool(getattr(user, "no_club", 0)) or bool((user.club or "").strip())
+    has_license = bool(getattr(user, "no_license", 0)) or bool((user.license_number or "").strip())
+
     return all([
         (user.first_name or "").strip(),
         (user.last_name or "").strip(),
+        normalize_voivodeship(getattr(user, "voivodeship", "") or ""),
+        has_club,
+        has_license,
         normalize_birth_date(user.birth_date or ""),
-        normalize_phone_number(user.phone_number or ""),
     ])
+
+
+def ensure_shooter_role(user: User):
+    if is_profile_complete(user) and not has_role(user, "shooter"):
+        set_user_roles(user, get_user_roles(user) + ["shooter"])
 
 
 def is_user_online(user: User):
@@ -635,12 +715,41 @@ def public_user(user: User):
         "first_name": user.first_name or "",
         "last_name": user.last_name or "",
         "club": user.club or "",
+        "no_club": bool(getattr(user, "no_club", 0)),
+        "license_number": user.license_number or "",
+        "no_license": bool(getattr(user, "no_license", 0)),
+        "voivodeship": getattr(user, "voivodeship", "") or "",
         "phone_number": user.phone_number or "",
+        "organizer_name": getattr(user, "organizer_name", "") or "",
+        "judge_license_number": user.judge_license_number or "",
+        "judge_license_valid_until": getattr(user, "judge_license_valid_until", "") or "",
+        "profile_complete": is_profile_complete(user),
         "last_seen": user.last_seen or "",
         "requested_role": user.requested_role or "",
         "password_reset_required": bool(user.password_reset_required),
         "status": "online" if is_user_online(user) else "offline",
     }
+
+
+def private_user_response(user: User, db, message: str = ""):
+    response = public_user(user)
+    response.update({
+        "birth_date": user.birth_date or "",
+        "achievements": user_achievements(user.email, db),
+    })
+
+    if message:
+        response["message"] = message
+
+    return response
+
+
+def organizer_display_name(user: User):
+    return (
+        normalize_text(getattr(user, "organizer_name", "") or "")
+        or normalize_text(f"{user.first_name or ''} {user.last_name or ''}")
+        or user.email
+    )
 
 
 def create_password_reset_token(user: User):
@@ -3683,12 +3792,18 @@ def create_competition(
             detail="Limit zawodników musi być większy od zera"
         )
 
+    if not has_role(user, "admin") and not normalize_text(user.organizer_name or ""):
+        raise HTTPException(
+            status_code=400,
+            detail="Uzupełnij nazwę organizatora w profilu przed utworzeniem zawodów"
+        )
+
     competition = Competition(
         name=data.name,
         date=data.date,
         location=data.location,
         entry_fee=data.entry_fee,
-        organizer_full_name=data.organizer_full_name,
+        organizer_full_name=organizer_display_name(user),
         organizer_logo=data.organizer_logo,
         sponsors=data.sponsors,
         sponsor_logo=data.sponsor_logo,
@@ -4938,7 +5053,7 @@ def join_competition(
     if not is_profile_complete(user):
         raise HTTPException(
             status_code=400,
-            detail="Uzupełnij profil przed zapisem na zawody"
+            detail="Uzupełnij dane konta w profilu, aby dołączyć do zawodów"
         )
 
     if data.entry_type not in ["shooter", "judge"]:
@@ -5162,24 +5277,7 @@ def get_me(
     user: User = Depends(get_current_user),
     db=Depends(get_db),
 ):
-    roles = get_user_roles(user)
-
-    return {
-        "email": user.email,
-        "role": primary_role(roles),
-        "roles": roles,
-        "is_active": bool(user.is_active),
-        "first_name": user.first_name or "",
-        "last_name": user.last_name or "",
-        "license_number": user.license_number or "",
-        "judge_license_number": user.judge_license_number or "",
-        "club": user.club or "",
-        "birth_date": user.birth_date or "",
-        "phone_number": user.phone_number or "",
-        "requested_role": user.requested_role or "",
-        "profile_complete": is_profile_complete(user),
-        "achievements": user_achievements(user.email, db),
-    }
+    return private_user_response(user, db)
 
 
 @app.get("/me/statistics")
@@ -5256,7 +5354,11 @@ def get_participant_profile(
         "roles": [],
         "is_active": False,
         "license_number": "",
+        "no_license": False,
         "judge_license_number": "",
+        "judge_license_valid_until": "",
+        "voivodeship": "",
+        "no_club": False,
         "birth_date": "",
         "phone_number": "",
         "requested_role": "",
@@ -5271,7 +5373,11 @@ def get_participant_profile(
             "roles": roles,
             "is_active": bool(participant_user.is_active),
             "license_number": participant_user.license_number or "",
+            "no_license": bool(getattr(participant_user, "no_license", 0)),
             "judge_license_number": participant_user.judge_license_number or "",
+            "judge_license_valid_until": getattr(participant_user, "judge_license_valid_until", "") or "",
+            "voivodeship": getattr(participant_user, "voivodeship", "") or "",
+            "no_club": bool(getattr(participant_user, "no_club", 0)),
             "birth_date": participant_user.birth_date or "",
             "phone_number": participant_user.phone_number or "",
             "requested_role": participant_user.requested_role or "",
@@ -5305,20 +5411,128 @@ def request_role_change(
             detail="Użytkownik nie istnieje"
         )
 
-    if has_role(db_user, data.role):
+    if not db_user.is_active:
         raise HTTPException(
-            status_code=400,
-            detail="Masz już tę rolę"
+            status_code=403,
+            detail="Aktywuj konto przed zmianą roli"
         )
 
-    db_user.requested_role = data.role
+    if not is_profile_complete(db_user):
+        raise HTTPException(
+            status_code=400,
+            detail="Uzupełnij dane konta w profilu przed dodaniem kolejnej roli"
+        )
+
+    if data.role == "organizer":
+        organizer_name = normalize_text(data.organizer_name or db_user.organizer_name or "")
+        organizer_name_key = normalize_unique_key(organizer_name)
+        phone_number = normalize_phone_number(data.phone_number or db_user.phone_number or "")
+
+        if has_role(db_user, "organizer") and db_user.organizer_name_key:
+            raise HTTPException(
+                status_code=400,
+                detail="Masz już rolę organizatora"
+            )
+
+        if not phone_number:
+            raise HTTPException(
+                status_code=400,
+                detail="Podaj poprawny numer telefonu dla organizatora"
+            )
+
+        if not organizer_name_key:
+            raise HTTPException(
+                status_code=400,
+                detail="Podaj nazwę organizatora"
+            )
+
+        duplicate_organizer = (
+            db.query(User)
+            .filter(
+                User.id != db_user.id,
+                or_(
+                    User.organizer_name_key == organizer_name_key,
+                    func.lower(User.organizer_name) == organizer_name_key,
+                ),
+            )
+            .first()
+        )
+
+        if duplicate_organizer:
+            raise HTTPException(
+                status_code=400,
+                detail="Ta nazwa organizatora jest już zajęta"
+            )
+
+        db_user.phone_number = phone_number
+        db_user.organizer_name = organizer_name
+        db_user.organizer_name_key = organizer_name_key
+        set_user_roles(db_user, get_user_roles(db_user) + ["organizer"])
+        db_user.requested_role = None
+        db.commit()
+        db.refresh(db_user)
+
+        return private_user_response(
+            db_user,
+            db,
+            "Rola organizatora została przyznana"
+        )
+
+    judge_license_number = normalize_text(data.judge_license_number)
+    judge_license_number_key = normalize_unique_key(judge_license_number)
+    judge_license_valid_until = normalize_valid_until_date(
+        data.judge_license_valid_until
+    )
+
+    if has_role(db_user, "judge") and db_user.judge_license_number_key:
+        raise HTTPException(
+            status_code=400,
+            detail="Masz już rolę sędziego"
+        )
+
+    if not judge_license_number_key:
+        raise HTTPException(
+            status_code=400,
+            detail="Podaj numer licencji sędziowskiej"
+        )
+
+    if not judge_license_valid_until:
+        raise HTTPException(
+            status_code=400,
+            detail="Podaj poprawną przyszłą datę ważności licencji sędziowskiej"
+        )
+
+    duplicate_judge_license = (
+        db.query(User)
+        .filter(
+            User.id != db_user.id,
+            or_(
+                User.judge_license_number_key == judge_license_number_key,
+                func.lower(User.judge_license_number) == judge_license_number_key,
+            ),
+        )
+        .first()
+    )
+
+    if duplicate_judge_license:
+        raise HTTPException(
+            status_code=400,
+            detail="Ten numer licencji sędziowskiej jest już używany"
+        )
+
+    db_user.judge_license_number = judge_license_number
+    db_user.judge_license_number_key = judge_license_number_key
+    db_user.judge_license_valid_until = judge_license_valid_until
+    set_user_roles(db_user, get_user_roles(db_user) + ["judge"])
+    db_user.requested_role = None
     db.commit()
     db.refresh(db_user)
 
-    return {
-        "message": "Prośba została wysłana do administratora",
-        "requested_role": db_user.requested_role or "",
-    }
+    return private_user_response(
+        db_user,
+        db,
+        "Rola sędziego została przyznana"
+    )
 
 
 @app.put("/me")
@@ -5339,15 +5553,38 @@ def update_me(
             detail="Użytkownik nie istnieje"
         )
 
-    first_name = data.first_name.strip()
-    last_name = data.last_name.strip()
+    first_name = normalize_text(data.first_name)
+    last_name = normalize_text(data.last_name)
+    voivodeship = normalize_voivodeship(data.voivodeship)
+    club = normalize_text(data.club)
+    license_number = normalize_text(data.license_number)
     birth_date = normalize_birth_date(data.birth_date)
-    phone_number = normalize_phone_number(data.phone_number)
+    phone_number = normalize_optional_phone_number(data.phone_number)
+    no_club = bool(data.no_club)
+    no_license = bool(data.no_license)
 
-    if not all([first_name, last_name, data.birth_date.strip(), data.phone_number.strip()]):
+    if not first_name or not last_name:
         raise HTTPException(
             status_code=400,
-            detail="Imię, nazwisko, data urodzenia i numer telefonu są wymagane"
+            detail="Imię i nazwisko są wymagane"
+        )
+
+    if not voivodeship:
+        raise HTTPException(
+            status_code=400,
+            detail="Wybierz województwo z listy"
+        )
+
+    if not no_club and not club:
+        raise HTTPException(
+            status_code=400,
+            detail="Podaj klub albo zaznacz, że jeszcze go nie posiadasz"
+        )
+
+    if not no_license and not license_number:
+        raise HTTPException(
+            status_code=400,
+            detail="Podaj numer licencji zawodniczej albo zaznacz, że jeszcze jej nie posiadasz"
         )
 
     if not birth_date:
@@ -5356,40 +5593,38 @@ def update_me(
             detail="Podaj poprawną datę urodzenia"
         )
 
-    if not phone_number:
+    if data.phone_number.strip() and not phone_number:
         raise HTTPException(
             status_code=400,
-            detail="Podaj poprawny numer telefonu"
+            detail="Podaj poprawny numer telefonu albo pozostaw pole puste"
+        )
+
+    if has_role(db_user, "organizer") and not phone_number:
+        raise HTTPException(
+            status_code=400,
+            detail="Telefon jest wymagany dla organizatora"
         )
 
     db_user.first_name = first_name
     db_user.last_name = last_name
-    db_user.license_number = data.license_number.strip()
-    db_user.judge_license_number = data.judge_license_number.strip()
-    db_user.club = data.club.strip()
+    db_user.voivodeship = voivodeship
+    db_user.club = "" if no_club else club
+    db_user.no_club = 1 if no_club else 0
+    db_user.license_number = "" if no_license else license_number
+    db_user.no_license = 1 if no_license else 0
     db_user.birth_date = birth_date
     db_user.phone_number = phone_number
+    ensure_shooter_role(db_user)
 
     db.commit()
-    roles = get_user_roles(db_user)
+    db.refresh(db_user)
 
-    return {
-        "message": "Profil zaktualizowany",
-        "email": db_user.email,
-        "role": primary_role(roles),
-        "roles": roles,
-        "is_active": bool(db_user.is_active),
-        "first_name": db_user.first_name,
-        "last_name": db_user.last_name,
-        "license_number": db_user.license_number or "",
-        "judge_license_number": db_user.judge_license_number or "",
-        "club": db_user.club or "",
-        "birth_date": db_user.birth_date,
-        "phone_number": db_user.phone_number or "",
-        "requested_role": db_user.requested_role or "",
-        "profile_complete": is_profile_complete(db_user),
-        "achievements": user_achievements(db_user.email, db),
-    }
+    return private_user_response(
+        db_user,
+        db,
+        "Profil zaktualizowany"
+    )
+
 
 @app.delete("/competitions/{competition_id}")
 def delete_competition(
@@ -5473,7 +5708,9 @@ def update_competition(
     competition.date = data.date
     competition.location = data.location
     competition.entry_fee = data.entry_fee
-    competition.organizer_full_name = data.organizer_full_name
+    if normalize_text(user.organizer_name or ""):
+        competition.organizer_full_name = organizer_display_name(user)
+
     competition.organizer_logo = data.organizer_logo
     competition.sponsors = data.sponsors
     competition.sponsor_logo = data.sponsor_logo

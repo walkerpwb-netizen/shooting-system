@@ -19,7 +19,11 @@ type ParticipantProfile = {
   roles: string[];
   is_active: boolean;
   license_number: string;
+  no_license: boolean;
   judge_license_number: string;
+  judge_license_valid_until: string;
+  voivodeship: string;
+  no_club: boolean;
   birth_date: string;
   phone_number: string;
   requested_role: string;
@@ -38,7 +42,8 @@ type ProfileSettings = {
 };
 
 const profileRoleLabels: Record<string, string> = {
-  user: "Strzelec",
+  user: "Użytkownik",
+  shooter: "Strzelec",
   organizer: "Organizator",
   judge: "Sędzia",
   admin: "Administrator",
@@ -192,8 +197,13 @@ export default function ParticipantProfilePage() {
               />
 
               <ProfileField
+                label="Województwo"
+                value={displayValue(profile.voivodeship)}
+              />
+
+              <ProfileField
                 label="Klub"
-                value={displayValue(profile.club)}
+                value={profile.no_club ? "Nie posiada" : displayValue(profile.club)}
               />
 
               {profile.is_owner && (
@@ -205,12 +215,17 @@ export default function ParticipantProfilePage() {
 
                   <ProfileField
                     label="Nr. Licencji Zawodniczej"
-                    value={displayValue(profile.license_number)}
+                    value={profile.no_license ? "Nie posiada" : displayValue(profile.license_number)}
                   />
 
                   <ProfileField
                     label="Nr. licencji sędziowskiej"
                     value={displayValue(profile.judge_license_number)}
+                  />
+
+                  <ProfileField
+                    label="Ważność licencji sędziowskiej"
+                    value={displayValue(profile.judge_license_valid_until)}
                   />
 
                   <ProfileField
