@@ -55,6 +55,7 @@ function RegisterForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [repeatPassword, setRepeatPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [clubShortName, setClubShortName] = useState("");
   const [clubFullName, setClubFullName] = useState("");
   const [clubPhoneNumber, setClubPhoneNumber] = useState("");
@@ -273,7 +274,7 @@ function RegisterForm() {
           )}
 
           <input
-            type="password"
+            type={showPassword ? "text" : "password"}
             required
             value={password}
             onChange={(event) => setPassword(event.target.value)}
@@ -282,13 +283,23 @@ function RegisterForm() {
           />
 
           <input
-            type="password"
+            type={showPassword ? "text" : "password"}
             required
             value={repeatPassword}
             onChange={(event) => setRepeatPassword(event.target.value)}
             placeholder="Powtórz hasło"
             className="border border-gray-300 rounded-xl px-4 py-3 text-black"
           />
+
+          <label className="flex cursor-pointer items-center gap-2 text-sm font-semibold text-gray-700">
+            <input
+              type="checkbox"
+              checked={showPassword}
+              onChange={(event) => setShowPassword(event.target.checked)}
+              className="h-4 w-4 accent-green-900"
+            />
+            Pokaż hasło
+          </label>
 
           <div className="text-sm text-gray-500">
             Hasło musi zawierać: minimum 8 znaków, 1 dużą literę i 1 cyfrę.

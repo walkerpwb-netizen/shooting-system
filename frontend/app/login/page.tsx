@@ -18,6 +18,7 @@ export default function LoginPage() {
   const [userPassword, setUserPassword] = useState("");
   const [clubEmail, setClubEmail] = useState("");
   const [clubPassword, setClubPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loadingKind, setLoadingKind] = useState<LoginKind | null>(null);
   const [userMessage, setUserMessage] = useState("");
   const [clubMessage, setClubMessage] = useState("");
@@ -56,6 +57,15 @@ export default function LoginPage() {
 
       const data = await response.json();
 
+      if (!response.ok) {
+        if (response.status === 429) {
+          setMessage("Zbyt wiele prób logowania. Odczekaj chwilę i spróbuj ponownie");
+        } else {
+          setMessage(data.detail || data.message || "Logowanie nie powiodło się");
+        }
+        return;
+      }
+
       if (data.message === "Nieprawidłowy e-mail lub hasło") {
         setMessage("Nieprawidłowy e-mail lub hasło");
         return;
@@ -79,6 +89,11 @@ export default function LoginPage() {
 
       if (kind === "club" && data.account_type !== "pzss_club") {
         setMessage("To logowanie jest przeznaczone wyłącznie dla klubów PZSS");
+        return;
+      }
+
+      if (!data.access_token && !data.token) {
+        setMessage("Serwer nie utworzył sesji. Spróbuj ponownie");
         return;
       }
 
@@ -155,7 +170,7 @@ export default function LoginPage() {
           />
 
           <input
-            type="password"
+            type={showPassword ? "text" : "password"}
             required
             value={password}
             onChange={(event) => {
@@ -168,6 +183,16 @@ export default function LoginPage() {
             placeholder="Hasło"
             className="border border-gray-300 rounded-xl px-4 py-3 text-black"
           />
+
+          <label className="flex cursor-pointer items-center gap-2 text-sm font-semibold text-gray-700">
+            <input
+              type="checkbox"
+              checked={showPassword}
+              onChange={(event) => setShowPassword(event.target.checked)}
+              className="h-4 w-4 accent-green-900"
+            />
+            Pokaż hasło
+          </label>
 
           <div className="text-right">
             <Link

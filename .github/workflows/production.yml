@@ -53,12 +53,27 @@ jobs:
     name: Backend checks
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: shooting_ci
+          POSTGRES_USER: shooting_ci
+          POSTGRES_PASSWORD: shooting_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U shooting_ci -d shooting_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     defaults:
       run:
         working-directory: backend
 
     env:
-      DATABASE_URL: sqlite:///./ci-alembic.db
+      DATABASE_URL: postgresql+psycopg2://shooting_ci:shooting_ci@127.0.0.1:5432/shooting_ci
       SECRET_KEY: ci-secret-key
       FRONTEND_URL: http://localhost:3000
       CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
@@ -80,9 +95,7 @@ jobs:
         run: python -m compileall .
 
       - name: Verify Alembic migrations
-        run: |
-          alembic -c alembic.ini upgrade head
-          rm -f ci-alembic.db
+        run: alembic -c alembic.ini upgrade head
 
   deploy:
     name: Deploy production

@@ -15,6 +15,8 @@ import {
   getAuthSnapshot,
   logoutSession,
   refreshAccessToken,
+  SESSION_DEADLINE_STORAGE_KEY,
+  SESSION_TIMEOUT_MS,
   subscribeToAuthChange,
 } from "@/lib/auth";
 
@@ -32,9 +34,6 @@ type MeResponse = {
 type ClubMemberNotification = {
   membership_status?: string;
 };
-
-const SESSION_TIMEOUT_MS = 15 * 60 * 1000;
-const SESSION_DEADLINE_STORAGE_KEY = "shooting-system:session-deadline";
 
 function formatSessionTime(milliseconds: number) {
   const totalSeconds = Math.max(0, Math.ceil(milliseconds / 1000));

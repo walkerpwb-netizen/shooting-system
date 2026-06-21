@@ -2,6 +2,8 @@ import { apiUrl } from "@/lib/api";
 
 const AUTH_CHANGE_EVENT = "shooting-system:auth-change";
 const AUTH_STORAGE_KEYS = new Set(["role", "roles", "email", "account_type", "pzss_club_status"]);
+export const SESSION_TIMEOUT_MS = 15 * 60 * 1000;
+export const SESSION_DEADLINE_STORAGE_KEY = "shooting-system:session-deadline";
 
 type SessionAuthData = {
   access_token?: string;
@@ -93,7 +95,17 @@ export function setSessionAuth(data: SessionAuthData) {
   }
 
   accessToken = data.access_token || data.token || null;
+
+  if (!accessToken) {
+    clearStoredAuth();
+    return;
+  }
+
   storeSessionMetadata(data);
+  localStorage.setItem(
+    SESSION_DEADLINE_STORAGE_KEY,
+    String(Date.now() + SESSION_TIMEOUT_MS)
+  );
   notifyAuthChange();
 }
 
