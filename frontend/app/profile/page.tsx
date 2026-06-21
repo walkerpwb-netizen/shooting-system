@@ -2,16 +2,12 @@
 
 import type { ChangeEvent, PointerEvent, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 
-import AchievementsSection from "./AchievementsSection";
-import type { Achievement } from "./AchievementsSection";
 import QrCode from "@/components/QrCode";
 import QrCodeScanner from "@/components/QrCodeScanner";
 import { apiUrl } from "@/lib/api";
 import { getAccessToken, clearStoredAuth, notifyAuthChange } from "@/lib/auth";
-import { isPremiumActive, PREMIUM_EXPIRED_MESSAGE } from "@/lib/premium";
 
 type VerifiedPzssClub = {
   id: number;
@@ -51,7 +47,6 @@ type UserProfile = {
   verified_club_id: number | null;
   club_membership_status: string;
   profile_complete: boolean;
-  achievements: Achievement[];
 };
 
 type ProfileSettings = {
@@ -60,8 +55,6 @@ type ProfileSettings = {
   label_font_size: string;
   value_font_size: string;
   row_gap: string;
-  achievement_icon_size: string;
-  achievement_gap: string;
 };
 
 type RoleDialog = "organizer" | "judge" | null;
@@ -277,8 +270,6 @@ const defaultProfileSettings: ProfileSettings = {
   label_font_size: "1.125rem",
   value_font_size: "1.25rem",
   row_gap: "2rem",
-  achievement_icon_size: "4rem",
-  achievement_gap: "1.25rem",
 };
 const profileCssVariableNames: Record<keyof ProfileSettings, string> = {
   label_color: "--ss-profile-label-color",
@@ -286,8 +277,6 @@ const profileCssVariableNames: Record<keyof ProfileSettings, string> = {
   label_font_size: "--ss-profile-label-font-size",
   value_font_size: "--ss-profile-value-font-size",
   row_gap: "--ss-profile-row-gap",
-  achievement_icon_size: "--ss-profile-achievement-icon-size",
-  achievement_gap: "--ss-profile-achievement-gap",
 };
 
 function RequiredLabel({ children }: { children: ReactNode }) {
@@ -642,8 +631,6 @@ export default function ProfilePage() {
             label_font_size: settingsData.label_font_size || defaultProfileSettings.label_font_size,
             value_font_size: settingsData.value_font_size || defaultProfileSettings.value_font_size,
             row_gap: settingsData.row_gap || defaultProfileSettings.row_gap,
-            achievement_icon_size: settingsData.achievement_icon_size || defaultProfileSettings.achievement_icon_size,
-            achievement_gap: settingsData.achievement_gap || defaultProfileSettings.achievement_gap,
           });
           setVerifiedClubs(verifiedClubsData);
           setProfile(data);
@@ -1306,10 +1293,6 @@ export default function ProfilePage() {
     && canRequestExtraRoles
     && (!profile.roles.includes("judge") || !profile.judge_license_number)
   );
-  const premiumActive = Boolean(profile && isPremiumActive(
-    profile.premium_until,
-    profile.premium_disabled
-  ));
   const canEditOrganizerProfileFields = Boolean(profile?.roles.includes("organizer"));
   const canEditJudgeProfileFields = Boolean(profile?.roles.includes("judge"));
   const requiredFieldTone = (isValid: boolean): FieldTone => isValid ? "valid" : "invalid";
@@ -1379,14 +1362,6 @@ export default function ProfilePage() {
     if (photoCropDragRef.current?.pointerId === event.pointerId) {
       photoCropDragRef.current = null;
     }
-  }
-
-  function showPremiumExpiredMessage() {
-    setMessage(PREMIUM_EXPIRED_MESSAGE);
-    window.scrollTo({
-      top: 0,
-      behavior: "smooth",
-    });
   }
 
   const isPzssClubProfile = profile?.account_type === "pzss_club";
@@ -1835,28 +1810,6 @@ export default function ProfilePage() {
                 </aside>
 
                 <section className="flex min-w-0 flex-col items-center gap-8 text-center">
-                  <div className="relative w-full">
-                    <div className={premiumActive ? "" : "opacity-35"}>
-                      <AchievementsSection achievements={profile.achievements || []} />
-                    </div>
-
-                    {!premiumActive && (
-                      <div
-                        className="absolute inset-0 z-10 flex items-center justify-center border border-red-700/60 bg-red-600/20 p-4 text-center backdrop-blur-[1px]"
-                        style={{
-                          backgroundImage:
-                            "linear-gradient(45deg, rgba(220, 38, 38, 0.42) 25%, transparent 25%, transparent 75%, rgba(220, 38, 38, 0.42) 75%), linear-gradient(45deg, rgba(220, 38, 38, 0.42) 25%, transparent 25%, transparent 75%, rgba(220, 38, 38, 0.42) 75%)",
-                          backgroundPosition: "0 0, 10px 10px",
-                          backgroundSize: "20px 20px",
-                        }}
-                      >
-                        <span className="bg-red-900/90 px-4 py-2 text-sm font-black uppercase text-white shadow-lg">
-                          {PREMIUM_EXPIRED_MESSAGE}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-
                   {isOwnerProfile && profile.profile_complete && (
                     <div className="w-full max-w-xs border border-zinc-200 bg-white p-4 text-zinc-950 dark:border-red-950 dark:bg-zinc-950 dark:text-red-50">
                       <h2 className="text-xl font-bold text-red-500">
@@ -1896,25 +1849,6 @@ export default function ProfilePage() {
                     >
                       Edytuj profil
                     </button>
-
-                    {hasShooterRole && (
-                      premiumActive ? (
-                        <Link
-                          href="/profile/statistics"
-                          className="bg-red-700 px-5 py-3 font-semibold text-white transition hover:bg-red-600"
-                        >
-                          Moje Statystyki
-                        </Link>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={showPremiumExpiredMessage}
-                          className="bg-red-900 px-5 py-3 font-semibold text-white transition hover:bg-red-800"
-                        >
-                          Moje Statystyki
-                        </button>
-                      )
-                    )}
 
                     <button
                       type="button"

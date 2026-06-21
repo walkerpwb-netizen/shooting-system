@@ -4,8 +4,6 @@ import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 
-import AchievementsSection from "../AchievementsSection";
-import type { Achievement } from "../AchievementsSection";
 import { apiUrl } from "@/lib/api";
 import { getAccessToken } from "@/lib/auth";
 
@@ -32,7 +30,6 @@ type ParticipantProfile = {
   requested_role: string;
   profile_photo_url: string;
   profile_complete: boolean;
-  achievements: Achievement[];
 };
 
 type ProfileSettings = {
@@ -41,8 +38,6 @@ type ProfileSettings = {
   label_font_size: string;
   value_font_size: string;
   row_gap: string;
-  achievement_icon_size: string;
-  achievement_gap: string;
 };
 
 const profileRoleLabels: Record<string, string> = {
@@ -61,8 +56,6 @@ const defaultProfileSettings: ProfileSettings = {
   label_font_size: "1.125rem",
   value_font_size: "1.25rem",
   row_gap: "2rem",
-  achievement_icon_size: "4rem",
-  achievement_gap: "1.25rem",
 };
 const profileCssVariableNames: Record<keyof ProfileSettings, string> = {
   label_color: "--ss-profile-label-color",
@@ -70,8 +63,6 @@ const profileCssVariableNames: Record<keyof ProfileSettings, string> = {
   label_font_size: "--ss-profile-label-font-size",
   value_font_size: "--ss-profile-value-font-size",
   row_gap: "--ss-profile-row-gap",
-  achievement_icon_size: "--ss-profile-achievement-icon-size",
-  achievement_gap: "--ss-profile-achievement-gap",
 };
 
 function ProfileField({
@@ -168,8 +159,6 @@ export default function ParticipantProfilePage() {
             label_font_size: settingsData.label_font_size || defaultProfileSettings.label_font_size,
             value_font_size: settingsData.value_font_size || defaultProfileSettings.value_font_size,
             row_gap: settingsData.row_gap || defaultProfileSettings.row_gap,
-            achievement_icon_size: settingsData.achievement_icon_size || defaultProfileSettings.achievement_icon_size,
-            achievement_gap: settingsData.achievement_gap || defaultProfileSettings.achievement_gap,
           });
           setProfile(data);
         }
@@ -280,8 +269,6 @@ export default function ParticipantProfilePage() {
           </aside>
 
           <section className="flex min-w-0 flex-col items-center gap-8 text-center">
-            <AchievementsSection achievements={profile.achievements || []} />
-
             {profile.profile_photo_url && (
               <>
                 {/* eslint-disable-next-line @next/next/no-img-element */}

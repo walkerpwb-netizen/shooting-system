@@ -74,6 +74,7 @@ export default function Navbar() {
   const isOrganizer = Boolean(
     user?.roles.includes("organizer") || user?.roles.includes("admin")
   );
+  const isShooter = Boolean(user?.roles.includes("shooter"));
   const isJudge = Boolean(user?.roles.includes("judge"));
   const isAdmin = Boolean(user?.roles.includes("admin"));
   const isVerifiedPzssClub = Boolean(
@@ -414,6 +415,18 @@ export default function Navbar() {
           </Link>
         )}
 
+        {user && (
+          <Link href="/achievements" onClick={guardPremiumLink}>
+            Odznaczenia
+          </Link>
+        )}
+
+        {isShooter && (
+          <Link href="/profile/statistics" onClick={guardPremiumLink}>
+            Statystyki
+          </Link>
+        )}
+
         {isOrganizer && (
           <Link href="/organizer">
             Panel Organizatora
@@ -578,6 +591,38 @@ export default function Navbar() {
                   className="py-3"
                 >
                   Profil
+                </Link>
+              )}
+
+              {user && (
+                <Link
+                  href="/achievements"
+                  onClick={(event) => {
+                    if (premiumActive) {
+                      setMobileMenuOpen(false);
+                    } else {
+                      guardPremiumLink(event);
+                    }
+                  }}
+                  className="py-3"
+                >
+                  Odznaczenia
+                </Link>
+              )}
+
+              {isShooter && (
+                <Link
+                  href="/profile/statistics"
+                  onClick={(event) => {
+                    if (premiumActive) {
+                      setMobileMenuOpen(false);
+                    } else {
+                      guardPremiumLink(event);
+                    }
+                  }}
+                  className="py-3"
+                >
+                  Statystyki
                 </Link>
               )}
 
