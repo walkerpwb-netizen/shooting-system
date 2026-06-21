@@ -641,6 +641,15 @@ class DisciplineResult(Base):
 
 class Achievement(Base):
     __tablename__ = "achievements"
+    __table_args__ = (
+        Index(
+            "ix_achievements_user_timeline",
+            "user_email",
+            "awarded_at",
+            "competition_id",
+            "place",
+        ),
+    )
 
     id = Column(
         Integer,

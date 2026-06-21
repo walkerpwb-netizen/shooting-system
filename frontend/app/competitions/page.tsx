@@ -85,9 +85,16 @@ function parseCompetitionTime(dateValue: string) {
 export default async function CompetitionsPage({
   searchParams,
 }: CompetitionsPageProps) {
-  const { status = "upcoming" } = await searchParams;
-  const activeTab = tabs.find((tab) => tab.key === status) || tabs[0];
+  const { status } = await searchParams;
   const competitions: Competition[] = await getCompetitions();
+  const defaultTabKey: CompetitionStatusTab = competitions.some(
+    (competition) => competition.status === "started"
+  )
+    ? "live"
+    : "upcoming";
+  const activeTab = tabs.find((tab) => tab.key === status)
+    || tabs.find((tab) => tab.key === defaultTabKey)
+    || tabs[0];
   const visibleCompetitions = competitions
     .filter((competition) => activeTab.statuses.includes(competition.status))
     .sort((firstCompetition, secondCompetition) => {

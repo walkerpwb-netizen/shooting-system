@@ -2277,7 +2277,6 @@ def delete_competition_with_dependencies(competition: Competition, db):
     )
 
     db.delete(competition)
-    db.commit()
 
 
 def validate_test_count(value: int, minimum: int, maximum: int, label: str):
@@ -4706,7 +4705,7 @@ def award_achievements_for_competition(competition: Competition, db):
     )
 
     if competition.status != "completed":
-        return
+        return 0
 
     participants_by_id = {
         participant.id: participant
@@ -4734,6 +4733,7 @@ def award_achievements_for_competition(competition: Competition, db):
         }
 
     awarded_at = competition.completed_at or now_iso()
+    awarded_count = 0
 
     for category_id in ACHIEVEMENT_CATEGORY_IDS:
         payload = result_category_payload(competition, category_id, db)
@@ -4764,6 +4764,25 @@ def award_achievements_for_competition(competition: Competition, db):
                 historical_path=f"/historical-results/{competition.id}/{category_id}",
                 awarded_at=awarded_at,
             ))
+            awarded_count += 1
+
+    return awarded_count
+
+
+def refresh_ranking_and_achievement_entries(
+    db,
+    achievement_competitions: tuple[Competition, ...] = (),
+):
+    ranking_entries_count = rebuild_ranking_entries(db)
+    achievement_entries_count = sum(
+        award_achievements_for_competition(competition, db)
+        for competition in achievement_competitions
+    )
+
+    return {
+        "ranking_entries_count": ranking_entries_count,
+        "achievement_entries_count": achievement_entries_count,
+    }
 
 
 def get_organizer_result_competition_or_404(
@@ -4904,7 +4923,7 @@ def auto_complete_started_competitions(db):
         .all()
     )
 
-    changed = False
+    completed_competitions = []
 
     for competition in competitions:
         if should_auto_complete_competition(competition):
@@ -4919,11 +4938,13 @@ def auto_complete_started_competitions(db):
                 else None
             )
             mark_competition_completed(competition, completed_at)
-            award_achievements_for_competition(competition, db)
-            changed = True
+            completed_competitions.append(competition)
 
-    if changed:
-        rebuild_ranking_entries(db)
+    if completed_competitions:
+        refresh_ranking_and_achievement_entries(
+            db,
+            tuple(completed_competitions),
+        )
         db.commit()
 
 
@@ -4959,27 +4980,48 @@ def backfill_participant_total_fees():
         db.close()
 
 
-def backfill_completed_competition_achievements():
+def backfill_competition_derived_cache():
+    cache_key = "competition_derived_cache_version"
+    cache_version = "2026-06-21-ranking-achievements-v1"
     db = SessionLocal()
 
     try:
-        competitions = (
+        setting = (
+            db.query(AppSetting)
+            .filter(AppSetting.key == cache_key)
+            .first()
+        )
+
+        if setting and setting.value == cache_version:
+            return
+
+        completed_competitions = (
             db.query(Competition)
             .filter(Competition.status == "completed")
             .all()
         )
 
-        for competition in competitions:
-            award_achievements_for_competition(competition, db)
+        db.query(Achievement).delete(synchronize_session=False)
+        refresh_ranking_and_achievement_entries(
+            db,
+            tuple(completed_competitions),
+        )
 
-        if competitions:
-            db.commit()
+        if setting:
+            setting.value = cache_version
+        else:
+            db.add(AppSetting(
+                key=cache_key,
+                value=cache_version,
+            ))
+
+        db.commit()
     finally:
         db.close()
 
 
 backfill_participant_total_fees()
-backfill_completed_competition_achievements()
+backfill_competition_derived_cache()
 
 
 def get_current_user(
@@ -6374,6 +6416,8 @@ def admin_delete_competition(
         )
 
     delete_competition_with_dependencies(competition, db)
+    refresh_ranking_and_achievement_entries(db)
+    db.commit()
 
     return {
         "message": "Zawody usunięte przez administratora"
@@ -6482,6 +6526,9 @@ def admin_generate_test_competition(
             db,
         )
 
+    if competition.status == "completed":
+        refresh_ranking_and_achievement_entries(db, (competition,))
+
     db.commit()
     db.refresh(competition)
 
@@ -6584,6 +6631,9 @@ def admin_generate_test_participants(
             db,
         )
 
+    if competition.status == "completed":
+        refresh_ranking_and_achievement_entries(db, (competition,))
+
     db.commit()
 
     return {
@@ -6625,6 +6675,10 @@ def admin_generate_test_results(
         data.overwrite,
         db,
     )
+
+    if competition.status == "completed":
+        refresh_ranking_and_achievement_entries(db, (competition,))
+
     db.commit()
 
     return {
@@ -6657,6 +6711,10 @@ def admin_reset_test_results(
         .filter(DisciplineResult.competition_id == competition.id)
         .delete(synchronize_session=False)
     )
+
+    if competition.status == "completed":
+        refresh_ranking_and_achievement_entries(db, (competition,))
+
     db.commit()
 
     return {
@@ -9979,6 +10037,8 @@ def delete_competition(
         )
 
     delete_competition_with_dependencies(competition, db)
+    refresh_ranking_and_achievement_entries(db)
+    db.commit()
 
     return {
         "message": "Zawody usunięte"
@@ -10250,8 +10310,7 @@ def finish_competition(
         )
 
     mark_competition_completed(competition)
-    award_achievements_for_competition(competition, db)
-    rebuild_ranking_entries(db)
+    refresh_ranking_and_achievement_entries(db, (competition,))
     db.commit()
 
     return {
