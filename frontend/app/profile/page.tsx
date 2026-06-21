@@ -57,8 +57,6 @@ type ProfileSettings = {
   row_gap: string;
 };
 
-type RoleDialog = "organizer" | "judge" | null;
-
 type LicenseQrProfileData = {
   firstName: string;
   lastName: string;
@@ -85,11 +83,6 @@ type ProfilePhotoCropDrag = {
   startClientY: number;
   startCropX: number;
   startCropY: number;
-};
-
-const roleRequestLabels: Record<string, string> = {
-  organizer: "organizatora",
-  judge: "sędziego",
 };
 
 const profileRoleLabels: Record<string, string> = {
@@ -256,7 +249,6 @@ const fieldToneClassNames: Record<FieldTone, string> = {
   valid: "border-green-500 focus:border-green-600 dark:border-green-500 dark:focus:border-green-400",
   invalid: "border-red-500 focus:border-red-600 dark:border-red-500 dark:focus:border-red-400",
 };
-const fieldClassName = fieldClassNameFor();
 const checkboxClassName = "h-5 w-5 rounded border-red-300 text-green-700 focus:ring-green-700";
 
 function fieldClassNameFor(tone: FieldTone = "neutral") {
@@ -539,13 +531,11 @@ export default function ProfilePage() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [sendingRoleRequest, setSendingRoleRequest] = useState(false);
   const [requestingPasswordReset, setRequestingPasswordReset] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [message, setMessage] = useState("");
   const [editing, setEditing] = useState(false);
-  const [roleDialog, setRoleDialog] = useState<RoleDialog>(null);
   const [licenseScannerOpen, setLicenseScannerOpen] = useState(false);
   const [photoCropUrl, setPhotoCropUrl] = useState("");
   const [photoCropFileName, setPhotoCropFileName] = useState("profile-photo");
@@ -572,7 +562,6 @@ export default function ProfilePage() {
   const [voivodeship, setVoivodeship] = useState("");
   const [birthDate, setBirthDate] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
-  const [rolePhoneNumber, setRolePhoneNumber] = useState("");
   const [organizerName, setOrganizerName] = useState("");
   const [roleJudgeLicenseNumber, setRoleJudgeLicenseNumber] = useState("");
   const [judgeLicenseValidUntil, setJudgeLicenseValidUntil] = useState("");
@@ -647,7 +636,6 @@ export default function ProfilePage() {
           setBirthDate(data.birth_date || "");
           setPhoneNumber(data.phone_number || "");
           setOrganizerName(data.organizer_name || "");
-          setRolePhoneNumber(data.phone_number || "");
           setRoleJudgeLicenseNumber(data.judge_license_number || "");
           setJudgeLicenseValidUntil(data.judge_license_valid_until || "");
           setEditing(!data.profile_complete);
@@ -1047,110 +1035,6 @@ export default function ProfilePage() {
     setMessage("Dane z QR licencji zostały wstawione. Możesz je poprawić ręcznie przed zapisem ✅");
   }
 
-  function openRoleDialog(role: "organizer" | "judge") {
-    if (!profile?.profile_complete) {
-      setMessage("Najpierw uzupełnij dane konta, aby otrzymać status Strzelca.");
-      setEditing(true);
-      return;
-    }
-
-    setRoleDialog(role);
-    setMessage("");
-    setRolePhoneNumber(profile.phone_number || phoneNumber);
-    setOrganizerName(profile.organizer_name || organizerName);
-    setRoleJudgeLicenseNumber(profile.judge_license_number || "");
-    setJudgeLicenseValidUntil(profile.judge_license_valid_until || "");
-  }
-
-  async function submitRoleRequest() {
-    const token = getAccessToken();
-
-    if (!token) {
-      router.push("/login");
-      return;
-    }
-
-    if (!roleDialog) {
-      return;
-    }
-
-    const body: Record<string, string> = {
-      role: roleDialog,
-    };
-
-    if (roleDialog === "organizer") {
-      const normalizedPhoneNumber = normalizePhoneInput(rolePhoneNumber);
-
-      if (!organizerName.trim()) {
-        setMessage("Podaj nazwę organizatora ❌");
-        return;
-      }
-
-      if (!normalizedPhoneNumber) {
-        setMessage("Podaj poprawny numer telefonu organizatora ❌");
-        return;
-      }
-
-      body.organizer_name = organizerName.trim();
-      body.phone_number = normalizedPhoneNumber;
-    }
-
-    if (roleDialog === "judge") {
-      const normalizedValidUntil = normalizeFutureDateInput(judgeLicenseValidUntil);
-
-      if (!roleJudgeLicenseNumber.trim()) {
-        setMessage("Podaj numer licencji sędziowskiej ❌");
-        return;
-      }
-
-      if (!normalizedValidUntil) {
-        setMessage("Podaj poprawną przyszłą datę ważności licencji sędziowskiej ❌");
-        return;
-      }
-
-      body.judge_license_number = roleJudgeLicenseNumber.trim();
-      body.judge_license_valid_until = normalizedValidUntil;
-    }
-
-    try {
-      setSendingRoleRequest(true);
-      setMessage("");
-
-      const response = await fetch(
-        apiUrl("/me/role-request"),
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify(body),
-        }
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        setMessage(data.detail || "Nie udało się przyznać roli ❌");
-        return;
-      }
-
-      setProfile(data);
-      syncStoredRoles(data);
-      setPhoneNumber(data.phone_number || "");
-      setOrganizerName(data.organizer_name || "");
-      setRoleJudgeLicenseNumber(data.judge_license_number || "");
-      setJudgeLicenseValidUntil(data.judge_license_valid_until || "");
-      setRoleDialog(null);
-      setMessage(`${data.message || "Rola została przyznana"} ✅`);
-    } catch (error) {
-      console.error(error);
-      setMessage("Błąd połączenia z serwerem ❌");
-    } finally {
-      setSendingRoleRequest(false);
-    }
-  }
-
   async function requestPasswordReset() {
     const token = getAccessToken();
 
@@ -1270,11 +1154,6 @@ export default function ProfilePage() {
     profile
     && (profile.profile_complete || profile.roles.includes("shooter"))
   );
-  const canRequestExtraRoles = Boolean(
-    profile
-    && hasShooterRole
-    && !profile.roles.includes("admin")
-  );
   const showOrganizerData = Boolean(
     profile
     && (profile.roles.includes("organizer") || profile.roles.includes("admin"))
@@ -1282,16 +1161,6 @@ export default function ProfilePage() {
   const showJudgeData = Boolean(
     profile
     && (profile.roles.includes("judge") || profile.roles.includes("admin"))
-  );
-  const showOrganizerButton = Boolean(
-    profile
-    && canRequestExtraRoles
-    && (!profile.roles.includes("organizer") || !profile.organizer_name)
-  );
-  const showJudgeButton = Boolean(
-    profile
-    && canRequestExtraRoles
-    && (!profile.roles.includes("judge") || !profile.judge_license_number)
   );
   const canEditOrganizerProfileFields = Boolean(profile?.roles.includes("organizer"));
   const canEditJudgeProfileFields = Boolean(profile?.roles.includes("judge"));
@@ -1861,44 +1730,7 @@ export default function ProfilePage() {
                         : "Zresetuj hasło"}
                     </button>
 
-                    {showOrganizerButton && (
-                      <button
-                        type="button"
-                        onClick={() => openRoleDialog("organizer")}
-                        disabled={sendingRoleRequest}
-                        className="bg-blue-700 px-5 py-3 font-semibold text-white transition hover:bg-blue-600 disabled:opacity-50"
-                      >
-                        {profile.roles.includes("organizer")
-                          ? "Uzupełnij dane organizatora"
-                          : "Poproś o rolę organizatora"}
-                      </button>
-                    )}
-
-                    {showJudgeButton && (
-                      <button
-                        type="button"
-                        onClick={() => openRoleDialog("judge")}
-                        disabled={sendingRoleRequest}
-                        className="bg-zinc-800 px-5 py-3 font-semibold text-white transition hover:bg-zinc-700 disabled:opacity-50"
-                      >
-                        {profile.roles.includes("judge")
-                          ? "Uzupełnij dane sędziego"
-                          : "Poproś o rolę sędziego"}
-                      </button>
-                    )}
                   </div>
-
-                  {!profile.roles.includes("admin") && profile.requested_role && (
-                    <p className="text-zinc-700 dark:text-red-100">
-                      Wcześniejsza prośba o rolę {roleRequestLabels[profile.requested_role] || profile.requested_role} zostanie zastąpiona automatycznym nadaniem roli po uzupełnieniu wymaganych danych.
-                    </p>
-                  )}
-
-                  {canRequestExtraRoles && !showOrganizerButton && !showJudgeButton && (
-                    <p className="text-zinc-700 dark:text-red-100">
-                      Masz już komplet uprawnień organizatora i sędziego.
-                    </p>
-                  )}
 
                   <div className="border-t border-red-200 pt-5 dark:border-red-950">
                     <button
@@ -2048,85 +1880,6 @@ export default function ProfilePage() {
             </div>
           )}
 
-          {roleDialog && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 px-4 py-6">
-              <div className="w-full max-w-lg rounded-xl border border-red-900/60 bg-white p-6 text-zinc-950 shadow-2xl dark:bg-zinc-950 dark:text-red-50">
-                <h2 className="mb-5 text-2xl font-bold text-red-500">
-                  {roleDialog === "organizer"
-                    ? "Rola organizatora"
-                    : "Rola sędziego"}
-                </h2>
-
-                {roleDialog === "organizer" ? (
-                  <div className="space-y-4">
-                    <label>
-                      <RequiredLabel>Telefon</RequiredLabel>
-                      <input
-                        type="tel"
-                        inputMode="tel"
-                        value={rolePhoneNumber}
-                        onChange={(e) => setRolePhoneNumber(e.target.value)}
-                        placeholder="Numer telefonu organizatora"
-                        className={fieldClassName}
-                      />
-                    </label>
-
-                    <label>
-                      <RequiredLabel>Nazwa Organizatora</RequiredLabel>
-                      <input
-                        value={organizerName}
-                        onChange={(e) => setOrganizerName(e.target.value)}
-                        placeholder="Oficjalna nazwa organizatora"
-                        className={fieldClassName}
-                      />
-                    </label>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    <label>
-                      <RequiredLabel>Nr licencji sędziowskiej</RequiredLabel>
-                      <input
-                        value={roleJudgeLicenseNumber}
-                        onChange={(e) => setRoleJudgeLicenseNumber(e.target.value)}
-                        placeholder="Numer licencji sędziowskiej"
-                        className={fieldClassName}
-                      />
-                    </label>
-
-                    <label>
-                      <RequiredLabel>Data ważności</RequiredLabel>
-                      <input
-                        type="date"
-                        value={judgeLicenseValidUntil}
-                        onChange={(e) => setJudgeLicenseValidUntil(e.target.value)}
-                        className={fieldClassName}
-                      />
-                    </label>
-                  </div>
-                )}
-
-                <div className="mt-6 grid grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={submitRoleRequest}
-                    disabled={sendingRoleRequest}
-                    className="bg-green-800 px-5 py-3 font-semibold text-white transition hover:bg-green-700 disabled:opacity-50"
-                  >
-                    {sendingRoleRequest ? "Zapisywanie..." : "OK"}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setRoleDialog(null)}
-                    disabled={sendingRoleRequest}
-                    className="bg-zinc-800 px-5 py-3 font-semibold text-white transition hover:bg-zinc-700 disabled:opacity-50"
-                  >
-                    Anuluj
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
           </div>
         </>
       ) : (

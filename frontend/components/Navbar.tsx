@@ -14,6 +14,7 @@ import {
   authFetch,
   getAuthSnapshot,
   logoutSession,
+  notifyAuthChange,
   refreshAccessToken,
   SESSION_DEADLINE_STORAGE_KEY,
   SESSION_TIMEOUT_MS,
@@ -25,11 +26,21 @@ type PublicCompetition = {
 };
 
 type MeResponse = {
+  email?: string;
+  role?: string;
+  roles?: string[];
   premium_until?: string;
   premium_disabled?: boolean;
   account_type?: string;
   pzss_club_status?: string;
+  profile_complete?: boolean;
+  phone_number?: string;
+  organizer_name?: string;
+  judge_license_number?: string;
+  judge_license_valid_until?: string;
 };
+
+type RoleDialog = "organizer" | "judge" | null;
 
 type ClubMemberNotification = {
   membership_status?: string;
@@ -43,12 +54,44 @@ function formatSessionTime(milliseconds: number) {
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
+function normalizeRolePhone(value: string) {
+  const trimmedValue = value.trim();
+  const hasPlusPrefix = trimmedValue.startsWith("+");
+  const digits = trimmedValue.replace(/\D/g, "");
+
+  if (digits.length < 7 || digits.length > 15) {
+    return "";
+  }
+
+  return hasPlusPrefix ? `+${digits}` : digits;
+}
+
+function isFutureRoleDate(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
+
+  const date = new Date(`${value}T00:00:00`);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  return !Number.isNaN(date.getTime()) && date >= today;
+}
+
 export default function Navbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [hasStartedCompetition, setHasStartedCompetition] = useState(false);
   const [premiumActive, setPremiumActive] = useState(false);
   const [pendingClubMembersCount, setPendingClubMembersCount] = useState(0);
   const [sessionRemainingMs, setSessionRemainingMs] = useState(SESSION_TIMEOUT_MS);
+  const [roleDialog, setRoleDialog] = useState<RoleDialog>(null);
+  const [roleConfirmationOpen, setRoleConfirmationOpen] = useState(false);
+  const [rolePhoneNumber, setRolePhoneNumber] = useState("");
+  const [roleOrganizerName, setRoleOrganizerName] = useState("");
+  const [roleJudgeLicenseNumber, setRoleJudgeLicenseNumber] = useState("");
+  const [roleJudgeLicenseValidUntil, setRoleJudgeLicenseValidUntil] = useState("");
+  const [roleMessage, setRoleMessage] = useState("");
+  const [roleSubmitting, setRoleSubmitting] = useState(false);
   const authSnapshot = useSyncExternalStore(
     subscribeToAuthChange,
     getAuthSnapshot,
@@ -71,11 +114,7 @@ export default function Navbar() {
         pzssClubStatus: pzssClubStatus || "",
       }
     : null;
-  const isOrganizer = Boolean(
-    user?.roles.includes("organizer") || user?.roles.includes("admin")
-  );
   const isShooter = Boolean(user?.roles.includes("shooter"));
-  const isJudge = Boolean(user?.roles.includes("judge"));
   const isAdmin = Boolean(user?.roles.includes("admin"));
   const isVerifiedPzssClub = Boolean(
     user?.accountType === "pzss_club" && user?.pzssClubStatus === "approved"
@@ -361,6 +400,161 @@ export default function Navbar() {
     window.alert(user ? PREMIUM_EXPIRED_MESSAGE : PREMIUM_LOGIN_REQUIRED_MESSAGE);
   }
 
+  async function openRolePanel(
+    event: MouseEvent<HTMLAnchorElement>,
+    requestedRole: Exclude<RoleDialog, null>,
+  ) {
+    if (isAdmin) {
+      setMobileMenuOpen(false);
+      return;
+    }
+
+    event.preventDefault();
+    setMobileMenuOpen(false);
+
+    if (!user) {
+      window.location.href = "/login";
+      return;
+    }
+
+    try {
+      const response = await authFetch(apiUrl("/me"), {
+        cache: "no-store",
+      });
+      const profile: MeResponse = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        window.location.href = "/login";
+        return;
+      }
+
+      const profileRoles = profile.roles || [];
+      const roleIsReady = requestedRole === "organizer"
+        ? profileRoles.includes("organizer") && Boolean(profile.organizer_name?.trim())
+        : profileRoles.includes("judge") && Boolean(profile.judge_license_number?.trim());
+
+      if (roleIsReady) {
+        window.location.href = requestedRole === "organizer" ? "/organizer" : "/judge";
+        return;
+      }
+
+      if (!profile.profile_complete) {
+        window.alert("Najpierw uzupełnij wymagane dane profilu, aby otrzymać status Strzelca i przyjąć kolejną rolę.");
+        window.location.href = "/profile";
+        return;
+      }
+
+      setRoleDialog(requestedRole);
+      setRoleConfirmationOpen(false);
+      setRoleMessage("");
+      setRolePhoneNumber(profile.phone_number || "");
+      setRoleOrganizerName(profile.organizer_name || "");
+      setRoleJudgeLicenseNumber(profile.judge_license_number || "");
+      setRoleJudgeLicenseValidUntil(profile.judge_license_valid_until || "");
+    } catch (error) {
+      console.error(error);
+      window.alert("Nie udało się pobrać danych profilu. Spróbuj ponownie.");
+    }
+  }
+
+  function prepareRoleConfirmation() {
+    if (roleDialog === "organizer") {
+      if (!roleOrganizerName.trim()) {
+        setRoleMessage("Podaj nazwę organizatora.");
+        return;
+      }
+
+      if (!normalizeRolePhone(rolePhoneNumber)) {
+        setRoleMessage("Podaj poprawny numer telefonu organizatora.");
+        return;
+      }
+    }
+
+    if (roleDialog === "judge") {
+      if (!roleJudgeLicenseNumber.trim()) {
+        setRoleMessage("Podaj numer licencji sędziowskiej.");
+        return;
+      }
+
+      if (!isFutureRoleDate(roleJudgeLicenseValidUntil)) {
+        setRoleMessage("Podaj poprawną przyszłą datę ważności licencji sędziowskiej.");
+        return;
+      }
+    }
+
+    setRoleMessage("");
+    setRoleConfirmationOpen(true);
+  }
+
+  async function acceptRole() {
+    if (!roleDialog) {
+      return;
+    }
+
+    const body = roleDialog === "organizer"
+      ? {
+          role: roleDialog,
+          organizer_name: roleOrganizerName.trim(),
+          phone_number: normalizeRolePhone(rolePhoneNumber),
+        }
+      : {
+          role: roleDialog,
+          judge_license_number: roleJudgeLicenseNumber.trim(),
+          judge_license_valid_until: roleJudgeLicenseValidUntil,
+        };
+
+    try {
+      setRoleSubmitting(true);
+      setRoleMessage("");
+
+      const response = await authFetch(apiUrl("/me/role-request"), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+      const data: MeResponse & { detail?: string; message?: string } = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        setRoleConfirmationOpen(false);
+        setRoleMessage(data.detail || "Nie udało się przyznać roli.");
+        return;
+      }
+
+      if (data.role) {
+        localStorage.setItem("role", data.role);
+      }
+
+      if (data.roles?.length) {
+        localStorage.setItem("roles", data.roles.join(","));
+      }
+
+      notifyAuthChange();
+      const destination = roleDialog === "organizer" ? "/organizer" : "/judge";
+      setRoleDialog(null);
+      setRoleConfirmationOpen(false);
+      window.alert(data.message || "Rola została przyznana.");
+      window.location.href = destination;
+    } catch (error) {
+      console.error(error);
+      setRoleConfirmationOpen(false);
+      setRoleMessage("Błąd połączenia z serwerem.");
+    } finally {
+      setRoleSubmitting(false);
+    }
+  }
+
+  function closeRoleDialog() {
+    if (roleSubmitting) {
+      return;
+    }
+
+    setRoleDialog(null);
+    setRoleConfirmationOpen(false);
+    setRoleMessage("");
+  }
+
   function logout() {
     void logoutSession().finally(() => {
       window.location.href = "/";
@@ -427,11 +621,12 @@ export default function Navbar() {
           </Link>
         )}
 
-        {isOrganizer && (
-          <Link href="/organizer">
-            Panel Organizatora
-          </Link>
-        )}
+        <Link
+          href="/organizer"
+          onClick={(event) => void openRolePanel(event, "organizer")}
+        >
+          Panel Organizatora
+        </Link>
 
         {isVerifiedPzssClub && (
           <Link
@@ -447,11 +642,12 @@ export default function Navbar() {
           </Link>
         )}
 
-        {isJudge && (
-          <Link href="/judge">
-            Panel Sędziego
-          </Link>
-        )}
+        <Link
+          href="/judge"
+          onClick={(event) => void openRolePanel(event, "judge")}
+        >
+          Panel Sędziego
+        </Link>
 
         {isAdmin && (
           <Link href="/admin">
@@ -626,15 +822,13 @@ export default function Navbar() {
                 </Link>
               )}
 
-              {isOrganizer && (
-                <Link
-                  href="/organizer"
-                  onClick={() => setMobileMenuOpen(false)}
-                  className="py-3"
-                >
-                  Panel Organizatora
-                </Link>
-              )}
+              <Link
+                href="/organizer"
+                onClick={(event) => void openRolePanel(event, "organizer")}
+                className="py-3"
+              >
+                Panel Organizatora
+              </Link>
 
               {isVerifiedPzssClub && (
                 <Link
@@ -651,15 +845,13 @@ export default function Navbar() {
                 </Link>
               )}
 
-              {isJudge && (
-                <Link
-                  href="/judge"
-                  onClick={() => setMobileMenuOpen(false)}
-                  className="py-3"
-                >
-                  Panel Sędziego
-                </Link>
-              )}
+              <Link
+                href="/judge"
+                onClick={(event) => void openRolePanel(event, "judge")}
+                className="py-3"
+              >
+                Panel Sędziego
+              </Link>
 
               {isAdmin && (
                 <>
@@ -851,6 +1043,132 @@ export default function Navbar() {
           </Link>
         </div>
       </nav>
+    )}
+
+    {roleDialog && (
+      <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 px-4 py-6">
+        <div className="w-full max-w-lg rounded-xl border border-green-800 bg-white p-6 text-zinc-950 shadow-2xl dark:bg-zinc-950 dark:text-white">
+          {roleConfirmationOpen ? (
+            <>
+              <h2 className="text-2xl font-bold text-red-600 dark:text-red-400">
+                Potwierdzenie przyjęcia roli
+              </h2>
+
+              <p className="mt-4 text-base leading-7">
+                Czy na pewno świadomie chcesz przyjąć rolę {roleDialog === "organizer" ? "Organizatora" : "Sędziego"} w systemie?
+              </p>
+
+              <p className="mt-3 font-semibold text-red-700 dark:text-red-300">
+                Wybranie „Tak” natychmiast doda rolę do Twojego konta.
+              </p>
+
+              <div className="mt-6 grid gap-3 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => void acceptRole()}
+                  disabled={roleSubmitting}
+                  className="rounded-lg bg-green-800 px-5 py-3 font-bold text-white transition hover:bg-green-700 disabled:opacity-50"
+                >
+                  {roleSubmitting ? "Przyjmowanie roli..." : "Tak, przyjmuję rolę"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setRoleConfirmationOpen(false)}
+                  disabled={roleSubmitting}
+                  className="rounded-lg bg-red-800 px-5 py-3 font-bold text-white transition hover:bg-red-700 disabled:opacity-50"
+                >
+                  Nie
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <h2 className="text-2xl font-bold text-green-800 dark:text-green-300">
+                {roleDialog === "organizer"
+                  ? "Dane Organizatora"
+                  : "Dane Sędziego"}
+              </h2>
+
+              <p className="mt-2 text-sm text-zinc-600 dark:text-gray-300">
+                Uzupełnij wymagane pola przed przyjęciem roli.
+              </p>
+
+              {roleDialog === "organizer" ? (
+                <div className="mt-5 space-y-4">
+                  <label className="block">
+                    <span className="mb-2 block font-semibold">Telefon *</span>
+                    <input
+                      type="tel"
+                      inputMode="tel"
+                      value={rolePhoneNumber}
+                      onChange={(event) => setRolePhoneNumber(event.target.value)}
+                      placeholder="Numer telefonu organizatora"
+                      className="w-full rounded-lg border border-zinc-300 bg-white px-4 py-3 text-zinc-950 outline-none focus:border-green-700 dark:border-zinc-700 dark:bg-black dark:text-white"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-2 block font-semibold">Nazwa Organizatora *</span>
+                    <input
+                      value={roleOrganizerName}
+                      onChange={(event) => setRoleOrganizerName(event.target.value)}
+                      placeholder="Oficjalna nazwa organizatora"
+                      className="w-full rounded-lg border border-zinc-300 bg-white px-4 py-3 text-zinc-950 outline-none focus:border-green-700 dark:border-zinc-700 dark:bg-black dark:text-white"
+                    />
+                  </label>
+                </div>
+              ) : (
+                <div className="mt-5 space-y-4">
+                  <label className="block">
+                    <span className="mb-2 block font-semibold">Nr licencji sędziowskiej *</span>
+                    <input
+                      value={roleJudgeLicenseNumber}
+                      onChange={(event) => setRoleJudgeLicenseNumber(event.target.value)}
+                      placeholder="Numer licencji sędziowskiej"
+                      className="w-full rounded-lg border border-zinc-300 bg-white px-4 py-3 text-zinc-950 outline-none focus:border-green-700 dark:border-zinc-700 dark:bg-black dark:text-white"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-2 block font-semibold">Data ważności *</span>
+                    <input
+                      type="date"
+                      value={roleJudgeLicenseValidUntil}
+                      onChange={(event) => setRoleJudgeLicenseValidUntil(event.target.value)}
+                      className="w-full rounded-lg border border-zinc-300 bg-white px-4 py-3 text-zinc-950 outline-none focus:border-green-700 dark:border-zinc-700 dark:bg-black dark:text-white"
+                    />
+                  </label>
+                </div>
+              )}
+
+              {roleMessage && (
+                <p className="mt-4 rounded-lg border border-red-300 bg-red-50 px-4 py-3 font-semibold text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-100">
+                  {roleMessage}
+                </p>
+              )}
+
+              <div className="mt-6 grid gap-3 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={prepareRoleConfirmation}
+                  className="rounded-lg bg-green-800 px-5 py-3 font-bold text-white transition hover:bg-green-700"
+                >
+                  Dalej
+                </button>
+
+                <button
+                  type="button"
+                  onClick={closeRoleDialog}
+                  className="rounded-lg bg-zinc-800 px-5 py-3 font-bold text-white transition hover:bg-zinc-700"
+                >
+                  Anuluj
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
     )}
     </>
   );
