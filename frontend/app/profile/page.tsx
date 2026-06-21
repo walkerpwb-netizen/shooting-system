@@ -136,6 +136,15 @@ function licenseNumberDigits(value: string) {
   return value.replace(/\D/g, "");
 }
 
+function normalizeClubSearch(value: string) {
+  return value
+    .trim()
+    .toLocaleLowerCase("pl-PL")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/ł/g, "l");
+}
+
 function licenseQrPayloadFromProfile(profile: UserProfile) {
   const licenseNumber = profile.no_license ? "" : profile.license_number;
   const club = profile.no_club ? "" : profile.club;
@@ -570,6 +579,7 @@ export default function ProfilePage() {
   const [noClub, setNoClub] = useState(false);
   const [verifiedClubId, setVerifiedClubId] = useState("");
   const [verifiedClubs, setVerifiedClubs] = useState<VerifiedPzssClub[]>([]);
+  const [clubSuggestionsOpen, setClubSuggestionsOpen] = useState(false);
   const [voivodeship, setVoivodeship] = useState("");
   const [birthDate, setBirthDate] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
@@ -1310,6 +1320,15 @@ export default function ProfilePage() {
     ? requiredFieldTone(Boolean(normalizePhoneInput(phoneNumber)))
     : "neutral";
   const clubFieldTone = requiredFieldTone(noClub || Boolean(club.trim()));
+  const normalizedClubQuery = normalizeClubSearch(club);
+  const matchingVerifiedClubs = normalizedClubQuery.length >= 2
+    ? verifiedClubs
+        .filter((verifiedClub) => (
+          normalizeClubSearch(verifiedClub.short_name).startsWith(normalizedClubQuery)
+          || normalizeClubSearch(verifiedClub.full_name).startsWith(normalizedClubQuery)
+        ))
+        .slice(0, 10)
+    : [];
   const licenseFieldTone = requiredFieldTone(noLicense || Boolean(licenseNumber.trim()));
   const organizerNameFieldTone = requiredFieldTone(Boolean(organizerName.trim()));
   const judgeLicenseNumberFieldTone = requiredFieldTone(Boolean(roleJudgeLicenseNumber.trim()));
@@ -1549,41 +1568,60 @@ export default function ProfilePage() {
                   ) : (
                     <RequiredLabel>Klub</RequiredLabel>
                   )}
-                  <select
-                    value={verifiedClubId}
-                    onChange={(event) => {
-                      const nextClubId = event.target.value;
-                      setVerifiedClubId(nextClubId);
+                  <div className="relative">
+                    <input
+                      value={club}
+                      onChange={(event) => {
+                        setClub(event.target.value);
+                        setVerifiedClubId("");
+                        setClubSuggestionsOpen(true);
+                      }}
+                      onFocus={() => setClubSuggestionsOpen(true)}
+                      onBlur={() => setClubSuggestionsOpen(false)}
+                      placeholder="Wpisz nazwę klubu"
+                      disabled={noClub}
+                      role="combobox"
+                      aria-autocomplete="list"
+                      aria-expanded={clubSuggestionsOpen && matchingVerifiedClubs.length > 0}
+                      aria-controls="verified-club-suggestions"
+                      className={fieldClassNameFor(clubFieldTone)}
+                    />
 
-                      const selectedClub = verifiedClubs.find((item) => String(item.id) === nextClubId);
-
-                      if (selectedClub) {
-                        setClub(selectedClub.short_name);
-                        setLicenseClubCode(selectedClub.license_number || licenseClubCode);
-                        setNoClub(false);
-                      }
-                    }}
-                    disabled={noClub}
-                    className={`${fieldClassNameFor(clubFieldTone)} mb-3`}
-                  >
-                    <option value="">Wpisz ręcznie albo wybierz zweryfikowany klub</option>
-                    {verifiedClubs.map((verifiedClub) => (
-                      <option key={verifiedClub.id} value={String(verifiedClub.id)}>
-                        {verifiedClub.short_name} - zweryfikowany
-                      </option>
-                    ))}
-                  </select>
-
-                  <input
-                    value={club}
-                    onChange={(e) => {
-                      setClub(e.target.value);
-                      setVerifiedClubId("");
-                    }}
-                    placeholder="Podaj klub ręcznie"
-                    disabled={noClub || Boolean(verifiedClubId)}
-                    className={fieldClassNameFor(clubFieldTone)}
-                  />
+                    {clubSuggestionsOpen && matchingVerifiedClubs.length > 0 && (
+                      <ul
+                        id="verified-club-suggestions"
+                        role="listbox"
+                        className="absolute z-30 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-green-700 bg-white py-1 text-black shadow-2xl dark:bg-zinc-900 dark:text-white"
+                      >
+                        {matchingVerifiedClubs.map((verifiedClub) => (
+                          <li key={verifiedClub.id} role="option" aria-selected={String(verifiedClub.id) === verifiedClubId}>
+                            <button
+                              type="button"
+                              onMouseDown={(event) => event.preventDefault()}
+                              onClick={() => {
+                                setVerifiedClubId(String(verifiedClub.id));
+                                setClub(verifiedClub.short_name);
+                                setLicenseClubCode(verifiedClub.license_number || licenseClubCode);
+                                setNoClub(false);
+                                setClubSuggestionsOpen(false);
+                              }}
+                              className="w-full px-4 py-3 text-left transition hover:bg-green-100 focus:bg-green-100 focus:outline-none dark:hover:bg-green-950 dark:focus:bg-green-950"
+                            >
+                              <span className="block font-bold">{verifiedClub.short_name}</span>
+                              {verifiedClub.full_name && verifiedClub.full_name !== verifiedClub.short_name && (
+                                <span className="mt-1 block text-sm text-gray-600 dark:text-gray-300">
+                                  {verifiedClub.full_name}
+                                </span>
+                              )}
+                              <span className="mt-1 block text-xs font-semibold text-green-700 dark:text-green-300">
+                                Zweryfikowany klub
+                              </span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
                   <label className="mt-3 flex items-center gap-3 text-sm font-semibold text-red-700 dark:text-red-200">
                     <input
                       type="checkbox"
@@ -1594,6 +1632,7 @@ export default function ProfilePage() {
                         if (event.target.checked) {
                           setClub("");
                           setVerifiedClubId("");
+                          setClubSuggestionsOpen(false);
                         }
                       }}
                       className={checkboxClassName}
