@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import QrCodeScanner from "@/components/QrCodeScanner";
 import { apiUrl } from "@/lib/api";
-import { getAccessToken, isJudge } from "@/lib/auth";
+import { getAccessToken } from "@/lib/auth";
 
 type JudgeCompetition = {
   id: number;
@@ -613,11 +613,6 @@ export default function JudgeDisciplinePage() {
   const skeetScreenRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (!isJudge()) {
-      router.push("/");
-      return;
-    }
-
     const token = getAccessToken();
 
     if (!token) {

@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { apiUrl } from "@/lib/api";
-import { getAccessToken, isJudge } from "@/lib/auth";
+import { getAccessToken } from "@/lib/auth";
 
 type JudgeCompetition = {
   id: number;
@@ -40,11 +40,6 @@ export default function JudgeCompetitionPage() {
   const [message, setMessage] = useState("");
 
   useEffect(() => {
-    if (!isJudge()) {
-      router.push("/");
-      return;
-    }
-
     const token = getAccessToken();
 
     if (!token) {

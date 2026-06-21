@@ -646,12 +646,14 @@ export default function Navbar() {
           </Link>
         )}
 
-        <Link
-          href="/organizer"
-          onClick={(event) => void openRolePanel(event, "organizer")}
-        >
-          Panel Organizatora
-        </Link>
+        {user && (
+          <Link
+            href="/organizer"
+            onClick={(event) => void openRolePanel(event, "organizer")}
+          >
+            Panel Organizatora
+          </Link>
+        )}
 
         {isVerifiedPzssClub && (
           <Link
@@ -667,12 +669,14 @@ export default function Navbar() {
           </Link>
         )}
 
-        <Link
-          href="/judge"
-          onClick={(event) => void openRolePanel(event, "judge")}
-        >
-          Panel Sędziego
-        </Link>
+        {user && (
+          <Link
+            href="/judge"
+            onClick={(event) => void openRolePanel(event, "judge")}
+          >
+            Panel Sędziego
+          </Link>
+        )}
 
         {isAdmin && (
           <Link href="/admin">
@@ -847,13 +851,15 @@ export default function Navbar() {
                 </Link>
               )}
 
-              <Link
-                href="/organizer"
-                onClick={(event) => void openRolePanel(event, "organizer")}
-                className="py-3"
-              >
-                Panel Organizatora
-              </Link>
+              {user && (
+                <Link
+                  href="/organizer"
+                  onClick={(event) => void openRolePanel(event, "organizer")}
+                  className="py-3"
+                >
+                  Panel Organizatora
+                </Link>
+              )}
 
               {isVerifiedPzssClub && (
                 <Link
@@ -870,13 +876,15 @@ export default function Navbar() {
                 </Link>
               )}
 
-              <Link
-                href="/judge"
-                onClick={(event) => void openRolePanel(event, "judge")}
-                className="py-3"
-              >
-                Panel Sędziego
-              </Link>
+              {user && (
+                <Link
+                  href="/judge"
+                  onClick={(event) => void openRolePanel(event, "judge")}
+                  className="py-3"
+                >
+                  Panel Sędziego
+                </Link>
+              )}
 
               {isAdmin && (
                 <>

@@ -19,6 +19,7 @@ type Competition = {
   sponsor_logo: string;
   participant_limit: number | null;
   pzss_license_calendar: boolean;
+  requires_licensed_judge: boolean;
   status: string;
   disciplines_count: number;
   shooters_count: number;
@@ -272,6 +273,7 @@ export default function OrganizerPage() {
   const [useParticipantLimit, setUseParticipantLimit] = useState(false);
   const [participantLimit, setParticipantLimit] = useState("");
   const [pzssLicenseCalendar, setPzssLicenseCalendar] = useState(false);
+  const [requiresLicensedJudge, setRequiresLicensedJudge] = useState<boolean | null>(null);
   const [message, setMessage] = useState("");
   const [disciplines, setDisciplines] = useState<Discipline[]>([]);
   const [loading, setLoading] = useState(false);
@@ -340,6 +342,7 @@ export default function OrganizerPage() {
     setUseParticipantLimit(false);
     setParticipantLimit("");
     setPzssLicenseCalendar(false);
+    setRequiresLicensedJudge(null);
     setDisciplines([]);
     setEditingCompetitionId(null);
     setEditingCompetitionStatus("");
@@ -647,6 +650,7 @@ export default function OrganizerPage() {
       setSponsorLogo(competitionDetails.sponsor_logo || "");
       setUseParticipantLimit(Boolean(competitionDetails.participant_limit));
       setPzssLicenseCalendar(Boolean(competitionDetails.pzss_license_calendar));
+      setRequiresLicensedJudge(Boolean(competitionDetails.requires_licensed_judge));
       setParticipantLimit(
         competitionDetails.participant_limit
           ? String(competitionDetails.participant_limit)
@@ -775,6 +779,11 @@ export default function OrganizerPage() {
       return;
     }
 
+    if (!canMarkPzssLicenseCalendar && requiresLicensedJudge === null) {
+      setMessage("Wybierz, czy zawody wymagają licencjonowanego sędziego PZSS ❌");
+      return;
+    }
+
     if (
       useParticipantLimit
       && (!participantLimit || Number(participantLimit) <= 0)
@@ -836,6 +845,9 @@ export default function OrganizerPage() {
               ? Number(participantLimit)
               : null,
             pzss_license_calendar: canMarkPzssLicenseCalendar && pzssLicenseCalendar,
+            requires_licensed_judge: canMarkPzssLicenseCalendar
+              ? true
+              : requiresLicensedJudge,
           }),
         }
       );
@@ -1021,6 +1033,36 @@ export default function OrganizerPage() {
                 onChange={(e) => setLocation(e.target.value)}
                 className="w-full border border-zinc-700 bg-zinc-800 p-4 rounded-xl text-white"
               />
+
+              {!canMarkPzssLicenseCalendar && (
+                <fieldset className="border border-zinc-700 bg-zinc-950 p-4 rounded-xl text-white">
+                  <legend className="px-2 font-semibold">
+                    Czy te zawody wymagają licencjonowanego sędziego PZSS? *
+                  </legend>
+                  <div className="mt-2 flex flex-wrap gap-6">
+                    <label className="flex items-center gap-2 font-semibold">
+                      <input
+                        type="radio"
+                        name="requires-licensed-judge"
+                        checked={requiresLicensedJudge === true}
+                        onChange={() => setRequiresLicensedJudge(true)}
+                        className="h-5 w-5"
+                      />
+                      Tak
+                    </label>
+                    <label className="flex items-center gap-2 font-semibold">
+                      <input
+                        type="radio"
+                        name="requires-licensed-judge"
+                        checked={requiresLicensedJudge === false}
+                        onChange={() => setRequiresLicensedJudge(false)}
+                        className="h-5 w-5"
+                      />
+                      Nie
+                    </label>
+                  </div>
+                </fieldset>
+              )}
 
               <label className="flex items-center gap-3 border border-zinc-700 bg-zinc-950 p-4 rounded-xl text-white font-semibold">
                 <input

@@ -197,6 +197,7 @@ class CompetitionData(BaseModel):
     sponsor_logo: str = ""
     participant_limit: Optional[int] = None
     pzss_license_calendar: bool = False
+    requires_licensed_judge: Optional[bool] = None
 
 
 class DisciplineData(BaseModel):
@@ -1919,7 +1920,7 @@ def can_be_head_judge_from_license(license_number: str) -> bool:
     return judge_license_class(license_number) in (1, 2)
 
 
-def judge_search_response(judge: User):
+def judge_search_response(judge: User, licensed_judge_required: bool = True):
     license_class = judge_license_class(judge.judge_license_number or "")
     data = public_user(judge)
     data.update({
@@ -1927,7 +1928,7 @@ def judge_search_response(judge: User):
         "judge_license_valid_until": getattr(judge, "judge_license_valid_until", "") or "",
         "judge_license_class": license_class,
         "judge_license_class_label": judge_license_class_label(license_class),
-        "can_be_head_judge": license_class in (1, 2),
+        "can_be_head_judge": not licensed_judge_required or license_class in (1, 2),
     })
 
     return data
@@ -4411,6 +4412,7 @@ def competition_list_row(
         "has_sponsor_logo": bool(competition.sponsor_logo),
         "participant_limit": competition.participant_limit,
         "pzss_license_calendar": bool(getattr(competition, "pzss_license_calendar", 0)),
+        "requires_licensed_judge": bool(getattr(competition, "requires_licensed_judge", 1)),
         "shooters_count": shooters_count,
         "judges_count": judges_count,
         "missing_judge_disciplines": missing_judge_disciplines or [],
@@ -5474,10 +5476,16 @@ def get_my_competition_entries(
         .all()
     )
 
-    return {
-        str(participant.competition_id): participant.entry_type or "shooter"
-        for participant in participants
-    }
+    entries = {}
+
+    for participant in participants:
+        competition_key = str(participant.competition_id)
+        entry_type = participant.entry_type or "shooter"
+
+        if entry_type == "judge" or competition_key not in entries:
+            entries[competition_key] = entry_type
+
+    return entries
 
 
 @app.get("/competitions/{competition_id}")
@@ -5521,6 +5529,7 @@ def get_competition(
         "sponsor_logo": competition.sponsor_logo or "",
         "participant_limit": competition.participant_limit,
         "pzss_license_calendar": bool(getattr(competition, "pzss_license_calendar", 0)),
+        "requires_licensed_judge": bool(getattr(competition, "requires_licensed_judge", 1)),
         "status": competition.status,
         "disciplines": disciplines,
         "participants": [
@@ -6361,6 +6370,7 @@ def admin_get_competitions(
             "sponsor_logo": competition.sponsor_logo or "",
             "participant_limit": competition.participant_limit,
             "pzss_license_calendar": bool(getattr(competition, "pzss_license_calendar", 0)),
+            "requires_licensed_judge": bool(getattr(competition, "requires_licensed_judge", 1)),
             "participants_count": participants_count,
             "status": competition.status,
             "created_by": competition.created_by,
@@ -7192,6 +7202,18 @@ def create_competition(
             detail="Tę opcję może zaznaczyć tylko zweryfikowany klub PZSS"
         )
 
+    if not is_approved_pzss_club(user) and data.requires_licensed_judge is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Wybierz, czy zawody wymagają licencjonowanego sędziego PZSS"
+        )
+
+    requires_licensed_judge = (
+        True
+        if is_approved_pzss_club(user)
+        else bool(data.requires_licensed_judge)
+    )
+
     competition = Competition(
         name=data.name,
         date=data.date,
@@ -7203,6 +7225,7 @@ def create_competition(
         sponsor_logo=data.sponsor_logo,
         participant_limit=data.participant_limit,
         pzss_license_calendar=1 if data.pzss_license_calendar else 0,
+        requires_licensed_judge=1 if requires_licensed_judge else 0,
         status="draft",
         created_by=user.email,
     )
@@ -7307,6 +7330,7 @@ def organizer_competition_detail_row(competition: Competition, db):
         "sponsor_logo": competition.sponsor_logo or "",
         "participant_limit": competition.participant_limit,
         "pzss_license_calendar": bool(getattr(competition, "pzss_license_calendar", 0)),
+        "requires_licensed_judge": bool(getattr(competition, "requires_licensed_judge", 1)),
         "shooters_count": len(participants),
         "judges_count": len(judges),
         "status": competition.status,
@@ -8116,10 +8140,23 @@ def get_judges(
 @app.get("/organizer/judges/search")
 def search_judges(
     query: str = "",
+    competition_id: int = 0,
     user: User = Depends(get_current_organizer),
     db=Depends(get_db),
 ):
     search_value = normalize_unique_key(query)
+
+    competition = (
+        db.query(Competition)
+        .filter(Competition.id == competition_id)
+        .first()
+    )
+
+    if not competition:
+        raise HTTPException(status_code=404, detail="Zawody nie istnieją")
+
+    if competition.created_by != user.email and not has_role(user, "admin"):
+        raise HTTPException(status_code=403, detail="Brak dostępu")
 
     if not search_value:
         raise HTTPException(
@@ -8127,39 +8164,49 @@ def search_judges(
             detail="Wpisz numer licencji albo imię i nazwisko sędziego"
         )
 
-    judges = [
-        judge
-        for judge in db.query(User).order_by(User.last_name.asc(), User.first_name.asc()).all()
-        if has_role(judge, "judge")
+    licensed_judge_required = bool(
+        getattr(competition, "requires_licensed_judge", 1)
+    )
+    candidates = [
+        candidate
+        for candidate in db.query(User).order_by(User.last_name.asc(), User.first_name.asc()).all()
+        if candidate.is_active
+        and (not licensed_judge_required or has_role(candidate, "judge"))
     ]
 
     exact_license_matches = [
-        judge
-        for judge in judges
+        candidate
+        for candidate in candidates
         if search_value in {
-            normalize_unique_key(judge.judge_license_number or ""),
-            normalize_unique_key(getattr(judge, "judge_license_number_key", "") or ""),
+            normalize_unique_key(candidate.judge_license_number or ""),
+            normalize_unique_key(getattr(candidate, "judge_license_number_key", "") or ""),
         }
     ]
 
     if exact_license_matches:
-        return [judge_search_response(judge) for judge in exact_license_matches]
+        return [
+            judge_search_response(candidate, licensed_judge_required)
+            for candidate in exact_license_matches
+        ]
 
     search_parts = search_value.split()
     name_matches = []
 
-    for judge in judges:
+    for candidate in candidates:
         name_parts = normalize_unique_key(
-            f"{judge.first_name or ''} {judge.last_name or ''}"
+            f"{candidate.first_name or ''} {candidate.last_name or ''}"
         ).split()
 
         if search_parts and all(
             any(name_part.startswith(search_part) for name_part in name_parts)
             for search_part in search_parts
         ):
-            name_matches.append(judge)
+            name_matches.append(candidate)
 
-    return [judge_search_response(judge) for judge in name_matches[:20]]
+    return [
+        judge_search_response(candidate, licensed_judge_required)
+        for candidate in name_matches[:20]
+    ]
 
 
 @app.post("/competitions/{competition_id}/judge-invitations")
@@ -8196,10 +8243,22 @@ def invite_judge(
             .first()
         )
 
-    if not judge or not has_role(judge, "judge"):
+    licensed_judge_required = bool(
+        getattr(competition, "requires_licensed_judge", 1)
+    )
+
+    if (
+        not judge
+        or not judge.is_active
+        or (licensed_judge_required and not has_role(judge, "judge"))
+    ):
         raise HTTPException(
             status_code=404,
-            detail="Nie znaleziono sędziego z takim numerem licencji"
+            detail=(
+                "Nie znaleziono licencjonowanego sędziego PZSS"
+                if licensed_judge_required
+                else "Nie znaleziono użytkownika"
+            )
         )
 
     selected_discipline_ids = [] if data.is_head_judge else data.discipline_ids
@@ -8238,19 +8297,20 @@ def invite_judge(
     )
 
     if data.is_head_judge:
-        license_class = judge_license_class(judge.judge_license_number or "")
+        if licensed_judge_required:
+            license_class = judge_license_class(judge.judge_license_number or "")
 
-        if license_class is None:
-            raise HTTPException(
-                status_code=400,
-                detail="Nie można rozpoznać klasy sędziego z numeru licencji"
-            )
+            if license_class is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Nie można rozpoznać klasy sędziego z numeru licencji"
+                )
 
-        if license_class == 3:
-            raise HTTPException(
-                status_code=400,
-                detail="Sędzia klasy III nie może pełnić funkcji sędziego głównego zawodów"
-            )
+            if license_class == 3:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Sędzia klasy III nie może pełnić funkcji sędziego głównego zawodów"
+                )
 
         existing_head_assignment = (
             db.query(JudgeInvitation)
@@ -8460,7 +8520,7 @@ def remove_judge_assignment(
 
 @app.get("/judge/competitions")
 def get_judge_competitions(
-    user: User = Depends(get_current_judge),
+    user: User = Depends(get_current_user),
     db=Depends(get_db),
 ):
     auto_complete_started_competitions(db)
@@ -8484,6 +8544,13 @@ def get_judge_competitions(
         )
 
         if not competition or competition.status not in ["published", "started"]:
+            continue
+
+        if (
+            bool(getattr(competition, "requires_licensed_judge", 1))
+            and not has_role(user, "judge")
+            and not has_role(user, "admin")
+        ):
             continue
 
         assignments = (
@@ -8579,7 +8646,7 @@ def get_judge_competitions(
 def get_judge_discipline_shooters(
     competition_id: int,
     discipline_id: int,
-    user: User = Depends(get_current_judge),
+    user: User = Depends(get_current_user),
     db=Depends(get_db),
 ):
     auto_complete_started_competitions(db)
@@ -8705,7 +8772,7 @@ def save_judge_result(
     competition_id: int,
     discipline_id: int,
     data: JudgeResultData,
-    user: User = Depends(get_current_judge),
+    user: User = Depends(get_current_user),
     db=Depends(get_db),
 ):
     auto_complete_started_competitions(db)
@@ -10129,6 +10196,12 @@ def update_competition(
             detail="Tę opcję może zaznaczyć tylko zweryfikowany klub PZSS"
         )
 
+    if not is_approved_pzss_club(user) and data.requires_licensed_judge is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Wybierz, czy zawody wymagają licencjonowanego sędziego PZSS"
+        )
+
     competition.name = data.name
     competition.date = data.date
     competition.location = data.location
@@ -10141,6 +10214,11 @@ def update_competition(
     competition.sponsor_logo = data.sponsor_logo
     competition.participant_limit = data.participant_limit
     competition.pzss_license_calendar = 1 if data.pzss_license_calendar else 0
+    competition.requires_licensed_judge = (
+        1
+        if is_approved_pzss_club(user) or data.requires_licensed_judge
+        else 0
+    )
 
     db.commit()
 

@@ -347,6 +347,13 @@ class Competition(Base):
         server_default="0",
     )
 
+    requires_licensed_judge = Column(
+        Integer,
+        default=1,
+        nullable=False,
+        server_default="1",
+    )
+
     status = Column(
         String,
         default="draft",

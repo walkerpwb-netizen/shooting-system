@@ -129,6 +129,15 @@ export default function CompetitionCard({
           <ShareCompetitionButton competitionId={id} />
         )}
 
+        {joinedAsJudge && ["published", "started"].includes(status) && (
+          <Link
+            href={`/judge/${id}`}
+            className="ui-button rounded-xl bg-blue-700 px-4 py-2 font-semibold text-white transition hover:bg-blue-600"
+          >
+            Sędziuj zawody
+          </Link>
+        )}
+
         <Link
           href={`/competitions/${id}`}
           className="ui-button bg-green-800 hover:bg-green-700 transition text-white px-4 py-2 rounded-xl font-semibold"

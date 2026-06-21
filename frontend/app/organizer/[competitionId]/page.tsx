@@ -19,6 +19,7 @@ type Competition = {
   sponsors: string;
   sponsor_logo: string;
   participant_limit: number | null;
+  requires_licensed_judge: boolean;
   status: string;
   disciplines_count: number;
   missing_judge_disciplines: string[];
@@ -582,6 +583,11 @@ export default function OrganizerCompetitionPage() {
   async function searchJudge() {
     const searchQuery = judgeLicenseSearch.trim();
 
+    if (!competition) {
+      setMessage("Nie udało się odczytać danych zawodów ❌");
+      return;
+    }
+
     if (!searchQuery) {
       setMessage("Wpisz numer licencji albo imię i nazwisko sędziego ❌");
       return;
@@ -597,7 +603,7 @@ export default function OrganizerCompetitionPage() {
       setMessage("");
 
       const response = await fetch(
-        apiUrl(`/organizer/judges/search?query=${encodeURIComponent(searchQuery)}`),
+        apiUrl(`/organizer/judges/search?competition_id=${competition.id}&query=${encodeURIComponent(searchQuery)}`),
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -675,6 +681,7 @@ export default function OrganizerCompetitionPage() {
           },
           body: JSON.stringify({
             judge_license_number: selectedJudge.judge_license_number,
+            judge_email: selectedJudge.email,
             discipline_ids: headJudge ? [] : [Number(judgeDiscipline)],
             is_head_judge: headJudge,
           }),
@@ -1090,7 +1097,9 @@ export default function OrganizerCompetitionPage() {
                       setSelectedJudge(null);
                       setHeadJudge(false);
                     }}
-                    placeholder="Numer licencji albo imię i nazwisko"
+                    placeholder={competition.requires_licensed_judge
+                      ? "Numer licencji albo imię i nazwisko sędziego"
+                      : "Imię i nazwisko użytkownika"}
                     className="w-full border border-gray-300 rounded-xl px-3 py-3"
                   />
 
@@ -1126,7 +1135,9 @@ export default function OrganizerCompetitionPage() {
                       >
                         <span className="block font-bold">{judgeDisplayName(judge)}</span>
                         <span className="block text-sm text-zinc-700">
-                          Licencja: {judge.judge_license_number}
+                          {judge.judge_license_number
+                            ? `Licencja: ${judge.judge_license_number}`
+                            : "Licencja PZSS niewymagana"}
                         </span>
                       </button>
                     ))}
@@ -1139,11 +1150,15 @@ export default function OrganizerCompetitionPage() {
                       {judgeDisplayName(selectedJudge)}
                     </p>
                     <p className="text-sm text-green-900">
-                      Licencja: {selectedJudge.judge_license_number}
+                      {selectedJudge.judge_license_number
+                        ? `Licencja: ${selectedJudge.judge_license_number}`
+                        : "Licencja PZSS niewymagana"}
                     </p>
-                    <p className="text-sm text-green-900">
-                      Klasa: {selectedJudge.judge_license_class_label}
-                    </p>
+                    {competition.requires_licensed_judge && (
+                      <p className="text-sm text-green-900">
+                        Klasa: {selectedJudge.judge_license_class_label}
+                      </p>
+                    )}
                     {!selectedJudge.can_be_head_judge && (
                       <p className="mt-2 text-sm font-semibold text-red-700">
                         Ten sędzia może być przypisany do konkurencji, ale nie jako sędzia główny zawodów.
