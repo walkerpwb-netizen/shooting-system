@@ -443,28 +443,44 @@ export default function Navbar() {
       }
 
       setRoleDialog(requestedRole);
-      setRoleConfirmationOpen(false);
+      setRoleConfirmationOpen(true);
       setRoleMessage("");
       setRolePhoneNumber(profile.phone_number || "");
       setRoleOrganizerName(profile.organizer_name || "");
       setRoleJudgeLicenseNumber(profile.judge_license_number || "");
       setRoleJudgeLicenseValidUntil(profile.judge_license_valid_until || "");
-
-      const requiredRoleDataIsComplete = requestedRole === "organizer"
-        ? Boolean(profile.organizer_name?.trim() && normalizeRolePhone(profile.phone_number || ""))
-        : Boolean(
-            profile.judge_license_number?.trim()
-            && isFutureRoleDate(profile.judge_license_valid_until || "")
-          );
-
-      setRoleConfirmationOpen(requiredRoleDataIsComplete);
     } catch (error) {
       console.error(error);
       window.alert("Nie udało się pobrać danych profilu. Spróbuj ponownie.");
     }
   }
 
-  function prepareRoleConfirmation() {
+  function roleDataIsComplete() {
+    if (roleDialog === "organizer") {
+      return Boolean(roleOrganizerName.trim() && normalizeRolePhone(rolePhoneNumber));
+    }
+
+    if (roleDialog === "judge") {
+      return Boolean(
+        roleJudgeLicenseNumber.trim()
+        && isFutureRoleDate(roleJudgeLicenseValidUntil)
+      );
+    }
+
+    return false;
+  }
+
+  function confirmRoleAcceptance() {
+    if (roleDataIsComplete()) {
+      void acceptRole();
+      return;
+    }
+
+    setRoleMessage("");
+    setRoleConfirmationOpen(false);
+  }
+
+  function submitAcceptedRoleData() {
     if (roleDialog === "organizer") {
       if (!roleOrganizerName.trim()) {
         setRoleMessage("Podaj nazwę organizatora.");
@@ -490,7 +506,7 @@ export default function Navbar() {
     }
 
     setRoleMessage("");
-    setRoleConfirmationOpen(true);
+    void acceptRole();
   }
 
   async function acceptRole() {
@@ -1068,13 +1084,13 @@ export default function Navbar() {
               </p>
 
               <p className="mt-3 font-semibold text-red-700 dark:text-red-300">
-                Wybranie „Tak” natychmiast doda rolę do Twojego konta.
+                Po wybraniu „Tak” brakujące dane dla tej roli uzupełnisz w następnym kroku.
               </p>
 
               <div className="mt-6 grid gap-3 sm:grid-cols-2">
                 <button
                   type="button"
-                  onClick={() => void acceptRole()}
+                  onClick={confirmRoleAcceptance}
                   disabled={roleSubmitting}
                   className="rounded-lg bg-green-800 px-5 py-3 font-bold text-white transition hover:bg-green-700 disabled:opacity-50"
                 >
@@ -1083,7 +1099,7 @@ export default function Navbar() {
 
                 <button
                   type="button"
-                  onClick={() => setRoleConfirmationOpen(false)}
+                  onClick={closeRoleDialog}
                   disabled={roleSubmitting}
                   className="rounded-lg bg-red-800 px-5 py-3 font-bold text-white transition hover:bg-red-700 disabled:opacity-50"
                 >
@@ -1100,7 +1116,7 @@ export default function Navbar() {
               </h2>
 
               <p className="mt-2 text-sm text-zinc-600 dark:text-gray-300">
-                Uzupełnij wymagane pola przed przyjęciem roli.
+                Uzupełnij dane wymagane dla zaakceptowanej roli.
               </p>
 
               {roleDialog === "organizer" ? (
@@ -1160,10 +1176,10 @@ export default function Navbar() {
               <div className="mt-6 grid gap-3 sm:grid-cols-2">
                 <button
                   type="button"
-                  onClick={prepareRoleConfirmation}
+                  onClick={submitAcceptedRoleData}
                   className="rounded-lg bg-green-800 px-5 py-3 font-bold text-white transition hover:bg-green-700"
                 >
-                  Dalej
+                  Zapisz i przejdź do panelu
                 </button>
 
                 <button
