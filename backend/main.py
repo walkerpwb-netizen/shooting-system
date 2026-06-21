@@ -1843,12 +1843,11 @@ def save_email_asset(file: UploadFile):
     if image.mode not in ("RGB", "RGBA"):
         image = image.convert("RGBA" if "transparency" in image.info else "RGB")
 
-    file_name = f"{uuid4().hex}.webp"
+    file_name = f"{uuid4().hex}.png"
     image.save(
         EMAIL_ASSET_DIR / file_name,
-        format="WEBP",
-        quality=88,
-        method=6,
+        format="PNG",
+        optimize=True,
     )
 
     relative_url = f"{EMAIL_ASSET_ROUTE_PREFIX}/{file_name}"
@@ -5813,6 +5812,37 @@ def upload_admin_activation_email_asset(
     admin: User = Depends(get_current_admin),
 ):
     return save_email_asset(file)
+
+
+@app.post("/admin/settings/activation-email/test")
+def send_admin_activation_email_test(
+    data: ActivationEmailTemplateData,
+    admin: User = Depends(get_current_admin),
+):
+    template = validate_activation_email_template(data)
+    test_template = {
+        **template,
+        "subject": f"[TEST] {template['subject']}",
+    }
+    test_activation_link = (
+        f"{settings.frontend_url}/activate?token=TEST-WIADOMOSCI-AKTYWACYJNEJ"
+    )
+
+    try:
+        send_activation_email(
+            admin.email,
+            test_activation_link,
+            test_template,
+        )
+    except (MailConfigurationError, MailDeliveryError) as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Nie udało się wysłać testowej wiadomości e-mail",
+        ) from exc
+
+    return {
+        "message": f"Testowa wiadomość została wysłana na {admin.email}",
+    }
 
 
 def public_pzss_club(user: User):

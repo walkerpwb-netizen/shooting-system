@@ -1,11 +1,20 @@
 import smtplib
 import ssl
+import mimetypes
+import re
 from html import escape
+from pathlib import Path
 from email.message import EmailMessage
 from email.utils import formataddr
 from typing import Optional
+from uuid import uuid4
+
+from PIL import Image
 
 from config import settings
+
+
+EMAIL_ASSET_DIR = Path(__file__).resolve().parent / "uploads" / "email-assets"
 
 
 ACTIVATION_LINK_PLACEHOLDER = "{{activation_link}}"
@@ -66,6 +75,124 @@ def _sender() -> str:
     return settings.smtp_from_email
 
 
+def _fixed_email_image_width(tag: str, natural_width: int) -> str:
+    style_match = re.search(r"\bstyle\s*=\s*([\"'])(.*?)\1", tag, re.IGNORECASE | re.DOTALL)
+    style_value = style_match.group(2) if style_match else ""
+    percentage_match = re.search(
+        r"(?:^|;)\s*(?:max-)?width\s*:\s*(\d+(?:\.\d+)?)%",
+        style_value,
+        re.IGNORECASE,
+    )
+
+    if not percentage_match:
+        width_match = re.search(
+            r"\bwidth\s*=\s*([\"'])(\d+(?:\.\d+)?)%\1",
+            tag,
+            re.IGNORECASE,
+        )
+        percentage = float(width_match.group(2)) if width_match else None
+    else:
+        percentage = float(percentage_match.group(1))
+
+    if percentage is None:
+        return tag
+
+    percentage = min(max(percentage, 1), 100)
+    pixel_width = max(1, round(natural_width * percentage / 100))
+    declarations = []
+
+    for declaration in style_value.split(";"):
+        declaration = declaration.strip()
+
+        if not declaration or ":" not in declaration:
+            continue
+
+        property_name = declaration.split(":", 1)[0].strip().lower()
+
+        if property_name not in {"width", "max-width"}:
+            declarations.append(declaration)
+
+    declarations.extend([
+        f"width:{pixel_width}px",
+        "max-width:100%",
+    ])
+
+    if not any(item.lower().startswith("height:") for item in declarations):
+        declarations.append("height:auto")
+
+    updated_style = ";".join(declarations) + ";"
+    if style_match:
+        start, end = style_match.span(2)
+        tag = f"{tag[:start]}{updated_style}{tag[end:]}"
+    else:
+        tag = re.sub(
+            r"\s*/?>$",
+            f' style="{updated_style}">',
+            tag,
+        )
+
+    tag = re.sub(
+        r"\s+width\s*=\s*(?:\"[^\"]*\"|'[^']*'|[^\s>]+)",
+        "",
+        tag,
+        flags=re.IGNORECASE,
+    )
+    tag = re.sub(r"\s*/?>$", f' width="{pixel_width}">', tag)
+
+    return tag
+
+
+def _embedded_email_assets(html_body: str) -> tuple[str, list[tuple[str, str, bytes]]]:
+    asset_pattern = re.compile(
+        rf"{re.escape(settings.frontend_url)}/api/uploads/email-assets/([A-Za-z0-9._-]+)"
+    )
+    embedded_assets: list[tuple[str, str, bytes]] = []
+    replacements: dict[str, str] = {}
+    asset_widths: dict[str, int] = {}
+
+    def replace_asset(match: re.Match[str]) -> str:
+        file_name = match.group(1)
+
+        if file_name in replacements:
+            return f"cid:{replacements[file_name]}"
+
+        file_path = EMAIL_ASSET_DIR / file_name
+
+        try:
+            file_path.resolve().relative_to(EMAIL_ASSET_DIR.resolve())
+        except ValueError:
+            return match.group(0)
+
+        if not file_path.is_file():
+            return match.group(0)
+
+        mime_type, _ = mimetypes.guess_type(file_name)
+
+        if not mime_type or not mime_type.startswith("image/"):
+            return match.group(0)
+
+        cid = f"email-asset-{uuid4().hex}@system-strzelecki.pl"
+        replacements[file_name] = cid
+        embedded_assets.append((cid, mime_type.split("/", 1)[1], file_path.read_bytes()))
+        with Image.open(file_path) as image:
+            asset_widths[cid] = image.width
+        return f"cid:{cid}"
+
+    embedded_html = asset_pattern.sub(replace_asset, html_body)
+    image_tag_pattern = re.compile(r"<img\b[^>]*>", re.IGNORECASE | re.DOTALL)
+
+    def normalize_image_tag(match: re.Match[str]) -> str:
+        tag = match.group(0)
+
+        for cid, natural_width in asset_widths.items():
+            if f"cid:{cid}" in tag:
+                return _fixed_email_image_width(tag, natural_width)
+
+        return tag
+
+    return image_tag_pattern.sub(normalize_image_tag, embedded_html), embedded_assets
+
+
 def send_email(
     to_email: str,
     subject: str,
@@ -81,7 +208,18 @@ def send_email(
     message.set_content(text_body)
 
     if html_body:
-        message.add_alternative(html_body, subtype="html")
+        embedded_html, embedded_assets = _embedded_email_assets(html_body)
+        message.add_alternative(embedded_html, subtype="html")
+        html_part = message.get_payload()[-1]
+
+        for cid, subtype, contents in embedded_assets:
+            html_part.add_related(
+                contents,
+                maintype="image",
+                subtype=subtype,
+                cid=f"<{cid}>",
+                disposition="inline",
+            )
 
     context = ssl.create_default_context()
 

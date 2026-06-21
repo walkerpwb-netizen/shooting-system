@@ -360,6 +360,7 @@ export default function AdminClient({
   const [profileSettings, setProfileSettings] = useState<ProfileSettings>(defaultProfileSettings);
   const [activationEmailTemplate, setActivationEmailTemplate] = useState<ActivationEmailTemplate>(defaultActivationEmailTemplate);
   const [emailAssetUploading, setEmailAssetUploading] = useState(false);
+  const [activationEmailTestSending, setActivationEmailTestSending] = useState(false);
   const [testCompetitionStatus, setTestCompetitionStatus] = useState("started");
   const [testCompetitionParticipants, setTestCompetitionParticipants] = useState(12);
   const [testCompetitionDisciplines, setTestCompetitionDisciplines] = useState(3);
@@ -1242,6 +1243,47 @@ export default function AdminClient({
       setMessage("Błąd połączenia z serwerem ❌");
     } finally {
       setEmailAssetUploading(false);
+    }
+  }
+
+  async function sendActivationEmailTest() {
+    const token = getAccessToken();
+
+    if (
+      !activationEmailTemplate.text_body.includes(activationLinkPlaceholder)
+      || !activationEmailTemplate.html_body.includes(activationLinkPlaceholder)
+    ) {
+      setMessage(`W obu wersjach wiadomości musi pozostać znacznik ${activationLinkPlaceholder} ❌`);
+      return;
+    }
+
+    try {
+      setMessage("");
+      setActivationEmailTestSending(true);
+      const response = await fetch(
+        apiUrl("/admin/settings/activation-email/test"),
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(activationEmailTemplate),
+        }
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.detail || "Nie udało się wysłać testowej wiadomości ❌");
+        return;
+      }
+
+      setMessage(`${data.message} ✅`);
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    } finally {
+      setActivationEmailTestSending(false);
     }
   }
 
@@ -2599,13 +2641,25 @@ export default function AdminClient({
                   >
                     Zapisz i opublikuj
                   </button>
+
+                  <button
+                    type="button"
+                    onClick={sendActivationEmailTest}
+                    disabled={activationEmailTestSending}
+                    title={`Wyślij obecną, niezapisaną wersję na ${currentAdminEmail}`}
+                    className="ui-button ml-auto bg-amber-600 hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-50 text-white px-5 py-3 rounded-xl font-bold transition"
+                  >
+                    {activationEmailTestSending
+                      ? "Wysyłanie testu..."
+                      : "Wyślij test do administratora"}
+                  </button>
                 </div>
 
                 <div>
                   <p className="text-white font-semibold mb-2">Podgląd wiadomości HTML</p>
                   <iframe
                     title="Podgląd e-maila aktywacyjnego"
-                    sandbox=""
+                    sandbox="allow-same-origin"
                     srcDoc={activationEmailTemplate.html_body.replaceAll(
                       activationLinkPlaceholder,
                       "https://system-strzelecki.pl/activate?token=PRZYKLADOWY_TOKEN"
