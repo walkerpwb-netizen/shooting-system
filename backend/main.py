@@ -8114,20 +8114,52 @@ def get_judges(
 
 
 @app.get("/organizer/judges/search")
-def search_judge_by_license(
-    license_number: str = "",
+def search_judges(
+    query: str = "",
     user: User = Depends(get_current_organizer),
     db=Depends(get_db),
 ):
-    judge = judge_by_license_number(license_number, db)
+    search_value = normalize_unique_key(query)
 
-    if not judge or not has_role(judge, "judge"):
+    if not search_value:
         raise HTTPException(
-            status_code=404,
-            detail="Nie znaleziono sędziego z takim numerem licencji"
+            status_code=400,
+            detail="Wpisz numer licencji albo imię i nazwisko sędziego"
         )
 
-    return judge_search_response(judge)
+    judges = [
+        judge
+        for judge in db.query(User).order_by(User.last_name.asc(), User.first_name.asc()).all()
+        if has_role(judge, "judge")
+    ]
+
+    exact_license_matches = [
+        judge
+        for judge in judges
+        if search_value in {
+            normalize_unique_key(judge.judge_license_number or ""),
+            normalize_unique_key(getattr(judge, "judge_license_number_key", "") or ""),
+        }
+    ]
+
+    if exact_license_matches:
+        return [judge_search_response(judge) for judge in exact_license_matches]
+
+    search_parts = search_value.split()
+    name_matches = []
+
+    for judge in judges:
+        name_parts = normalize_unique_key(
+            f"{judge.first_name or ''} {judge.last_name or ''}"
+        ).split()
+
+        if search_parts and all(
+            any(name_part.startswith(search_part) for name_part in name_parts)
+            for search_part in search_parts
+        ):
+            name_matches.append(judge)
+
+    return [judge_search_response(judge) for judge in name_matches[:20]]
 
 
 @app.post("/competitions/{competition_id}/judge-invitations")

@@ -193,6 +193,7 @@ export default function OrganizerCompetitionPage() {
   const [loading, setLoading] = useState(true);
   const [judgeLicenseSearch, setJudgeLicenseSearch] = useState("");
   const [judgeSearchLoading, setJudgeSearchLoading] = useState(false);
+  const [judgeSearchResults, setJudgeSearchResults] = useState<JudgeSearchResult[]>([]);
   const [selectedJudge, setSelectedJudge] = useState<JudgeSearchResult | null>(null);
   const [judgeDiscipline, setJudgeDiscipline] = useState("");
   const [headJudge, setHeadJudge] = useState(false);
@@ -578,11 +579,11 @@ export default function OrganizerCompetitionPage() {
       || judge.email;
   }
 
-  async function searchJudgeByLicense() {
-    const licenseNumber = judgeLicenseSearch.trim();
+  async function searchJudge() {
+    const searchQuery = judgeLicenseSearch.trim();
 
-    if (!licenseNumber) {
-      setMessage("Wpisz numer licencji sędziego ❌");
+    if (!searchQuery) {
+      setMessage("Wpisz numer licencji albo imię i nazwisko sędziego ❌");
       return;
     }
 
@@ -590,12 +591,13 @@ export default function OrganizerCompetitionPage() {
 
     try {
       setJudgeSearchLoading(true);
+      setJudgeSearchResults([]);
       setSelectedJudge(null);
       setHeadJudge(false);
       setMessage("");
 
       const response = await fetch(
-        apiUrl(`/organizer/judges/search?license_number=${encodeURIComponent(licenseNumber)}`),
+        apiUrl(`/organizer/judges/search?query=${encodeURIComponent(searchQuery)}`),
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -609,9 +611,20 @@ export default function OrganizerCompetitionPage() {
         return;
       }
 
-      setSelectedJudge(data);
+      const results: JudgeSearchResult[] = Array.isArray(data) ? data : [];
 
-      if (!data.can_be_head_judge) {
+      if (!results.length) {
+        setMessage("Nie znaleziono sędziego o podanych danych ❌");
+        return;
+      }
+
+      setJudgeSearchResults(results);
+
+      if (results.length === 1) {
+        setSelectedJudge(results[0]);
+      }
+
+      if (results.length === 1 && !results[0].can_be_head_judge) {
         setHeadJudge(false);
       }
     } catch (error) {
@@ -628,7 +641,7 @@ export default function OrganizerCompetitionPage() {
     }
 
     if (!selectedJudge) {
-      setMessage("Najpierw wyszukaj sędziego po numerze licencji ❌");
+      setMessage("Najpierw wyszukaj i wybierz sędziego ❌");
       return;
     }
 
@@ -1073,22 +1086,52 @@ export default function OrganizerCompetitionPage() {
                     value={judgeLicenseSearch}
                     onChange={(event) => {
                       setJudgeLicenseSearch(event.target.value);
+                      setJudgeSearchResults([]);
                       setSelectedJudge(null);
                       setHeadJudge(false);
                     }}
-                    placeholder="Wpisz numer licencji sędziego"
+                    placeholder="Numer licencji albo imię i nazwisko"
                     className="w-full border border-gray-300 rounded-xl px-3 py-3"
                   />
 
                   <button
                     type="button"
-                    onClick={searchJudgeByLicense}
+                    onClick={searchJudge}
                     disabled={judgeSearchLoading || !judgeLicenseSearch.trim()}
                     className="bg-zinc-900 hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed text-white px-5 py-3 rounded-xl font-semibold transition"
                   >
                     {judgeSearchLoading ? "Szukam..." : "Szukaj"}
                   </button>
                 </div>
+
+                {judgeSearchResults.length > 1 && (
+                  <div className="space-y-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                    <p className="text-sm font-semibold text-zinc-700">
+                      Wybierz sędziego z listy:
+                    </p>
+                    {judgeSearchResults.map((judge) => (
+                      <button
+                        key={judge.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedJudge(judge);
+                          setHeadJudge(false);
+                          setMessage("");
+                        }}
+                        className={`block w-full rounded-xl border px-4 py-3 text-left transition ${
+                          selectedJudge?.id === judge.id
+                            ? "border-green-700 bg-green-100"
+                            : "border-zinc-200 bg-white hover:border-green-500"
+                        }`}
+                      >
+                        <span className="block font-bold">{judgeDisplayName(judge)}</span>
+                        <span className="block text-sm text-zinc-700">
+                          Licencja: {judge.judge_license_number}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
 
                 {selectedJudge && (
                   <div className="rounded-2xl border border-green-200 bg-green-50 p-4">
