@@ -429,9 +429,7 @@ export default function Navbar() {
       }
 
       const profileRoles = profile.roles || [];
-      const roleIsReady = requestedRole === "organizer"
-        ? profileRoles.includes("organizer") && Boolean(profile.organizer_name?.trim())
-        : profileRoles.includes("judge") && Boolean(profile.judge_license_number?.trim());
+      const roleIsReady = profileRoles.includes(requestedRole);
 
       if (roleIsReady) {
         window.location.href = requestedRole === "organizer" ? "/organizer" : "/judge";
@@ -451,6 +449,15 @@ export default function Navbar() {
       setRoleOrganizerName(profile.organizer_name || "");
       setRoleJudgeLicenseNumber(profile.judge_license_number || "");
       setRoleJudgeLicenseValidUntil(profile.judge_license_valid_until || "");
+
+      const requiredRoleDataIsComplete = requestedRole === "organizer"
+        ? Boolean(profile.organizer_name?.trim() && normalizeRolePhone(profile.phone_number || ""))
+        : Boolean(
+            profile.judge_license_number?.trim()
+            && isFutureRoleDate(profile.judge_license_valid_until || "")
+          );
+
+      setRoleConfirmationOpen(requiredRoleDataIsComplete);
     } catch (error) {
       console.error(error);
       window.alert("Nie udało się pobrać danych profilu. Spróbuj ponownie.");
@@ -494,11 +501,13 @@ export default function Navbar() {
     const body = roleDialog === "organizer"
       ? {
           role: roleDialog,
+          confirmed: true,
           organizer_name: roleOrganizerName.trim(),
           phone_number: normalizeRolePhone(rolePhoneNumber),
         }
       : {
           role: roleDialog,
+          confirmed: true,
           judge_license_number: roleJudgeLicenseNumber.trim(),
           judge_license_valid_until: roleJudgeLicenseValidUntil,
         };

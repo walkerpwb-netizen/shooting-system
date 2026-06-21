@@ -244,6 +244,7 @@ class UserPremiumDisabledData(BaseModel):
 
 class RoleRequestData(BaseModel):
     role: str
+    confirmed: bool = False
     phone_number: str = ""
     organizer_name: str = ""
     judge_license_number: str = ""
@@ -9659,6 +9660,12 @@ def request_role_change(
         raise HTTPException(
             status_code=400,
             detail="Możesz poprosić tylko o rolę organizatora albo sędziego"
+        )
+
+    if not data.confirmed:
+        raise HTTPException(
+            status_code=400,
+            detail="Potwierdź świadomie przyjęcie wybranej roli"
         )
 
     db_user = (
