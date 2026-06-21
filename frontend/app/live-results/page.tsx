@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 
 import ResultCompetitionList from "@/app/components/ResultCompetitionList";
 import { apiUrl } from "@/lib/api";
+import { getAccessToken } from "@/lib/auth";
+import { authHeaderFromToken, PREMIUM_LOGIN_REQUIRED_MESSAGE } from "@/lib/premium";
 
 type LiveCompetition = {
   id: number;
@@ -11,6 +13,8 @@ type LiveCompetition = {
   date: string;
   location: string;
   organizer_full_name: string;
+  organizer_logo: string;
+  sponsor_logo: string;
   shooters_count: number;
   status: string;
   completed_at: string;
@@ -23,12 +27,28 @@ export default function LiveResultsPage() {
 
   useEffect(() => {
     let active = true;
+    const token = getAccessToken();
+
+    if (!token) {
+      const timeoutId = window.setTimeout(() => {
+        if (active) {
+          setMessage(PREMIUM_LOGIN_REQUIRED_MESSAGE);
+          setLoading(false);
+        }
+      }, 0);
+
+      return () => {
+        active = false;
+        window.clearTimeout(timeoutId);
+      };
+    }
 
     async function loadCompetitions() {
       try {
         const response = await fetch(
           apiUrl("/live-results/competitions"),
           {
+            headers: authHeaderFromToken(token),
             cache: "no-store",
           }
         );
@@ -98,6 +118,7 @@ export default function LiveResultsPage() {
             emptyTitle="Brak trwających zawodów"
             emptyText="Lista pojawi się automatycznie, gdy organizator rozpocznie zawody albo zakończy je w ciągu ostatnich 24 godzin."
             hrefPrefix="/live-results"
+            dateSortDirection="desc"
             live
           />
         )}

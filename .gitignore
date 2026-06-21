@@ -10,3 +10,4 @@ backend/shooting.db
 .env.*
 !.env.example
 backend/*.db.backup-*
+backend/uploads/

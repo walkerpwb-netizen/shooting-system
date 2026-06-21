@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { apiUrl } from "@/lib/api";
+import { getAccessToken } from "@/lib/auth";
 
 const subscribeToUserEmail = () => () => {};
 const getUserEmailSnapshot = () => localStorage.getItem("email") || "";
@@ -22,7 +23,10 @@ type Discipline = {
   id: number;
   name: string;
   shots_count: number;
+  trap_series_count?: number;
+  clay_series_count?: number;
   ammo_price: string;
+  clay_price?: string;
   entry_fee: string;
 };
 
@@ -52,7 +56,7 @@ export default function JoinCompetitionPanel({
 
   const [participants, setParticipants] = useState(initialParticipants);
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState("");
+  const [noticeMessage, setNoticeMessage] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [currentEntryType, setCurrentEntryType] = useState("");
   const [selectedDisciplines, setSelectedDisciplines] = useState<SelectedDiscipline[]>([]);
@@ -63,7 +67,7 @@ export default function JoinCompetitionPanel({
   );
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
+    const token = getAccessToken();
 
     if (!token) {
       return;
@@ -204,15 +208,27 @@ export default function JoinCompetitionPanel({
         return sum;
       }
 
-      return sum + parsePrice(discipline.ammo_price) * discipline.shots_count;
+      const clayTargetsCount = Math.max(Number(discipline.clay_series_count || discipline.trap_series_count || 0), 0) * 25;
+
+      return sum
+        + parsePrice(discipline.ammo_price) * discipline.shots_count
+        + parsePrice(discipline.clay_price || "") * clayTargetsCount;
     },
     0
   );
   const totalFee = competitionFee + disciplinesFee + ammoFee;
   const registrationOpen = ["published", "started"].includes(competitionStatus);
 
+  function showNotice(message: string) {
+    setNoticeMessage(message);
+  }
+
+  function closeNotice() {
+    setNoticeMessage("");
+  }
+
   async function joinCompetition() {
-    const token = localStorage.getItem("token");
+    const token = getAccessToken();
 
     if (!token) {
       router.push("/login");
@@ -220,25 +236,25 @@ export default function JoinCompetitionPanel({
     }
 
     if (selectedDisciplines.length === 0) {
-      setMessage("Wybierz minimum jedną konkurencję ❌");
+      showNotice("Wybierz minimum jedną konkurencję");
       return;
     }
 
     if (
       selectedDisciplines.some((discipline) => !discipline.ammo_type)
     ) {
-      setMessage("Wybierz typ amunicji przy każdej konkurencji ❌");
+      showNotice("Wybierz typ amunicji przy każdej konkurencji");
       return;
     }
 
     if (participantLimitReached) {
-      setMessage("Limit zawodników został osiągnięty ❌");
+      showNotice("Limit zawodników został osiągnięty");
       return;
     }
 
     try {
       setLoading(true);
-      setMessage("");
+      closeNotice();
 
       const response = await fetch(
         apiUrl(`/competitions/${competitionId}/join`),
@@ -258,28 +274,28 @@ export default function JoinCompetitionPanel({
       const data = await response.json();
 
       if (!response.ok) {
-        setMessage(data.detail || "Nie udało się zapisać na zawody ❌");
+        showNotice(data.detail || "Nie udało się zapisać na zawody");
         return;
       }
 
       setParticipants(data.participants);
       setShowForm(false);
       setCurrentEntryType("shooter");
-      setMessage(
+      showNotice(
         competitionStatus === "started"
-          ? "Zgłoszenie przyjęte. Pojawisz się na liście po potwierdzeniu udziału i opłaty przez organizatora ✅"
-          : "Jesteś zapisany na zawody ✅"
+          ? "Zgłoszenie przyjęte. Pojawisz się na liście po potwierdzeniu udziału i opłaty przez organizatora."
+          : "Jesteś zapisany na zawody."
       );
     } catch (error) {
       console.error(error);
-      setMessage("Błąd połączenia z serwerem ❌");
+      showNotice("Błąd połączenia z serwerem");
     } finally {
       setLoading(false);
     }
   }
 
   async function leaveCompetition() {
-    const token = localStorage.getItem("token");
+    const token = getAccessToken();
 
     if (!token) {
       router.push("/login");
@@ -296,7 +312,7 @@ export default function JoinCompetitionPanel({
 
     try {
       setLoading(true);
-      setMessage("");
+      closeNotice();
 
       const response = await fetch(
         apiUrl(`/competitions/${competitionId}/leave`),
@@ -311,7 +327,7 @@ export default function JoinCompetitionPanel({
       const data = await response.json();
 
       if (!response.ok) {
-        setMessage(data.detail || "Nie udało się wypisać z zawodów ❌");
+        showNotice(data.detail || "Nie udało się wypisać z zawodów");
         return;
       }
 
@@ -319,23 +335,23 @@ export default function JoinCompetitionPanel({
       setSelectedDisciplines([]);
       setCurrentEntryType("");
       setShowForm(false);
-      setMessage("Wypisano z zawodów ✅");
+      showNotice("Wypisano z zawodów.");
     } catch (error) {
       console.error(error);
-      setMessage("Błąd połączenia z serwerem ❌");
+      showNotice("Błąd połączenia z serwerem");
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <aside className="bg-zinc-900 p-6 rounded-2xl space-y-5">
+    <aside className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 space-y-5">
       <div className="flex items-center justify-between gap-4">
         <h2 className="text-2xl font-bold">
           Zawodnicy
         </h2>
 
-        <span className="bg-zinc-800 text-gray-300 px-3 py-1 rounded-full text-sm font-semibold">
+        <span className="rounded-full bg-zinc-100 px-3 py-1 text-sm font-semibold text-zinc-700 dark:bg-zinc-800 dark:text-gray-300">
           {participantLimit
             ? `${participants.length}/${participantLimit}`
             : participants.length}
@@ -343,13 +359,13 @@ export default function JoinCompetitionPanel({
       </div>
 
       {participantLimit && (
-        <p className="text-gray-400 text-sm">
+        <p className="text-sm text-zinc-600 dark:text-gray-400">
           Limit zawodników: {participants.length}/{participantLimit}
         </p>
       )}
 
       {!registrationOpen ? (
-        <div className="border border-zinc-700 bg-zinc-950/50 rounded-xl p-4 space-y-2 text-gray-300">
+        <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 space-y-2 text-zinc-700 dark:border-zinc-700 dark:bg-zinc-950/50 dark:text-gray-300">
           <p>
             {competitionStatus === "started"
               ? "Zapisy są zamknięte, ponieważ zawody aktualnie trwają."
@@ -365,7 +381,7 @@ export default function JoinCompetitionPanel({
           )}
         </div>
       ) : showForm ? (
-        <div className="border border-zinc-700 rounded-xl p-4 space-y-4">
+        <div className="rounded-xl border border-zinc-200 p-4 space-y-4 dark:border-zinc-700">
           <h3 className="font-bold">
             Dołącz do zawodów
           </h3>
@@ -377,7 +393,7 @@ export default function JoinCompetitionPanel({
               return (
                 <div
                   key={discipline.id}
-                  className="border border-zinc-700 rounded-xl p-4 space-y-3"
+                  className="rounded-xl border border-zinc-200 p-4 space-y-3 dark:border-zinc-700"
                 >
                   <label className="flex items-center gap-3 font-semibold">
                     <input
@@ -396,7 +412,7 @@ export default function JoinCompetitionPanel({
                   {selected && (
                     <>
                       <div className="grid grid-cols-2 gap-3">
-                        <label className="flex items-center gap-2 text-sm text-gray-300">
+                        <label className="flex items-center gap-2 text-sm text-zinc-700 dark:text-gray-300">
                           <input
                             type="radio"
                             name={`ammo-${discipline.id}`}
@@ -406,7 +422,7 @@ export default function JoinCompetitionPanel({
                           Własna amunicja
                         </label>
 
-                        <label className="flex items-center gap-2 text-sm text-gray-300">
+                        <label className="flex items-center gap-2 text-sm text-zinc-700 dark:text-gray-300">
                           <input
                             type="radio"
                             name={`ammo-${discipline.id}`}
@@ -418,16 +434,19 @@ export default function JoinCompetitionPanel({
                       </div>
 
                       {!getAmmoType(discipline.id) && (
-                        <p className="text-sm font-semibold text-yellow-200">
+                        <p className="text-sm font-semibold text-yellow-700 dark:text-yellow-200">
                           Wybierz z czyjej amunicji strzelasz.
                         </p>
                       )}
 
-                      <p className="text-sm text-gray-400">
+                      <p className="text-sm text-zinc-600 dark:text-gray-400">
                         Opłata startowa: {competitionEntryFee || discipline.entry_fee || "0"} zł
                         {getAmmoType(discipline.id) === "club" && (
                           <>
-                            {" "}+ amunicja: {parsePrice(discipline.ammo_price) * discipline.shots_count} zł
+                            {" "}+ amunicja i rzutki: {
+                              parsePrice(discipline.ammo_price) * discipline.shots_count
+                              + parsePrice(discipline.clay_price || "") * Math.max(Number(discipline.clay_series_count || discipline.trap_series_count || 0), 0) * 25
+                            } zł
                           </>
                         )}
                       </p>
@@ -438,21 +457,21 @@ export default function JoinCompetitionPanel({
             })}
           </div>
 
-          <div className="border border-red-700 bg-red-950/30 rounded-xl p-5 text-center">
-            <p className="text-red-400 text-sm font-semibold mb-1">
+          <div className="rounded-xl border border-red-200 bg-red-50 p-5 text-center dark:border-red-700 dark:bg-red-950/30">
+            <p className="mb-1 text-sm font-semibold text-red-700 dark:text-red-400">
               Suma do zapłaty
             </p>
 
-            <p className="text-red-500 text-5xl font-black">
+            <p className="text-5xl font-black text-red-800 dark:text-red-500">
               {totalFee.toFixed(2)} zł
             </p>
 
-            <p className="text-red-300 mt-3">
+            <p className="mt-3 text-red-700 dark:text-red-300">
               Opłatę uiszczasz w dniu zawodów organizatorowi.
             </p>
           </div>
 
-          <p className="border border-yellow-700 bg-yellow-950/30 rounded-xl p-4 text-yellow-200 text-center">
+          <p className="rounded-xl border border-yellow-200 bg-yellow-50 p-4 text-center text-yellow-800 dark:border-yellow-700 dark:bg-yellow-950/30 dark:text-yellow-200">
             Wypisanie się z zawodów jest możliwe najpóźniej 48 godzin przed zawodami.
           </p>
 
@@ -482,13 +501,13 @@ export default function JoinCompetitionPanel({
       ) : (
         <div className="space-y-3">
           {assignedAsJudge && (
-            <div className="border border-blue-700 bg-blue-950/30 rounded-xl p-4 text-blue-100">
+            <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-blue-800 dark:border-blue-700 dark:bg-blue-950/30 dark:text-blue-100">
               Organizator przypisał Cię do tych zawodów jako sędziego.
             </div>
           )}
 
           {waitingForOrganizerApproval ? (
-            <div className="border border-yellow-700 bg-yellow-950/30 rounded-xl p-4 text-yellow-100">
+            <div className="rounded-xl border border-yellow-200 bg-yellow-50 p-4 text-yellow-800 dark:border-yellow-700 dark:bg-yellow-950/30 dark:text-yellow-100">
               Zgłoszenie przyjęte. Pojawisz się na liście zawodników po potwierdzeniu udziału i opłaty przez organizatora.
             </div>
           ) : userIsJoined ? (
@@ -506,7 +525,7 @@ export default function JoinCompetitionPanel({
             <button
               type="button"
               onClick={() => {
-                setMessage("");
+                closeNotice();
                 setShowForm(true);
               }}
               disabled={participantLimitReached}
@@ -518,14 +537,14 @@ export default function JoinCompetitionPanel({
             </button>
           )}
 
-          <p className="text-yellow-200 text-center text-sm">
+          <p className="text-center text-sm text-yellow-700 dark:text-yellow-200">
             Wypisanie się z zawodów jest możliwe najpóźniej 48 godzin przed zawodami.
           </p>
         </div>
       )}
 
       {participants.length === 0 ? (
-        <p className="text-gray-400">
+        <p className="text-zinc-600 dark:text-gray-400">
           Nikt jeszcze nie dołączył do tych zawodów.
         </p>
       ) : (
@@ -533,11 +552,11 @@ export default function JoinCompetitionPanel({
           {participants.map((participant, index) => (
             <div
               key={participant.id}
-              className="border border-zinc-700 rounded-xl p-4"
+              className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700"
             >
               <Link
                 href={`/profile/${participant.id}`}
-                className="font-bold transition hover:text-green-300"
+                className="font-bold transition hover:text-green-700 dark:hover:text-green-300"
               >
                 {index + 1}. {participant.display_name}
               </Link>
@@ -546,10 +565,26 @@ export default function JoinCompetitionPanel({
         </div>
       )}
 
-      {message && (
-        <p className="text-center text-gray-300 font-medium">
-          {message}
-        </p>
+      {noticeMessage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-6">
+          <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-6 text-center text-zinc-950 shadow-2xl dark:border-zinc-700 dark:bg-zinc-950 dark:text-white">
+            <h3 className="text-2xl font-bold">
+              Komunikat
+            </h3>
+
+            <p className="mt-4 text-lg text-zinc-700 dark:text-gray-200">
+              {noticeMessage}
+            </p>
+
+            <button
+              type="button"
+              onClick={closeNotice}
+              className="mt-6 w-full rounded-xl bg-green-800 px-5 py-3 font-semibold text-white transition hover:bg-green-700"
+            >
+              Potwierdź
+            </button>
+          </div>
+        </div>
       )}
     </aside>
   );

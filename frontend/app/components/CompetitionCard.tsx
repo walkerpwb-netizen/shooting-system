@@ -1,10 +1,9 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useState } from "react";
 
 import ShareCompetitionButton from "./ShareCompetitionButton";
-import { apiUrl } from "@/lib/api";
 
 type CompetitionCardProps = {
   id: number;
@@ -14,9 +13,12 @@ type CompetitionCardProps = {
   status: string;
   organizerFullName: string;
   sponsors: string;
+  organizerLogo: string;
   participantLimit: number | null;
+  pzssLicenseCalendar: boolean;
   shootersCount: number;
   disciplinesCount: number;
+  entryType?: string;
 };
 
 export default function CompetitionCard({
@@ -27,44 +29,13 @@ export default function CompetitionCard({
   status,
   organizerFullName,
   sponsors,
+  organizerLogo,
   participantLimit,
+  pzssLicenseCalendar,
   shootersCount,
   disciplinesCount,
+  entryType = "",
 }: CompetitionCardProps) {
-  const [entryType, setEntryType] = useState("");
-
-  useEffect(() => {
-    const token = localStorage.getItem("token");
-
-    if (!token) {
-      return;
-    }
-
-    async function loadEntry() {
-      try {
-        const response = await fetch(
-          apiUrl(`/competitions/${id}/my-entry`),
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }
-        );
-
-        if (!response.ok) {
-          return;
-        }
-
-        const data = await response.json();
-        setEntryType(data.entry_type || "");
-      } catch (error) {
-        console.error(error);
-      }
-    }
-
-    loadEntry();
-  }, [id]);
-
   const joinedAsShooter = entryType === "shooter";
   const joinedAsJudge = entryType === "judge";
   const freeSlots = participantLimit === null
@@ -79,14 +50,25 @@ export default function CompetitionCard({
       : "";
 
   return (
-    <div className={`grid gap-4 border-b border-zinc-200 px-4 py-4 text-sm last:border-b-0 dark:border-zinc-800 lg:grid-cols-[1.5fr_0.7fr_1fr_1.1fr] lg:items-center ${
+    <div className={`relative isolate grid gap-4 overflow-hidden border-b border-zinc-200 px-4 py-4 text-sm last:border-b-0 dark:border-zinc-800 lg:grid-cols-[1.5fr_0.7fr_1fr_1.1fr] lg:items-center ${
       joinedAsJudge
         ? "bg-blue-50 dark:bg-blue-950/30"
         : joinedAsShooter
           ? "bg-green-50 dark:bg-green-950/30"
           : "bg-white dark:bg-zinc-900"
     }`}>
-      <div className="min-w-0">
+      {organizerLogo && (
+        <Image
+          src={organizerLogo}
+          alt=""
+          fill
+          sizes="100vw"
+          className="pointer-events-none z-0 object-cover object-center opacity-[0.07] saturate-75 dark:opacity-[0.12] lg:object-contain"
+          unoptimized
+        />
+      )}
+
+      <div className="relative z-10 min-w-0">
         <div className="mb-2 flex flex-wrap gap-2">
           {(joinedAsShooter || joinedAsJudge) && (
             <span className={`rounded-full px-3 py-1 text-xs font-bold ${
@@ -111,6 +93,12 @@ export default function CompetitionCard({
               {statusLabel}
             </span>
           )}
+
+          {pzssLicenseCalendar && (
+            <span className="rounded-full bg-red-700 px-3 py-1 text-xs font-bold text-white">
+              Zawody z kalendarza PZSS do przedłużenia licencji
+            </span>
+          )}
         </div>
 
         <p className="truncate text-base font-bold text-zinc-950 dark:text-white">
@@ -128,15 +116,15 @@ export default function CompetitionCard({
         )}
       </div>
 
-      <p className="text-zinc-700 dark:text-gray-300">
+      <p className="relative z-10 text-zinc-700 dark:text-gray-300">
         {date}
       </p>
 
-      <p className="text-zinc-700 dark:text-gray-300">
+      <p className="relative z-10 text-zinc-700 dark:text-gray-300">
         {location}
       </p>
 
-      <div className="flex flex-wrap gap-2 lg:justify-end">
+      <div className="relative z-10 flex flex-wrap gap-2 lg:justify-end">
         {status === "published" && (
           <ShareCompetitionButton competitionId={id} />
         )}

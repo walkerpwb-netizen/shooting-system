@@ -1,16 +1,20 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 import { apiUrl } from "@/lib/api";
+import { getAccessToken, logoutSession } from "@/lib/auth";
 
 interface Competition {
   id: number;
   name: string;
   date: string;
   location: string;
+  organizer_logo: string;
+  sponsor_logo: string;
 }
 
 export default function DashboardPage() {
@@ -27,7 +31,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
+    const token = getAccessToken();
     let ignore = false;
 
     if (!token) {
@@ -64,10 +68,9 @@ export default function DashboardPage() {
   }, [router]);
 
   function handleLogout() {
-    localStorage.removeItem("token");
-    localStorage.removeItem("email");
-
-    router.push("/login");
+    void logoutSession().finally(() => {
+      router.push("/login");
+    });
   }
 
   return (
@@ -106,14 +109,24 @@ export default function DashboardPage() {
             {competitions.map((competition) => (
               <div
                 key={competition.id}
-                className="bg-white rounded-3xl shadow-xl p-6"
+                className="relative overflow-hidden rounded-3xl bg-white p-6 shadow-xl"
               >
+                {competition.organizer_logo && (
+                  <Image
+                    src={competition.organizer_logo}
+                    alt=""
+                    fill
+                    sizes="(min-width: 1024px) 33vw, (min-width: 768px) 50vw, 100vw"
+                    className="pointer-events-none object-contain object-center p-3 opacity-10"
+                    unoptimized
+                  />
+                )}
 
-                <h3 className="text-2xl font-bold text-black mb-4">
+                <h3 className="relative z-10 text-2xl font-bold text-black mb-4">
                   {competition.name}
                 </h3>
 
-                <div className="space-y-2 mb-6">
+                <div className="relative z-10 space-y-2 mb-6">
 
                   <p className="text-gray-700">
                     📅 {competition.date}
@@ -127,7 +140,7 @@ export default function DashboardPage() {
 
                 <Link
                   href={`/competitions/${competition.id}`}
-                  className="block w-full text-center bg-green-900 text-white py-3 rounded-xl font-semibold hover:bg-green-800 transition"
+                  className="relative z-10 block w-full text-center bg-green-900 text-white py-3 rounded-xl font-semibold hover:bg-green-800 transition"
                 >
                   Zapisz się
                 </Link>

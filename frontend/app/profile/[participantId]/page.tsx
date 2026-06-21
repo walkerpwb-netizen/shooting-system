@@ -7,13 +7,16 @@ import { useParams } from "next/navigation";
 import AchievementsSection from "../AchievementsSection";
 import type { Achievement } from "../AchievementsSection";
 import { apiUrl } from "@/lib/api";
+import { getAccessToken } from "@/lib/auth";
 
 type ParticipantProfile = {
   participant_id: number;
+  user_id?: number;
   first_name: string;
   last_name: string;
   club: string;
   is_owner: boolean;
+  can_view_private?: boolean;
   email: string;
   role: string;
   roles: string[];
@@ -27,6 +30,7 @@ type ParticipantProfile = {
   birth_date: string;
   phone_number: string;
   requested_role: string;
+  profile_photo_url: string;
   profile_complete: boolean;
   achievements: Achievement[];
 };
@@ -94,6 +98,19 @@ function displayValue(value: string, fallback = "Brak") {
   return value.trim() || fallback;
 }
 
+function profilePhotoSrc(photoUrl: string) {
+  return photoUrl ? apiUrl(photoUrl) : "";
+}
+
+function profileApiPath(profileId: string) {
+  const userIdMatch = profileId.match(/^user-(\d+)$/);
+
+  if (userIdMatch) {
+    return `/users/${userIdMatch[1]}/profile`;
+  }
+
+  return `/participants/${profileId}/profile`;
+}
 function applyProfileSettings(settings: ProfileSettings) {
   Object.entries(profileCssVariableNames).forEach(([key, variableName]) => {
     document.documentElement.style.setProperty(
@@ -110,14 +127,14 @@ export default function ParticipantProfilePage() {
 
   useEffect(() => {
     const participantId = params.participantId;
-    const token = localStorage.getItem("token");
+    const token = getAccessToken();
     let ignore = false;
 
     async function loadProfile() {
       try {
         const [profileResponse, profileSettingsResponse] = await Promise.all([
           fetch(
-            apiUrl(`/participants/${participantId}/profile`),
+            apiUrl(profileApiPath(participantId)),
             {
               cache: "no-store",
               headers: token
@@ -175,6 +192,7 @@ export default function ParticipantProfilePage() {
   const rolesText = profile?.roles
     .map((role) => profileRoleLabels[role] || role)
     .join(", ");
+  const showPrivateData = Boolean(profile && (profile.is_owner || profile.can_view_private));
   const hasShooterRole = Boolean(
     profile
     && (profile.profile_complete || profile.roles.includes("shooter"))
@@ -214,22 +232,22 @@ export default function ParticipantProfilePage() {
                 value={profile.no_club ? "Nie posiada" : displayValue(profile.club)}
               />
 
-              {profile.is_owner && (
+              {showPrivateData && (
                 <div className="ui-profile-fields pt-2">
                   <ProfileField
-                    label="email"
+                    label="E-mail"
                     value={profile.email}
                   />
 
                   <ProfileField
-                    label="Nr. Licencji Zawodniczej"
+                    label="Nr licencji zawodniczej"
                     value={profile.no_license ? "Nie posiada" : displayValue(profile.license_number)}
                   />
 
                   {showJudgeData && (
                     <>
                       <ProfileField
-                        label="Nr. licencji sędziowskiej"
+                        label="Nr licencji sędziowskiej"
                         value={displayValue(profile.judge_license_number)}
                       />
 
@@ -261,8 +279,19 @@ export default function ParticipantProfilePage() {
             </dl>
           </aside>
 
-          <section className="flex min-w-0 flex-col items-center text-center">
+          <section className="flex min-w-0 flex-col items-center gap-8 text-center">
             <AchievementsSection achievements={profile.achievements || []} />
+
+            {profile.profile_photo_url && (
+              <>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={profilePhotoSrc(profile.profile_photo_url)}
+                  alt="Zdjęcie profilowe"
+                  className="h-40 w-40 border border-zinc-300 object-cover dark:border-red-950"
+                />
+              </>
+            )}
           </section>
         </div>
       ) : (

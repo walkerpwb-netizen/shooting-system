@@ -1,13 +1,16 @@
 "use client";
 
+import Image from "next/image";
+import Link from "next/link";
+import type { FormEvent } from "react";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { apiUrl } from "@/lib/api";
-import { isAdmin } from "@/lib/auth";
+import { getAccessToken, isAdmin } from "@/lib/auth";
 import QrCodeScanner from "@/components/QrCodeScanner";
 
-type AdminTab = "users" | "competitions" | "settings" | "monitoring" | "qr-scanner" | "test-data";
+type AdminTab = "users" | "pzss-clubs" | "competitions" | "settings" | "ads" | "monitoring" | "qr-scanner" | "test-data";
 type UserSortField = "name" | "status" | "role" | "account" | "phone";
 type SortDirection = "asc" | "desc";
 
@@ -23,7 +26,38 @@ type AdminUser = {
   phone_number: string;
   requested_role: string;
   password_reset_required: boolean;
+  premium_until: string;
+  premium_disabled: boolean;
   status: "online" | "offline";
+  last_seen: string;
+};
+
+type AdminPzssClub = {
+  id: number;
+  email: string;
+  short_name: string;
+  full_name: string;
+  phone_number: string;
+  license_number: string;
+  status: string;
+  is_active: boolean;
+};
+
+type AdminUserInfoRow = {
+  label: string;
+  value: string;
+};
+
+type AdminUserInfoSection = {
+  title: string;
+  rows: AdminUserInfoRow[];
+};
+
+type AdminUserInfo = {
+  id: number;
+  email: string;
+  display_name: string;
+  sections: AdminUserInfoSection[];
 };
 
 type AdminDiscipline = {
@@ -31,9 +65,14 @@ type AdminDiscipline = {
   name: string;
   description: string;
   scoring_type: string;
+  discipline_type: string;
+  discipline_type_label?: string;
   shots_count: number;
+  trap_series_count?: number;
+  clay_series_count?: number;
   ammo_type: string;
   ammo_price: string;
+  clay_price?: string;
   entry_fee: string;
 };
 
@@ -43,6 +82,10 @@ type AdminCompetition = {
   date: string;
   location: string;
   entry_fee: string;
+  organizer_logo: string;
+  sponsor_logo: string;
+  participant_limit: number | null;
+  participants_count: number;
   status: string;
   created_by: string;
   organizer: {
@@ -77,6 +120,41 @@ type MonitoringLog = {
   exists: boolean;
   size_bytes: number;
   modified_at: string;
+};
+
+type AdReportSlotTotal = {
+  slot: string;
+  label: string;
+  impressions: number;
+  clicks: number;
+};
+
+type AdReportDeviceTotal = {
+  device: string;
+  impressions: number;
+  clicks: number;
+};
+
+type AdReportRow = {
+  date: string;
+  slot: string;
+  label: string;
+  device: string;
+  impressions: number;
+  clicks: number;
+  ctr: number;
+};
+
+type AdReportData = {
+  days: number;
+  start_date: string;
+  generated_at: string;
+  total_impressions: number;
+  total_clicks: number;
+  ctr: number;
+  totals_by_slot: AdReportSlotTotal[];
+  totals_by_device: AdReportDeviceTotal[];
+  rows: AdReportRow[];
 };
 
 type MonitoringData = {
@@ -144,6 +222,20 @@ type ProfileSettings = {
   achievement_gap: string;
 };
 
+type ActivationEmailTemplate = {
+  subject: string;
+  text_body: string;
+  html_body: string;
+};
+
+const activationLinkPlaceholder = "{{activation_link}}";
+
+const defaultActivationEmailTemplate: ActivationEmailTemplate = {
+  subject: "Aktywacja konta w Systemie Strzeleckim",
+  text_body: `Cześć,\n\nDziękujemy za rejestrację w Systemie Strzeleckim. Aby aktywować konto, otwórz link:\n${activationLinkPlaceholder}\n\nJeśli to nie Ty zakładałeś konto, zignoruj tę wiadomość.`,
+  html_body: `<p>Cześć,</p>\n<p>Dziękujemy za rejestrację w Systemie Strzeleckim.</p>\n<p><a href="${activationLinkPlaceholder}">Aktywuj konto</a></p>\n<p>Jeśli to nie Ty zakładałeś konto, zignoruj tę wiadomość.</p>`,
+};
+
 const roles = [
   "user",
   "shooter",
@@ -164,6 +256,8 @@ const requestedRoleLabels: Record<string, string> = {
   organizer: "organizator",
   judge: "sędzia",
 };
+
+const adReportPeriodOptions = [30, 90, 180, 365];
 
 const competitionStatusLabels: Record<string, string> = {
   draft: "szkic",
@@ -235,16 +329,26 @@ export default function AdminClient({
 
   const [activeTab, setActiveTab] = useState<AdminTab>(initialTab);
   const [users, setUsers] = useState<AdminUser[]>([]);
+  const [pzssClubs, setPzssClubs] = useState<AdminPzssClub[]>([]);
+  const [clubLicenseInputs, setClubLicenseInputs] = useState<Record<number, string>>({});
   const [competitions, setCompetitions] = useState<AdminCompetition[]>([]);
   const [monitoring, setMonitoring] = useState<MonitoringData | null>(null);
+  const [adReport, setAdReport] = useState<AdReportData | null>(null);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
+  const [newUserEmail, setNewUserEmail] = useState("");
+  const [newUserPassword, setNewUserPassword] = useState("");
+  const [creatingUser, setCreatingUser] = useState(false);
+  const [selectedUserInfo, setSelectedUserInfo] = useState<AdminUserInfo | null>(null);
+  const [userInfoLoadingId, setUserInfoLoadingId] = useState<number | null>(null);
   const [userSearch, setUserSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [accountFilter, setAccountFilter] = useState("all");
   const [userSortField, setUserSortField] = useState<UserSortField>("name");
   const [userSortDirection, setUserSortDirection] = useState<SortDirection>("asc");
+  const [adReportDays, setAdReportDays] = useState(30);
+  const [adReportPdfDownloading, setAdReportPdfDownloading] = useState(false);
   const [expandedCompetitionId, setExpandedCompetitionId] = useState<number | null>(null);
   const [currentAdminEmail] = useState(() =>
     typeof window === "undefined"
@@ -254,6 +358,8 @@ export default function AdminClient({
   const [resultsTableSettings, setResultsTableSettings] = useState<ResultsTableSettings>(defaultResultsTableSettings);
   const [uiSettings, setUiSettings] = useState<UiSettings>(defaultUiSettings);
   const [profileSettings, setProfileSettings] = useState<ProfileSettings>(defaultProfileSettings);
+  const [activationEmailTemplate, setActivationEmailTemplate] = useState<ActivationEmailTemplate>(defaultActivationEmailTemplate);
+  const [emailAssetUploading, setEmailAssetUploading] = useState(false);
   const [testCompetitionStatus, setTestCompetitionStatus] = useState("started");
   const [testCompetitionParticipants, setTestCompetitionParticipants] = useState(12);
   const [testCompetitionDisciplines, setTestCompetitionDisciplines] = useState(3);
@@ -284,7 +390,7 @@ export default function AdminClient({
       return;
     }
 
-    const token = localStorage.getItem("token");
+    const token = getAccessToken();
     let ignore = false;
 
     if (!token) {
@@ -294,9 +400,17 @@ export default function AdminClient({
 
     async function loadAdminData() {
       try {
-        const [usersResponse, competitionsResponse, tableSettingsResponse, uiSettingsResponse, profileSettingsResponse, monitoringResponse] = await Promise.all([
+        const [usersResponse, pzssClubsResponse, competitionsResponse, tableSettingsResponse, uiSettingsResponse, profileSettingsResponse, activationEmailResponse, monitoringResponse, adReportResponse] = await Promise.all([
           fetch(
             apiUrl("/admin/users"),
+            {
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            }
+          ),
+          fetch(
+            apiUrl("/admin/pzss-clubs"),
             {
               headers: {
                 Authorization: `Bearer ${token}`,
@@ -336,7 +450,23 @@ export default function AdminClient({
             }
           ),
           fetch(
+            apiUrl("/admin/settings/activation-email"),
+            {
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            }
+          ),
+          fetch(
             apiUrl("/admin/monitoring"),
+            {
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            }
+          ),
+          fetch(
+            apiUrl("/admin/ad-report?days=30"),
             {
               headers: {
                 Authorization: `Bearer ${token}`,
@@ -346,11 +476,14 @@ export default function AdminClient({
         ]);
 
         const usersData = await usersResponse.json();
+        const pzssClubsData = await pzssClubsResponse.json();
         const competitionsData = await competitionsResponse.json();
         const tableSettingsData = await tableSettingsResponse.json();
         const uiSettingsData = await uiSettingsResponse.json();
         const profileSettingsData = await profileSettingsResponse.json();
+        const activationEmailData = await activationEmailResponse.json();
         const monitoringData = await monitoringResponse.json();
+        const adReportData = await adReportResponse.json();
 
         if (ignore) {
           return;
@@ -358,6 +491,11 @@ export default function AdminClient({
 
         if (!usersResponse.ok) {
           setMessage(usersData.detail || "Nie udało się pobrać użytkowników ❌");
+          return;
+        }
+
+        if (!pzssClubsResponse.ok) {
+          setMessage(pzssClubsData.detail || "Nie udało się pobrać klubów PZSS ❌");
           return;
         }
 
@@ -381,14 +519,29 @@ export default function AdminClient({
           return;
         }
 
+        if (!activationEmailResponse.ok) {
+          setMessage(activationEmailData.detail || "Nie udało się pobrać szablonu e-maila ❌");
+          return;
+        }
+
         if (!monitoringResponse.ok) {
           setMessage(monitoringData.detail || "Nie udało się pobrać monitoringu ❌");
           return;
         }
 
+        if (!adReportResponse.ok) {
+          setMessage(adReportData.detail || "Nie udało się pobrać raportu reklam ❌");
+          return;
+        }
+
         setUsers(usersData);
+        setPzssClubs(pzssClubsData);
+        setClubLicenseInputs(Object.fromEntries(
+          pzssClubsData.map((club: AdminPzssClub) => [club.id, club.license_number || ""])
+        ));
         setCompetitions(competitionsData);
         setMonitoring(monitoringData);
+        setAdReport(adReportData);
         setResultsTableSettings({
           grid_template_columns: tableSettingsData.grid_template_columns || defaultResultsTableSettings.grid_template_columns,
           min_width: tableSettingsData.min_width || defaultResultsTableSettings.min_width,
@@ -415,6 +568,11 @@ export default function AdminClient({
           achievement_icon_size: profileSettingsData.achievement_icon_size || defaultProfileSettings.achievement_icon_size,
           achievement_gap: profileSettingsData.achievement_gap || defaultProfileSettings.achievement_gap,
         });
+        setActivationEmailTemplate({
+          subject: activationEmailData.subject || defaultActivationEmailTemplate.subject,
+          text_body: activationEmailData.text_body || defaultActivationEmailTemplate.text_body,
+          html_body: activationEmailData.html_body || defaultActivationEmailTemplate.html_body,
+        });
       } catch (error) {
         console.error(error);
 
@@ -435,11 +593,55 @@ export default function AdminClient({
     };
   }, [router]);
 
+  async function updateUserPremiumDisabled(
+    userId: number,
+    premiumDisabled: boolean
+  ) {
+    const token = getAccessToken();
+
+    try {
+      setMessage("");
+
+      const response = await fetch(
+        apiUrl(`/admin/users/${userId}/premium-disabled`),
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            premium_disabled: premiumDisabled,
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.detail || "Nie udało się zmienić statusu premium ❌");
+        return;
+      }
+
+      setUsers((currentUsers) =>
+        currentUsers.map((user) =>
+          user.id === userId
+            ? data
+            : user
+        )
+      );
+      setMessage(premiumDisabled ? "Premium użytkownika wyłączone ✅" : "Premium użytkownika przywrócone ✅");
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    }
+  }
+
   async function updateUserRoles(
     userId: number,
     roles: string[]
   ) {
-    const token = localStorage.getItem("token");
+    const token = getAccessToken();
 
     try {
       setMessage("");
@@ -521,8 +723,78 @@ export default function AdminClient({
     setCompetitions(data);
   }
 
+  async function reloadAdReport(days = adReportDays) {
+    const token = getAccessToken();
+
+    try {
+      setMessage("");
+
+      const response = await fetch(
+        apiUrl(`/admin/ad-report?days=${days}`),
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.detail || "Nie udało się odświeżyć raportu reklam ❌");
+        return;
+      }
+
+      setAdReport(data);
+      setAdReportDays(data.days || days);
+      setMessage("Raport reklam odświeżony");
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    }
+  }
+
+  async function downloadAdReportPdf(days = adReportDays) {
+    const token = getAccessToken();
+
+    try {
+      setMessage("");
+      setAdReportPdfDownloading(true);
+
+      const response = await fetch(
+        apiUrl(`/admin/ad-report.pdf?days=${days}`),
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        setMessage(data?.detail || "Nie udało się wygenerować PDF raportu reklam ❌");
+        return;
+      }
+
+      const blob = await response.blob();
+      const fileUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = fileUrl;
+      link.download = `raport-reklam-${days}-dni.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(fileUrl);
+      setMessage("PDF raportu reklam wygenerowany");
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    } finally {
+      setAdReportPdfDownloading(false);
+    }
+  }
+
   async function reloadMonitoring() {
-    const token = localStorage.getItem("token");
+    const token = getAccessToken();
 
     try {
       setMessage("");
@@ -569,6 +841,91 @@ export default function AdminClient({
     updateUserRoles(user.id, nextRoles);
   }
 
+  async function approvePzssClub(clubId: number) {
+    const licenseNumber = (clubLicenseInputs[clubId] || "").trim();
+
+    if (!licenseNumber) {
+      setMessage("Podaj numer licencji klubowej PZSS ❌");
+      return;
+    }
+
+    const token = getAccessToken();
+
+    try {
+      setMessage("");
+
+      const response = await fetch(
+        apiUrl(`/admin/pzss-clubs/${clubId}/approve`),
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            license_number: licenseNumber,
+          }),
+        }
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.detail || "Nie udało się zatwierdzić klubu PZSS ❌");
+        return;
+      }
+
+      setPzssClubs((currentClubs) => currentClubs.map((club) => (
+        club.id === clubId ? data : club
+      )));
+      setClubLicenseInputs((currentInputs) => ({
+        ...currentInputs,
+        [clubId]: data.license_number || licenseNumber,
+      }));
+      setMessage("Klub PZSS zatwierdzony ✅");
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    }
+  }
+
+  async function rejectPzssClub(clubId: number) {
+    const confirmed = window.confirm("Czy oznaczyć ten klub PZSS jako odrzucony?");
+
+    if (!confirmed) {
+      return;
+    }
+
+    const token = getAccessToken();
+
+    try {
+      setMessage("");
+
+      const response = await fetch(
+        apiUrl(`/admin/pzss-clubs/${clubId}/reject`),
+        {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.detail || "Nie udało się odrzucić klubu PZSS ❌");
+        return;
+      }
+
+      setPzssClubs((currentClubs) => currentClubs.map((club) => (
+        club.id === clubId ? data : club
+      )));
+      setMessage("Klub PZSS odrzucony");
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    }
+  }
+
   async function deleteCompetition(competitionId: number) {
     const confirmed = window.confirm(
       "Czy na pewno chcesz usunąć te zawody jako administrator?"
@@ -578,7 +935,7 @@ export default function AdminClient({
       return;
     }
 
-    const token = localStorage.getItem("token");
+    const token = getAccessToken();
 
     try {
       setMessage("");
@@ -613,7 +970,7 @@ export default function AdminClient({
   }
 
   async function approveRoleRequest(userId: number) {
-    const token = localStorage.getItem("token");
+    const token = getAccessToken();
 
     try {
       setMessage("");
@@ -650,7 +1007,7 @@ export default function AdminClient({
   }
 
   async function rejectRoleRequest(userId: number) {
-    const token = localStorage.getItem("token");
+    const token = getAccessToken();
 
     try {
       setMessage("");
@@ -687,7 +1044,7 @@ export default function AdminClient({
   }
 
   async function saveResultsTableSettings() {
-    const token = localStorage.getItem("token");
+    const token = getAccessToken();
 
     try {
       setMessage("");
@@ -723,7 +1080,7 @@ export default function AdminClient({
   }
 
   async function saveUiSettings() {
-    const token = localStorage.getItem("token");
+    const token = getAccessToken();
 
     try {
       setMessage("");
@@ -769,7 +1126,7 @@ export default function AdminClient({
   }
 
   async function saveProfileSettings() {
-    const token = localStorage.getItem("token");
+    const token = getAccessToken();
 
     try {
       setMessage("");
@@ -811,6 +1168,168 @@ export default function AdminClient({
     }
   }
 
+  async function saveActivationEmailTemplate() {
+    const token = getAccessToken();
+
+    if (
+      !activationEmailTemplate.text_body.includes(activationLinkPlaceholder)
+      || !activationEmailTemplate.html_body.includes(activationLinkPlaceholder)
+    ) {
+      setMessage(`W obu wersjach wiadomości musi pozostać znacznik ${activationLinkPlaceholder} ❌`);
+      return;
+    }
+
+    try {
+      setMessage("");
+      const response = await fetch(
+        apiUrl("/admin/settings/activation-email"),
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(activationEmailTemplate),
+        }
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.detail || "Nie udało się zapisać szablonu e-maila ❌");
+        return;
+      }
+
+      setActivationEmailTemplate(data);
+      setMessage("Szablon e-maila aktywacyjnego zapisany i od razu aktywny ✅");
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    }
+  }
+
+  async function uploadActivationEmailAsset(file: File) {
+    const token = getAccessToken();
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      setMessage("");
+      setEmailAssetUploading(true);
+      const response = await fetch(
+        apiUrl("/admin/settings/activation-email/assets"),
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          body: formData,
+        }
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.detail || "Nie udało się dodać grafiki ❌");
+        return;
+      }
+
+      setActivationEmailTemplate((current) => ({
+        ...current,
+        html_body: `${current.html_body}\n<p><img src="${data.url}" alt="" style="display:block;max-width:100%;height:auto;"></p>`,
+      }));
+      setMessage("Grafika dodana do treści HTML. Zapisz szablon, aby ją opublikować ✅");
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    } finally {
+      setEmailAssetUploading(false);
+    }
+  }
+
+  async function createActiveUser(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const email = newUserEmail.trim();
+
+    if (!email || !newUserPassword) {
+      setMessage("Podaj e-mail i hasło dla nowego konta ❌");
+      return;
+    }
+
+    if (newUserPassword.length < 6) {
+      setMessage("Hasło musi mieć minimum 6 znaków ❌");
+      return;
+    }
+
+    const token = getAccessToken();
+
+    try {
+      setMessage("");
+      setCreatingUser(true);
+
+      const response = await fetch(
+        apiUrl("/admin/users"),
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            email,
+            password: newUserPassword,
+          }),
+        }
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.detail || "Nie udało się utworzyć użytkownika ❌");
+        return;
+      }
+
+      setUsers((currentUsers) => [...currentUsers, data.user]);
+      setNewUserEmail("");
+      setNewUserPassword("");
+      setMessage(`${data.message}. Konto jest aktywne i gotowe do logowania ✅`);
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    } finally {
+      setCreatingUser(false);
+    }
+  }
+
+  async function openUserInfo(user: AdminUser) {
+    const token = getAccessToken();
+
+    try {
+      setMessage("");
+      setUserInfoLoadingId(user.id);
+
+      const response = await fetch(
+        apiUrl(`/admin/users/${user.id}/info`),
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.detail || "Nie udało się pobrać informacji o użytkowniku ❌");
+        return;
+      }
+
+      setSelectedUserInfo(data);
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    } finally {
+      setUserInfoLoadingId(null);
+    }
+  }
+
   async function resetUserPassword(user: AdminUser) {
     const confirmed = window.confirm(
       `Czy wysłać link resetowania hasła do użytkownika ${getUserName(user)}?`
@@ -820,7 +1339,7 @@ export default function AdminClient({
       return;
     }
 
-    const token = localStorage.getItem("token");
+    const token = getAccessToken();
 
     try {
       setMessage("");
@@ -871,7 +1390,7 @@ export default function AdminClient({
       return;
     }
 
-    const token = localStorage.getItem("token");
+    const token = getAccessToken();
 
     try {
       setMessage("");
@@ -904,7 +1423,7 @@ export default function AdminClient({
   }
 
   async function generateTestCompetition() {
-    const token = localStorage.getItem("token");
+    const token = getAccessToken();
 
     try {
       setTestWorking(true);
@@ -950,7 +1469,7 @@ export default function AdminClient({
       return;
     }
 
-    const token = localStorage.getItem("token");
+    const token = getAccessToken();
 
     try {
       setTestWorking(true);
@@ -981,7 +1500,7 @@ export default function AdminClient({
       }
 
       await reloadCompetitions(token);
-      setMessage(`Dodano zawodników: ${data.participants_count}, wyniki: ${data.results_count} ✅`);
+      setMessage(`Dodano zawodników: ${data.participants_count}, razem w zawodach: ${data.total_participants_count ?? "?"}, wyniki: ${data.results_count} ✅`);
     } catch (error) {
       console.error(error);
       setMessage("Błąd połączenia z serwerem ❌");
@@ -996,7 +1515,7 @@ export default function AdminClient({
       return;
     }
 
-    const token = localStorage.getItem("token");
+    const token = getAccessToken();
 
     try {
       setTestWorking(true);
@@ -1046,7 +1565,7 @@ export default function AdminClient({
       return;
     }
 
-    const token = localStorage.getItem("token");
+    const token = getAccessToken();
 
     try {
       setTestWorking(true);
@@ -1081,6 +1600,24 @@ export default function AdminClient({
     return user.last_name || user.first_name
       ? `${user.last_name} ${user.first_name}`.trim()
       : user.email;
+  }
+
+  function formatPremiumUntil(value: string) {
+    if (!value) {
+      return "brak daty";
+    }
+
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+      return value;
+    }
+
+    return new Intl.DateTimeFormat("pl-PL", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    }).format(date);
   }
 
   function getSortValue(user: AdminUser, field: UserSortField) {
@@ -1158,6 +1695,23 @@ export default function AdminClient({
     ).format(new Date(value));
   }
 
+  function formatNumber(value: number) {
+    return value.toLocaleString("pl-PL");
+  }
+
+  function formatCtr(value: number) {
+    return `${value.toLocaleString("pl-PL", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}%`;
+  }
+
+  function deviceLabel(device: string) {
+    return device === "mobile"
+      ? "Mobile"
+      : "Desktop";
+  }
+
   function formatDuration(milliseconds: number | null) {
     if (!milliseconds || milliseconds < 0) {
       return "brak";
@@ -1228,11 +1782,11 @@ export default function AdminClient({
     <main className="min-h-screen px-6 py-10">
       <div className="max-w-7xl mx-auto">
         <div className="mb-8">
-          <h1 className="text-5xl font-bold text-white mb-2">
+          <h1 className="text-5xl font-bold text-zinc-950 dark:text-white mb-2">
             Panel Administratora
           </h1>
 
-          <p className="text-gray-400">
+          <p className="text-zinc-600 dark:text-gray-400">
             Zarządzaj użytkownikami, rolami i wszystkimi zawodami w systemie.
           </p>
         </div>
@@ -1248,6 +1802,18 @@ export default function AdminClient({
             }`}
           >
             Użytkownicy
+          </button>
+
+          <button
+            type="button"
+            onClick={() => selectTab("pzss-clubs")}
+            className={`ui-button min-w-0 px-5 py-3 rounded-xl font-bold transition ${
+              activeTab === "pzss-clubs"
+                ? "bg-green-700 text-white"
+                : "bg-zinc-800 text-gray-300 hover:bg-zinc-700"
+            }`}
+          >
+            Kluby PZSS
           </button>
 
           <button
@@ -1272,6 +1838,18 @@ export default function AdminClient({
             }`}
           >
             Settings
+          </button>
+
+          <button
+            type="button"
+            onClick={() => selectTab("ads")}
+            className={`ui-button min-w-0 px-5 py-3 rounded-xl font-bold transition ${
+              activeTab === "ads"
+                ? "bg-green-700 text-white"
+                : "bg-zinc-800 text-gray-300 hover:bg-zinc-700"
+            }`}
+          >
+            Reklamy
           </button>
 
           <button
@@ -1323,13 +1901,58 @@ export default function AdminClient({
           </p>
         ) : activeTab === "users" ? (
           <section className="space-y-4">
+            <form
+              onSubmit={createActiveUser}
+              className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5"
+            >
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                <div>
+                  <h2 className="text-xl font-bold text-white">
+                    Dodaj konto testowe
+                  </h2>
+
+                  <p className="mt-1 text-sm text-gray-400">
+                    Konto zostanie utworzone jako aktywne i będzie gotowe do logowania bez maila aktywacyjnego.
+                  </p>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-[minmax(0,18rem)_minmax(0,14rem)_auto]">
+                  <input
+                    type="email"
+                    value={newUserEmail}
+                    onChange={(event) => setNewUserEmail(event.target.value)}
+                    placeholder="e-mail użytkownika"
+                    autoComplete="off"
+                    className="bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
+                  />
+
+                  <input
+                    type="password"
+                    value={newUserPassword}
+                    onChange={(event) => setNewUserPassword(event.target.value)}
+                    placeholder="hasło"
+                    autoComplete="new-password"
+                    className="bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
+                  />
+
+                  <button
+                    type="submit"
+                    disabled={creatingUser}
+                    className="ui-button bg-green-700 hover:bg-green-600 disabled:bg-zinc-700 disabled:cursor-not-allowed text-white px-5 py-3 rounded-xl font-semibold transition"
+                  >
+                    {creatingUser ? "Tworzę..." : "Dodaj konto"}
+                  </button>
+                </div>
+              </div>
+            </form>
+
             <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
               <div className="grid lg:grid-cols-[2fr_1fr_1fr_1fr] gap-3">
                 <input
                   type="search"
                   value={userSearch}
                   onChange={(event) => setUserSearch(event.target.value)}
-                  placeholder="Filtruj po nazwisku, imieniu, emailu, klubie lub telefonie"
+                  placeholder="Filtruj po nazwisku, imieniu, e-mailu, klubie lub telefonie"
                   className="bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
                 />
 
@@ -1390,8 +2013,8 @@ export default function AdminClient({
               </p>
             </div>
 
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
-              <div className="grid grid-cols-[1.4fr_0.8fr_1fr_0.8fr_0.9fr_1.2fr_1.2fr] gap-4 px-5 py-4 text-sm font-bold text-gray-400 border-b border-zinc-800">
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-x-auto">
+              <div className="grid min-w-[1280px] grid-cols-[1.4fr_0.7fr_1fr_0.8fr_1fr_0.9fr_1.1fr_1.1fr] gap-4 px-5 py-4 text-sm font-bold text-gray-400 border-b border-zinc-800">
                 <button
                   type="button"
                   onClick={() => sortUsers("name")}
@@ -1424,6 +2047,8 @@ export default function AdminClient({
                   Konto {getSortMark("account")}
                 </button>
 
+                <p>Premium</p>
+
                 <button
                   type="button"
                   onClick={() => sortUsers("phone")}
@@ -1444,16 +2069,19 @@ export default function AdminClient({
             ) : filteredUsers.map((user) => (
               <div
                 key={user.id}
-                className={`grid grid-cols-[1.4fr_0.8fr_1fr_0.8fr_0.9fr_1.2fr_1.2fr] gap-4 px-5 py-4 items-center border-b border-zinc-800 last:border-b-0 ${
+                className={`grid min-w-[1280px] grid-cols-[1.4fr_0.7fr_1fr_0.8fr_1fr_0.9fr_1.1fr_1.1fr] gap-4 px-5 py-4 items-center border-b border-zinc-800 last:border-b-0 ${
                   user.requested_role
                     ? "bg-yellow-950/20"
                     : ""
                 }`}
               >
                 <div>
-                  <p className="text-white font-bold">
+                  <Link
+                    href={`/profile/user-${user.id}`}
+                    className="inline-block text-white font-bold underline-offset-4 transition hover:text-red-300 hover:underline"
+                  >
                     {getUserName(user)}
-                  </p>
+                  </Link>
 
                   <p className="text-gray-400 text-sm">
                     {user.email}
@@ -1466,15 +2094,23 @@ export default function AdminClient({
                   )}
                 </div>
 
-                <p className={`font-bold ${
-                  user.status === "online"
-                    ? "text-green-400"
-                    : "text-gray-500"
-                }`}>
-                  {user.status === "online"
-                    ? "online"
-                    : "offline"}
-                </p>
+                <div>
+                  <p className={`font-bold ${
+                    user.status === "online"
+                      ? "text-green-400"
+                      : "text-gray-500"
+                  }`}>
+                    {user.status === "online"
+                      ? "online"
+                      : "offline"}
+                  </p>
+
+                  {user.status === "offline" && (
+                    <p className="mt-1 text-xs text-gray-500">
+                      Ostatnio online: {formatDateTime(user.last_seen)}
+                    </p>
+                  )}
+                </div>
 
                 <div className="space-y-2">
                   {roles.map((role) => {
@@ -1515,6 +2151,28 @@ export default function AdminClient({
                       : "nieaktywne"}
                 </p>
 
+                <div className="space-y-1 text-sm">
+                  <label className="flex items-center gap-2 text-gray-200">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(user.premium_disabled)}
+                      onChange={(event) => updateUserPremiumDisabled(
+                        user.id,
+                        event.target.checked
+                      )}
+                      className="accent-red-700"
+                    />
+
+                    <span>
+                      Wyłącz
+                    </span>
+                  </label>
+
+                  <p className={Boolean(user.premium_disabled) ? "text-red-300" : "text-gray-400"}>
+                    do {formatPremiumUntil(user.premium_until)}
+                  </p>
+                </div>
+
                 <p className="text-gray-300">
                   {user.phone_number || "brak"}
                 </p>
@@ -1552,6 +2210,15 @@ export default function AdminClient({
                 <div className="flex flex-col gap-2">
                   <button
                     type="button"
+                    onClick={() => openUserInfo(user)}
+                    disabled={userInfoLoadingId === user.id}
+                    className="bg-zinc-700 hover:bg-zinc-600 disabled:opacity-50 disabled:cursor-not-allowed text-white px-3 py-2 rounded-lg text-sm font-semibold transition"
+                  >
+                    {userInfoLoadingId === user.id ? "Ładuję..." : "Info"}
+                  </button>
+
+                  <button
+                    type="button"
                     onClick={() => resetUserPassword(user)}
                     className="bg-blue-700 hover:bg-blue-600 text-white px-3 py-2 rounded-lg text-sm font-semibold transition"
                   >
@@ -1569,6 +2236,86 @@ export default function AdminClient({
                 </div>
               </div>
             ))}
+            </div>
+          </section>
+        ) : activeTab === "pzss-clubs" ? (
+          <section className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-x-auto">
+            <div className="min-w-[1100px]">
+              <div className="grid grid-cols-[1fr_1.4fr_1fr_0.9fr_1fr_1.2fr] gap-4 px-5 py-4 text-sm font-bold text-gray-400 border-b border-zinc-800">
+                <p>Nazwa skrócona</p>
+                <p>Nazwa pełna</p>
+                <p>Kontakt</p>
+                <p>Status</p>
+                <p>Licencja klubowa</p>
+                <p>Akcje</p>
+              </div>
+
+              {pzssClubs.length === 0 ? (
+                <p className="px-5 py-6 text-gray-400">
+                  Brak zarejestrowanych klubów PZSS.
+                </p>
+              ) : pzssClubs.map((club) => (
+                <div
+                  key={club.id}
+                  className={`grid grid-cols-[1fr_1.4fr_1fr_0.9fr_1fr_1.2fr] gap-4 px-5 py-4 items-center border-b border-zinc-800 last:border-b-0 ${
+                    club.status === "pending" ? "bg-yellow-950/20" : ""
+                  }`}
+                >
+                  <div>
+                    <p className="text-white font-bold">
+                      {club.short_name || "brak"}
+                    </p>
+                    <p className="text-sm text-gray-500">
+                      ID {club.id}
+                    </p>
+                  </div>
+
+                  <p className="text-gray-300">
+                    {club.full_name || "brak"}
+                  </p>
+
+                  <div className="text-sm">
+                    <p className="text-gray-300">
+                      {club.email}
+                    </p>
+                    <p className="text-gray-500">
+                      {club.phone_number || "brak telefonu"}
+                    </p>
+                  </div>
+
+                  <p className={club.status === "approved" ? "font-bold text-green-400" : club.status === "rejected" ? "font-bold text-red-400" : "font-bold text-yellow-300"}>
+                    {club.status === "approved" ? "zweryfikowany" : club.status === "rejected" ? "odrzucony" : "oczekuje"}
+                  </p>
+
+                  <input
+                    value={clubLicenseInputs[club.id] || ""}
+                    onChange={(event) => setClubLicenseInputs((currentInputs) => ({
+                      ...currentInputs,
+                      [club.id]: event.target.value,
+                    }))}
+                    placeholder="nr licencji PZSS"
+                    className="bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
+                  />
+
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => approvePzssClub(club.id)}
+                      className="bg-green-700 hover:bg-green-600 text-white px-3 py-2 rounded-lg text-sm font-semibold transition"
+                    >
+                      Zatwierdź
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => rejectPzssClub(club.id)}
+                      className="bg-zinc-700 hover:bg-zinc-600 text-white px-3 py-2 rounded-lg text-sm font-semibold transition"
+                    >
+                      Odrzuć
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
           </section>
         ) : activeTab === "competitions" ? (
@@ -1602,9 +2349,20 @@ export default function AdminClient({
                 return (
                   <div
                     key={competition.id}
-                    className="border-b border-zinc-800 last:border-b-0"
+                    className="relative overflow-hidden border-b border-zinc-800 last:border-b-0"
                   >
-                    <div className="grid grid-cols-[1.5fr_1fr_1.2fr_0.8fr_1.3fr_1.4fr_0.8fr_0.8fr_1.2fr] gap-4 px-5 py-4 items-center">
+                    {competition.organizer_logo && (
+                      <Image
+                        src={competition.organizer_logo}
+                        alt=""
+                        fill
+                        sizes="100vw"
+                        className="pointer-events-none object-contain object-center p-3 opacity-10"
+                        unoptimized
+                      />
+                    )}
+
+                    <div className="relative z-10 grid grid-cols-[1.5fr_1fr_1.2fr_0.8fr_1.3fr_1.4fr_0.8fr_0.8fr_1.2fr] gap-4 px-5 py-4 items-center">
                       <p className="text-white font-bold">
                         {competition.name}
                       </p>
@@ -1636,7 +2394,7 @@ export default function AdminClient({
                           href={`mailto:${competition.organizer.email}`}
                           className="bg-blue-700 hover:bg-blue-600 text-white px-3 py-2 rounded-lg text-sm font-semibold transition"
                         >
-                          Email
+                          E-mail
                         </a>
 
                         {competition.organizer.phone_number ? (
@@ -1757,6 +2515,106 @@ export default function AdminClient({
             </div>
 
             <div className="space-y-8">
+              <div className="rounded-2xl border border-green-800/70 bg-zinc-950/50 p-5 space-y-5">
+                <div>
+                  <h3 className="text-2xl font-bold text-white">
+                    E-mail aktywacyjny
+                  </h3>
+                  <p className="mt-2 text-sm text-gray-400">
+                    Zapis zacznie obowiązywać od następnej rejestracji. Nie usuwaj znacznika {activationLinkPlaceholder}.
+                  </p>
+                </div>
+
+                <label className="block">
+                  <span className="block text-white font-semibold mb-2">Temat wiadomości</span>
+                  <input
+                    value={activationEmailTemplate.subject}
+                    onChange={(event) => setActivationEmailTemplate((current) => ({
+                      ...current,
+                      subject: event.target.value,
+                    }))}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="block text-white font-semibold mb-2">Treść tekstowa</span>
+                  <textarea
+                    value={activationEmailTemplate.text_body}
+                    onChange={(event) => setActivationEmailTemplate((current) => ({
+                      ...current,
+                      text_body: event.target.value,
+                    }))}
+                    rows={8}
+                    className="w-full resize-y bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 font-mono text-sm text-white"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="block text-white font-semibold mb-2">Treść HTML</span>
+                  <textarea
+                    value={activationEmailTemplate.html_body}
+                    onChange={(event) => setActivationEmailTemplate((current) => ({
+                      ...current,
+                      html_body: event.target.value,
+                    }))}
+                    rows={14}
+                    className="w-full resize-y bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 font-mono text-sm text-white"
+                  />
+                  <span className="mt-2 block text-xs text-gray-500">
+                    Możesz używać HTML i stylów osadzonych bezpośrednio w elementach.
+                  </span>
+                </label>
+
+                <div className="flex flex-wrap gap-3">
+                  <label className="ui-button cursor-pointer bg-blue-700 hover:bg-blue-600 text-white px-5 py-3 rounded-xl font-bold transition">
+                    {emailAssetUploading ? "Dodawanie grafiki..." : "Dodaj zdjęcie lub grafikę"}
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/gif"
+                      disabled={emailAssetUploading}
+                      className="hidden"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        if (file) {
+                          void uploadActivationEmailAsset(file);
+                        }
+                        event.target.value = "";
+                      }}
+                    />
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={() => setActivationEmailTemplate(defaultActivationEmailTemplate)}
+                    className="ui-button bg-zinc-700 hover:bg-zinc-600 text-white px-5 py-3 rounded-xl font-bold transition"
+                  >
+                    Przywróć treść domyślną
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={saveActivationEmailTemplate}
+                    className="ui-button bg-green-700 hover:bg-green-600 text-white px-5 py-3 rounded-xl font-bold transition"
+                  >
+                    Zapisz i opublikuj
+                  </button>
+                </div>
+
+                <div>
+                  <p className="text-white font-semibold mb-2">Podgląd wiadomości HTML</p>
+                  <iframe
+                    title="Podgląd e-maila aktywacyjnego"
+                    sandbox=""
+                    srcDoc={activationEmailTemplate.html_body.replaceAll(
+                      activationLinkPlaceholder,
+                      "https://system-strzelecki.pl/activate?token=PRZYKLADOWY_TOKEN"
+                    )}
+                    className="h-96 w-full rounded-xl border border-zinc-700 bg-white"
+                  />
+                </div>
+              </div>
+
               <div className="rounded-2xl border border-zinc-800 bg-zinc-950/50 p-5">
                 <h3 className="text-2xl font-bold text-white mb-4">
                   Bloki
@@ -2158,6 +3016,172 @@ export default function AdminClient({
               </div>
             </div>
           </section>
+        ) : activeTab === "ads" ? (
+          <section className="space-y-6">
+            <div className="ui-block bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                <div>
+                  <h2 className="text-3xl font-bold text-white mb-2">
+                    Raport reklam
+                  </h2>
+
+                  <p className="text-gray-400">
+                    Zliczanie odsłon i kliknięć slotów reklamowych na stronie głównej.
+                  </p>
+                </div>
+
+                <div className="flex flex-col gap-3 lg:items-end">
+                  <div className="flex flex-wrap items-end gap-3">
+                    <label className="block">
+                      <span className="block text-sm font-semibold text-gray-300 mb-2">
+                        Zakres dni
+                      </span>
+
+                      <select
+                        value={adReportDays}
+                        onChange={(event) => {
+                          const days = Number(event.target.value);
+                          setAdReportDays(days);
+                          reloadAdReport(days);
+                        }}
+                        className="w-36 bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white"
+                      >
+                        {adReportPeriodOptions.map((days) => (
+                          <option key={days} value={days}>
+                            {days} dni
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <button
+                      type="button"
+                      onClick={() => reloadAdReport(adReportDays)}
+                      className="ui-button bg-green-700 hover:bg-green-600 text-white px-5 py-3 rounded-xl font-semibold transition"
+                    >
+                      Odśwież
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => downloadAdReportPdf(adReportDays)}
+                      disabled={adReportPdfDownloading}
+                      className="ui-button bg-blue-700 hover:bg-blue-600 disabled:bg-zinc-700 disabled:cursor-not-allowed text-white px-5 py-3 rounded-xl font-semibold transition"
+                    >
+                      {adReportPdfDownloading ? "Generuję PDF..." : "Pobierz PDF"}
+                    </button>
+                  </div>
+
+                  <p className="text-sm text-gray-500">
+                    PDF zawiera identyfikację strony, okres, metodologię pomiaru, podsumowania i dane dzienne.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {!adReport ? (
+              <p className="text-gray-400">
+                Brak danych raportu reklam.
+              </p>
+            ) : (
+              <>
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="ui-block bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
+                    <p className="text-sm font-bold uppercase text-gray-400">
+                      Odsłony
+                    </p>
+                    <p className="mt-2 text-3xl font-black text-white">
+                      {formatNumber(adReport.total_impressions)}
+                    </p>
+                  </div>
+
+                  <div className="ui-block bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
+                    <p className="text-sm font-bold uppercase text-gray-400">
+                      Kliknięcia
+                    </p>
+                    <p className="mt-2 text-3xl font-black text-white">
+                      {formatNumber(adReport.total_clicks)}
+                    </p>
+                  </div>
+
+                  <div className="ui-block bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
+                    <p className="text-sm font-bold uppercase text-gray-400">
+                      CTR
+                    </p>
+                    <p className="mt-2 text-3xl font-black text-white">
+                      {formatCtr(adReport.ctr)}
+                    </p>
+                  </div>
+                </div>
+
+                <section className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
+                  <div className="grid grid-cols-[minmax(0,1fr)_8rem_8rem] gap-4 px-5 py-4 text-sm font-bold uppercase text-gray-400 border-b border-zinc-800">
+                    <p>Slot</p>
+                    <p className="text-right">Odsłony</p>
+                    <p className="text-right">Kliknięcia</p>
+                  </div>
+
+                  {adReport.totals_by_slot.map((slot) => (
+                    <div
+                      key={slot.slot}
+                      className="grid grid-cols-[minmax(0,1fr)_8rem_8rem] gap-4 px-5 py-4 border-b border-zinc-800 last:border-b-0"
+                    >
+                      <p className="font-semibold text-white">
+                        {slot.label}
+                      </p>
+                      <p className="text-right text-gray-200">
+                        {formatNumber(slot.impressions)}
+                      </p>
+                      <p className="text-right text-gray-200">
+                        {formatNumber(slot.clicks)}
+                      </p>
+                    </div>
+                  ))}
+                </section>
+
+                <section className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-x-auto">
+                  <div className="grid min-w-[900px] grid-cols-[8rem_1.4fr_8rem_8rem_8rem_7rem] gap-4 px-5 py-4 text-sm font-bold uppercase text-gray-400 border-b border-zinc-800">
+                    <p>Data</p>
+                    <p>Slot</p>
+                    <p>Urządzenie</p>
+                    <p className="text-right">Odsłony</p>
+                    <p className="text-right">Kliknięcia</p>
+                    <p className="text-right">CTR</p>
+                  </div>
+
+                  {adReport.rows.length === 0 ? (
+                    <p className="min-w-[900px] px-5 py-6 text-gray-400">
+                      Brak zdarzeń reklamowych w wybranym zakresie.
+                    </p>
+                  ) : adReport.rows.map((row) => (
+                    <div
+                      key={`${row.date}-${row.slot}-${row.device}`}
+                      className="grid min-w-[900px] grid-cols-[8rem_1.4fr_8rem_8rem_8rem_7rem] gap-4 px-5 py-4 border-b border-zinc-800 last:border-b-0"
+                    >
+                      <p className="text-gray-300">
+                        {row.date}
+                      </p>
+                      <p className="font-semibold text-white">
+                        {row.label}
+                      </p>
+                      <p className="text-gray-300">
+                        {deviceLabel(row.device)}
+                      </p>
+                      <p className="text-right text-gray-200">
+                        {formatNumber(row.impressions)}
+                      </p>
+                      <p className="text-right text-gray-200">
+                        {formatNumber(row.clicks)}
+                      </p>
+                      <p className="text-right text-gray-200">
+                        {formatCtr(row.ctr)}
+                      </p>
+                    </div>
+                  ))}
+                </section>
+              </>
+            )}
+          </section>
         ) : activeTab === "monitoring" ? (
           <section className="space-y-6">
             <div className="ui-block bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
@@ -2416,6 +3440,12 @@ export default function AdminClient({
               <p className="text-gray-400">
                 Generuj kontrolowane dane do sprawdzania list zawodników, opłat i tabel wyników.
               </p>
+
+              {message && (
+                <p className="mt-4 rounded-xl border border-green-700/40 bg-green-700/10 px-4 py-3 font-semibold text-green-100">
+                  {message}
+                </p>
+              )}
             </div>
 
             <div className="grid gap-6 lg:grid-cols-3">
@@ -2525,7 +3555,7 @@ export default function AdminClient({
                           key={competition.id}
                           value={competition.id}
                         >
-                          #{competition.id} {competition.name} ({competition.status})
+                          #{competition.id} {competition.name} ({competition.status}) - zawodnicy: {competition.participants_count}{competition.participant_limit ? `/${competition.participant_limit}` : ""}
                         </option>
                       ))}
                     </select>
@@ -2634,6 +3664,68 @@ export default function AdminClient({
           </section>
         )}
       </div>
+
+      {selectedUserInfo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-6">
+          <div className="max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-2xl border border-zinc-700 bg-zinc-950 shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-zinc-800 px-6 py-5">
+              <div>
+                <p className="text-sm font-bold uppercase tracking-wide text-green-400">
+                  Informacje o użytkowniku
+                </p>
+
+                <h2 className="mt-1 text-2xl font-black text-white">
+                  {selectedUserInfo.display_name}
+                </h2>
+
+                <p className="mt-1 text-sm text-gray-400">
+                  {selectedUserInfo.email}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setSelectedUserInfo(null)}
+                className="ui-button bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-2 rounded-xl font-bold transition"
+              >
+                Zamknij
+              </button>
+            </div>
+
+            <div className="max-h-[70vh] overflow-y-auto px-6 py-5">
+              <div className="grid gap-5 lg:grid-cols-2">
+                {selectedUserInfo.sections.map((section) => (
+                  <section
+                    key={section.title}
+                    className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4"
+                  >
+                    <h3 className="mb-4 text-lg font-bold text-white">
+                      {section.title}
+                    </h3>
+
+                    <dl className="space-y-3">
+                      {section.rows.map((row) => (
+                        <div
+                          key={`${section.title}-${row.label}`}
+                          className="grid gap-1 border-b border-zinc-800 pb-3 last:border-b-0 last:pb-0 sm:grid-cols-[11rem_minmax(0,1fr)]"
+                        >
+                          <dt className="text-sm font-semibold text-gray-500">
+                            {row.label}
+                          </dt>
+
+                          <dd className="min-w-0 break-words text-sm font-medium text-gray-100">
+                            {row.value}
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </section>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

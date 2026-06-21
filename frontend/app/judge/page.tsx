@@ -1,17 +1,20 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { apiUrl } from "@/lib/api";
-import { isJudge } from "@/lib/auth";
+import { getAccessToken, isJudge } from "@/lib/auth";
 
 type JudgeCompetition = {
   id: number;
   name: string;
   date: string;
   location: string;
+  organizer_logo: string;
+  sponsor_logo: string;
   is_head_judge: boolean;
   disciplines: JudgeDiscipline[];
 };
@@ -32,7 +35,7 @@ export default function JudgePage() {
       return;
     }
 
-    const token = localStorage.getItem("token");
+    const token = getAccessToken();
 
     if (!token) {
       router.push("/login");
@@ -72,11 +75,11 @@ export default function JudgePage() {
     <main className="min-h-screen px-6 py-10">
       <div className="max-w-7xl mx-auto">
         <div className="mb-8">
-          <h1 className="text-5xl font-bold text-white mb-2">
+          <h1 className="text-5xl font-bold text-zinc-950 dark:text-white mb-2">
             Panel Sędziego
           </h1>
 
-          <p className="text-gray-400">
+          <p className="text-zinc-600 dark:text-gray-400">
             Zawody przypisane do Twojego sędziowania.
           </p>
         </div>
@@ -88,7 +91,7 @@ export default function JudgePage() {
         )}
 
         {loading ? (
-          <p className="text-gray-400">
+          <p className="relative z-10 text-gray-400">
             Ładowanie panelu sędziego...
           </p>
         ) : competitions.length === 0 ? (
@@ -106,9 +109,20 @@ export default function JudgePage() {
                 <Link
                   key={competition.id}
                   href={`/judge/${competition.id}`}
-                  className="block rounded-2xl p-5 border bg-zinc-900 border-zinc-800 hover:border-green-700 hover:bg-green-950/30 transition"
+                  className="relative block overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900 p-5 transition hover:border-green-700 hover:bg-green-950/30"
                 >
-                  <div className="flex items-start justify-between gap-4">
+                  {competition.organizer_logo && (
+                    <Image
+                      src={competition.organizer_logo}
+                      alt=""
+                      fill
+                      sizes="(min-width: 1280px) 33vw, (min-width: 768px) 50vw, 100vw"
+                      className="pointer-events-none object-contain object-center p-3 opacity-15"
+                      unoptimized
+                    />
+                  )}
+
+                  <div className="relative z-10 flex items-start justify-between gap-4">
                     <h3 className="text-2xl font-bold text-white">
                       {competition.name}
                     </h3>
@@ -120,15 +134,15 @@ export default function JudgePage() {
                     )}
                   </div>
 
-                  <p className="text-gray-400 mt-3">
+                  <p className="relative z-10 mt-3 text-gray-400">
                     {competition.date}
                   </p>
 
-                  <p className="text-gray-400">
+                  <p className="relative z-10 text-gray-400">
                     {competition.location}
                   </p>
 
-                  <p className="text-gray-300 font-semibold mt-4">
+                  <p className="relative z-10 mt-4 font-semibold text-gray-300">
                     Konkurencje: {competition.disciplines.length}
                   </p>
                 </Link>

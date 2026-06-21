@@ -6,6 +6,8 @@ import { useEffect, useState } from "react";
 
 import ResultCategoryList from "@/app/components/ResultCategoryList";
 import { apiUrl } from "@/lib/api";
+import { getAccessToken } from "@/lib/auth";
+import { authHeaderFromToken, PREMIUM_LOGIN_REQUIRED_MESSAGE } from "@/lib/premium";
 
 type LiveCategory = {
   id: string;
@@ -36,12 +38,28 @@ export default function LiveCompetitionPage() {
 
   useEffect(() => {
     let active = true;
+    const token = getAccessToken();
+
+    if (!token) {
+      const timeoutId = window.setTimeout(() => {
+        if (active) {
+          setMessage(PREMIUM_LOGIN_REQUIRED_MESSAGE);
+          setLoading(false);
+        }
+      }, 0);
+
+      return () => {
+        active = false;
+        window.clearTimeout(timeoutId);
+      };
+    }
 
     async function loadCompetition() {
       try {
         const response = await fetch(
           apiUrl(`/live-results/competitions/${competitionId}`),
           {
+            headers: authHeaderFromToken(token),
             cache: "no-store",
           }
         );

@@ -10,8 +10,11 @@ type Competition = {
   date: string;
   location: string;
   organizer_full_name: string;
+  organizer_logo: string;
   sponsors: string;
+  sponsor_logo: string;
   participant_limit: number | null;
+  pzss_license_calendar: boolean;
   shooters_count: number;
   status: string;
   disciplines_count: number;
@@ -31,18 +34,18 @@ const tabs: {
   statuses: string[];
 }[] = [
   {
-    key: "upcoming",
-    label: "Nadchodzące zawody",
-    title: "Nadchodzące Zawody",
-    empty: "Brak nadchodzących zawodów.",
-    statuses: ["published"],
-  },
-  {
     key: "live",
     label: "Aktualnie trwające zawody",
     title: "Aktualnie Trwające Zawody",
     empty: "Brak aktualnie trwających zawodów.",
     statuses: ["started"],
+  },
+  {
+    key: "upcoming",
+    label: "Nadchodzące zawody",
+    title: "Nadchodzące Zawody",
+    empty: "Brak nadchodzących zawodów.",
+    statuses: ["published"],
   },
   {
     key: "finished",
@@ -128,6 +131,7 @@ export default async function CompetitionsPage({
         <CompetitionList
           competitions={visibleCompetitions}
           emptyMessage={activeTab.empty}
+          dateSortDirection={activeTab.key === "finished" ? "desc" : "asc"}
         />
       </div>
     </main>

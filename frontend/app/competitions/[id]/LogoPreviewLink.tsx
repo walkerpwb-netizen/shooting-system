@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { useEffect, useState } from "react";
 
 type LogoPreviewLinkProps = {
   src: string;
@@ -13,63 +14,74 @@ export default function LogoPreviewLink({
   alt,
   title,
 }: LogoPreviewLinkProps) {
-  function openPreview() {
-    const previewWindow = window.open("", "_blank");
+  const [previewOpen, setPreviewOpen] = useState(false);
 
-    if (!previewWindow) {
-      window.location.href = src;
+  useEffect(() => {
+    if (!previewOpen) {
       return;
     }
 
-    previewWindow.document.title = title;
-    previewWindow.document.body.innerHTML = "";
-    previewWindow.document.body.style.margin = "0";
-    previewWindow.document.body.style.background = "#0a0a0a";
-    previewWindow.document.body.style.color = "#ffffff";
-    previewWindow.document.body.style.fontFamily = "system-ui, sans-serif";
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setPreviewOpen(false);
+      }
+    }
 
-    const wrapper = previewWindow.document.createElement("main");
-    wrapper.style.minHeight = "100vh";
-    wrapper.style.display = "flex";
-    wrapper.style.flexDirection = "column";
-    wrapper.style.alignItems = "center";
-    wrapper.style.justifyContent = "center";
-    wrapper.style.gap = "24px";
-    wrapper.style.padding = "32px";
+    document.addEventListener("keydown", handleKeyDown);
 
-    const heading = previewWindow.document.createElement("h1");
-    heading.textContent = title;
-    heading.style.margin = "0";
-    heading.style.fontSize = "24px";
-
-    const image = previewWindow.document.createElement("img");
-    image.src = src;
-    image.alt = alt;
-    image.style.maxWidth = "100%";
-    image.style.height = "auto";
-    image.style.objectFit = "contain";
-
-    wrapper.appendChild(heading);
-    wrapper.appendChild(image);
-    previewWindow.document.body.appendChild(wrapper);
-    previewWindow.opener = null;
-  }
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [previewOpen]);
 
   return (
-    <button
-      type="button"
-      onClick={openPreview}
-      title={title}
-      className="relative h-full w-full flex items-center justify-center cursor-zoom-in"
-    >
-      <Image
-        src={src}
-        alt={alt}
-        fill
-        sizes="120px"
-        className="object-contain p-2"
-        unoptimized
-      />
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={() => setPreviewOpen(true)}
+        title={title}
+        className="relative flex h-full w-full cursor-zoom-in items-center justify-center"
+      >
+        <Image
+          src={src}
+          alt={alt}
+          fill
+          sizes="120px"
+          className="object-contain p-2"
+          unoptimized
+        />
+      </button>
+
+      {previewOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label={title}
+        >
+          <div className="inline-flex max-h-[calc(100vh-2rem)] max-w-[calc(100vw-2rem)] flex-col items-center gap-4 rounded-2xl border border-zinc-200 bg-white p-4 text-zinc-950 shadow-2xl dark:border-zinc-700 dark:bg-zinc-950 dark:text-white">
+            <h2 className="text-center text-xl font-bold">
+              {title}
+            </h2>
+
+            <Image
+              src={src}
+              alt={alt}
+              width={1600}
+              height={1200}
+              sizes="90vw"
+              className="block h-auto max-h-[75vh] w-auto max-w-[90vw] object-contain"
+              unoptimized
+            />
+
+            <button
+              type="button"
+              onClick={() => setPreviewOpen(false)}
+              className="rounded-xl bg-green-700 px-6 py-3 font-bold text-white transition hover:bg-green-600"
+            >
+              OK
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

@@ -1,37 +1,25 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
-
-import { apiUrl } from "@/lib/api";
 
 export type ResultShooter = {
   participant_id: number;
   display_name: string;
   first_name?: string;
   last_name?: string;
-  license_number: string;
+  license_number?: string;
   club: string;
   points: string;
   place: number;
-};
-
-type ResultsTableSettings = {
-  grid_template_columns: string;
-  min_width: string;
-  row_padding_y: string;
+  round_scores?: number[];
 };
 
 type ResultsLeaderboardTableProps = {
   shooters: ResultShooter[];
   description: string;
   emptyMessage: string;
-};
-
-const defaultSettings: ResultsTableSettings = {
-  grid_template_columns: "80px 1.6fr 1fr 1.1fr 120px",
-  min_width: "820px",
-  row_padding_y: "0.75rem",
+  showLicense?: boolean;
 };
 
 function shooterName(shooter: ResultShooter) {
@@ -48,46 +36,10 @@ export default function ResultsLeaderboardTable({
   shooters,
   description,
   emptyMessage,
+  showLicense = false,
 }: ResultsLeaderboardTableProps) {
   const [filter, setFilter] = useState("");
-  const [settings, setSettings] = useState<ResultsTableSettings>(defaultSettings);
-
-  useEffect(() => {
-    let active = true;
-
-    async function loadSettings() {
-      try {
-        const response = await fetch(
-          apiUrl("/settings/results-table"),
-          {
-            cache: "no-store",
-          }
-        );
-
-        if (!response.ok) {
-          return;
-        }
-
-        const data = await response.json();
-
-        if (active) {
-          setSettings({
-            grid_template_columns: data.grid_template_columns || defaultSettings.grid_template_columns,
-            min_width: data.min_width || defaultSettings.min_width,
-            row_padding_y: data.row_padding_y || defaultSettings.row_padding_y,
-          });
-        }
-      } catch (error) {
-        console.error(error);
-      }
-    }
-
-    loadSettings();
-
-    return () => {
-      active = false;
-    };
-  }, []);
+  const showRoundScores = shooters.some((shooter) => (shooter.round_scores?.length || 0) > 0);
 
   const visibleShooters = useMemo(() => {
     const normalizedFilter = filter.trim().toLowerCase();
@@ -107,15 +59,6 @@ export default function ResultsLeaderboardTable({
         .includes(normalizedFilter)
     );
   }, [filter, shooters]);
-
-  const gridStyle = {
-    gridTemplateColumns: settings.grid_template_columns,
-  };
-  const rowStyle = {
-    gridTemplateColumns: settings.grid_template_columns,
-    paddingBottom: settings.row_padding_y,
-    paddingTop: settings.row_padding_y,
-  };
 
   return (
     <section className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
@@ -141,55 +84,72 @@ export default function ResultsLeaderboardTable({
       </div>
 
       <div className="overflow-x-auto">
-        <div style={{ minWidth: settings.min_width }}>
-          <div
-            style={gridStyle}
-            className="grid gap-3 border-b border-zinc-200 bg-zinc-50 px-4 py-3 text-xs font-bold uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950/50 dark:text-gray-400"
-          >
-            <p>Miejsce</p>
-            <p>Zawodnik</p>
-            <p>Licencja</p>
-            <p>Klub</p>
-            <p className="text-right">Punkty</p>
-          </div>
+        {visibleShooters.length === 0 ? (
+          <p className="px-4 py-5 text-zinc-600 dark:text-gray-400">
+            {emptyMessage}
+          </p>
+        ) : (
+          <table className="w-max min-w-full table-auto border-collapse text-left text-sm sm:text-base">
+            <thead>
+              <tr className="border-b border-zinc-200 bg-zinc-50 text-xs font-bold uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950/50 dark:text-gray-400">
+                <th className="whitespace-nowrap px-4 py-3">Miejsce</th>
+                <th className="whitespace-nowrap px-4 py-3">Punkty</th>
+                {showRoundScores && (
+                  <th className="whitespace-nowrap px-4 py-3">Wyniki serii</th>
+                )}
+                <th className="whitespace-nowrap px-4 py-3">Zawodnik</th>
+                <th className="whitespace-nowrap px-4 py-3">Klub</th>
+                {showLicense && (
+                  <th className="whitespace-nowrap px-4 py-3">Licencja</th>
+                )}
+              </tr>
+            </thead>
 
-          {visibleShooters.length === 0 ? (
-            <p className="px-4 py-5 text-zinc-600 dark:text-gray-400">
-              {emptyMessage}
-            </p>
-          ) : (
-            visibleShooters.map((shooter) => (
-              <div
-                key={shooter.participant_id}
-                style={rowStyle}
-                className="grid items-center gap-3 border-b border-zinc-200 px-4 text-sm last:border-b-0 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800/50"
-              >
-                <p className="text-lg font-black text-green-300">
-                  {shooter.place}
-                </p>
-
-                <Link
-                  href={`/profile/${shooter.participant_id}`}
-                  className="font-semibold text-zinc-950 transition hover:text-green-700 dark:text-white dark:hover:text-green-300"
+            <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
+              {visibleShooters.map((shooter) => (
+                <tr
+                  key={shooter.participant_id}
+                  className="hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
                 >
-                  {shooterName(shooter)}
-                </Link>
+                  <td className="whitespace-nowrap px-4 py-3 text-lg font-black text-green-300">
+                    {shooter.place}
+                  </td>
 
-                <p className="text-zinc-700 dark:text-gray-300">
-                  {shooter.license_number || "brak"}
-                </p>
+                  <td className="whitespace-nowrap px-4 py-3 text-xl font-black text-zinc-950 dark:text-white">
+                    {shooter.points || "0"}
+                  </td>
 
-                <p className="text-zinc-700 dark:text-gray-300">
-                  {shooter.club || "brak"}
-                </p>
+                  {showRoundScores && (
+                    <td className="whitespace-nowrap px-4 py-3 font-bold text-zinc-700 dark:text-gray-300">
+                      {shooter.round_scores
+                        ?.map((score, index) => `S${index + 1}: ${score}/25`)
+                        .join(" • ") || "–"}
+                    </td>
+                  )}
 
-                <p className="text-right text-xl font-black text-zinc-950 dark:text-white">
-                  {shooter.points || "0"}
-                </p>
-              </div>
-            ))
-          )}
-        </div>
+                  <td className="whitespace-nowrap px-4 py-3">
+                    <Link
+                      href={`/profile/${shooter.participant_id}`}
+                      className="font-semibold text-zinc-950 transition hover:text-green-700 dark:text-white dark:hover:text-green-300"
+                    >
+                      {shooterName(shooter)}
+                    </Link>
+                  </td>
+
+                  <td className="whitespace-nowrap px-4 py-3 text-zinc-700 dark:text-gray-300">
+                    {shooter.club || "brak"}
+                  </td>
+
+                  {showLicense && (
+                    <td className="whitespace-nowrap px-4 py-3 text-zinc-700 dark:text-gray-300">
+                      {shooter.license_number || "brak"}
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </section>
   );

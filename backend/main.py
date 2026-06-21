@@ -1,20 +1,26 @@
-from fastapi import FastAPI
-from fastapi import Depends, HTTPException
+from fastapi import FastAPI, File, UploadFile, Request
+from fastapi import Depends, HTTPException, Cookie
+from fastapi.responses import Response
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import func, or_, text
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 from database import SessionLocal
 from config import settings
 from mailer import (
+    ACTIVATION_LINK_PLACEHOLDER,
     MailConfigurationError,
     MailDeliveryError,
+    default_activation_email_template,
     send_activation_email,
     send_password_reset_email,
 )
 
 from models import (
+    AdDailyStat,
     AppSetting,
     User,
     Competition,
@@ -24,6 +30,7 @@ from models import (
     JudgeInvitation,
     DisciplineResult,
     Achievement,
+    RankingEntry,
 )
 
 from passlib.context import CryptContext
@@ -34,6 +41,7 @@ from jose import JWTError
 from datetime import datetime, timedelta, timezone, time
 from typing import Optional
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from io import BytesIO
 import hashlib
 import json
 import math
@@ -43,17 +51,39 @@ import re
 import secrets
 import shutil
 import subprocess
+import unicodedata
 from pathlib import Path
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 
 ALGORITHM = "HS256"
+ACCESS_TOKEN_TTL = timedelta(minutes=15)
+REFRESH_TOKEN_TTL = timedelta(days=30)
+REFRESH_TOKEN_COOKIE_NAME = "refresh_token"
+REFRESH_TOKEN_COOKIE_PATH = "/api"
 APP_TIMEZONE = ZoneInfo("Europe/Warsaw")
 PROFILE_DATE_FORMATS = ("%Y-%m-%d", "%d.%m.%Y", "%d-%m-%Y", "%d/%m/%Y")
 PASSWORD_RESET_LIMIT = 3
 PASSWORD_RESET_WINDOW = timedelta(hours=1)
+PASSWORD_RESET_TOKEN_TTL = timedelta(minutes=30)
+LOGIN_IP_LIMIT = 10
+LOGIN_IP_WINDOW = timedelta(minutes=1)
+LOGIN_EMAIL_FAILURE_LIMIT = 5
+LOGIN_EMAIL_FAILURE_WINDOW = timedelta(minutes=15)
+PREMIUM_EXPIRED_DETAIL = "Status premium wygasł"
 BACKUP_DIR = Path("/home/ubuntu/backups/shooting-system/postgres")
+UPLOADS_DIR = Path(__file__).resolve().parent / "uploads"
+PROFILE_PHOTO_DIR = UPLOADS_DIR / "profile-photos"
+EMAIL_ASSET_DIR = UPLOADS_DIR / "email-assets"
+PROFILE_PHOTO_ROUTE_PREFIX = "/uploads/profile-photos"
+EMAIL_ASSET_ROUTE_PREFIX = "/uploads/email-assets"
+PROFILE_PHOTO_SIZE = 320
+PROFILE_PHOTO_MAX_BYTES = 8 * 1024 * 1024
+PROFILE_PHOTO_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
+EMAIL_ASSET_MAX_BYTES = 8 * 1024 * 1024
+EMAIL_ASSET_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+ACTIVATION_EMAIL_SETTING_KEY = "activation_email_template"
 MONITORED_LOG_FILES = [
     {
         "name": "Frontend error",
@@ -86,6 +116,9 @@ pwd_context = CryptContext(
 )
 
 app = FastAPI()
+PROFILE_PHOTO_DIR.mkdir(parents=True, exist_ok=True)
+EMAIL_ASSET_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 
 oauth2_scheme = OAuth2PasswordBearer(
     tokenUrl="login"
@@ -108,6 +141,29 @@ app.add_middleware(
 class RegisterData(BaseModel):
     email: str
     password: str
+    terms_accepted: bool = False
+    privacy_policy_accepted: bool = False
+    results_publication_accepted: bool = False
+
+
+class PzssClubRegisterData(BaseModel):
+    short_name: str
+    full_name: str
+    email: str
+    phone_number: str
+    password: str
+    terms_accepted: bool = False
+    privacy_policy_accepted: bool = False
+    results_publication_accepted: bool = False
+
+
+class PzssClubApprovalData(BaseModel):
+    license_number: str
+
+
+class AdminCreateUserData(BaseModel):
+    email: str
+    password: str
 
 
 class LoginData(BaseModel):
@@ -124,6 +180,12 @@ class ResetPasswordData(BaseModel):
     password: str
 
 
+class ActivationEmailTemplateData(BaseModel):
+    subject: str
+    text_body: str
+    html_body: str
+
+
 class CompetitionData(BaseModel):
     name: str
     date: str
@@ -134,15 +196,22 @@ class CompetitionData(BaseModel):
     sponsors: str = ""
     sponsor_logo: str = ""
     participant_limit: Optional[int] = None
+    pzss_license_calendar: bool = False
 
 
 class DisciplineData(BaseModel):
     name: str
     description: str
-    scoring_type: str
+    scoring_type: str = "points"
+    discipline_type: str
     shots_count: int
+    trap_variant: str = ""
+    trap_series_count: int = 0
+    clay_variant: str = ""
+    clay_series_count: int = 0
     ammo_type: str
     ammo_price: str
+    clay_price: str = ""
     entry_fee: str = ""
 
 
@@ -150,17 +219,27 @@ class ProfileData(BaseModel):
     first_name: str
     last_name: str
     license_number: str = ""
+    license_uuid: str = ""
+    license_club_code: str = ""
     no_license: bool = False
     club: str = ""
     no_club: bool = False
+    verified_club_id: Optional[int] = None
     voivodeship: str = ""
     birth_date: str
     phone_number: str = ""
+    organizer_name: str = ""
+    judge_license_number: str = ""
+    judge_license_valid_until: str = ""
 
 
 class UserRoleData(BaseModel):
     role: str = ""
     roles: list[str] = []
+
+
+class UserPremiumDisabledData(BaseModel):
+    premium_disabled: bool = False
 
 
 class RoleRequestData(BaseModel):
@@ -205,11 +284,17 @@ class JudgeAssignmentRemovalData(BaseModel):
 class JudgeResultData(BaseModel):
     participant_id: int
     points: str
+    result_data: Optional[str] = None
 
 
 class ParticipantPaymentStatusData(BaseModel):
     checked_in: Optional[bool] = None
     paid: Optional[bool] = None
+
+
+class ParticipantSquadGroupData(BaseModel):
+    group_number: int
+    squad_position: int = 0
 
 
 class ResultsTableSettingsData(BaseModel):
@@ -261,7 +346,20 @@ class AdminGenerateResultsData(BaseModel):
     overwrite: bool = True
 
 
+class AdEventData(BaseModel):
+    slot: str
+    device: str
+    event_type: str = "impression"
+
+
 ALLOWED_ROLES = ["user", "shooter", "organizer", "judge", "admin"]
+USER_ACCOUNT_TYPE = "user"
+PZSS_CLUB_ACCOUNT_TYPE = "pzss_club"
+PZSS_CLUB_PENDING = "pending"
+PZSS_CLUB_APPROVED = "approved"
+PZSS_CLUB_REJECTED = "rejected"
+CLUB_MEMBERSHIP_PENDING = "pending"
+CLUB_MEMBERSHIP_CONFIRMED = "confirmed"
 POLISH_VOIVODESHIPS = [
     "dolnośląskie",
     "kujawsko-pomorskie",
@@ -317,6 +415,7 @@ TEST_DISCIPLINE_TEMPLATES = [
         "description": "Konkurencja testowa pistoletowa",
         "scoring_type": "points",
         "shots_count": 10,
+        "discipline_type": "pistol",
         "ammo_type": "9mm",
         "ammo_price": "1.20",
         "entry_fee": "25.00",
@@ -326,6 +425,7 @@ TEST_DISCIPLINE_TEMPLATES = [
         "description": "Konkurencja testowa karabinowa",
         "scoring_type": "points",
         "shots_count": 10,
+        "discipline_type": "rifle",
         "ammo_type": ".223",
         "ammo_price": "2.50",
         "entry_fee": "30.00",
@@ -335,6 +435,7 @@ TEST_DISCIPLINE_TEMPLATES = [
         "description": "Konkurencja testowa strzelbowa",
         "scoring_type": "points",
         "shots_count": 8,
+        "discipline_type": "shotgun",
         "ammo_type": "12/70",
         "ammo_price": "2.00",
         "entry_fee": "35.00",
@@ -366,7 +467,7 @@ PROFILE_SETTINGS_DEFAULTS = {
     "profile_achievement_icon_size": "4rem",
     "profile_achievement_gap": "1.25rem",
 }
-ACHIEVEMENT_CATEGORY_IDS = ["pistol", "rifle", "shotgun", "overall"]
+ACHIEVEMENT_CATEGORY_IDS = ["overall", "pistol", "rifle", "shotgun"]
 ACHIEVEMENT_MEDALS = {
     1: "gold",
     2: "silver",
@@ -374,13 +475,151 @@ ACHIEVEMENT_MEDALS = {
 }
 MIN_STATISTICS_DISCIPLINE_SHOOTERS = 50
 RANKING_LIMIT = 1000
-RANKING_METRICS = ["overall", "pistol", "rifle", "shotgun"]
+DISCIPLINE_TYPE_GROUPS = [
+    {
+        "firearm_type": "pistol",
+        "options": [
+            ("pistol-air-10m", "Pistolet pneumatyczny 10 m (Ppn)"),
+            ("pistol-sport-25m", "Pistolet sportowy 25 m (Psp)"),
+            ("pistol-rapid-fire-25m", "Pistolet szybkostrzelny 25 m (Psz)"),
+            ("pistol-free-50m", "Pistolet dowolny 50 m (Pdw)"),
+            ("pistol-center-fire-25m", "Pistolet centralnego zapłonu 25 m (Pcz)"),
+            ("pistol-standard-25m", "Pistolet standardowy 25 m (Pst)"),
+            ("ipsc-pistol", "IPSC Pistolet"),
+            ("idpa", "IDPA"),
+            ("action-air", "Action Air"),
+        ],
+    },
+    {
+        "firearm_type": "rifle",
+        "options": [
+            ("rifle-air-10m", "Karabin pneumatyczny 10 m (Kpn)"),
+            ("rifle-sport-50m-60-prone", "Karabin sportowy 50 m - 60 leżąc (Ksp 60)"),
+            ("rifle-3-positions-50m", "Karabin 3 postawy 50 m (Ksp 3×20 / Kdw 3×40)"),
+            ("rifle-free-300m-prone", "Karabin dowolny 300 m - leżąc"),
+            ("rifle-free-300m-3-positions", "Karabin dowolny 300 m - 3 postawy"),
+            ("rifle-standard-300m", "Karabin standardowy 300 m (Kst)"),
+            ("moving-target", "Ruchoma tarcza (RT)"),
+            ("long-range", "Strzelanie długodystansowe (Long Range)"),
+            ("centerfire-rifle", "Karabin centralnego zapłonu (KCZ)"),
+            ("practical-rifle", "Karabin praktyczny (KPr)"),
+            ("pcc", "PCC (Pistol Caliber Carbine)"),
+            ("2gun", "2GUN"),
+            ("3gun", "3-Gun (Multi-Gun)"),
+        ],
+    },
+    {
+        "firearm_type": "shotgun",
+        "options": [
+            ("trap", "Trap"),
+            ("skeet", "Skeet"),
+            ("double-trap", "Double Trap"),
+            ("trap-mix", "Trap MIX"),
+            ("skeet-mix", "Skeet MIX"),
+            ("practical-shotgun", "Strzelba praktyczna (SPr)"),
+            ("ipsc-shotgun", "IPSC Shotgun"),
+        ],
+    },
+    {
+        "firearm_type": "",
+        "options": [
+            ("black-powder", "Strzelectwo czarnoprochowe"),
+            ("cowboy-action-shooting", "Strzelectwo westernowe (Cowboy Action Shooting - CAS)"),
+            ("sporting-clays", "Strzelectwo parkurowe (Sporting Clays / Parcours de Chasse)"),
+            ("historical-shooting", "Strzelectwo historyczne"),
+            ("kurkowe-shooting", "Strzelectwo kurkowe"),
+        ],
+    },
+]
+DISCIPLINE_TYPE_LABELS = {
+    value: label
+    for group in DISCIPLINE_TYPE_GROUPS
+    for value, label in group["options"]
+}
+DISCIPLINE_TYPE_LABELS.update({
+    "pistol": "Konkurencja pistoletowa",
+    "rifle": "Konkurencja karabinowa",
+    "shotgun": "Konkurencja strzelbowa",
+})
+DISCIPLINE_TYPE_FIREARM_TYPES = {
+    value: group["firearm_type"]
+    for group in DISCIPLINE_TYPE_GROUPS
+    for value, _label in group["options"]
+}
+DISCIPLINE_TYPE_FIREARM_TYPES.update({
+    "pistol": "pistol",
+    "rifle": "rifle",
+    "shotgun": "shotgun",
+})
+DISCIPLINE_TYPES = list(DISCIPLINE_TYPE_LABELS.keys())
+DETAILED_DISCIPLINE_TYPES = [
+    value
+    for group in DISCIPLINE_TYPE_GROUPS
+    for value, _label in group["options"]
+]
+RANKING_AGGREGATE_METRICS = ["overall", "pistol", "rifle", "shotgun"]
+RANKING_METRICS = RANKING_AGGREGATE_METRICS + DETAILED_DISCIPLINE_TYPES
 RANKING_METRIC_LABELS = {
     "overall": "Suma ogólna",
-    "pistol": "Suma punktów pistolet",
-    "rifle": "Suma punktów karabin",
-    "shotgun": "Suma punktów strzelba",
+    "pistol": "Konkurencje pistoletowe i rewolwerowe",
+    "rifle": "Konkurencje karabinowe",
+    "shotgun": "Konkurencje strzelbowe",
 }
+RANKING_METRIC_LABELS.update({
+    discipline_type: DISCIPLINE_TYPE_LABELS[discipline_type]
+    for discipline_type in DETAILED_DISCIPLINE_TYPES
+})
+AD_SLOTS = ["home_desktop_left", "home_desktop_right", "home_mobile_top"]
+AD_SLOT_LABELS = {
+    "home_desktop_left": "Home desktop - lewa kolumna",
+    "home_desktop_right": "Home desktop - prawa kolumna",
+    "home_mobile_top": "Home mobile - pasek pod nawigacją",
+}
+AD_DEVICES = ["desktop", "mobile"]
+AD_EVENT_TYPES = ["impression", "click"]
+TRAP_DISCIPLINE_TYPE = "trap"
+SKEET_DISCIPLINE_TYPE = "skeet"
+TRAP_TARGETS_PER_SERIES = 25
+TRAP_SHOTS_PER_TARGET = 2
+TRAP_VARIANT_SERIES = {
+    "trap-25": 1,
+    "trap-50": 2,
+    "trap-75": 3,
+    "trap-125": 5,
+}
+TRAP_MANUAL_VARIANT = "manual"
+SQUAD_GROUP_SIZE = 5
+SKEET_TARGETS_PER_SERIES = 25
+SKEET_SHOTS_PER_TARGET = 1
+SKEET_VARIANT_SERIES = {
+    "skeet-25": 1,
+    "skeet-50": 2,
+    "skeet-75": 3,
+    "skeet-125": 5,
+}
+CLAY_MANUAL_VARIANT = "manual"
+SKEET_SQUAD_GROUP_SIZE = 6
+SKEET_QUALIFICATION_STAGES = [
+    (1, [("single", ["high"]), ("double", ["high", "low"])]),
+    (2, [("single", ["high"]), ("double", ["high", "low"])]),
+    (3, [("single", ["high"]), ("double", ["high", "low"])]),
+    (4, [("single", ["high"]), ("single", ["low"])]),
+    (5, [("single", ["low"]), ("double", ["low", "high"])]),
+    (6, [("single", ["low"]), ("double", ["low", "high"])]),
+    (7, [("double", ["low", "high"])]),
+    (4, [("double", ["high", "low"]), ("double", ["low", "high"])]),
+    (8, [("single", ["high"]), ("single", ["low"])]),
+]
+SKEET_TARGET_SEQUENCE = [
+    {
+        "station": station,
+        "presentation": presentation,
+        "house": house,
+    }
+    for station, stage_presentations in SKEET_QUALIFICATION_STAGES
+    for presentation, houses in stage_presentations
+    for house in houses
+]
 
 
 def primary_role(roles: list[str]):
@@ -526,6 +765,18 @@ def validate_profile_settings(data: ProfileSettingsData):
     return settings
 
 
+def validate_registration_consents(data: RegisterData | PzssClubRegisterData):
+    if (
+        not data.terms_accepted
+        or not data.privacy_policy_accepted
+        or not data.results_publication_accepted
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Zaznacz wszystkie wymagane zgody"
+        )
+
+
 def get_setting_value(key: str, db):
     setting = (
         db.query(AppSetting)
@@ -562,6 +813,57 @@ def set_setting_value(key: str, value: str, db):
         setting.value = value
 
 
+def get_activation_email_template(db):
+    defaults = default_activation_email_template()
+    setting = (
+        db.query(AppSetting)
+        .filter(AppSetting.key == ACTIVATION_EMAIL_SETTING_KEY)
+        .first()
+    )
+
+    if not setting:
+        return defaults
+
+    try:
+        stored = json.loads(setting.value)
+    except (TypeError, json.JSONDecodeError):
+        return defaults
+
+    if not isinstance(stored, dict):
+        return defaults
+
+    return {
+        key: stored.get(key, default) if isinstance(stored.get(key, default), str) else default
+        for key, default in defaults.items()
+    }
+
+
+def validate_activation_email_template(data: ActivationEmailTemplateData):
+    template = {
+        "subject": data.subject.strip(),
+        "text_body": data.text_body.strip(),
+        "html_body": data.html_body.strip(),
+    }
+
+    if not template["subject"]:
+        raise HTTPException(status_code=400, detail="Temat wiadomości nie może być pusty")
+
+    if len(template["subject"]) > 200:
+        raise HTTPException(status_code=400, detail="Temat może mieć maksymalnie 200 znaków")
+
+    if len(template["text_body"]) > 20000 or len(template["html_body"]) > 100000:
+        raise HTTPException(status_code=400, detail="Szablon wiadomości jest zbyt długi")
+
+    for field in ("text_body", "html_body"):
+        if ACTIVATION_LINK_PLACEHOLDER not in template[field]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"W treści tekstowej i HTML musi pozostać znacznik {ACTIVATION_LINK_PLACEHOLDER}",
+            )
+
+    return template
+
+
 def get_results_table_settings(db):
     return {
         key: get_setting_value(key, db)
@@ -591,6 +893,496 @@ def get_profile_settings(db):
         "achievement_icon_size": stored_settings["profile_achievement_icon_size"],
         "achievement_gap": stored_settings["profile_achievement_gap"],
     }
+
+
+def validate_ad_event(data: AdEventData):
+    slot = (data.slot or "").strip()
+    device = (data.device or "").strip()
+    event_type = (data.event_type or "impression").strip()
+
+    if slot not in AD_SLOTS:
+        raise HTTPException(
+            status_code=400,
+            detail="Nieprawidłowy slot reklamowy"
+        )
+
+    if device not in AD_DEVICES:
+        raise HTTPException(
+            status_code=400,
+            detail="Nieprawidłowy typ urządzenia"
+        )
+
+    if event_type not in AD_EVENT_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail="Nieprawidłowy typ zdarzenia reklamowego"
+        )
+
+    return slot, device, event_type
+
+
+def record_ad_event(slot: str, device: str, event_type: str, db):
+    today = datetime.now(APP_TIMEZONE).date().isoformat()
+    stat = (
+        db.query(AdDailyStat)
+        .filter(
+            AdDailyStat.date == today,
+            AdDailyStat.slot == slot,
+            AdDailyStat.device == device,
+        )
+        .first()
+    )
+
+    if not stat:
+        stat = AdDailyStat(
+            date=today,
+            slot=slot,
+            device=device,
+            impressions=0,
+            clicks=0,
+        )
+        db.add(stat)
+
+    if event_type == "click":
+        stat.clicks = (stat.clicks or 0) + 1
+    else:
+        stat.impressions = (stat.impressions or 0) + 1
+
+    stat.updated_at = now_iso()
+    db.commit()
+    db.refresh(stat)
+
+    return stat
+
+
+def ad_report(days: int, db):
+    safe_days = min(max(days, 1), 366)
+    start_date = (
+        datetime.now(APP_TIMEZONE).date() - timedelta(days=safe_days - 1)
+    ).isoformat()
+    rows = (
+        db.query(AdDailyStat)
+        .filter(AdDailyStat.date >= start_date)
+        .order_by(AdDailyStat.date.desc(), AdDailyStat.slot.asc(), AdDailyStat.device.asc())
+        .all()
+    )
+    totals_by_slot = {
+        slot: {
+            "slot": slot,
+            "label": AD_SLOT_LABELS[slot],
+            "impressions": 0,
+            "clicks": 0,
+        }
+        for slot in AD_SLOTS
+    }
+    totals_by_device = {
+        device: {
+            "device": device,
+            "impressions": 0,
+            "clicks": 0,
+        }
+        for device in AD_DEVICES
+    }
+    total_impressions = 0
+    total_clicks = 0
+    report_rows = []
+
+    for row in rows:
+        impressions = int(row.impressions or 0)
+        clicks = int(row.clicks or 0)
+        label = AD_SLOT_LABELS.get(row.slot, row.slot)
+
+        total_impressions += impressions
+        total_clicks += clicks
+
+        if row.slot in totals_by_slot:
+            totals_by_slot[row.slot]["impressions"] += impressions
+            totals_by_slot[row.slot]["clicks"] += clicks
+
+        if row.device in totals_by_device:
+            totals_by_device[row.device]["impressions"] += impressions
+            totals_by_device[row.device]["clicks"] += clicks
+
+        report_rows.append({
+            "date": row.date,
+            "slot": row.slot,
+            "label": label,
+            "device": row.device,
+            "impressions": impressions,
+            "clicks": clicks,
+            "ctr": round((clicks / impressions) * 100, 2) if impressions else 0,
+        })
+
+    return {
+        "days": safe_days,
+        "start_date": start_date,
+        "generated_at": now_iso(),
+        "total_impressions": total_impressions,
+        "total_clicks": total_clicks,
+        "ctr": round((total_clicks / total_impressions) * 100, 2) if total_impressions else 0,
+        "totals_by_slot": list(totals_by_slot.values()),
+        "totals_by_device": list(totals_by_device.values()),
+        "rows": report_rows,
+    }
+
+
+PDF_TEXT_TRANSLATION = str.maketrans({
+    "ą": "a", "ć": "c", "ę": "e", "ł": "l", "ń": "n", "ó": "o", "ś": "s", "ż": "z", "ź": "z",
+    "Ą": "A", "Ć": "C", "Ę": "E", "Ł": "L", "Ń": "N", "Ó": "O", "Ś": "S", "Ż": "Z", "Ź": "Z",
+})
+
+
+def pdf_safe_text(value) -> str:
+    raw = str(value or "").translate(PDF_TEXT_TRANSLATION)
+    normalized = unicodedata.normalize("NFKD", raw)
+    return "".join(char for char in normalized if ord(char) < 128)
+
+
+def pdf_escape(value) -> str:
+    return (
+        pdf_safe_text(value)
+        .replace("\\", "\\\\")
+        .replace("(", "\\(")
+        .replace(")", "\\)")
+    )
+
+
+def pdf_number(value) -> str:
+    return f"{int(value or 0):,}".replace(",", " ")
+
+
+def pdf_ctr(clicks, impressions) -> str:
+    if not impressions:
+        return "0.00%"
+    return f"{(clicks / impressions) * 100:.2f}%"
+
+
+def build_pdf(objects: list[bytes]) -> bytes:
+    output = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+    offsets = [0]
+
+    for index, obj in enumerate(objects, start=1):
+        offsets.append(len(output))
+        output.extend(f"{index} 0 obj\n".encode("latin-1"))
+        output.extend(obj)
+        output.extend(b"\nendobj\n")
+
+    xref_offset = len(output)
+    output.extend(f"xref\n0 {len(objects) + 1}\n".encode("latin-1"))
+    output.extend(b"0000000000 65535 f \n")
+
+    for offset in offsets[1:]:
+        output.extend(f"{offset:010d} 00000 n \n".encode("latin-1"))
+
+    output.extend(
+        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n".encode("latin-1")
+    )
+    return bytes(output)
+
+
+def build_ad_report_pdf(report: dict) -> bytes:
+    page_width = 595
+    page_height = 842
+    margin_x = 42
+    bottom_y = 44
+    y = 790
+    current_page: list[str] = []
+    pages: list[list[str]] = []
+
+    def new_page():
+        nonlocal y, current_page
+        if current_page:
+            pages.append(current_page)
+        current_page = []
+        y = 790
+
+    def add_line(text: str, size: int = 10, font: str = "F1", x: int = margin_x, gap: int = 15):
+        nonlocal y
+        if y < bottom_y:
+            new_page()
+        current_page.append(f"BT /{font} {size} Tf {x} {y} Td ({pdf_escape(text)}) Tj ET\n")
+        y -= gap
+
+    def add_gap(amount: int = 8):
+        nonlocal y
+        y -= amount
+        if y < bottom_y:
+            new_page()
+
+    def shorten(value: str, length: int) -> str:
+        safe = pdf_safe_text(value)
+        if len(safe) <= length:
+            return safe
+        return safe[: max(0, length - 3)] + "..."
+
+    end_date = datetime.now(APP_TIMEZONE).date().isoformat()
+    generated_at = report.get("generated_at") or now_iso()
+    period_days = int(report.get("days") or 0)
+    start_date = report.get("start_date") or ""
+
+    add_line("Raport statystyk reklamowych", 18, "F2", gap=24)
+    add_line("Shooting System", 12, "F2")
+    add_line(f"Adres strony: {settings.frontend_url}")
+    add_line("Typ raportu: reklamy na stronie glownej")
+    add_line(f"Okres raportu: {start_date} - {end_date} ({period_days} dni)")
+    add_line(f"Wygenerowano: {generated_at}")
+    add_gap(10)
+
+    add_line("Identyfikacja pomiaru", 13, "F2", gap=18)
+    add_line("Raport obejmuje sloty reklamowe: lewa kolumna desktop, prawa kolumna desktop oraz pasek mobilny.")
+    add_line("Odsłona jest zliczana przez mechanizm strony po pojawieniu się slotu reklamy w obszarze ekranu użytkownika.")
+    add_line("Kliknięcie jest zliczane po interakcji użytkownika ze slotem reklamowym.")
+    add_line("Dane są agregowane dziennie według daty, slotu i typu urządzenia; raport nie zawiera danych osobowych użytkowników.")
+    add_gap(10)
+
+    total_impressions = int(report.get("total_impressions") or 0)
+    total_clicks = int(report.get("total_clicks") or 0)
+    add_line("Podsumowanie", 13, "F2", gap=18)
+    add_line(f"Łączne odsłony: {pdf_number(total_impressions)}")
+    add_line(f"Łączne kliknięcia: {pdf_number(total_clicks)}")
+    add_line(f"CTR: {pdf_ctr(total_clicks, total_impressions)}")
+    add_gap(10)
+
+    add_line("Podsumowanie według slotów", 13, "F2", gap=18)
+    add_line(f"{'Slot':<38} {'Odsłony':>10} {'Kliknięcia':>10} {'CTR':>8}", 9, "F3")
+    add_line("-" * 72, 9, "F3")
+    for item in report.get("totals_by_slot", []):
+        impressions = int(item.get("impressions") or 0)
+        clicks = int(item.get("clicks") or 0)
+        add_line(
+            f"{shorten(item.get('label') or item.get('slot') or '', 38):<38} {pdf_number(impressions):>10} {pdf_number(clicks):>10} {pdf_ctr(clicks, impressions):>8}",
+            9,
+            "F3",
+        )
+    add_gap(10)
+
+    device_labels = {"desktop": "Komputer", "mobile": "Telefon"}
+    add_line("Podsumowanie według urządzeń", 13, "F2", gap=18)
+    add_line(f"{'Urządzenie':<38} {'Odsłony':>10} {'Kliknięcia':>10} {'CTR':>8}", 9, "F3")
+    add_line("-" * 72, 9, "F3")
+    for item in report.get("totals_by_device", []):
+        impressions = int(item.get("impressions") or 0)
+        clicks = int(item.get("clicks") or 0)
+        label = device_labels.get(item.get("device"), item.get("device") or "")
+        add_line(
+            f"{shorten(label, 38):<38} {pdf_number(impressions):>10} {pdf_number(clicks):>10} {pdf_ctr(clicks, impressions):>8}",
+            9,
+            "F3",
+        )
+    add_gap(10)
+
+    add_line("Dane dzienne", 13, "F2", gap=18)
+    if report.get("rows"):
+        add_line(f"{'Data':<11} {'Slot':<28} {'Urz.':<8} {'Odsłony':>9} {'Klikn.':>8} {'CTR':>8}", 8, "F3", gap=12)
+        add_line("-" * 82, 8, "F3", gap=12)
+        for row in report.get("rows", []):
+            impressions = int(row.get("impressions") or 0)
+            clicks = int(row.get("clicks") or 0)
+            device = device_labels.get(row.get("device"), row.get("device") or "")
+            add_line(
+                f"{shorten(row.get('date') or '', 11):<11} {shorten(row.get('label') or row.get('slot') or '', 28):<28} {shorten(device, 8):<8} {pdf_number(impressions):>9} {pdf_number(clicks):>8} {pdf_ctr(clicks, impressions):>8}",
+                8,
+                "F3",
+                gap=12,
+            )
+    else:
+        add_line("Brak zdarzen reklamowych w wybranym okresie.")
+
+    if current_page:
+        pages.append(current_page)
+
+    objects: list[bytes] = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>",
+    ]
+
+    page_object_ids = []
+    for page in pages:
+        page_id = len(objects) + 1
+        content_id = page_id + 1
+        page_object_ids.append(page_id)
+        stream = "".join(page).encode("latin-1", "replace")
+        objects.append(
+            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {page_width} {page_height}] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> /Contents {content_id} 0 R >>".encode("latin-1")
+        )
+        objects.append(b"<< /Length " + str(len(stream)).encode("latin-1") + b" >>\nstream\n" + stream + b"endstream")
+
+    kids = " ".join(f"{page_id} 0 R" for page_id in page_object_ids)
+    objects[1] = f"<< /Type /Pages /Kids [{kids}] /Count {len(page_object_ids)} >>".encode("latin-1")
+
+    return build_pdf(objects)
+
+
+def pdf_filename_slug(value: str) -> str:
+    slug = re.sub(r"[^a-zA-Z0-9]+", "-", pdf_safe_text(value).lower()).strip("-")
+    return slug or "raport"
+
+
+def competition_head_judge_name(competition: Competition, db) -> str:
+    judge = (
+        db.query(CompetitionParticipant)
+        .filter(
+            CompetitionParticipant.competition_id == competition.id,
+            CompetitionParticipant.entry_type == "judge",
+            CompetitionParticipant.is_head_judge == 1,
+        )
+        .first()
+    )
+
+    if not judge:
+        return ""
+
+    data = public_participant(judge, db)
+    return participant_result_display_name(data) or data.get("user_email", "")
+
+
+def competition_discipline_categories(competition: Competition, db):
+    disciplines = (
+        db.query(Discipline)
+        .filter(Discipline.competition_id == competition.id)
+        .order_by(Discipline.id.asc())
+        .all()
+    )
+    return [
+        category
+        for category in live_result_categories(disciplines)
+        if category["type"] == "discipline"
+    ]
+
+
+def build_competition_results_pdf(competition: Competition, db) -> bytes:
+    page_width = 595
+    page_height = 842
+    margin_x = 38
+    bottom_y = 42
+    y = 790
+    current_page: list[str] = []
+    pages: list[list[str]] = []
+
+    def new_page():
+        nonlocal y, current_page
+        if current_page:
+            pages.append(current_page)
+        current_page = []
+        y = 790
+
+    def ensure_space(height: int):
+        if y - height < bottom_y:
+            new_page()
+
+    def add_line(text: str, size: int = 10, font: str = "F1", x: int = margin_x, gap: int = 14):
+        nonlocal y
+        ensure_space(gap)
+        current_page.append(f"BT /{font} {size} Tf {x} {y} Td ({pdf_escape(text)}) Tj ET\n")
+        y -= gap
+
+    def add_gap(amount: int = 8):
+        nonlocal y
+        y -= amount
+        if y < bottom_y:
+            new_page()
+
+    def add_rule():
+        nonlocal y
+        ensure_space(12)
+        current_page.append(f"0.6 w {margin_x} {y} m {page_width - margin_x} {y} l S\n")
+        y -= 12
+
+    def shorten(value: str, length: int) -> str:
+        safe = pdf_safe_text(value)
+        if len(safe) <= length:
+            return safe
+        return safe[: max(0, length - 3)] + "..."
+
+    categories = competition_discipline_categories(competition, db)
+    head_judge = competition_head_judge_name(competition, db)
+
+    add_line("KOMUNIKAT KLASYFIKACYJNY", 18, "F2", gap=24)
+    add_line(competition.name, 15, "F2", gap=20)
+    add_line(f"Data zawodów: {competition.date}")
+    add_line(f"Miejsce: {competition.location}")
+    add_line(f"Organizator: {competition.organizer_full_name or competition.created_by}")
+    if competition.sponsors:
+        add_line(f"Sponsorzy: {competition.sponsors}")
+    if head_judge:
+        add_line(f"Sedzia glowny: {head_judge}")
+    add_gap(10)
+
+    if not categories:
+        add_line("Brak konkurencji w tych zawodach.", 12, "F2")
+    else:
+        for index, category in enumerate(categories, start=1):
+            if index > 1:
+                new_page()
+
+            payload = result_category_payload(
+                competition,
+                category["id"],
+                db,
+                include_license=True,
+            )
+            shooters = payload.get("shooters", [])
+            add_line(f"Konkurencja {index}: {category['name']}", 15, "F2", gap=20)
+            add_line(f"Zawody: {competition.name}")
+            add_line(f"Data i miejsce: {competition.date}, {competition.location}")
+            add_line(f"Liczba sklasyfikowanych zawodników: {len(shooters)}")
+            add_rule()
+
+            add_line(
+                f"{'M-ce':<5} {'Nazwisko i imię':<25} {'Licencja':<12} {'Klub':<20} {'Wynik':>8}",
+                8,
+                "F3",
+                gap=12,
+            )
+            add_line("-" * 86, 8, "F3", gap=12)
+
+            if not shooters:
+                add_line("Brak sklasyfikowanych zawodników w tej konkurencji.")
+                continue
+
+            for shooter in shooters:
+                add_line(
+                    f"{str(shooter.get('place', '')):<5} {shorten(shooter.get('display_name') or '', 25):<25} {shorten(shooter.get('license_number') or '', 12):<12} {shorten(shooter.get('club') or '', 20):<20} {shorten(shooter.get('points') or '0', 8):>8}",
+                    8,
+                    "F3",
+                    gap=12,
+                )
+
+            add_gap(12)
+            add_rule()
+            add_line("Podpis sedziego glownego: ................................................", 10, "F1", gap=16)
+            add_line("Podpis organizatora: ....................................................", 10, "F1", gap=16)
+
+    if current_page:
+        pages.append(current_page)
+
+    objects: list[bytes] = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>",
+    ]
+
+    page_object_ids = []
+    for page_index, page in enumerate(pages, start=1):
+        page_id = len(objects) + 1
+        content_id = page_id + 1
+        page_object_ids.append(page_id)
+        footer = f"BT /F1 8 Tf {margin_x} 24 Td (Strona {page_index} / {len(pages)}) Tj ET\n"
+        stream = ("".join(page) + footer).encode("latin-1", "replace")
+        objects.append(
+            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {page_width} {page_height}] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> /Contents {content_id} 0 R >>".encode("latin-1")
+        )
+        objects.append(b"<< /Length " + str(len(stream)).encode("latin-1") + b" >>\nstream\n" + stream + b"endstream")
+
+    kids = " ".join(f"{page_id} 0 R" for page_id in page_object_ids)
+    objects[1] = f"<< /Type /Pages /Kids [{kids}] /Count {len(page_object_ids)} >>".encode("latin-1")
+
+    return build_pdf(objects)
 
 
 def has_role(user: User, role: str):
@@ -704,6 +1496,27 @@ def is_user_online(user: User):
     return datetime.now(timezone.utc) - last_seen <= timedelta(minutes=5)
 
 
+def is_pzss_club_account(user: User):
+    return getattr(user, "account_type", "") == PZSS_CLUB_ACCOUNT_TYPE
+
+
+def is_approved_pzss_club(user: User):
+    return (
+        is_pzss_club_account(user)
+        and getattr(user, "pzss_club_status", "") == PZSS_CLUB_APPROVED
+    )
+
+
+def pzss_club_display_name(user: User):
+    return (
+        getattr(user, "pzss_club_short_name", "")
+        or getattr(user, "organizer_name", "")
+        or getattr(user, "pzss_club_full_name", "")
+        or getattr(user, "club", "")
+        or user.email
+    )
+
+
 def public_user(user: User):
     roles = get_user_roles(user)
 
@@ -728,14 +1541,163 @@ def public_user(user: User):
         "last_seen": user.last_seen or "",
         "requested_role": user.requested_role or "",
         "password_reset_required": bool(user.password_reset_required),
+        "premium_until": getattr(user, "premium_until", "") or "",
+        "premium_disabled": bool(getattr(user, "premium_disabled", 0)),
+        "profile_photo_url": getattr(user, "profile_photo_url", "") or "",
+        "account_type": getattr(user, "account_type", "") or USER_ACCOUNT_TYPE,
+        "pzss_club_short_name": getattr(user, "pzss_club_short_name", "") or "",
+        "pzss_club_full_name": getattr(user, "pzss_club_full_name", "") or "",
+        "pzss_club_license_number": getattr(user, "pzss_club_license_number", "") or "",
+        "pzss_club_status": getattr(user, "pzss_club_status", "") or "",
+        "verified_club_id": getattr(user, "verified_club_id", None),
+        "club_membership_status": getattr(user, "club_membership_status", "") or "",
         "status": "online" if is_user_online(user) else "offline",
     }
 
 
+
+
+def admin_user_info_value(value):
+    if isinstance(value, bool):
+        return "tak" if value else "nie"
+
+    if isinstance(value, list):
+        return ", ".join(str(item) for item in value) if value else "brak"
+
+    if value is None or value == "":
+        return "brak"
+
+    return str(value)
+
+
+def admin_user_info_row(label: str, value):
+    return {
+        "label": label,
+        "value": admin_user_info_value(value),
+    }
+
+
+def admin_user_profile_info(user: User):
+    roles = get_user_roles(user)
+
+    return {
+        "id": user.id,
+        "email": user.email,
+        "display_name": " ".join([
+            user.first_name or "",
+            user.last_name or "",
+        ]).strip() or user.email,
+        "sections": [
+            {
+                "title": "Konto",
+                "rows": [
+                    admin_user_info_row("ID", user.id),
+                    admin_user_info_row("E-mail", user.email),
+                    admin_user_info_row("Status online", "online" if is_user_online(user) else "offline"),
+                    admin_user_info_row("Konto aktywne", bool(user.is_active)),
+                    admin_user_info_row("Profil kompletny", is_profile_complete(user)),
+                    admin_user_info_row("Ostatnia aktywność", user.last_seen),
+                    admin_user_info_row("Wymuszony reset hasła", bool(user.password_reset_required)),
+                ],
+            },
+            {
+                "title": "Role i uprawnienia",
+                "rows": [
+                    admin_user_info_row("Rola główna", primary_role(roles)),
+                    admin_user_info_row("Role", roles),
+                    admin_user_info_row("Pole legacy role", user.role),
+                    admin_user_info_row("Pole raw roles", user.roles),
+                    admin_user_info_row("Typ konta", getattr(user, "account_type", "") or USER_ACCOUNT_TYPE),
+                    admin_user_info_row("Status klubu PZSS", getattr(user, "pzss_club_status", "")),
+                    admin_user_info_row("Licencja klubu PZSS", getattr(user, "pzss_club_license_number", "")),
+                    admin_user_info_row("Prośba o rolę", user.requested_role),
+                ],
+            },
+            {
+                "title": "Profil strzelca",
+                "rows": [
+                    admin_user_info_row("Imię", user.first_name),
+                    admin_user_info_row("Nazwisko", user.last_name),
+                    admin_user_info_row("Data urodzenia", user.birth_date),
+                    admin_user_info_row("Telefon", user.phone_number),
+                    admin_user_info_row("Województwo", getattr(user, "voivodeship", "")),
+                    admin_user_info_row("Klub", user.club),
+                    admin_user_info_row("Brak klubu", bool(getattr(user, "no_club", 0))),
+                    admin_user_info_row("Zweryfikowany klub ID", getattr(user, "verified_club_id", None)),
+                    admin_user_info_row("Status członkostwa", getattr(user, "club_membership_status", "")),
+                    admin_user_info_row("Nazwa skrócona PZSS", getattr(user, "pzss_club_short_name", "")),
+                    admin_user_info_row("Nazwa pełna PZSS", getattr(user, "pzss_club_full_name", "")),
+                    admin_user_info_row("Numer licencji", user.license_number),
+                    admin_user_info_row("Brak licencji", bool(getattr(user, "no_license", 0))),
+                    admin_user_info_row("UUID licencji / QR", getattr(user, "license_uuid", "")),
+                    admin_user_info_row("Kod klubowy licencji", getattr(user, "license_club_code", "")),
+                ],
+            },
+            {
+                "title": "Organizator i sędzia",
+                "rows": [
+                    admin_user_info_row("Nazwa organizatora", getattr(user, "organizer_name", "")),
+                    admin_user_info_row("Klucz organizatora", getattr(user, "organizer_name_key", "")),
+                    admin_user_info_row("Numer licencji sędziowskiej", user.judge_license_number),
+                    admin_user_info_row("Klucz licencji sędziowskiej", getattr(user, "judge_license_number_key", "")),
+                    admin_user_info_row("Ważność licencji sędziowskiej", getattr(user, "judge_license_valid_until", "")),
+                ],
+            },
+            {
+                "title": "Premium",
+                "rows": [
+                    admin_user_info_row("Premium do", getattr(user, "premium_until", "")),
+                    admin_user_info_row("Premium ręcznie wyłączone", bool(getattr(user, "premium_disabled", 0))),
+                ],
+            },
+            {
+                "title": "Zdjęcie profilowe",
+                "rows": [
+                    admin_user_info_row("Zdjęcie", getattr(user, "profile_photo_url", "")),
+                ],
+            },
+            {
+                "title": "Techniczne ukryte",
+                "rows": [
+                    admin_user_info_row("Hash hasła", "zapisany (ukryty)" if user.hashed_password else "brak"),
+                    admin_user_info_row("Token aktywacyjny", "istnieje (ukryty)" if user.activation_token else "brak"),
+                    admin_user_info_row("Token resetu hasła", "istnieje (ukryty)" if user.password_reset_token else "brak"),
+                ],
+            },
+        ],
+    }
+
+
+def ensure_profile_qr_uuid(user: User, db):
+    if getattr(user, "license_uuid", "") or not is_profile_complete(user):
+        return
+
+    user.license_uuid = str(uuid4())
+    db.commit()
+    db.refresh(user)
+
+
+def auth_session_response(user: User, access_token: str):
+    return {
+        "message": "Logowanie poprawne",
+        "access_token": access_token,
+        "token": access_token,
+        "email": user.email,
+        "role": primary_role(get_user_roles(user)),
+        "roles": get_user_roles(user),
+        "profile_complete": is_profile_complete(user),
+        "account_type": getattr(user, "account_type", "") or USER_ACCOUNT_TYPE,
+        "pzss_club_status": getattr(user, "pzss_club_status", "") or "",
+    }
+
+
 def private_user_response(user: User, db, message: str = ""):
+    ensure_profile_qr_uuid(user, db)
     response = public_user(user)
     response.update({
         "birth_date": user.birth_date or "",
+        "license_uuid": getattr(user, "license_uuid", "") or "",
+        "license_club_code": getattr(user, "license_club_code", "") or "",
         "achievements": user_achievements(user.email, db),
     })
 
@@ -744,6 +1706,156 @@ def private_user_response(user: User, db, message: str = ""):
 
     return response
 
+
+
+
+def profile_photo_path_from_url(photo_url: str):
+    if not photo_url or not photo_url.startswith(f"{PROFILE_PHOTO_ROUTE_PREFIX}/"):
+        return None
+
+    file_name = Path(photo_url).name
+
+    if not file_name:
+        return None
+
+    file_path = PROFILE_PHOTO_DIR / file_name
+
+    try:
+        file_path.resolve().relative_to(PROFILE_PHOTO_DIR.resolve())
+    except ValueError:
+        return None
+
+    return file_path
+
+
+def delete_profile_photo_file(photo_url: str):
+    file_path = profile_photo_path_from_url(photo_url)
+
+    if file_path and file_path.exists():
+        file_path.unlink()
+
+
+def normalized_profile_photo(image: Image.Image):
+    image = ImageOps.exif_transpose(image)
+
+    if image.mode in ["RGBA", "LA"] or (image.mode == "P" and "transparency" in image.info):
+        alpha_image = image.convert("RGBA")
+        background = Image.new("RGBA", alpha_image.size, (255, 255, 255, 255))
+        background.alpha_composite(alpha_image)
+        image = background.convert("RGB")
+    else:
+        image = image.convert("RGB")
+
+    width, height = image.size
+    side = min(width, height)
+    left = (width - side) // 2
+    top = (height - side) // 2
+    image = image.crop((left, top, left + side, top + side))
+
+    return image.resize(
+        (PROFILE_PHOTO_SIZE, PROFILE_PHOTO_SIZE),
+        Image.Resampling.LANCZOS,
+    )
+
+
+def save_profile_photo(file: UploadFile, user: User, db):
+    content_type = (file.content_type or "").lower()
+
+    if content_type not in PROFILE_PHOTO_CONTENT_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail="Dodaj zdjęcie w formacie JPG, PNG albo WebP"
+        )
+
+    contents = file.file.read(PROFILE_PHOTO_MAX_BYTES + 1)
+
+    if len(contents) > PROFILE_PHOTO_MAX_BYTES:
+        raise HTTPException(
+            status_code=400,
+            detail="Zdjęcie może mieć maksymalnie 8 MB"
+        )
+
+    try:
+        image = Image.open(BytesIO(contents))
+        image.load()
+    except (UnidentifiedImageError, OSError) as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="Nie udało się odczytać zdjęcia"
+        ) from exc
+
+    output_image = normalized_profile_photo(image)
+    file_name = f"{user.id}-{uuid4().hex}.webp"
+    file_path = PROFILE_PHOTO_DIR / file_name
+    output_image.save(
+        file_path,
+        format="WEBP",
+        quality=82,
+        method=6,
+    )
+
+    db_user = (
+        db.query(User)
+        .filter(User.email == user.email)
+        .first()
+    )
+
+    if not db_user:
+        delete_profile_photo_file(f"{PROFILE_PHOTO_ROUTE_PREFIX}/{file_name}")
+        raise HTTPException(
+            status_code=404,
+            detail="Użytkownik nie istnieje"
+        )
+
+    old_photo_url = getattr(db_user, "profile_photo_url", "") or ""
+    db_user.profile_photo_url = f"{PROFILE_PHOTO_ROUTE_PREFIX}/{file_name}"
+    db.commit()
+    db.refresh(db_user)
+    delete_profile_photo_file(old_photo_url)
+
+    return db_user
+
+
+def save_email_asset(file: UploadFile):
+    content_type = (file.content_type or "").lower()
+
+    if content_type not in EMAIL_ASSET_CONTENT_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail="Dodaj grafikę w formacie JPG, PNG, WebP albo GIF",
+        )
+
+    contents = file.file.read(EMAIL_ASSET_MAX_BYTES + 1)
+
+    if len(contents) > EMAIL_ASSET_MAX_BYTES:
+        raise HTTPException(status_code=400, detail="Grafika może mieć maksymalnie 8 MB")
+
+    try:
+        image = Image.open(BytesIO(contents))
+        image.seek(0)
+        image.load()
+    except (UnidentifiedImageError, OSError) as exc:
+        raise HTTPException(status_code=400, detail="Nie udało się odczytać grafiki") from exc
+
+    image = ImageOps.exif_transpose(image)
+    image.thumbnail((1600, 1600), Image.Resampling.LANCZOS)
+
+    if image.mode not in ("RGB", "RGBA"):
+        image = image.convert("RGBA" if "transparency" in image.info else "RGB")
+
+    file_name = f"{uuid4().hex}.webp"
+    image.save(
+        EMAIL_ASSET_DIR / file_name,
+        format="WEBP",
+        quality=88,
+        method=6,
+    )
+
+    relative_url = f"{EMAIL_ASSET_ROUTE_PREFIX}/{file_name}"
+    return {
+        "path": relative_url,
+        "url": f"{settings.frontend_url}/api{relative_url}",
+    }
 
 def organizer_display_name(user: User):
     return (
@@ -771,11 +1883,51 @@ def judge_by_license_number(license_number: str, db):
     )
 
 
+JUDGE_LICENSE_CLASSES = {
+    "I": 1,
+    "II": 2,
+    "III": 3,
+}
+
+
+def judge_license_class(license_number: str) -> Optional[int]:
+    if not license_number:
+        return None
+
+    for part in license_number.split("/"):
+        normalized_part = part.strip().upper()
+
+        if normalized_part in JUDGE_LICENSE_CLASSES:
+            return JUDGE_LICENSE_CLASSES[normalized_part]
+
+    match = re.search(r"/\s*(I{1,3})\s*/", license_number.upper())
+
+    if match:
+        return JUDGE_LICENSE_CLASSES.get(match.group(1))
+
+    return None
+
+
+def judge_license_class_label(license_class: Optional[int]) -> str:
+    if license_class in (1, 2, 3):
+        return f"klasa {license_class}"
+
+    return "nierozpoznana"
+
+
+def can_be_head_judge_from_license(license_number: str) -> bool:
+    return judge_license_class(license_number) in (1, 2)
+
+
 def judge_search_response(judge: User):
+    license_class = judge_license_class(judge.judge_license_number or "")
     data = public_user(judge)
     data.update({
         "judge_license_number": judge.judge_license_number or "",
         "judge_license_valid_until": getattr(judge, "judge_license_valid_until", "") or "",
+        "judge_license_class": license_class,
+        "judge_license_class_label": judge_license_class_label(license_class),
+        "can_be_head_judge": license_class in (1, 2),
     })
 
     return data
@@ -784,8 +1936,102 @@ def judge_search_response(judge: User):
 def create_password_reset_token(user: User):
     token = secrets.token_urlsafe(32)
     user.password_reset_token = token
+    user.password_reset_expires_at = (
+        datetime.now(timezone.utc) + PASSWORD_RESET_TOKEN_TTL
+    ).isoformat()
     user.password_reset_required = 1
     return token
+
+
+def password_reset_token_expired(user: User) -> bool:
+    expires_at = getattr(user, "password_reset_expires_at", "") or ""
+
+    if not expires_at:
+        return True
+
+    try:
+        expires_at_datetime = datetime.fromisoformat(expires_at)
+    except ValueError:
+        return True
+
+    if expires_at_datetime.tzinfo is None:
+        expires_at_datetime = expires_at_datetime.replace(tzinfo=timezone.utc)
+
+    return datetime.now(timezone.utc) >= expires_at_datetime
+
+
+def clear_password_reset_token(user: User) -> None:
+    user.password_reset_token = None
+    user.password_reset_expires_at = None
+    user.password_reset_required = 0
+
+
+def token_payload(user: User, token_type: str, expires_delta: timedelta):
+    roles = get_user_roles(user)
+
+    payload = {
+        "sub": user.email,
+        "role": primary_role(roles),
+        "roles": roles,
+        "typ": token_type,
+        "exp": datetime.now(timezone.utc) + expires_delta,
+    }
+
+    if token_type == "refresh":
+        payload["ver"] = getattr(user, "refresh_token_version", 0) or 0
+
+    return payload
+
+
+def create_auth_token(user: User, token_type: str, expires_delta: timedelta):
+    return jwt.encode(
+        token_payload(user, token_type, expires_delta),
+        settings.secret_key,
+        algorithm=ALGORITHM,
+    )
+
+
+def create_access_token(user: User):
+    return create_auth_token(user, "access", ACCESS_TOKEN_TTL)
+
+
+def create_refresh_token(user: User):
+    return create_auth_token(user, "refresh", REFRESH_TOKEN_TTL)
+
+
+def set_refresh_token_cookie(response: Response, token: str):
+    response.set_cookie(
+        key=REFRESH_TOKEN_COOKIE_NAME,
+        value=token,
+        max_age=int(REFRESH_TOKEN_TTL.total_seconds()),
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        path=REFRESH_TOKEN_COOKIE_PATH,
+    )
+
+
+def clear_refresh_token_cookie(response: Response):
+    response.delete_cookie(
+        key=REFRESH_TOKEN_COOKIE_NAME,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        path=REFRESH_TOKEN_COOKIE_PATH,
+    )
+
+
+def decode_auth_token(token: str, expected_type: str):
+    payload = jwt.decode(
+        token,
+        settings.secret_key,
+        algorithms=[ALGORITHM],
+    )
+
+    if payload.get("typ") != expected_type:
+        raise JWTError("Invalid token type")
+
+    return payload
 
 
 def password_reset_link(token: str):
@@ -851,6 +2097,122 @@ def enforce_password_reset_rate_limit(email: str, db) -> None:
             key=key,
             value=value,
         ))
+
+
+def client_ip_from_request(request: Request) -> str:
+    forwarded_for = request.headers.get("x-forwarded-for", "")
+
+    if forwarded_for:
+        first_ip = forwarded_for.split(",", 1)[0].strip()
+
+        if first_ip:
+            return first_ip[:128]
+
+    if request.client and request.client.host:
+        return request.client.host[:128]
+
+    return "unknown"
+
+
+def rate_limit_key(prefix: str, identifier: str):
+    normalized_identifier = (identifier or "unknown").strip().lower()
+    identifier_hash = hashlib.sha256(
+        normalized_identifier.encode("utf-8")
+    ).hexdigest()
+
+    return f"{prefix}:{identifier_hash}"
+
+
+def enforce_fixed_window_rate_limit(
+    key: str,
+    limit: int,
+    window: timedelta,
+    detail_prefix: str,
+    db,
+) -> None:
+    now = datetime.now(timezone.utc)
+    setting = (
+        db.query(AppSetting)
+        .filter(AppSetting.key == key)
+        .first()
+    )
+    window_started_at = now
+    count = 0
+
+    if setting:
+        try:
+            state = json.loads(setting.value)
+            window_started_at = datetime.fromisoformat(state.get("window_started_at", ""))
+            count = int(state.get("count", 0))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            window_started_at = now
+            count = 0
+
+        if window_started_at.tzinfo is None:
+            window_started_at = window_started_at.replace(tzinfo=timezone.utc)
+
+    elapsed = now - window_started_at
+
+    if elapsed >= window:
+        window_started_at = now
+        count = 0
+        elapsed = timedelta(0)
+
+    if count >= limit:
+        retry_after_seconds = max(
+            1,
+            int((window - elapsed).total_seconds()),
+        )
+        retry_after_minutes = math.ceil(retry_after_seconds / 60)
+        raise HTTPException(
+            status_code=429,
+            detail=f"{detail_prefix} Spróbuj ponownie za około {retry_after_minutes} min.",
+        )
+
+    value = json.dumps({
+        "window_started_at": window_started_at.isoformat(),
+        "count": count + 1,
+    })
+
+    if setting:
+        setting.value = value
+    else:
+        db.add(AppSetting(
+            key=key,
+            value=value,
+        ))
+
+
+def enforce_login_ip_rate_limit(ip_address: str, db) -> None:
+    enforce_fixed_window_rate_limit(
+        rate_limit_key("login_ip_rate", ip_address),
+        LOGIN_IP_LIMIT,
+        LOGIN_IP_WINDOW,
+        "Zbyt wiele prób logowania z tego adresu IP.",
+        db,
+    )
+
+
+def enforce_failed_login_email_rate_limit(email: str, db) -> None:
+    enforce_fixed_window_rate_limit(
+        rate_limit_key("login_email_failed_rate", email),
+        LOGIN_EMAIL_FAILURE_LIMIT,
+        LOGIN_EMAIL_FAILURE_WINDOW,
+        "Zbyt wiele błędnych prób logowania dla tego konta.",
+        db,
+    )
+
+
+def clear_failed_login_email_rate_limit(email: str, db) -> None:
+    key = rate_limit_key("login_email_failed_rate", email)
+    setting = (
+        db.query(AppSetting)
+        .filter(AppSetting.key == key)
+        .first()
+    )
+
+    if setting:
+        db.delete(setting)
 
 
 def send_password_reset_for_user(user: User, db) -> None:
@@ -929,9 +2291,42 @@ def validate_test_count(value: int, minimum: int, maximum: int, label: str):
     return value
 
 
-def test_person_data(competition_id: int, index: int):
-    first_name = TEST_FIRST_NAMES[index % len(TEST_FIRST_NAMES)]
-    last_name = TEST_LAST_NAMES[(index * 3) % len(TEST_LAST_NAMES)]
+def test_person_name(index: int, used_person_names: set[tuple[str, str]] | None = None):
+    used_names = used_person_names if used_person_names is not None else set()
+    first_names_count = len(TEST_FIRST_NAMES)
+    last_names_count = len(TEST_LAST_NAMES)
+    combinations_count = first_names_count * last_names_count
+
+    for offset in range(combinations_count):
+        candidate_index = index + offset
+        first_name = TEST_FIRST_NAMES[candidate_index % first_names_count]
+        last_name = TEST_LAST_NAMES[(candidate_index // first_names_count) % last_names_count]
+        name_key = (first_name.casefold(), last_name.casefold())
+
+        if name_key not in used_names:
+            used_names.add(name_key)
+            return first_name, last_name
+
+    fallback_number = index + 1
+
+    while True:
+        first_name = TEST_FIRST_NAMES[index % first_names_count]
+        last_name = f"{TEST_LAST_NAMES[(index // first_names_count) % last_names_count]}-{fallback_number}"
+        name_key = (first_name.casefold(), last_name.casefold())
+
+        if name_key not in used_names:
+            used_names.add(name_key)
+            return first_name, last_name
+
+        fallback_number += 1
+
+
+def test_person_data(
+    competition_id: int,
+    index: int,
+    used_person_names: set[tuple[str, str]] | None = None,
+):
+    first_name, last_name = test_person_name(index, used_person_names)
     club = TEST_CLUBS[index % len(TEST_CLUBS)]
     year = 1975 + (index % 28)
     month = (index % 12) + 1
@@ -982,13 +2377,14 @@ def create_test_participant(
     checked_in: bool,
     paid: bool,
     db,
+    used_person_names: set[tuple[str, str]] | None = None,
 ):
     selected_disciplines = test_participant_disciplines(disciplines, index)
     disciplines_by_id = {
         discipline.id: discipline
         for discipline in disciplines
     }
-    person = test_person_data(competition.id, index)
+    person = test_person_data(competition.id, index, used_person_names)
     timestamp = now_iso()
 
     participant = CompetitionParticipant(
@@ -1139,6 +2535,7 @@ def delete_user_with_dependencies(user: User, db):
         .delete(synchronize_session=False)
     )
 
+    delete_profile_photo_file(getattr(user, "profile_photo_url", "") or "")
     db.delete(user)
     db.commit()
 
@@ -1165,7 +2562,27 @@ def delete_participant_with_dependencies(participant: CompetitionParticipant, db
     db.delete(participant)
 
 
-def public_participant(participant: CompetitionParticipant, db):
+def can_view_participant_private_fields(
+    viewer: Optional[User],
+    competition: Optional[Competition],
+):
+    if not viewer:
+        return False
+
+    if has_role(viewer, "admin"):
+        return True
+
+    return bool(
+        competition
+        and competition.created_by == viewer.email
+    )
+
+
+def public_participant(
+    participant: CompetitionParticipant,
+    db,
+    include_private: bool = False,
+):
     user = (
         db.query(User)
         .filter(User.email == participant.user_email)
@@ -1176,8 +2593,9 @@ def public_participant(participant: CompetitionParticipant, db):
     license_number = (
         participant.license_number or (user.license_number if user else "") or ""
     )
+    judge_license_number = user.judge_license_number if user else ""
     club = participant.club or (user.club if user else "") or ""
-    display_name = participant.user_email
+    display_name = f"Uczestnik #{participant.id}"
 
     if first_name and last_name:
         display_name = f"{last_name} {first_name}"
@@ -1187,13 +2605,13 @@ def public_participant(participant: CompetitionParticipant, db):
 
     return {
         "id": participant.id,
-        "user_email": participant.user_email,
+        "user_email": participant.user_email if include_private else "",
         "entry_type": participant.entry_type or "shooter",
         "total_fee": participant.total_fee or calculate_participant_total_fee(participant, db),
         "first_name": first_name,
         "last_name": last_name,
-        "license_number": license_number,
-        "judge_license_number": user.judge_license_number if user else "",
+        "license_number": license_number if include_private else "",
+        "judge_license_number": judge_license_number if include_private else "",
         "club": club,
         "display_name": display_name,
     }
@@ -1230,10 +2648,11 @@ def public_shooter_participants(competition: Competition, db):
 
 
 def staff_participant(participant: CompetitionParticipant, db):
-    public_data = public_participant(participant, db)
+    public_data = public_participant(participant, db, include_private=True)
     public_data["is_head_judge"] = bool(participant.is_head_judge)
     public_data["checked_in"] = bool(participant.checked_in)
     public_data["paid"] = bool(participant.paid)
+    public_data["disciplines"] = participant_discipline_assignments(participant, db)
     return public_data
 
 
@@ -1268,7 +2687,7 @@ def participant_payment_row(participant: CompetitionParticipant, db):
         )
 
     return {
-        **public_participant(participant, db),
+        **public_participant(participant, db, include_private=True),
         "first_name": first_name,
         "last_name": last_name,
         "license_number": license_number,
@@ -1285,6 +2704,554 @@ def participant_payment_row(participant: CompetitionParticipant, db):
         "paid": bool(participant.paid),
         "paid_at": participant.paid_at or "",
     }
+
+
+def participant_discipline_assignments(participant: CompetitionParticipant, db):
+    participant_confirmed = is_participant_confirmed(participant)
+    participant_disciplines = (
+        db.query(ParticipantDiscipline)
+        .filter(ParticipantDiscipline.participant_id == participant.id)
+        .order_by(ParticipantDiscipline.id.asc())
+        .all()
+    )
+    discipline_ids = [
+        participant_discipline.discipline_id
+        for participant_discipline in participant_disciplines
+    ]
+    disciplines_by_id = {}
+
+    if discipline_ids:
+        disciplines_by_id = {
+            discipline.id: discipline
+            for discipline in (
+                db.query(Discipline)
+                .filter(Discipline.id.in_(discipline_ids))
+                .all()
+            )
+        }
+
+    return [
+        {
+            "participant_discipline_id": participant_discipline.id,
+            "id": participant_discipline.discipline_id,
+            "name": disciplines_by_id.get(participant_discipline.discipline_id).name
+                if participant_discipline.discipline_id in disciplines_by_id
+                else "",
+            "ammo_type": participant_discipline.ammo_type,
+            "squad_group_number": (
+                int(getattr(participant_discipline, "squad_group_number", 0) or 0)
+                if participant_confirmed
+                else 0
+            ),
+            "squad_position": (
+                int(getattr(participant_discipline, "squad_position", 0) or 0)
+                if participant_confirmed
+                else 0
+            ),
+        }
+        for participant_discipline in participant_disciplines
+    ]
+
+
+def is_participant_confirmed(participant: CompetitionParticipant):
+    return bool(
+        getattr(participant, "checked_in", 0)
+        and getattr(participant, "paid", 0)
+    )
+
+
+def next_squad_group_number(discipline_id: int, db):
+    discipline = (
+        db.query(Discipline)
+        .filter(Discipline.id == discipline_id)
+        .first()
+    )
+    locked_group_numbers = set()
+
+    if discipline:
+        locked_group_numbers = {
+            group_number
+            for group_number, status in trap_squad_group_statuses(discipline, db).items()
+            if trap_squad_group_is_locked(status)
+        }
+
+    group_counts: dict[int, int] = {}
+    rows = (
+        db.query(ParticipantDiscipline.squad_group_number, func.count(ParticipantDiscipline.id))
+        .join(CompetitionParticipant, CompetitionParticipant.id == ParticipantDiscipline.participant_id)
+        .filter(ParticipantDiscipline.discipline_id == discipline_id)
+        .filter(
+            CompetitionParticipant.checked_in == 1,
+            CompetitionParticipant.paid == 1,
+        )
+        .filter(
+            or_(
+                CompetitionParticipant.entry_type == "shooter",
+                CompetitionParticipant.entry_type.is_(None),
+            )
+        )
+        .group_by(ParticipantDiscipline.squad_group_number)
+        .all()
+    )
+
+    for raw_group_number, count in rows:
+        group_number = int(raw_group_number or 0)
+
+        if group_number > 0:
+            group_counts[group_number] = int(count or 0)
+
+    group_size = clay_squad_group_size(discipline)
+
+    if not group_counts:
+        return 1
+
+    max_group_number = max(group_counts)
+
+    for group_number in range(1, max_group_number + 1):
+        if group_number in locked_group_numbers:
+            continue
+
+        if group_counts.get(group_number, 0) < group_size:
+            return group_number
+
+    return max_group_number + 1
+
+
+def discipline_clay_variant(discipline: Discipline):
+    value = (getattr(discipline, "clay_variant", "") or "").strip()
+
+    if value:
+        return value
+
+    if normalize_discipline_type(getattr(discipline, "discipline_type", "") or "") == TRAP_DISCIPLINE_TYPE:
+        return (getattr(discipline, "trap_variant", "") or "").strip()
+
+    return ""
+
+
+def discipline_clay_series_count(discipline: Discipline):
+    value = int(getattr(discipline, "clay_series_count", 0) or 0)
+
+    if value > 0:
+        return value
+
+    if normalize_discipline_type(getattr(discipline, "discipline_type", "") or "") == TRAP_DISCIPLINE_TYPE:
+        return max(int(getattr(discipline, "trap_series_count", 0) or 0), 0)
+
+    return 0
+
+
+def is_clay_squad_discipline(discipline: Discipline):
+    discipline_type = normalize_discipline_type(
+        getattr(discipline, "discipline_type", "") or ""
+    )
+    return (
+        discipline_type in [TRAP_DISCIPLINE_TYPE, SKEET_DISCIPLINE_TYPE]
+        and bool(discipline_clay_variant(discipline))
+        and discipline_clay_series_count(discipline) > 0
+    )
+
+
+def is_trap_squad_discipline(discipline: Discipline):
+    return is_clay_squad_discipline(discipline)
+
+
+def clay_squad_group_size(discipline: Discipline | None):
+    if (
+        discipline
+        and normalize_discipline_type(getattr(discipline, "discipline_type", "") or "")
+        == SKEET_DISCIPLINE_TYPE
+    ):
+        return SKEET_SQUAD_GROUP_SIZE
+
+    return SQUAD_GROUP_SIZE
+
+
+def next_squad_position(discipline_id: int, group_number: int, db):
+    occupied_positions = {
+        int(position)
+        for (position,) in (
+            db.query(ParticipantDiscipline.squad_position)
+            .join(CompetitionParticipant, CompetitionParticipant.id == ParticipantDiscipline.participant_id)
+            .filter(
+                ParticipantDiscipline.discipline_id == discipline_id,
+                ParticipantDiscipline.squad_group_number == group_number,
+                ParticipantDiscipline.squad_position.is_not(None),
+                CompetitionParticipant.checked_in == 1,
+                CompetitionParticipant.paid == 1,
+            )
+            .all()
+        )
+        if int(position or 0) > 0
+    }
+
+    for position in range(1, SKEET_SQUAD_GROUP_SIZE + 1):
+        if position not in occupied_positions:
+            return position
+
+    return len(occupied_positions) + 1
+
+
+def trap_result_scores(result_data: str):
+    try:
+        parsed = json.loads(result_data or "[]")
+    except (TypeError, ValueError):
+        return []
+
+    if not isinstance(parsed, list):
+        return []
+
+    return [
+        score
+        if score in [0, 1]
+        else None
+        for score in parsed
+    ]
+
+
+def clay_result_scores(discipline: Discipline, result_data: str):
+    discipline_type = normalize_discipline_type(
+        getattr(discipline, "discipline_type", "") or ""
+    )
+
+    if discipline_type != SKEET_DISCIPLINE_TYPE:
+        return trap_result_scores(result_data)
+
+    try:
+        parsed = json.loads(result_data or "{}")
+    except (TypeError, ValueError):
+        return []
+
+    if not isinstance(parsed, dict) or parsed.get("discipline") != "skeet":
+        return []
+
+    scores = []
+
+    for round_data in parsed.get("rounds", []):
+        if not isinstance(round_data, dict):
+            continue
+
+        targets = round_data.get("targets", [])
+        if not isinstance(targets, list):
+            continue
+
+        for target in targets:
+            if not isinstance(target, dict):
+                scores.append(None)
+                continue
+
+            score = target.get("score")
+            scores.append(score if score in [0, 1] else None)
+
+    return scores
+
+
+def validate_skeet_result_data(discipline: Discipline, result_data: str):
+    try:
+        parsed = json.loads(result_data or "{}")
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Nieprawidłowy zapis wyniku Skeet")
+
+    if not isinstance(parsed, dict) or parsed.get("discipline") != "skeet":
+        raise HTTPException(status_code=400, detail="Nieprawidłowy zapis wyniku Skeet")
+
+    rounds = parsed.get("rounds")
+    expected_rounds = discipline_clay_series_count(discipline)
+
+    if not isinstance(rounds, list) or len(rounds) != expected_rounds:
+        raise HTTPException(status_code=400, detail="Nieprawidłowa liczba serii Skeet")
+
+    scores = []
+
+    for round_index, round_data in enumerate(rounds):
+        if not isinstance(round_data, dict):
+            raise HTTPException(status_code=400, detail="Nieprawidłowa seria Skeet")
+
+        if int(round_data.get("round_number", 0) or 0) != round_index + 1:
+            raise HTTPException(status_code=400, detail="Nieprawidłowa kolejność serii Skeet")
+
+        targets = round_data.get("targets")
+
+        if not isinstance(targets, list) or len(targets) != SKEET_TARGETS_PER_SERIES:
+            raise HTTPException(status_code=400, detail="Seria Skeet musi zawierać 25 rzutek")
+
+        for target_index, target in enumerate(targets):
+            if not isinstance(target, dict) or int(target.get("number", 0) or 0) != target_index + 1:
+                raise HTTPException(status_code=400, detail="Nieprawidłowa sekwencja Skeet")
+
+            expected_target = SKEET_TARGET_SEQUENCE[target_index]
+            if any(
+                target.get(field) != expected_target[field]
+                for field in ["station", "presentation", "house"]
+            ):
+                raise HTTPException(status_code=400, detail="Wynik nie odpowiada oficjalnej sekwencji Skeet")
+
+            score = target.get("score")
+
+            if score not in [0, 1, None]:
+                raise HTTPException(status_code=400, detail="Wynik rzutka Skeet musi wynosić 0 lub 1")
+
+            scores.append(score)
+
+    return parsed, sum(1 for score in scores if score == 1)
+
+
+def trap_result_has_started(result: DisciplineResult | None, discipline: Discipline | None = None):
+    if not result:
+        return False
+
+    scores = (
+        clay_result_scores(discipline, getattr(result, "result_data", "") or "")
+        if discipline
+        else trap_result_scores(getattr(result, "result_data", "") or "")
+    )
+
+    if any(score in [0, 1] for score in scores):
+        return True
+
+    return bool((getattr(result, "points", "") or "").strip())
+
+
+def trap_result_is_complete(
+    result: DisciplineResult | None,
+    expected_scores_count: int,
+    discipline: Discipline | None = None,
+):
+    if not result or expected_scores_count <= 0:
+        return False
+
+    scores = (
+        clay_result_scores(discipline, getattr(result, "result_data", "") or "")
+        if discipline
+        else trap_result_scores(getattr(result, "result_data", "") or "")
+    )
+
+    if len(scores) < expected_scores_count:
+        return False
+
+    return all(score in [0, 1] for score in scores[:expected_scores_count])
+
+
+def trap_squad_group_statuses(discipline: Discipline, db):
+    if not discipline or not is_clay_squad_discipline(discipline):
+        return {}
+
+    expected_scores_count = max(
+        discipline_clay_series_count(discipline),
+        0,
+    ) * TRAP_TARGETS_PER_SERIES
+    participant_disciplines = (
+        db.query(ParticipantDiscipline)
+        .join(CompetitionParticipant, CompetitionParticipant.id == ParticipantDiscipline.participant_id)
+        .filter(
+            ParticipantDiscipline.discipline_id == discipline.id,
+            ParticipantDiscipline.squad_group_number > 0,
+            CompetitionParticipant.checked_in == 1,
+            CompetitionParticipant.paid == 1,
+            or_(
+                CompetitionParticipant.entry_type == "shooter",
+                CompetitionParticipant.entry_type.is_(None),
+            ),
+        )
+        .all()
+    )
+    participant_ids = [
+        participant_discipline.participant_id
+        for participant_discipline in participant_disciplines
+    ]
+    results_by_participant_id = {}
+
+    if participant_ids:
+        results_by_participant_id = {
+            result.participant_id: result
+            for result in (
+                db.query(DisciplineResult)
+                .filter(
+                    DisciplineResult.discipline_id == discipline.id,
+                    DisciplineResult.participant_id.in_(participant_ids),
+                )
+                .all()
+            )
+        }
+
+    groups: dict[int, list[ParticipantDiscipline]] = {}
+
+    for participant_discipline in participant_disciplines:
+        group_number = int(getattr(participant_discipline, "squad_group_number", 0) or 0)
+
+        if group_number <= 0:
+            continue
+
+        groups.setdefault(group_number, []).append(participant_discipline)
+
+    statuses = {}
+
+    for group_number, group_participant_disciplines in groups.items():
+        group_results = [
+            results_by_participant_id.get(participant_discipline.participant_id)
+            for participant_discipline in group_participant_disciplines
+        ]
+
+        if group_results and all(
+            trap_result_is_complete(result, expected_scores_count, discipline)
+            for result in group_results
+        ):
+            statuses[group_number] = "completed"
+        elif any(trap_result_has_started(result, discipline) for result in group_results):
+            statuses[group_number] = "in-progress"
+        else:
+            statuses[group_number] = "not-started"
+
+    return statuses
+
+
+def trap_squad_group_is_locked(status: str | None):
+    return status in ["in-progress", "completed"]
+
+
+def validate_trap_squad_groups_before_start(competition: Competition, db):
+    trap_disciplines = [
+        discipline
+        for discipline in (
+            db.query(Discipline)
+            .filter(Discipline.competition_id == competition.id)
+            .all()
+        )
+        if is_clay_squad_discipline(discipline)
+    ]
+
+    for discipline in trap_disciplines:
+        participant_disciplines = (
+            db.query(ParticipantDiscipline)
+            .join(CompetitionParticipant, CompetitionParticipant.id == ParticipantDiscipline.participant_id)
+            .filter(
+                ParticipantDiscipline.discipline_id == discipline.id,
+                CompetitionParticipant.checked_in == 1,
+                CompetitionParticipant.paid == 1,
+                or_(
+                    CompetitionParticipant.entry_type == "shooter",
+                    CompetitionParticipant.entry_type.is_(None),
+                ),
+            )
+            .all()
+        )
+
+        if not participant_disciplines:
+            continue
+
+        if any(
+            int(getattr(participant_discipline, "squad_group_number", 0) or 0) <= 0
+            for participant_discipline in participant_disciplines
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="Organizator najpierw musi wylosować zawodnikom grupy."
+            )
+
+        group_counts: dict[int, int] = {}
+
+        for participant_discipline in participant_disciplines:
+            group_number = int(getattr(participant_discipline, "squad_group_number", 0) or 0)
+            group_counts[group_number] = group_counts.get(group_number, 0) + 1
+
+        if any(count > clay_squad_group_size(discipline) for count in group_counts.values()):
+            raise HTTPException(
+                status_code=400,
+                detail="Popraw grupy startowe konkurencji rzutkowych przed rozpoczęciem zawodów."
+            )
+
+        if normalize_discipline_type(discipline.discipline_type or "") == SKEET_DISCIPLINE_TYPE:
+            positions_by_group: dict[int, set[int]] = {}
+
+            for participant_discipline in participant_disciplines:
+                group_number = int(participant_discipline.squad_group_number or 0)
+                position = int(getattr(participant_discipline, "squad_position", 0) or 0)
+
+                if position <= 0 or position > SKEET_SQUAD_GROUP_SIZE:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Każdy zawodnik Skeet musi mieć pozycję od 1 do 6 w grupie."
+                    )
+
+                group_positions = positions_by_group.setdefault(group_number, set())
+                if position in group_positions:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Pozycje zawodników w grupie Skeet nie mogą się powtarzać."
+                    )
+                group_positions.add(position)
+
+
+def assign_squad_group(participant_discipline: ParticipantDiscipline, db):
+    participant = (
+        db.query(CompetitionParticipant)
+        .filter(CompetitionParticipant.id == participant_discipline.participant_id)
+        .first()
+    )
+
+    if not participant or not is_participant_confirmed(participant):
+        participant_discipline.squad_group_number = None
+        participant_discipline.squad_position = None
+        return
+
+    discipline = (
+        db.query(Discipline)
+        .filter(Discipline.id == participant_discipline.discipline_id)
+        .first()
+    )
+
+    if not discipline or not is_clay_squad_discipline(discipline):
+        participant_discipline.squad_group_number = None
+        participant_discipline.squad_position = None
+        return
+
+    group_number = next_squad_group_number(
+        participant_discipline.discipline_id,
+        db,
+    )
+    participant_discipline.squad_group_number = group_number
+    participant_discipline.squad_position = next_squad_position(
+        participant_discipline.discipline_id,
+        group_number,
+        db,
+    )
+
+
+def sync_participant_squad_groups(
+    participant: CompetitionParticipant,
+    db,
+    reset_existing: bool = False,
+):
+    participant_disciplines = (
+        db.query(ParticipantDiscipline)
+        .filter(ParticipantDiscipline.participant_id == participant.id)
+        .order_by(ParticipantDiscipline.id.asc())
+        .all()
+    )
+
+    if not is_participant_confirmed(participant):
+        for participant_discipline in participant_disciplines:
+            participant_discipline.squad_group_number = None
+            participant_discipline.squad_position = None
+        return
+
+    if reset_existing:
+        for participant_discipline in participant_disciplines:
+            participant_discipline.squad_group_number = None
+            participant_discipline.squad_position = None
+
+    for participant_discipline in participant_disciplines:
+        if int(getattr(participant_discipline, "squad_group_number", 0) or 0) > 0:
+            discipline = (
+                db.query(Discipline)
+                .filter(Discipline.id == participant_discipline.discipline_id)
+                .first()
+            )
+
+            if discipline and is_clay_squad_discipline(discipline):
+                continue
+
+        assign_squad_group(participant_discipline, db)
 
 
 def parse_price(value):
@@ -1331,6 +3298,7 @@ def calculate_total_fee_from_selection(
             continue
 
         ammo_fee += parse_price(discipline.ammo_price) * Decimal(discipline.shots_count or 0)
+        ammo_fee += parse_price(getattr(discipline, "clay_price", "") or "") * Decimal(trap_targets_count(discipline))
 
     return format_money(competition_fee + disciplines_fee + ammo_fee)
 
@@ -1437,27 +3405,109 @@ def normalize_search_text(value: str):
     return (value or "").lower()
 
 
-def discipline_firearm_type(discipline: Discipline):
-    text = " ".join([
-        normalize_search_text(discipline.name),
-        normalize_search_text(discipline.description),
-        normalize_search_text(discipline.ammo_type),
-    ])
+def normalize_discipline_type(value: str):
+    discipline_type = normalize_search_text(value).strip()
 
-    shotgun_keywords = ["strzelba", "shotgun", "trap", "skeet", "12/70", "12/76"]
-    rifle_keywords = ["karabin", "rifle", "kbks", "carbine", ".223", ".308"]
-    pistol_keywords = ["pistolet", "pistol", "handgun", "9mm", "19mm", ".45"]
-
-    if any(keyword in text for keyword in shotgun_keywords):
-        return "shotgun"
-
-    if any(keyword in text for keyword in rifle_keywords):
-        return "rifle"
-
-    if any(keyword in text for keyword in pistol_keywords):
-        return "pistol"
+    if discipline_type in DISCIPLINE_TYPES:
+        return discipline_type
 
     return ""
+
+
+def trap_targets_count(discipline: Discipline):
+    if normalize_discipline_type(getattr(discipline, "discipline_type", "") or "") not in [
+        TRAP_DISCIPLINE_TYPE,
+        SKEET_DISCIPLINE_TYPE,
+    ]:
+        return 0
+
+    return discipline_clay_series_count(discipline) * TRAP_TARGETS_PER_SERIES
+
+
+def normalize_trap_variant(value: str):
+    return normalize_search_text(value).strip()
+
+
+def clay_configuration_from_data(data: DisciplineData, discipline_type: str):
+    legacy_variant = data.trap_variant if discipline_type == TRAP_DISCIPLINE_TYPE else ""
+    variant = normalize_trap_variant(data.clay_variant or legacy_variant)
+    manual_series_count = data.clay_series_count or (
+        data.trap_series_count if discipline_type == TRAP_DISCIPLINE_TYPE else 0
+    )
+    variant_series = (
+        TRAP_VARIANT_SERIES
+        if discipline_type == TRAP_DISCIPLINE_TYPE
+        else SKEET_VARIANT_SERIES
+    )
+
+    if variant in variant_series:
+        return variant, variant_series[variant]
+
+    if variant == CLAY_MANUAL_VARIANT:
+        return variant, max(int(manual_series_count or 0), 0)
+
+    return variant, 0
+
+
+def normalize_discipline_payload(data: DisciplineData, discipline_type: str):
+    if discipline_type not in [TRAP_DISCIPLINE_TYPE, SKEET_DISCIPLINE_TYPE]:
+        return {
+            "shots_count": data.shots_count,
+            "trap_variant": "",
+            "trap_series_count": 0,
+            "clay_variant": "",
+            "clay_series_count": 0,
+            "clay_price": "",
+        }
+
+    clay_variant, clay_series_count = clay_configuration_from_data(data, discipline_type)
+    variant_series = (
+        TRAP_VARIANT_SERIES
+        if discipline_type == TRAP_DISCIPLINE_TYPE
+        else SKEET_VARIANT_SERIES
+    )
+    discipline_label = "Trapa" if discipline_type == TRAP_DISCIPLINE_TYPE else "Skeet"
+
+    if clay_variant not in [*variant_series.keys(), CLAY_MANUAL_VARIANT]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Wybierz rodzaj {discipline_label}"
+        )
+
+    if clay_series_count <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Podaj liczbę serii {discipline_label}"
+        )
+
+    if parse_price(data.clay_price) <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Podaj cenę za rzutek"
+        )
+
+    shots_per_target = (
+        TRAP_SHOTS_PER_TARGET
+        if discipline_type == TRAP_DISCIPLINE_TYPE
+        else SKEET_SHOTS_PER_TARGET
+    )
+
+    return {
+        "shots_count": clay_series_count * TRAP_TARGETS_PER_SERIES * shots_per_target,
+        "trap_variant": clay_variant if discipline_type == TRAP_DISCIPLINE_TYPE else "",
+        "trap_series_count": clay_series_count if discipline_type == TRAP_DISCIPLINE_TYPE else 0,
+        "clay_variant": clay_variant,
+        "clay_series_count": clay_series_count,
+        "clay_price": data.clay_price,
+    }
+
+
+def discipline_firearm_type(discipline: Discipline):
+    discipline_type = normalize_discipline_type(
+        getattr(discipline, "discipline_type", "") or ""
+    )
+
+    return DISCIPLINE_TYPE_FIREARM_TYPES.get(discipline_type, "")
 
 
 def parse_points(value: str):
@@ -1501,6 +3551,46 @@ def empty_statistics_group():
     }
 
 
+def empty_ammunition_usage():
+    return {
+        "items": [],
+        "total_shots_count": 0,
+    }
+
+
+def ammunition_usage_from_results(results: list[DisciplineResult], disciplines_by_id: dict[int, Discipline]):
+    usage_by_type = {}
+
+    for result in results:
+        discipline = disciplines_by_id.get(result.discipline_id)
+
+        if not discipline:
+            continue
+
+        ammo_type = normalize_text(discipline.ammo_type or "") or "Nie podano"
+        shots_count = max(int(discipline.shots_count or 0), 0)
+
+        if ammo_type not in usage_by_type:
+            usage_by_type[ammo_type] = {
+                "ammo_type": ammo_type,
+                "starts_count": 0,
+                "shots_count": 0,
+            }
+
+        usage_by_type[ammo_type]["starts_count"] += 1
+        usage_by_type[ammo_type]["shots_count"] += shots_count
+
+    items = sorted(
+        usage_by_type.values(),
+        key=lambda item: (-item["shots_count"], item["ammo_type"].lower()),
+    )
+
+    return {
+        "items": items,
+        "total_shots_count": sum(item["shots_count"] for item in items),
+    }
+
+
 def discipline_statistics_shooters_count(
     competition: Competition,
     discipline_id: int,
@@ -1539,6 +3629,13 @@ def user_competition_statistics(user: User, db):
             "points_sum": Decimal("0"),
         },
     }
+    discipline_type_statistics = {
+        discipline_type: {
+            "starts_count": 0,
+            "points_sum": Decimal("0"),
+        }
+        for discipline_type in DETAILED_DISCIPLINE_TYPES
+    }
     total_points_sum = Decimal("0")
 
     participants = (
@@ -1565,7 +3662,12 @@ def user_competition_statistics(user: User, db):
                 "rifle": empty_statistics_group(),
                 "shotgun": empty_statistics_group(),
             },
+            "discipline_types": {
+                discipline_type: empty_statistics_group()
+                for discipline_type in DETAILED_DISCIPLINE_TYPES
+            },
             "total_points_sum": "0",
+            "ammunition_usage": empty_ammunition_usage(),
             "updated_at": datetime.now(APP_TIMEZONE).isoformat(),
         }
 
@@ -1631,7 +3733,12 @@ def user_competition_statistics(user: User, db):
 
         points = parse_points(result.points)
         firearm_type = discipline_firearm_type(discipline)
+        discipline_type = normalize_discipline_type(discipline.discipline_type or "")
         total_points_sum += points
+
+        if discipline_type in discipline_type_statistics:
+            discipline_type_statistics[discipline_type]["starts_count"] += 1
+            discipline_type_statistics[discipline_type]["points_sum"] += points
 
         if firearm_type not in statistics:
             continue
@@ -1652,7 +3759,19 @@ def user_competition_statistics(user: User, db):
             }
             for firearm_type, category_statistics in statistics.items()
         },
+        "discipline_types": {
+            discipline_type: {
+                "starts_count": discipline_statistics["starts_count"],
+                "points_sum": format_points(discipline_statistics["points_sum"]),
+                "average_points": format_average_points(
+                    discipline_statistics["points_sum"],
+                    discipline_statistics["starts_count"],
+                ),
+            }
+            for discipline_type, discipline_statistics in discipline_type_statistics.items()
+        },
         "total_points_sum": format_points(total_points_sum),
+        "ammunition_usage": ammunition_usage_from_results(results, disciplines_by_id),
         "updated_at": datetime.now(APP_TIMEZONE).isoformat(),
     }
 
@@ -1661,11 +3780,22 @@ def ranking_points_for_metric(statistics, metric: str):
     if metric == "overall":
         return parse_points(statistics["total_points_sum"])
 
-    return parse_points(statistics["categories"][metric]["points_sum"])
+    if metric in statistics["categories"]:
+        return parse_points(statistics["categories"][metric]["points_sum"])
+
+    return parse_points(
+        statistics.get("discipline_types", {})
+        .get(metric, empty_statistics_group())["points_sum"]
+    )
 
 
-def ranking_rows(metric: str, db):
-    users = db.query(User).all()
+def ranking_rows(metric: str, db, voivodeship: str = ""):
+    users_query = db.query(User)
+
+    if voivodeship:
+        users_query = users_query.filter(User.voivodeship == voivodeship)
+
+    users = users_query.all()
     rows = []
 
     for user in users:
@@ -1687,6 +3817,7 @@ def ranking_rows(metric: str, db):
             "first_name": user.first_name or "",
             "last_name": user.last_name or "",
             "club": user.club or "",
+            "voivodeship": user.voivodeship or "",
             "points_value": points_value,
             "points": format_points(points_value),
         })
@@ -1711,6 +3842,241 @@ def ranking_rows(metric: str, db):
     }
 
 
+def cached_ranking_rows(metric: str, db, voivodeship: str = ""):
+    scope = "regional" if voivodeship else "national"
+    query = (
+        db.query(RankingEntry)
+        .filter(
+            RankingEntry.scope == scope,
+            RankingEntry.metric == metric,
+        )
+    )
+
+    if scope == "regional":
+        query = query.filter(RankingEntry.voivodeship == voivodeship)
+    else:
+        query = query.filter(RankingEntry.voivodeship == "")
+
+    entries = (
+        query
+        .order_by(RankingEntry.place.asc())
+        .limit(RANKING_LIMIT)
+        .all()
+    )
+
+    return {
+        "rows": [
+            {
+                "place": entry.place,
+                "user_id": entry.user_id,
+                "display_name": entry.display_name,
+                "club": entry.club or "",
+                "voivodeship": entry.voivodeship or "",
+                "points": entry.points,
+            }
+            for entry in entries
+        ],
+        "updated_at": entries[0].updated_at if entries else "",
+        "message": "",
+    }
+
+
+def eligible_ranking_discipline_ids(db):
+    rows = (
+        db.query(
+            ParticipantDiscipline.discipline_id,
+            func.count(ParticipantDiscipline.id),
+        )
+        .join(
+            CompetitionParticipant,
+            CompetitionParticipant.id == ParticipantDiscipline.participant_id,
+        )
+        .join(Discipline, Discipline.id == ParticipantDiscipline.discipline_id)
+        .join(Competition, Competition.id == Discipline.competition_id)
+        .filter(
+            Competition.status == "completed",
+            or_(
+                CompetitionParticipant.entry_type == "shooter",
+                CompetitionParticipant.entry_type.is_(None),
+            ),
+        )
+        .group_by(ParticipantDiscipline.discipline_id)
+        .having(func.count(ParticipantDiscipline.id) >= MIN_STATISTICS_DISCIPLINE_SHOOTERS)
+        .all()
+    )
+
+    return {
+        discipline_id
+        for discipline_id, _count in rows
+    }
+
+
+def ranking_user_display_name(user: User):
+    return " ".join([
+        user.last_name or "",
+        user.first_name or "",
+    ]).strip() or user.email
+
+
+def add_cached_ranking_entries(
+    db,
+    user_rankings: dict[int, dict],
+    metric: str,
+    scope: str,
+    updated_at: str,
+    voivodeship: str = "",
+):
+    ranked_users = [
+        user_ranking
+        for user_ranking in user_rankings.values()
+        if (
+            user_ranking["voivodeship"] == voivodeship
+            if scope == "regional"
+            else True
+        )
+        and user_ranking["points"].get(metric, Decimal("0")) > 0
+    ]
+
+    ranked_users.sort(
+        key=lambda user_ranking: (
+            -user_ranking["points"][metric],
+            user_ranking["last_name"].lower(),
+            user_ranking["first_name"].lower(),
+            user_ranking["display_name"].lower(),
+        )
+    )
+
+    inserted_count = 0
+
+    for place, user_ranking in enumerate(ranked_users[:RANKING_LIMIT], start=1):
+        points_value = user_ranking["points"][metric]
+        db.add(RankingEntry(
+            scope=scope,
+            voivodeship=voivodeship if scope == "regional" else "",
+            metric=metric,
+            metric_label=RANKING_METRIC_LABELS[metric],
+            place=place,
+            user_id=user_ranking["user_id"],
+            display_name=user_ranking["display_name"],
+            first_name=user_ranking["first_name"],
+            last_name=user_ranking["last_name"],
+            club=user_ranking["club"],
+            points=format_points(points_value),
+            points_value=str(points_value),
+            updated_at=updated_at,
+        ))
+        inserted_count += 1
+
+    return inserted_count
+
+
+def rebuild_ranking_entries(db):
+    updated_at = datetime.now(APP_TIMEZONE).isoformat()
+
+    db.query(RankingEntry).delete(synchronize_session=False)
+
+    eligible_discipline_ids = eligible_ranking_discipline_ids(db)
+
+    if not eligible_discipline_ids:
+        return 0
+
+    rows = (
+        db.query(
+            User,
+            DisciplineResult.points,
+            Discipline.discipline_type,
+        )
+        .join(
+            CompetitionParticipant,
+            CompetitionParticipant.user_email == User.email,
+        )
+        .join(
+            DisciplineResult,
+            DisciplineResult.participant_id == CompetitionParticipant.id,
+        )
+        .join(Discipline, Discipline.id == DisciplineResult.discipline_id)
+        .join(Competition, Competition.id == DisciplineResult.competition_id)
+        .filter(
+            Competition.status == "completed",
+            DisciplineResult.discipline_id.in_(eligible_discipline_ids),
+            or_(
+                CompetitionParticipant.entry_type == "shooter",
+                CompetitionParticipant.entry_type.is_(None),
+            ),
+        )
+        .all()
+    )
+
+    user_rankings: dict[int, dict] = {}
+
+    for user, result_points, raw_discipline_type in rows:
+        if not is_profile_complete(user):
+            continue
+
+        discipline_type = normalize_discipline_type(raw_discipline_type or "")
+        points = parse_points(result_points)
+
+        if points <= 0:
+            continue
+
+        user_ranking = user_rankings.setdefault(
+            user.id,
+            {
+                "user_id": user.id,
+                "display_name": ranking_user_display_name(user),
+                "first_name": user.first_name or "",
+                "last_name": user.last_name or "",
+                "club": user.club or "",
+                "voivodeship": normalize_voivodeship(user.voivodeship or ""),
+                "points": {},
+            },
+        )
+
+        user_ranking["points"]["overall"] = (
+            user_ranking["points"].get("overall", Decimal("0")) + points
+        )
+
+        firearm_type = DISCIPLINE_TYPE_FIREARM_TYPES.get(discipline_type, "")
+
+        if firearm_type in ["pistol", "rifle", "shotgun"]:
+            user_ranking["points"][firearm_type] = (
+                user_ranking["points"].get(firearm_type, Decimal("0")) + points
+            )
+
+        if discipline_type in DETAILED_DISCIPLINE_TYPES:
+            user_ranking["points"][discipline_type] = (
+                user_ranking["points"].get(discipline_type, Decimal("0")) + points
+            )
+
+    voivodeships = {
+        user_ranking["voivodeship"]
+        for user_ranking in user_rankings.values()
+        if user_ranking["voivodeship"]
+    }
+    inserted_count = 0
+
+    for metric in RANKING_METRICS:
+        inserted_count += add_cached_ranking_entries(
+            db,
+            user_rankings,
+            metric,
+            "national",
+            updated_at,
+        )
+
+        for voivodeship in voivodeships:
+            inserted_count += add_cached_ranking_entries(
+                db,
+                user_rankings,
+                metric,
+                "regional",
+                updated_at,
+                voivodeship,
+            )
+
+    return inserted_count
+
+
 def live_result_categories(disciplines: list[Discipline]):
     categories = [
         {
@@ -1724,10 +4090,10 @@ def live_result_categories(disciplines: list[Discipline]):
     ]
 
     aggregate_definitions = [
-        ("pistol", "Suma konkurencji pistoletowych"),
-        ("rifle", "Suma konkurencji karabinowych"),
-        ("shotgun", "Suma konkurencji strzelby"),
-        ("overall", "Ranking ogólny"),
+        ("overall", "Całe zawody"),
+        ("pistol", "Konkurencje pistoletowe i rewolwerowe"),
+        ("rifle", "Konkurencje karabinowe"),
+        ("shotgun", "Konkurencje strzelbowe"),
     ]
 
     for category_id, category_name in aggregate_definitions:
@@ -1779,6 +4145,54 @@ def live_category_discipline_ids(category_id: str, disciplines: list[Discipline]
 
 def now_iso():
     return datetime.now(APP_TIMEZONE).isoformat()
+
+
+def premium_end_of_year_iso():
+    now = datetime.now(APP_TIMEZONE)
+    return datetime(
+        now.year,
+        12,
+        31,
+        23,
+        59,
+        59,
+        tzinfo=APP_TIMEZONE,
+    ).isoformat()
+
+
+def premium_until_datetime(user: Optional[User]):
+    if not user or not getattr(user, "premium_until", None):
+        return None
+
+    try:
+        value = datetime.fromisoformat(user.premium_until)
+    except ValueError:
+        return None
+
+    if value.tzinfo is None:
+        return value.replace(tzinfo=APP_TIMEZONE)
+
+    return value.astimezone(APP_TIMEZONE)
+
+
+def has_active_premium(user: Optional[User]):
+    if not user or getattr(user, "premium_disabled", 0):
+        return False
+
+    premium_until = premium_until_datetime(user)
+
+    if not premium_until:
+        return False
+
+    return datetime.now(APP_TIMEZONE) <= premium_until
+
+
+def require_active_premium(user: Optional[User]):
+    if not has_active_premium(user):
+        raise HTTPException(
+            status_code=403,
+            detail=PREMIUM_EXPIRED_DETAIL,
+        )
 
 
 def completed_at_datetime(competition: Competition):
@@ -1833,7 +4247,31 @@ def is_historical_results_competition(competition: Competition):
     return competition.status == "completed"
 
 
-def competition_result_summary(competition: Competition, db):
+def is_premium_locked_historical_competition(competition: Competition):
+    if not is_historical_results_competition(competition):
+        return False
+
+    completed_at = completed_at_datetime(competition)
+
+    if completed_at:
+        return datetime.now(APP_TIMEZONE) - completed_at > timedelta(days=3)
+
+    competition_date = parse_competition_date(competition.date)
+
+    if not competition_date:
+        return False
+
+    competition_date = competition_date.replace(tzinfo=APP_TIMEZONE)
+
+    return datetime.now(APP_TIMEZONE) - competition_date > timedelta(days=3)
+
+
+def require_historical_results_access(competition: Competition, user: Optional[User]):
+    if is_premium_locked_historical_competition(competition):
+        require_active_premium(user)
+
+
+def competition_result_summary(competition: Competition, db, premium_locked: bool = False):
     shooters_count = len(public_shooter_participants(competition, db))
 
     return {
@@ -1842,18 +4280,147 @@ def competition_result_summary(competition: Competition, db):
         "date": competition.date,
         "location": competition.location,
         "organizer_full_name": competition.organizer_full_name or competition.created_by,
+        "organizer_logo": competition.organizer_logo or "",
+        "sponsor_logo": competition.sponsor_logo or "",
         "shooters_count": shooters_count,
         "status": competition.status,
         "completed_at": competition.completed_at or "",
+        "premium_locked": premium_locked,
+    }
+
+
+def shooter_entry_filter():
+    return or_(
+        CompetitionParticipant.entry_type == "shooter",
+        CompetitionParticipant.entry_type.is_(None),
+    )
+
+
+def count_disciplines_by_competition(db, competition_ids: list[int]):
+    if not competition_ids:
+        return {}
+
+    return {
+        competition_id: int(count or 0)
+        for competition_id, count in (
+            db.query(Discipline.competition_id, func.count(Discipline.id))
+            .filter(Discipline.competition_id.in_(competition_ids))
+            .group_by(Discipline.competition_id)
+            .all()
+        )
+    }
+
+
+def count_shooters_by_competition(db, competition_ids: list[int]):
+    if not competition_ids:
+        return {}
+
+    return {
+        competition_id: int(count or 0)
+        for competition_id, count in (
+            db.query(CompetitionParticipant.competition_id, func.count(CompetitionParticipant.id))
+            .filter(CompetitionParticipant.competition_id.in_(competition_ids))
+            .filter(shooter_entry_filter())
+            .group_by(CompetitionParticipant.competition_id)
+            .all()
+        )
+    }
+
+
+def count_judges_by_competition(db, competition_ids: list[int]):
+    if not competition_ids:
+        return {}
+
+    return {
+        competition_id: int(count or 0)
+        for competition_id, count in (
+            db.query(CompetitionParticipant.competition_id, func.count(CompetitionParticipant.id))
+            .filter(CompetitionParticipant.competition_id.in_(competition_ids))
+            .filter(CompetitionParticipant.entry_type == "judge")
+            .group_by(CompetitionParticipant.competition_id)
+            .all()
+        )
+    }
+
+
+def missing_judge_disciplines_by_competition(db, competition_ids: list[int]):
+    if not competition_ids:
+        return {}
+
+    disciplines = (
+        db.query(Discipline)
+        .filter(Discipline.competition_id.in_(competition_ids))
+        .order_by(Discipline.id.asc())
+        .all()
+    )
+    assigned_discipline_ids = {
+        int(discipline_id)
+        for (discipline_id,) in (
+            db.query(JudgeInvitation.discipline_id)
+            .filter(
+                JudgeInvitation.competition_id.in_(competition_ids),
+                JudgeInvitation.discipline_id.is_not(None),
+            )
+            .all()
+        )
+        if discipline_id is not None
+    }
+    result = {competition_id: [] for competition_id in competition_ids}
+
+    for discipline in disciplines:
+        if discipline.id not in assigned_discipline_ids:
+            result.setdefault(discipline.competition_id, []).append(discipline.name)
+
+    return result
+
+
+def validate_judges_assigned_before_start(competition: Competition, db):
+    missing_disciplines = missing_judge_disciplines_by_competition(
+        db,
+        [competition.id],
+    ).get(competition.id, [])
+
+    if missing_disciplines:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Nie można rozpocząć zawodów. Przypisz sędziego do każdej konkurencji. "
+                f"Brak sędziego dla: {', '.join(missing_disciplines)}. "
+                "Sędzia główny nie jest wymagany."
+            ),
+        )
+
+
+def competition_list_row(
+    competition: Competition,
+    disciplines_count: int = 0,
+    shooters_count: int = 0,
+    judges_count: int = 0,
+    missing_judge_disciplines: Optional[list[str]] = None,
+):
+    return {
+        "id": competition.id,
+        "name": competition.name,
+        "date": competition.date,
+        "location": competition.location,
+        "entry_fee": competition.entry_fee or "",
+        "organizer_full_name": competition.organizer_full_name or "",
+        "organizer_logo": "",
+        "has_organizer_logo": bool(competition.organizer_logo),
+        "sponsors": competition.sponsors or "",
+        "sponsor_logo": "",
+        "has_sponsor_logo": bool(competition.sponsor_logo),
+        "participant_limit": competition.participant_limit,
+        "pzss_license_calendar": bool(getattr(competition, "pzss_license_calendar", 0)),
+        "shooters_count": shooters_count,
+        "judges_count": judges_count,
+        "missing_judge_disciplines": missing_judge_disciplines or [],
+        "status": competition.status,
+        "disciplines_count": disciplines_count,
     }
 
 
 def historical_sort_key(competition: Competition):
-    completed_at = completed_at_datetime(competition)
-
-    if completed_at:
-        return completed_at.timestamp()
-
     competition_date = parse_competition_date(competition.date)
 
     if competition_date:
@@ -1917,7 +4484,7 @@ def result_competition_details(competition: Competition, db):
     }
 
 
-def result_category_payload(competition: Competition, category_id: str, db):
+def result_category_payload(competition: Competition, category_id: str, db, include_license: bool = False):
     disciplines = (
         db.query(Discipline)
         .filter(Discipline.competition_id == competition.id)
@@ -1971,10 +4538,22 @@ def result_category_payload(competition: Competition, category_id: str, db):
         )
 
     points_by_participant = {}
+    results_by_participant = {}
 
     for result in results:
         points_by_participant.setdefault(result.participant_id, Decimal("0"))
         points_by_participant[result.participant_id] += parse_points(result.points)
+        results_by_participant[result.participant_id] = result
+
+    skeet_discipline = next(
+        (
+            discipline
+            for discipline in disciplines
+            if discipline.id in discipline_ids
+            and normalize_discipline_type(discipline.discipline_type or "") == SKEET_DISCIPLINE_TYPE
+        ),
+        None,
+    ) if len(discipline_ids) == 1 else None
 
     rows = []
 
@@ -1984,31 +4563,68 @@ def result_category_payload(competition: Competition, category_id: str, db):
         if not selected_discipline_ids:
             continue
 
-        participant_data = public_participant(participant, db)
+        participant_data = public_participant(
+            participant,
+            db,
+            include_private=include_license,
+        )
         points_value = points_by_participant.get(participant.id, Decimal("0"))
 
-        rows.append({
+        row = {
             "participant_id": participant.id,
             "display_name": participant_result_display_name(participant_data),
             "first_name": participant_data["first_name"],
             "last_name": participant_data["last_name"],
-            "license_number": participant_data["license_number"],
             "club": participant_data["club"],
             "points": format_points(points_value),
             "disciplines_count": len(selected_discipline_ids),
-        })
+        }
+
+        if skeet_discipline:
+            result = results_by_participant.get(participant.id)
+            scores = clay_result_scores(
+                skeet_discipline,
+                getattr(result, "result_data", "") or "" if result else "",
+            )
+            rounds = [
+                scores[index:index + SKEET_TARGETS_PER_SERIES]
+                for index in range(0, len(scores), SKEET_TARGETS_PER_SERIES)
+            ]
+            round_totals = [sum(1 for score in round_scores if score == 1) for round_scores in rounds]
+            row["round_scores"] = round_totals
+            row["_countback_key"] = tuple(
+                [-round_total for round_total in reversed(round_totals)]
+                + [-(score or 0) for score in reversed(scores)]
+            )
+
+        if include_license:
+            row["license_number"] = participant_data["license_number"]
+
+        rows.append(row)
 
     rows.sort(
         key=lambda row: (
             -parse_points(row["points"]),
+            row.get("_countback_key", ()),
             row["last_name"].lower(),
             row["first_name"].lower(),
             row["display_name"].lower(),
         )
     )
 
+    previous_ranking_key = None
+    current_place = 0
+
     for index, row in enumerate(rows, start=1):
-        row["place"] = index
+        ranking_key = (
+            row["points"],
+            row.get("_countback_key", ()),
+        )
+        if ranking_key != previous_ranking_key:
+            current_place = index
+            previous_ranking_key = ranking_key
+        row["place"] = current_place
+        row.pop("_countback_key", None)
 
     return {
         "competition": {
@@ -2204,6 +4820,55 @@ def parse_competition_date(date_value: str):
     return None
 
 
+def sort_competitions_by_date(competitions, descending: bool = False):
+    def sort_key(competition: Competition):
+        competition_date = parse_competition_date(competition.date)
+        timestamp = competition_date.timestamp() if competition_date else None
+        date_value = (
+            -timestamp
+            if descending and timestamp is not None
+            else timestamp
+            if timestamp is not None
+            else float("inf")
+        )
+
+        return (
+            date_value,
+            normalize_text(competition.name).lower(),
+            competition.id or 0,
+        )
+
+    return sorted(competitions, key=sort_key)
+
+
+def sort_competitions_by_nearest_date(competitions):
+    today = datetime.now(APP_TIMEZONE).date()
+
+    def sort_key(competition: Competition):
+        competition_date = parse_competition_date(competition.date)
+
+        if not competition_date:
+            return (
+                2,
+                float("inf"),
+                normalize_text(competition.name).lower(),
+                competition.id or 0,
+            )
+
+        date_only = competition_date.date()
+        is_future_or_today = date_only >= today
+        distance = abs((date_only - today).days)
+
+        return (
+            0 if is_future_or_today else 1,
+            distance,
+            normalize_text(competition.name).lower(),
+            competition.id or 0,
+        )
+
+    return sorted(competitions, key=sort_key)
+
+
 def can_start_competition(competition: Competition):
     competition_date = parse_competition_date(competition.date)
 
@@ -2259,6 +4924,7 @@ def auto_complete_started_competitions(db):
             changed = True
 
     if changed:
+        rebuild_ranking_entries(db)
         db.commit()
 
 
@@ -2323,11 +4989,7 @@ def get_current_user(
 ):
 
     try:
-        payload = jwt.decode(
-            token,
-            settings.secret_key,
-            algorithms=[ALGORITHM]
-        )
+        payload = decode_auth_token(token, "access")
 
         email = payload.get("sub")
 
@@ -2369,11 +5031,7 @@ def get_optional_current_user(
         return None
 
     try:
-        payload = jwt.decode(
-            token,
-            settings.secret_key,
-            algorithms=[ALGORITHM]
-        )
+        payload = decode_auth_token(token, "access")
     except JWTError:
         return None
 
@@ -2418,6 +5076,18 @@ def get_current_organizer(
         raise HTTPException(
             status_code=403,
             detail="Brak uprawnień organizatora"
+        )
+
+    return user
+
+
+def get_current_pzss_club(
+    user: User = Depends(get_current_user)
+):
+    if not is_approved_pzss_club(user):
+        raise HTTPException(
+            status_code=403,
+            detail="Brak uprawnień zweryfikowanego klubu PZSS"
         )
 
     return user
@@ -2733,49 +5403,45 @@ def get_competitions(db=Depends(get_db)):
         .filter(Competition.status.in_(["published", "started", "completed"]))
         .all()
     )
+    competition_ids = [competition.id for competition in competitions]
+    disciplines_counts = count_disciplines_by_competition(db, competition_ids)
+    shooters_counts = count_shooters_by_competition(db, competition_ids)
 
-    result = []
-
-    for competition in competitions:
-        disciplines_count = (
-            db.query(Discipline)
-            .filter(Discipline.competition_id == competition.id)
-            .count()
+    return [
+        competition_list_row(
+            competition,
+            disciplines_count=disciplines_counts.get(competition.id, 0),
+            shooters_count=shooters_counts.get(competition.id, 0),
         )
-        shooters_count = (
-            db.query(CompetitionParticipant)
-            .filter(
-                CompetitionParticipant.competition_id == competition.id,
-                or_(
-                    CompetitionParticipant.entry_type == "shooter",
-                    CompetitionParticipant.entry_type.is_(None),
-                ),
-            )
-            .count()
-        )
+        for competition in sort_competitions_by_nearest_date(competitions)
+    ]
 
-        result.append({
-            "id": competition.id,
-            "name": competition.name,
-            "date": competition.date,
-            "location": competition.location,
-            "entry_fee": competition.entry_fee or "",
-            "organizer_full_name": competition.organizer_full_name or "",
-            "organizer_logo": competition.organizer_logo or "",
-            "sponsors": competition.sponsors or "",
-            "sponsor_logo": competition.sponsor_logo or "",
-            "participant_limit": competition.participant_limit,
-            "shooters_count": shooters_count,
-            "status": competition.status,
-            "disciplines_count": disciplines_count,
-        })
 
-    return result
+@app.get("/competitions/my-entries")
+def get_my_competition_entries(
+    user: User = Depends(get_current_user),
+    db=Depends(get_db),
+):
+    auto_complete_started_competitions(db)
+
+    participants = (
+        db.query(CompetitionParticipant)
+        .join(Competition, Competition.id == CompetitionParticipant.competition_id)
+        .filter(CompetitionParticipant.user_email == user.email)
+        .filter(Competition.status.in_(["published", "started", "completed"]))
+        .all()
+    )
+
+    return {
+        str(participant.competition_id): participant.entry_type or "shooter"
+        for participant in participants
+    }
 
 
 @app.get("/competitions/{competition_id}")
 def get_competition(
     competition_id: int,
+    current_user: Optional[User] = Depends(get_optional_current_user),
     db=Depends(get_db),
 ):
     auto_complete_started_competitions(db)
@@ -2799,6 +5465,7 @@ def get_competition(
     )
 
     participants = public_shooter_participants(competition, db)
+    include_private = can_view_participant_private_fields(current_user, competition)
 
     return {
         "id": competition.id,
@@ -2811,29 +5478,33 @@ def get_competition(
         "sponsors": competition.sponsors or "",
         "sponsor_logo": competition.sponsor_logo or "",
         "participant_limit": competition.participant_limit,
+        "pzss_license_calendar": bool(getattr(competition, "pzss_license_calendar", 0)),
         "status": competition.status,
         "disciplines": disciplines,
         "participants": [
-            public_participant(participant, db)
+            public_participant(participant, db, include_private=include_private)
             for participant in participants
         ],
     }
 
 
 @app.get("/live-results/competitions")
-def get_live_result_competitions(db=Depends(get_db)):
+def get_live_result_competitions(
+    user: User = Depends(get_current_user),
+    db=Depends(get_db),
+):
+    require_active_premium(user)
     auto_complete_started_competitions(db)
 
     competitions = (
         db.query(Competition)
         .filter(Competition.status.in_(["started", "completed"]))
-        .order_by(Competition.id.desc())
         .all()
     )
 
     return [
         competition_result_summary(competition, db)
-        for competition in competitions
+        for competition in sort_competitions_by_date(competitions, descending=True)
         if is_live_results_competition(competition)
     ]
 
@@ -2841,8 +5512,10 @@ def get_live_result_competitions(db=Depends(get_db)):
 @app.get("/live-results/competitions/{competition_id}")
 def get_live_result_competition(
     competition_id: int,
+    user: User = Depends(get_current_user),
     db=Depends(get_db),
 ):
+    require_active_premium(user)
     auto_complete_started_competitions(db)
     competition = get_result_competition_or_404(competition_id, False, db)
 
@@ -2853,8 +5526,10 @@ def get_live_result_competition(
 def get_live_result_category(
     competition_id: int,
     category_id: str,
+    user: User = Depends(get_current_user),
     db=Depends(get_db),
 ):
+    require_active_premium(user)
     auto_complete_started_competitions(db)
     competition = get_result_competition_or_404(competition_id, False, db)
 
@@ -2862,7 +5537,10 @@ def get_live_result_category(
 
 
 @app.get("/historical-results/competitions")
-def get_historical_result_competitions(db=Depends(get_db)):
+def get_historical_result_competitions(
+    user: Optional[User] = Depends(get_optional_current_user),
+    db=Depends(get_db),
+):
     auto_complete_started_competitions(db)
 
     competitions = (
@@ -2880,8 +5558,17 @@ def get_historical_result_competitions(db=Depends(get_db)):
         reverse=True,
     )
 
+    user_has_premium = has_active_premium(user)
+
     return [
-        competition_result_summary(competition, db)
+        competition_result_summary(
+            competition,
+            db,
+            premium_locked=(
+                is_premium_locked_historical_competition(competition)
+                and not user_has_premium
+            ),
+        )
         for competition in historical_competitions
     ]
 
@@ -2889,10 +5576,12 @@ def get_historical_result_competitions(db=Depends(get_db)):
 @app.get("/historical-results/competitions/{competition_id}")
 def get_historical_result_competition(
     competition_id: int,
+    user: Optional[User] = Depends(get_optional_current_user),
     db=Depends(get_db),
 ):
     auto_complete_started_competitions(db)
     competition = get_result_competition_or_404(competition_id, True, db)
+    require_historical_results_access(competition, user)
 
     return result_competition_details(competition, db)
 
@@ -2901,10 +5590,12 @@ def get_historical_result_competition(
 def get_historical_result_category(
     competition_id: int,
     category_id: str,
+    user: Optional[User] = Depends(get_optional_current_user),
     db=Depends(get_db),
 ):
     auto_complete_started_competitions(db)
     competition = get_result_competition_or_404(competition_id, True, db)
+    require_historical_results_access(competition, user)
 
     return result_category_payload(competition, category_id, db)
 
@@ -2955,6 +5646,19 @@ def get_my_competition_entry(
     }
 
 
+@app.post("/ad-events")
+def create_ad_event(
+    data: AdEventData,
+    db=Depends(get_db),
+):
+    slot, device, event_type = validate_ad_event(data)
+    record_ad_event(slot, device, event_type, db)
+
+    return {
+        "status": "ok",
+    }
+
+
 @app.get("/settings/results-table")
 def get_public_results_table_settings(db=Depends(get_db)):
     return get_results_table_settings(db)
@@ -2994,12 +5698,49 @@ def get_admin_profile_settings(
     return get_profile_settings(db)
 
 
+@app.get("/admin/settings/activation-email")
+def get_admin_activation_email_template(
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    return get_activation_email_template(db)
+
+
 @app.get("/admin/monitoring")
 def get_admin_monitoring(
     admin: User = Depends(get_current_admin),
     db=Depends(get_db),
 ):
     return system_status(db)
+
+
+@app.get("/admin/ad-report")
+def get_admin_ad_report(
+    days: int = 30,
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    return ad_report(days, db)
+
+
+@app.get("/admin/ad-report.pdf")
+def download_admin_ad_report_pdf(
+    days: int = 30,
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    report = ad_report(days, db)
+    pdf_bytes = build_ad_report_pdf(report)
+    filename = f"raport-reklam-{report['days']}-dni.pdf"
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @app.put("/admin/settings/results-table")
@@ -3050,6 +5791,166 @@ def update_admin_profile_settings(
     return get_profile_settings(db)
 
 
+@app.put("/admin/settings/activation-email")
+def update_admin_activation_email_template(
+    data: ActivationEmailTemplateData,
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    template = validate_activation_email_template(data)
+    set_setting_value(
+        ACTIVATION_EMAIL_SETTING_KEY,
+        json.dumps(template, ensure_ascii=False),
+        db,
+    )
+    db.commit()
+    return template
+
+
+@app.post("/admin/settings/activation-email/assets")
+def upload_admin_activation_email_asset(
+    file: UploadFile = File(...),
+    admin: User = Depends(get_current_admin),
+):
+    return save_email_asset(file)
+
+
+def public_pzss_club(user: User):
+    return {
+        "id": user.id,
+        "email": user.email,
+        "short_name": getattr(user, "pzss_club_short_name", "") or "",
+        "full_name": getattr(user, "pzss_club_full_name", "") or "",
+        "phone_number": user.phone_number or "",
+        "license_number": getattr(user, "pzss_club_license_number", "") or "",
+        "status": getattr(user, "pzss_club_status", "") or PZSS_CLUB_PENDING,
+        "is_active": bool(user.is_active),
+        "created_label": user.email,
+    }
+
+
+@app.get("/pzss-clubs/verified")
+def get_verified_pzss_clubs(db=Depends(get_db)):
+    clubs = (
+        db.query(User)
+        .filter(
+            User.account_type == PZSS_CLUB_ACCOUNT_TYPE,
+            User.pzss_club_status == PZSS_CLUB_APPROVED,
+            User.is_active == 1,
+        )
+        .order_by(User.pzss_club_short_name.asc())
+        .all()
+    )
+
+    return [public_pzss_club(club) for club in clubs]
+
+
+@app.get("/admin/pzss-clubs")
+def admin_get_pzss_clubs(
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    clubs = (
+        db.query(User)
+        .filter(User.account_type == PZSS_CLUB_ACCOUNT_TYPE)
+        .order_by(User.id.asc())
+        .all()
+    )
+
+    return [public_pzss_club(club) for club in clubs]
+
+
+@app.put("/admin/pzss-clubs/{club_id}/approve")
+def admin_approve_pzss_club(
+    club_id: int,
+    data: PzssClubApprovalData,
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    license_number = normalize_text(data.license_number)
+
+    if not license_number:
+        raise HTTPException(status_code=400, detail="Podaj numer licencji klubowej PZSS")
+
+    club = (
+        db.query(User)
+        .filter(
+            User.id == club_id,
+            User.account_type == PZSS_CLUB_ACCOUNT_TYPE,
+        )
+        .first()
+    )
+
+    if not club:
+        raise HTTPException(status_code=404, detail="Klub PZSS nie istnieje")
+
+    duplicate_license = (
+        db.query(User)
+        .filter(
+            User.id != club.id,
+            User.account_type == PZSS_CLUB_ACCOUNT_TYPE,
+            User.pzss_club_license_number == license_number,
+        )
+        .first()
+    )
+
+    if duplicate_license:
+        raise HTTPException(status_code=400, detail="Ten numer licencji klubowej jest już przypisany")
+
+    organizer_name = pzss_club_display_name(club)
+    organizer_name_key = normalize_unique_key(organizer_name)
+    duplicate_organizer = (
+        db.query(User)
+        .filter(
+            User.id != club.id,
+            or_(
+                User.organizer_name_key == organizer_name_key,
+                func.lower(User.organizer_name) == organizer_name_key,
+            ),
+        )
+        .first()
+    )
+
+    if duplicate_organizer:
+        raise HTTPException(status_code=400, detail="Nazwa organizatora dla tego klubu jest już zajęta")
+
+    club.pzss_club_license_number = license_number
+    club.pzss_club_status = PZSS_CLUB_APPROVED
+    club.club = organizer_name
+    club.organizer_name = organizer_name
+    club.organizer_name_key = organizer_name_key
+    set_user_roles(club, get_user_roles(club) + ["organizer"])
+    db.commit()
+    db.refresh(club)
+
+    return public_pzss_club(club)
+
+
+@app.put("/admin/pzss-clubs/{club_id}/reject")
+def admin_reject_pzss_club(
+    club_id: int,
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    club = (
+        db.query(User)
+        .filter(
+            User.id == club_id,
+            User.account_type == PZSS_CLUB_ACCOUNT_TYPE,
+        )
+        .first()
+    )
+
+    if not club:
+        raise HTTPException(status_code=404, detail="Klub PZSS nie istnieje")
+
+    club.pzss_club_status = PZSS_CLUB_REJECTED
+    db.commit()
+    db.refresh(club)
+
+    return public_pzss_club(club)
+
+
 @app.get("/admin/users")
 def admin_get_users(
     admin: User = Depends(get_current_admin),
@@ -3066,6 +5967,109 @@ def admin_get_users(
         for user in users
     ]
 
+
+@app.post("/admin/users")
+def admin_create_user(
+    data: AdminCreateUserData,
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    email = normalize_text(data.email).lower()
+    password = data.password or ""
+
+    if not email or not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+        raise HTTPException(
+            status_code=400,
+            detail="Podaj poprawny adres e-mail"
+        )
+
+    if len(password) < 6:
+        raise HTTPException(
+            status_code=400,
+            detail="Hasło musi mieć minimum 6 znaków"
+        )
+
+    existing_user = (
+        db.query(User)
+        .filter(func.lower(User.email) == email)
+        .first()
+    )
+
+    if existing_user:
+        raise HTTPException(
+            status_code=400,
+            detail="Użytkownik z tym adresem e-mail już istnieje"
+        )
+
+    user = User(
+        email=email,
+        hashed_password=pwd_context.hash(password),
+        role="user",
+        roles="user",
+        is_active=1,
+        activation_token=None,
+        password_reset_token=None,
+        password_reset_expires_at=None,
+        password_reset_required=0,
+        premium_until=premium_end_of_year_iso(),
+        premium_disabled=0,
+    )
+
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    return {
+        "message": "Konto użytkownika zostało utworzone",
+        "user": public_user(user),
+    }
+
+
+@app.get("/admin/users/{user_id}/info")
+def admin_get_user_info(
+    user_id: int,
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    target_user = (
+        db.query(User)
+        .filter(User.id == user_id)
+        .first()
+    )
+
+    if not target_user:
+        raise HTTPException(
+            status_code=404,
+            detail="Użytkownik nie istnieje"
+        )
+
+    return admin_user_profile_info(target_user)
+
+
+@app.put("/admin/users/{user_id}/premium-disabled")
+def admin_update_user_premium_disabled(
+    user_id: int,
+    data: UserPremiumDisabledData,
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    target_user = (
+        db.query(User)
+        .filter(User.id == user_id)
+        .first()
+    )
+
+    if not target_user:
+        raise HTTPException(
+            status_code=404,
+            detail="Użytkownik nie istnieje"
+        )
+
+    target_user.premium_disabled = 1 if data.premium_disabled else 0
+    db.commit()
+    db.refresh(target_user)
+
+    return public_user(target_user)
 
 @app.put("/admin/users/{user_id}/role")
 def admin_update_user_role(
@@ -3196,11 +6200,11 @@ def admin_reset_user_password(
         db.rollback()
         raise HTTPException(
             status_code=503,
-            detail="Nie udało się wysłać emaila resetowania hasła. Spróbuj ponownie później."
+            detail="Nie udało się wysłać e-maila resetowania hasła. Spróbuj ponownie później."
         ) from exc
 
     return {
-        "message": "Link resetowania hasła został wysłany na email użytkownika",
+        "message": "Link resetowania hasła został wysłany na e-mail użytkownika",
         "user": public_user(target_user),
     }
 
@@ -3245,13 +6249,12 @@ def admin_get_competitions(
 
     competitions = (
         db.query(Competition)
-        .order_by(Competition.id.desc())
         .all()
     )
 
     result = []
 
-    for competition in competitions:
+    for competition in sort_competitions_by_nearest_date(competitions):
         disciplines = (
             db.query(Discipline)
             .filter(Discipline.competition_id == competition.id)
@@ -3262,6 +6265,15 @@ def admin_get_competitions(
             db.query(User)
             .filter(User.email == competition.created_by)
             .first()
+        )
+
+        participants_count = (
+            db.query(CompetitionParticipant)
+            .filter(
+                CompetitionParticipant.competition_id == competition.id,
+                CompetitionParticipant.entry_type == "shooter",
+            )
+            .count()
         )
 
         result.append({
@@ -3275,6 +6287,8 @@ def admin_get_competitions(
             "sponsors": competition.sponsors or "",
             "sponsor_logo": competition.sponsor_logo or "",
             "participant_limit": competition.participant_limit,
+            "pzss_license_calendar": bool(getattr(competition, "pzss_license_calendar", 0)),
+            "participants_count": participants_count,
             "status": competition.status,
             "created_by": competition.created_by,
             "organizer": {
@@ -3289,9 +6303,19 @@ def admin_get_competitions(
                     "name": discipline.name,
                     "description": discipline.description or "",
                     "scoring_type": discipline.scoring_type,
+                    "discipline_type": discipline.discipline_type or "",
+                    "discipline_type_label": DISCIPLINE_TYPE_LABELS.get(
+                        discipline.discipline_type or "",
+                        "",
+                    ),
                     "shots_count": discipline.shots_count,
+                    "trap_variant": getattr(discipline, "trap_variant", "") or "",
+                    "trap_series_count": getattr(discipline, "trap_series_count", 0) or 0,
+                    "clay_variant": discipline_clay_variant(discipline),
+                    "clay_series_count": discipline_clay_series_count(discipline),
                     "ammo_type": discipline.ammo_type or "",
                     "ammo_price": discipline.ammo_price or "",
+                    "clay_price": getattr(discipline, "clay_price", "") or "",
                     "entry_fee": discipline.entry_fee or "",
                 }
                 for discipline in disciplines
@@ -3393,6 +6417,7 @@ def admin_generate_test_competition(
             name=test_discipline_name(template["name"], index),
             description=template["description"],
             scoring_type=template["scoring_type"],
+            discipline_type=template["discipline_type"],
             shots_count=template["shots_count"],
             ammo_type=template["ammo_type"],
             ammo_price=template["ammo_price"],
@@ -3404,6 +6429,7 @@ def admin_generate_test_competition(
 
     checked_in = data.status in ["started", "completed"]
     paid = data.status in ["started", "completed"]
+    used_person_names: set[tuple[str, str]] = set()
 
     for index in range(participants_count):
         create_test_participant(
@@ -3413,6 +6439,7 @@ def admin_generate_test_competition(
             checked_in,
             paid,
             db,
+            used_person_names,
         )
 
     results_count = 0
@@ -3483,6 +6510,21 @@ def admin_generate_test_participants(
             detail="Limit zawodników zostałby przekroczony"
         )
 
+    used_person_names = {
+        (
+            (participant.first_name or "").strip().casefold(),
+            (participant.last_name or "").strip().casefold(),
+        )
+        for participant in (
+            db.query(CompetitionParticipant)
+            .filter(
+                CompetitionParticipant.competition_id == competition.id,
+                CompetitionParticipant.entry_type == "shooter",
+            )
+            .all()
+        )
+        if (participant.first_name or "").strip() or (participant.last_name or "").strip()
+    }
     participants = []
 
     for index in range(existing_count, existing_count + count):
@@ -3493,6 +6535,7 @@ def admin_generate_test_participants(
             data.checked_in,
             data.paid,
             db,
+            used_person_names,
         ))
 
     results_count = 0
@@ -3517,6 +6560,7 @@ def admin_generate_test_participants(
         "message": "Wygenerowano zawodników testowych",
         "competition_id": competition.id,
         "participants_count": len(participants),
+        "total_participants_count": existing_count + len(participants),
         "results_count": results_count,
     }
 
@@ -3597,6 +6641,8 @@ def register(
     data: RegisterData,
     db=Depends(get_db),
 ):
+    validate_registration_consents(data)
+
     existing_user = (
         db.query(User)
         .filter(User.email == data.email)
@@ -3605,7 +6651,7 @@ def register(
 
     if existing_user:
         return {
-            "message": "Email już istnieje"
+            "message": "E-mail już istnieje"
         }
 
     hashed_password = pwd_context.hash(
@@ -3621,6 +6667,7 @@ def register(
         roles="user",
         is_active=0,
         activation_token=activation_token,
+        premium_until=premium_end_of_year_iso(),
     )
 
     db.add(new_user)
@@ -3629,18 +6676,115 @@ def register(
 
     try:
         db.flush()
-        send_activation_email(new_user.email, activation_link)
+        send_activation_email(
+            new_user.email,
+            activation_link,
+            get_activation_email_template(db),
+        )
         db.commit()
         db.refresh(new_user)
     except (MailConfigurationError, MailDeliveryError) as exc:
         db.rollback()
         raise HTTPException(
             status_code=503,
-            detail="Nie udało się wysłać emaila aktywacyjnego. Spróbuj ponownie później."
+            detail="Nie udało się wysłać e-maila aktywacyjnego. Spróbuj ponownie później."
         ) from exc
 
     return {
-        "message": "Konto utworzone. Sprawdź email i aktywuj konto",
+        "message": "Konto utworzone. Sprawdź e-mail i aktywuj konto",
+        "email": new_user.email,
+    }
+
+
+@app.post("/register/pzss-club")
+def register_pzss_club(
+    data: PzssClubRegisterData,
+    db=Depends(get_db),
+):
+    validate_registration_consents(data)
+
+    email = normalize_text(data.email).lower()
+    short_name = normalize_text(data.short_name)
+    full_name = normalize_text(data.full_name)
+    phone_number = normalize_optional_phone_number(data.phone_number)
+    password = data.password or ""
+
+    if not email or not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+        raise HTTPException(status_code=400, detail="Podaj poprawny adres e-mail")
+
+    if not short_name:
+        raise HTTPException(status_code=400, detail="Podaj nazwę skróconą klubu zgodną z PZSS")
+
+    if not full_name:
+        raise HTTPException(status_code=400, detail="Podaj pełną nazwę klubu zgodną z PZSS")
+
+    if not phone_number:
+        raise HTTPException(status_code=400, detail="Podaj poprawny numer telefonu do szybkiej weryfikacji")
+
+    if len(password) < 8:
+        raise HTTPException(status_code=400, detail="Hasło musi mieć minimum 8 znaków")
+
+    existing_user = (
+        db.query(User)
+        .filter(func.lower(User.email) == email)
+        .first()
+    )
+
+    if existing_user:
+        return {"message": "E-mail już istnieje"}
+
+    duplicate_club = (
+        db.query(User)
+        .filter(
+            User.account_type == PZSS_CLUB_ACCOUNT_TYPE,
+            func.lower(User.pzss_club_short_name) == short_name.lower(),
+        )
+        .first()
+    )
+
+    if duplicate_club:
+        raise HTTPException(status_code=400, detail="Klub o tej nazwie skróconej jest już zarejestrowany")
+
+    activation_token = secrets.token_urlsafe(32)
+    new_user = User(
+        email=email,
+        hashed_password=pwd_context.hash(password),
+        role="user",
+        roles="user",
+        is_active=0,
+        activation_token=activation_token,
+        premium_until=premium_end_of_year_iso(),
+        account_type=PZSS_CLUB_ACCOUNT_TYPE,
+        pzss_club_short_name=short_name,
+        pzss_club_full_name=full_name,
+        pzss_club_status=PZSS_CLUB_PENDING,
+        phone_number=phone_number,
+        club=short_name,
+        organizer_name=short_name,
+        organizer_name_key=None,
+    )
+
+    db.add(new_user)
+    activation_link = f"{settings.frontend_url}/activate?token={activation_token}"
+
+    try:
+        db.flush()
+        send_activation_email(
+            new_user.email,
+            activation_link,
+            get_activation_email_template(db),
+        )
+        db.commit()
+        db.refresh(new_user)
+    except (MailConfigurationError, MailDeliveryError) as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=503,
+            detail="Nie udało się wysłać e-maila aktywacyjnego. Spróbuj ponownie później."
+        ) from exc
+
+    return {
+        "message": "Konto klubu utworzone. Sprawdź e-mail i aktywuj konto",
         "email": new_user.email,
     }
 
@@ -3648,6 +6792,7 @@ def register(
 @app.get("/activate")
 def activate_account(
     token: str,
+    response: Response,
     db=Depends(get_db),
 ):
     user = (
@@ -3666,25 +6811,45 @@ def activate_account(
     user.activation_token = None
     db.commit()
 
-    return {
-        "message": "Konto zostało aktywowane"
-    }
+    access_token = create_access_token(user)
+    refresh_token = create_refresh_token(user)
+    set_refresh_token_cookie(response, refresh_token)
+
+    session_data = auth_session_response(user, access_token)
+
+    if is_pzss_club_account(user) and getattr(user, "pzss_club_status", "") != PZSS_CLUB_APPROVED:
+        session_data["message"] = (
+            "Konto zostało aktywowane. Klub oczekuje na weryfikację przez administratora"
+        )
+        return session_data
+
+    session_data["message"] = "Konto zostało aktywowane"
+    return session_data
 
 
 @app.post("/login")
 def login(
     data: LoginData,
+    request: Request,
+    response: Response,
     db=Depends(get_db),
 ):
+    email = normalize_text(data.email).lower()
+    enforce_login_ip_rate_limit(client_ip_from_request(request), db)
+    db.commit()
+
     user = (
         db.query(User)
-        .filter(User.email == data.email)
+        .filter(func.lower(User.email) == email)
         .first()
     )
 
     if not user:
+        enforce_failed_login_email_rate_limit(email, db)
+        db.commit()
+
         return {
-            "message": "Nieprawidłowy email lub hasło"
+            "message": "Nieprawidłowy e-mail lub hasło"
         }
 
     if not user.is_active:
@@ -3698,39 +6863,115 @@ def login(
     )
 
     if not valid_password:
+        enforce_failed_login_email_rate_limit(email, db)
+        db.commit()
+
         return {
-            "message": "Nieprawidłowy email lub hasło"
+            "message": "Nieprawidłowy e-mail lub hasło"
         }
 
     if user.password_reset_required and user.password_reset_token:
         return {
-            "message": "Hasło wymaga zresetowania. Sprawdź email z linkiem do ustawienia nowego hasła",
+            "message": "Hasło wymaga zresetowania. Sprawdź e-mail z linkiem do ustawienia nowego hasła",
         }
+
+    if is_pzss_club_account(user) and getattr(user, "pzss_club_status", "") != PZSS_CLUB_APPROVED:
+        return {
+            "message": "Konto klubu oczekuje na weryfikację administratora"
+        }
+
+    clear_failed_login_email_rate_limit(email, db)
+    user.last_seen = datetime.now(timezone.utc).isoformat()
+    db.commit()
+
+    access_token = create_access_token(user)
+    refresh_token = create_refresh_token(user)
+    set_refresh_token_cookie(response, refresh_token)
+
+    return auth_session_response(user, access_token)
+
+
+@app.post("/refresh")
+def refresh_session(
+    response: Response,
+    refresh_token: Optional[str] = Cookie(
+        default=None,
+        alias=REFRESH_TOKEN_COOKIE_NAME,
+    ),
+    db=Depends(get_db),
+):
+    if not refresh_token:
+        raise HTTPException(
+            status_code=401,
+            detail="Brak aktywnej sesji"
+        )
+
+    try:
+        payload = decode_auth_token(refresh_token, "refresh")
+    except JWTError:
+        clear_refresh_token_cookie(response)
+        raise HTTPException(
+            status_code=401,
+            detail="Nieprawidłowa sesja"
+        )
+
+    email = payload.get("sub")
+
+    if email is None:
+        clear_refresh_token_cookie(response)
+        raise HTTPException(
+            status_code=401,
+            detail="Nieprawidłowa sesja"
+        )
+
+    user = (
+        db.query(User)
+        .filter(User.email == email)
+        .first()
+    )
+
+    if not user or not user.is_active:
+        clear_refresh_token_cookie(response)
+        raise HTTPException(
+            status_code=401,
+            detail="Sesja wygasła"
+        )
+
+    if is_pzss_club_account(user) and getattr(user, "pzss_club_status", "") != PZSS_CLUB_APPROVED:
+        clear_refresh_token_cookie(response)
+        raise HTTPException(
+            status_code=401,
+            detail="Konto klubu oczekuje na weryfikację administratora"
+        )
+
+    token_version = getattr(user, "refresh_token_version", 0) or 0
+
+    if payload.get("ver") != token_version:
+        clear_refresh_token_cookie(response)
+        raise HTTPException(
+            status_code=401,
+            detail="Sesja wygasła"
+        )
 
     user.last_seen = datetime.now(timezone.utc).isoformat()
     db.commit()
 
-    payload = {
-        "sub": user.email,
-        "role": primary_role(get_user_roles(user)),
-        "roles": get_user_roles(user),
-        "exp": datetime.now(timezone.utc)
-        + timedelta(days=7)
-    }
+    access_token = create_access_token(user)
+    rotated_refresh_token = create_refresh_token(user)
+    set_refresh_token_cookie(response, rotated_refresh_token)
 
-    token = jwt.encode(
-        payload,
-        settings.secret_key,
-        algorithm=ALGORITHM
-    )
+    session_data = auth_session_response(user, access_token)
+    session_data["message"] = "Sesja odświeżona"
+
+    return session_data
+
+
+@app.post("/logout")
+def logout(response: Response):
+    clear_refresh_token_cookie(response)
 
     return {
-        "message": "Logowanie poprawne",
-        "token": token,
-        "email": user.email,
-        "role": primary_role(get_user_roles(user)),
-        "roles": get_user_roles(user),
-        "profile_complete": is_profile_complete(user),
+        "message": "Wylogowano"
     }
 
 
@@ -3747,7 +6988,7 @@ def forgot_password(
 
     if not user:
         return {
-            "message": "Jeśli konto istnieje, email został wysłany"
+            "message": "Jeśli konto istnieje, e-mail został wysłany"
         }
 
     try:
@@ -3757,7 +6998,7 @@ def forgot_password(
         db.rollback()
         raise HTTPException(
             status_code=503,
-            detail="Nie udało się wysłać emaila resetowania hasła. Spróbuj ponownie później."
+            detail="Nie udało się wysłać e-maila resetowania hasła. Spróbuj ponownie później."
         ) from exc
 
     return {
@@ -3789,11 +7030,11 @@ def request_my_password_reset(
         db.rollback()
         raise HTTPException(
             status_code=503,
-            detail="Nie udało się wysłać emaila resetowania hasła. Spróbuj ponownie później."
+            detail="Nie udało się wysłać e-maila resetowania hasła. Spróbuj ponownie później."
         ) from exc
 
     return {
-        "message": "Link resetowania hasła został wysłany na Twój email",
+        "message": "Link resetowania hasła został wysłany na Twój e-mail",
     }
 
 
@@ -3820,9 +7061,17 @@ def reset_password(
             detail="Nieprawidłowy lub wygasły link resetowania hasła"
         )
 
+    if password_reset_token_expired(user):
+        clear_password_reset_token(user)
+        db.commit()
+        raise HTTPException(
+            status_code=404,
+            detail="Nieprawidłowy lub wygasły link resetowania hasła"
+        )
+
     user.hashed_password = pwd_context.hash(data.password)
-    user.password_reset_token = None
-    user.password_reset_required = 0
+    user.refresh_token_version = (getattr(user, "refresh_token_version", 0) or 0) + 1
+    clear_password_reset_token(user)
     db.commit()
 
     return {
@@ -3848,6 +7097,12 @@ def create_competition(
             detail="Uzupełnij nazwę organizatora w profilu przed utworzeniem zawodów"
         )
 
+    if data.pzss_license_calendar and not is_approved_pzss_club(user):
+        raise HTTPException(
+            status_code=403,
+            detail="Tę opcję może zaznaczyć tylko zweryfikowany klub PZSS"
+        )
+
     competition = Competition(
         name=data.name,
         date=data.date,
@@ -3858,6 +7113,7 @@ def create_competition(
         sponsors=data.sponsors,
         sponsor_logo=data.sponsor_logo,
         participant_limit=data.participant_limit,
+        pzss_license_calendar=1 if data.pzss_license_calendar else 0,
         status="draft",
         created_by=user.email,
     )
@@ -3886,138 +7142,183 @@ def get_my_competitions(
         .filter(Competition.created_by == user.email)
         .all()
     )
+    competition_ids = [competition.id for competition in competitions]
+    disciplines_counts = count_disciplines_by_competition(db, competition_ids)
+    shooters_counts = count_shooters_by_competition(db, competition_ids)
+    judges_counts = count_judges_by_competition(db, competition_ids)
+    missing_judges = missing_judge_disciplines_by_competition(db, competition_ids)
 
-    result = []
-
-    for competition in competitions:
-
-        disciplines = (
-            db.query(Discipline)
-            .filter(
-                Discipline.competition_id == competition.id
-            )
-            .all()
+    return [
+        competition_list_row(
+            competition,
+            disciplines_count=disciplines_counts.get(competition.id, 0),
+            shooters_count=shooters_counts.get(competition.id, 0),
+            judges_count=judges_counts.get(competition.id, 0),
+            missing_judge_disciplines=missing_judges.get(competition.id, []),
         )
+        for competition in sort_competitions_by_date(competitions)
+    ]
 
-        participants = (
-            db.query(CompetitionParticipant)
-            .filter(
-                CompetitionParticipant.competition_id == competition.id,
-                CompetitionParticipant.entry_type == "shooter",
-            )
-            .all()
-        )
 
-        judges = (
-            db.query(CompetitionParticipant)
-            .filter(
-                CompetitionParticipant.competition_id == competition.id,
-                CompetitionParticipant.entry_type == "judge",
-            )
-            .all()
+def organizer_competition_detail_row(competition: Competition, db):
+    disciplines = (
+        db.query(Discipline)
+        .filter(Discipline.competition_id == competition.id)
+        .all()
+    )
+    participants = (
+        db.query(CompetitionParticipant)
+        .filter(
+            CompetitionParticipant.competition_id == competition.id,
+            shooter_entry_filter(),
         )
+        .all()
+    )
+    judges = (
+        db.query(CompetitionParticipant)
+        .filter(
+            CompetitionParticipant.competition_id == competition.id,
+            CompetitionParticipant.entry_type == "judge",
+        )
+        .all()
+    )
+    judge_invitations = (
+        db.query(JudgeInvitation)
+        .filter(JudgeInvitation.competition_id == competition.id)
+        .all()
+    )
+    discipline_names = {
+        discipline.id: discipline.name
+        for discipline in disciplines
+    }
+    judges_by_email = {
+        judge.user_email: judge
+        for judge in judges
+    }
+    assigned_discipline_ids = {
+        invitation.discipline_id
+        for invitation in judge_invitations
+        if invitation.discipline_id is not None
+    }
+    missing_judge_disciplines = [
+        discipline.name
+        for discipline in disciplines
+        if discipline.id not in assigned_discipline_ids
+    ]
 
-        judge_invitations = (
-            db.query(JudgeInvitation)
-            .filter(JudgeInvitation.competition_id == competition.id)
-            .all()
-        )
-        discipline_names = {
-            discipline.id: discipline.name
+    return {
+        "id": competition.id,
+        "name": competition.name,
+        "date": competition.date,
+        "location": competition.location,
+        "entry_fee": competition.entry_fee or "",
+        "organizer_full_name": competition.organizer_full_name or "",
+        "organizer_logo": competition.organizer_logo or "",
+        "sponsors": competition.sponsors or "",
+        "sponsor_logo": competition.sponsor_logo or "",
+        "participant_limit": competition.participant_limit,
+        "pzss_license_calendar": bool(getattr(competition, "pzss_license_calendar", 0)),
+        "shooters_count": len(participants),
+        "judges_count": len(judges),
+        "status": competition.status,
+        "disciplines_count": len(disciplines),
+        "missing_judge_disciplines": missing_judge_disciplines,
+        "disciplines": [
+            {
+                "id": discipline.id,
+                "name": discipline.name,
+                "description": discipline.description or "",
+                "scoring_type": discipline.scoring_type,
+                "discipline_type": discipline.discipline_type or "",
+                "discipline_type_label": DISCIPLINE_TYPE_LABELS.get(
+                    discipline.discipline_type or "",
+                    "",
+                ),
+                "shots_count": discipline.shots_count,
+                "trap_variant": getattr(discipline, "trap_variant", "") or "",
+                "trap_series_count": getattr(discipline, "trap_series_count", 0) or 0,
+                "clay_variant": discipline_clay_variant(discipline),
+                "clay_series_count": discipline_clay_series_count(discipline),
+                "squad_group_statuses": trap_squad_group_statuses(discipline, db),
+                "ammo_type": discipline.ammo_type or "",
+                "ammo_price": discipline.ammo_price or "",
+                "clay_price": getattr(discipline, "clay_price", "") or "",
+                "entry_fee": discipline.entry_fee or "",
+            }
             for discipline in disciplines
-        }
+        ],
+        "participants": [
+            staff_participant(participant, db)
+            for participant in participants
+        ],
+        "judges": [
+            staff_participant(judge, db)
+            for judge in judges
+        ],
+        "judge_invitations": [
+            {
+                "id": invitation.id,
+                "judge_email": invitation.judge_email,
+                "discipline_id": invitation.discipline_id,
+                "is_head_judge": bool(invitation.is_head_judge),
+            }
+            for invitation in judge_invitations
+        ],
+        "judge_assignments": [
+            {
+                "id": invitation.id,
+                "judge_email": invitation.judge_email,
+                "discipline_id": invitation.discipline_id,
+                "discipline_name": (
+                    discipline_names.get(invitation.discipline_id)
+                    if invitation.discipline_id
+                    else "Całe zawody"
+                ),
+                "is_head_judge": bool(invitation.is_head_judge),
+                "display_name": public_participant(
+                    judges_by_email[invitation.judge_email],
+                    db,
+                    include_private=True,
+                )["display_name"],
+                "judge_license_number": public_participant(
+                    judges_by_email[invitation.judge_email],
+                    db,
+                    include_private=True,
+                )["judge_license_number"],
+            }
+            for invitation in judge_invitations
+            if invitation.judge_email in judges_by_email
+        ],
+    }
 
-        result.append({
-            "id": competition.id,
-            "name": competition.name,
-            "date": competition.date,
-            "location": competition.location,
-            "entry_fee": competition.entry_fee or "",
-            "organizer_full_name": competition.organizer_full_name or "",
-            "organizer_logo": competition.organizer_logo or "",
-            "sponsors": competition.sponsors or "",
-            "sponsor_logo": competition.sponsor_logo or "",
-            "participant_limit": competition.participant_limit,
-            "status": competition.status,
-            "disciplines_count": len(disciplines),
-            "disciplines": [
-                {
-                    "id": discipline.id,
-                    "name": discipline.name,
-                    "description": discipline.description or "",
-                    "scoring_type": discipline.scoring_type,
-                    "shots_count": discipline.shots_count,
-                    "ammo_type": discipline.ammo_type or "",
-                    "ammo_price": discipline.ammo_price or "",
-                    "entry_fee": discipline.entry_fee or "",
-                }
-                for discipline in disciplines
-            ],
-            "participants": [
-                staff_participant(participant, db)
-                for participant in participants
-            ],
-            "judges": [
-                staff_participant(judge, db)
-                for judge in judges
-            ],
-            "judge_invitations": [
-                {
-                    "id": invitation.id,
-                    "judge_email": invitation.judge_email,
-                    "discipline_id": invitation.discipline_id,
-                    "is_head_judge": bool(invitation.is_head_judge),
-                }
-                for invitation in judge_invitations
-            ],
-            "judge_assignments": [
-                {
-                    "id": invitation.id,
-                    "judge_email": invitation.judge_email,
-                    "discipline_id": invitation.discipline_id,
-                    "discipline_name": (
-                        discipline_names.get(invitation.discipline_id)
-                        if invitation.discipline_id
-                        else "Całe zawody"
-                    ),
-                    "is_head_judge": bool(invitation.is_head_judge),
-                    "display_name": (
-                        public_participant(
-                            db.query(CompetitionParticipant)
-                            .filter(
-                                CompetitionParticipant.competition_id == competition.id,
-                                CompetitionParticipant.user_email == invitation.judge_email,
-                                CompetitionParticipant.entry_type == "judge",
-                            )
-                            .first(),
-                            db,
-                        )["display_name"]
-                    ),
-                    "judge_license_number": (
-                        public_participant(
-                            db.query(CompetitionParticipant)
-                            .filter(
-                                CompetitionParticipant.competition_id == competition.id,
-                                CompetitionParticipant.user_email == invitation.judge_email,
-                                CompetitionParticipant.entry_type == "judge",
-                            )
-                            .first(),
-                            db,
-                        )["judge_license_number"]
-                    ),
-                }
-                for invitation in judge_invitations
-                if db.query(CompetitionParticipant)
-                .filter(
-                    CompetitionParticipant.competition_id == competition.id,
-                    CompetitionParticipant.user_email == invitation.judge_email,
-                    CompetitionParticipant.entry_type == "judge",
-                )
-                .first()
-            ],
-        })
 
-    return result
+@app.get("/organizer/competitions/{competition_id}")
+def get_organizer_competition(
+    competition_id: int,
+    user: User = Depends(get_current_organizer),
+    db=Depends(get_db),
+):
+    auto_complete_started_competitions(db)
+
+    competition = (
+        db.query(Competition)
+        .filter(Competition.id == competition_id)
+        .first()
+    )
+
+    if not competition:
+        raise HTTPException(
+            status_code=404,
+            detail="Zawody nie istnieją"
+        )
+
+    if competition.created_by != user.email and not has_role(user, "admin"):
+        raise HTTPException(
+            status_code=403,
+            detail="Nie masz dostępu do tych zawodów"
+        )
+
+    return organizer_competition_detail_row(competition, db)
 
 
 @app.get("/organizer/competitions/{competition_id}/payments")
@@ -4132,7 +7433,39 @@ def get_organizer_competition_result_category(
         db,
     )
 
-    return result_category_payload(competition, category_id, db)
+    return result_category_payload(competition, category_id, db, include_license=True)
+
+
+@app.get("/organizer/competitions/{competition_id}/results.pdf")
+def download_organizer_competition_results_pdf(
+    competition_id: int,
+    user: User = Depends(get_current_organizer),
+    db=Depends(get_db),
+):
+    auto_complete_started_competitions(db)
+    competition = get_organizer_result_competition_or_404(
+        competition_id,
+        user,
+        db,
+    )
+
+    if competition.status != "completed":
+        raise HTTPException(
+            status_code=400,
+            detail="Komunikat PDF można wygenerować po zakończeniu zawodów"
+        )
+
+    pdf_bytes = build_competition_results_pdf(competition, db)
+    filename = f"komunikat-wynikow-{competition.id}-{pdf_filename_slug(competition.name)}.pdf"
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @app.put("/organizer/competitions/{competition_id}/participants/{participant_id}/payments")
@@ -4179,6 +7512,7 @@ def update_organizer_participant_payment_status(
             detail="Nie znaleziono zawodnika w tych zawodach"
         )
 
+    was_confirmed = is_participant_confirmed(participant)
     now = datetime.now(APP_TIMEZONE).isoformat()
 
     if data.checked_in is not None:
@@ -4188,6 +7522,12 @@ def update_organizer_participant_payment_status(
     if data.paid is not None:
         participant.paid = 1 if data.paid else 0
         participant.paid_at = now if data.paid else None
+
+    sync_participant_squad_groups(
+        participant,
+        db,
+        reset_existing=not was_confirmed and is_participant_confirmed(participant),
+    )
 
     db.commit()
     db.refresh(participant)
@@ -4324,6 +7664,7 @@ def organizer_add_manual_participant(
             discipline_id=selected_discipline.discipline_id,
             ammo_type=selected_discipline.ammo_type,
         )
+        assign_squad_group(participant_discipline, db)
 
         db.add(participant_discipline)
 
@@ -4333,6 +7674,283 @@ def organizer_add_manual_participant(
     return {
         "message": "Zawodnik dodany i opłacony",
         "participant": participant_payment_row(participant, db),
+    }
+
+
+@app.put("/organizer/competitions/{competition_id}/squad-groups/{participant_discipline_id}")
+def organizer_update_squad_group(
+    competition_id: int,
+    participant_discipline_id: int,
+    data: ParticipantSquadGroupData,
+    user: User = Depends(get_current_organizer),
+    db=Depends(get_db),
+):
+    auto_complete_started_competitions(db)
+
+    competition = (
+        db.query(Competition)
+        .filter(Competition.id == competition_id)
+        .first()
+    )
+
+    if not competition:
+        raise HTTPException(
+            status_code=404,
+            detail="Zawody nie istnieją"
+        )
+
+    if competition.created_by != user.email and not has_role(user, "admin"):
+        raise HTTPException(
+            status_code=403,
+            detail="Nie masz dostępu do tych zawodów"
+        )
+
+    if competition.status == "completed":
+        raise HTTPException(
+            status_code=400,
+            detail="Nie można zmieniać grup po zakończeniu zawodów"
+        )
+
+    group_number = int(data.group_number or 0)
+
+    if group_number <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Podaj prawidłowy numer grupy"
+        )
+
+    participant_discipline = (
+        db.query(ParticipantDiscipline)
+        .join(Discipline, Discipline.id == ParticipantDiscipline.discipline_id)
+        .join(CompetitionParticipant, CompetitionParticipant.id == ParticipantDiscipline.participant_id)
+        .filter(
+            ParticipantDiscipline.id == participant_discipline_id,
+            Discipline.competition_id == competition.id,
+            Discipline.discipline_type.in_([TRAP_DISCIPLINE_TYPE, SKEET_DISCIPLINE_TYPE]),
+            CompetitionParticipant.checked_in == 1,
+            CompetitionParticipant.paid == 1,
+            or_(
+                CompetitionParticipant.entry_type == "shooter",
+                CompetitionParticipant.entry_type.is_(None),
+            ),
+        )
+        .first()
+    )
+
+    if not participant_discipline:
+        raise HTTPException(
+            status_code=404,
+            detail="Nie znaleziono zawodnika w tej konkurencji"
+        )
+
+    current_group_number = int(getattr(participant_discipline, "squad_group_number", 0) or 0)
+    current_position = int(getattr(participant_discipline, "squad_position", 0) or 0)
+    requested_position = int(data.squad_position or 0)
+
+    if (
+        current_group_number == group_number
+        and (requested_position <= 0 or requested_position == current_position)
+    ):
+        return {
+            "message": "Grupa zawodnika zaktualizowana",
+            "participant_discipline_id": participant_discipline.id,
+            "group_number": participant_discipline.squad_group_number,
+            "squad_position": participant_discipline.squad_position,
+        }
+
+    discipline = (
+        db.query(Discipline)
+        .filter(Discipline.id == participant_discipline.discipline_id)
+        .first()
+    )
+    if not is_clay_squad_discipline(discipline):
+        raise HTTPException(
+            status_code=400,
+            detail="Grupy startowe są dostępne tylko dla skonfigurowanego Trap lub Skeet"
+        )
+    squad_group_statuses = trap_squad_group_statuses(discipline, db)
+    current_group_status = squad_group_statuses.get(current_group_number)
+    target_group_status = squad_group_statuses.get(group_number)
+
+    if trap_squad_group_is_locked(current_group_status):
+        raise HTTPException(
+            status_code=400,
+            detail="Nie można przenosić zawodników z rozpoczętej lub zakończonej grupy"
+        )
+
+    if trap_squad_group_is_locked(target_group_status):
+        raise HTTPException(
+            status_code=400,
+            detail="Nie można przenosić zawodników do rozpoczętej lub zakończonej grupy"
+        )
+
+    group_count = (
+        db.query(ParticipantDiscipline)
+        .join(CompetitionParticipant, CompetitionParticipant.id == ParticipantDiscipline.participant_id)
+        .filter(
+            ParticipantDiscipline.discipline_id == participant_discipline.discipline_id,
+            ParticipantDiscipline.squad_group_number == group_number,
+            ParticipantDiscipline.id != participant_discipline.id,
+            CompetitionParticipant.checked_in == 1,
+            CompetitionParticipant.paid == 1,
+            or_(
+                CompetitionParticipant.entry_type == "shooter",
+                CompetitionParticipant.entry_type.is_(None),
+            ),
+        )
+        .count()
+    )
+
+    group_size = clay_squad_group_size(discipline)
+
+    if group_count >= group_size:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Ta grupa ma już {group_size} zawodników"
+        )
+
+    if 1 <= requested_position <= group_size:
+        occupied_assignment = (
+            db.query(ParticipantDiscipline)
+            .filter(
+                ParticipantDiscipline.discipline_id == participant_discipline.discipline_id,
+                ParticipantDiscipline.squad_group_number == group_number,
+                ParticipantDiscipline.squad_position == requested_position,
+                ParticipantDiscipline.id != participant_discipline.id,
+            )
+            .first()
+        )
+        if occupied_assignment and current_group_number == group_number:
+            occupied_assignment.squad_position = current_position
+        elif occupied_assignment:
+            requested_position = next_squad_position(
+                participant_discipline.discipline_id,
+                group_number,
+                db,
+            )
+        participant_discipline.squad_position = requested_position
+    else:
+        participant_discipline.squad_position = next_squad_position(
+            participant_discipline.discipline_id,
+            group_number,
+            db,
+        )
+    participant_discipline.squad_group_number = group_number
+    db.commit()
+
+    return {
+        "message": "Grupa zawodnika zaktualizowana",
+        "participant_discipline_id": participant_discipline.id,
+        "group_number": participant_discipline.squad_group_number,
+        "squad_position": participant_discipline.squad_position,
+    }
+
+
+@app.post("/organizer/competitions/{competition_id}/disciplines/{discipline_id}/squad-groups/randomize")
+def organizer_randomize_squad_groups(
+    competition_id: int,
+    discipline_id: int,
+    user: User = Depends(get_current_organizer),
+    db=Depends(get_db),
+):
+    auto_complete_started_competitions(db)
+
+    competition = (
+        db.query(Competition)
+        .filter(Competition.id == competition_id)
+        .first()
+    )
+
+    if not competition:
+        raise HTTPException(
+            status_code=404,
+            detail="Zawody nie istnieją"
+        )
+
+    if competition.created_by != user.email and not has_role(user, "admin"):
+        raise HTTPException(
+            status_code=403,
+            detail="Nie masz dostępu do tych zawodów"
+        )
+
+    if competition.status in ["started", "completed"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Losowanie grup nie jest możliwe po rozpoczęciu zawodów"
+        )
+
+    discipline = (
+        db.query(Discipline)
+        .filter(
+            Discipline.id == discipline_id,
+            Discipline.competition_id == competition.id,
+        )
+        .first()
+    )
+
+    if not discipline:
+        raise HTTPException(
+            status_code=404,
+            detail="Konkurencja nie istnieje"
+        )
+
+    if not is_clay_squad_discipline(discipline):
+        raise HTTPException(
+            status_code=400,
+            detail="Grupy startowe są dostępne tylko dla konkurencji Trap i Skeet"
+        )
+
+    unconfirmed_participant_disciplines = (
+        db.query(ParticipantDiscipline)
+        .join(CompetitionParticipant, CompetitionParticipant.id == ParticipantDiscipline.participant_id)
+        .filter(ParticipantDiscipline.discipline_id == discipline.id)
+        .filter(
+            or_(
+                CompetitionParticipant.checked_in != 1,
+                CompetitionParticipant.checked_in.is_(None),
+                CompetitionParticipant.paid != 1,
+                CompetitionParticipant.paid.is_(None),
+            )
+        )
+        .all()
+    )
+
+    for participant_discipline in unconfirmed_participant_disciplines:
+        participant_discipline.squad_group_number = None
+        participant_discipline.squad_position = None
+
+    participant_disciplines = (
+        db.query(ParticipantDiscipline)
+        .join(CompetitionParticipant, CompetitionParticipant.id == ParticipantDiscipline.participant_id)
+        .filter(ParticipantDiscipline.discipline_id == discipline.id)
+        .filter(
+            CompetitionParticipant.checked_in == 1,
+            CompetitionParticipant.paid == 1,
+        )
+        .filter(
+            or_(
+                CompetitionParticipant.entry_type == "shooter",
+                CompetitionParticipant.entry_type.is_(None),
+            )
+        )
+        .order_by(ParticipantDiscipline.id.asc())
+        .all()
+    )
+
+    shuffled_participant_disciplines = list(participant_disciplines)
+    secrets.SystemRandom().shuffle(shuffled_participant_disciplines)
+
+    group_size = clay_squad_group_size(discipline)
+
+    for index, participant_discipline in enumerate(shuffled_participant_disciplines):
+        participant_discipline.squad_group_number = (index // group_size) + 1
+        participant_discipline.squad_position = (index % group_size) + 1
+
+    db.commit()
+
+    return {
+        "message": "Grupy wylosowane",
+        "discipline_id": discipline.id,
     }
 
 
@@ -4499,6 +8117,20 @@ def invite_judge(
     )
 
     if data.is_head_judge:
+        license_class = judge_license_class(judge.judge_license_number or "")
+
+        if license_class is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Nie można rozpoznać klasy sędziego z numeru licencji"
+            )
+
+        if license_class == 3:
+            raise HTTPException(
+                status_code=400,
+                detail="Sędzia klasy III nie może pełnić funkcji sędziego głównego zawodów"
+            )
+
         existing_head_assignment = (
             db.query(JudgeInvitation)
             .filter(
@@ -4564,6 +8196,7 @@ def invite_judge(
             .filter(ParticipantDiscipline.participant_id == participant.id)
             .delete()
         )
+        db.flush()
         (
             db.query(JudgeInvitation)
             .filter(
@@ -4777,6 +8410,8 @@ def get_judge_competitions(
             "name": competition.name,
             "date": competition.date,
             "location": competition.location,
+            "organizer_logo": competition.organizer_logo or "",
+            "sponsor_logo": competition.sponsor_logo or "",
             "status": competition.status,
             "is_head_judge": is_head_judge,
             "disciplines": [
@@ -4785,9 +8420,19 @@ def get_judge_competitions(
                     "name": discipline.name,
                     "description": discipline.description or "",
                     "scoring_type": discipline.scoring_type,
+                    "discipline_type": discipline.discipline_type or "",
+                    "discipline_type_label": DISCIPLINE_TYPE_LABELS.get(
+                        discipline.discipline_type or "",
+                        "",
+                    ),
                     "shots_count": discipline.shots_count,
+                    "trap_variant": getattr(discipline, "trap_variant", "") or "",
+                    "trap_series_count": getattr(discipline, "trap_series_count", 0) or 0,
+                    "clay_variant": discipline_clay_variant(discipline),
+                    "clay_series_count": discipline_clay_series_count(discipline),
                     "ammo_type": discipline.ammo_type or "",
                     "ammo_price": discipline.ammo_price or "",
+                    "clay_price": getattr(discipline, "clay_price", "") or "",
                     "entry_fee": discipline.entry_fee or "",
                     "shooters_count": discipline_shooters_count(
                         competition.id,
@@ -4799,7 +8444,14 @@ def get_judge_competitions(
             ],
         })
 
-    return result
+    return sorted(
+        result,
+        key=lambda competition: (
+            parse_competition_date(competition["date"]) or datetime.max,
+            competition["name"].lower(),
+            competition["id"],
+        ),
+    )
 
 
 @app.get("/judge/competitions/{competition_id}/disciplines/{discipline_id}/shooters")
@@ -4847,10 +8499,15 @@ def get_judge_discipline_shooters(
     participant_disciplines = (
         db.query(ParticipantDiscipline)
         .filter(ParticipantDiscipline.discipline_id == discipline_id)
+        .order_by(
+            ParticipantDiscipline.squad_group_number.asc(),
+            ParticipantDiscipline.id.asc(),
+        )
         .all()
     )
 
     shooters = []
+    include_private = can_view_participant_private_fields(user, competition)
 
     for participant_discipline in participant_disciplines:
         participant = (
@@ -4885,12 +8542,18 @@ def get_judge_discipline_shooters(
 
         shooters.append({
             "participant_id": participant.id,
-            "user_email": participant.user_email,
+            "user_email": participant.user_email if include_private else "",
             "first_name": participant.first_name or (shooter.first_name if shooter else "") or "",
             "last_name": participant.last_name or (shooter.last_name if shooter else "") or "",
-            "license_number": participant.license_number or (shooter.license_number if shooter else "") or "",
+            "license_number": (
+                participant.license_number or (shooter.license_number if shooter else "") or ""
+            ) if include_private else "",
             "club": participant.club or (shooter.club if shooter else "") or "",
             "points": result.points if result else "",
+            "result_data": (getattr(result, "result_data", "") or "") if result else "",
+            "squad_group_number": int(getattr(participant_discipline, "squad_group_number", 0) or 0),
+            "squad_position": int(getattr(participant_discipline, "squad_position", 0) or 0),
+            "sort_email": participant.user_email,
         })
 
     return {
@@ -4898,14 +8561,21 @@ def get_judge_discipline_shooters(
         "discipline_id": discipline_id,
         "discipline_name": discipline.name,
         "competition_status": competition.status,
-        "shooters": sorted(
-            shooters,
-            key=lambda shooter: (
-                shooter["last_name"].lower(),
-                shooter["first_name"].lower(),
-                shooter["user_email"].lower(),
+        "shooters": [
+            {
+                key: value
+                for key, value in shooter.items()
+                if key != "sort_email"
+            }
+            for shooter in sorted(
+                shooters,
+                key=lambda shooter: (
+                    shooter["last_name"].lower(),
+                    shooter["first_name"].lower(),
+                    shooter["sort_email"].lower(),
+                )
             )
-        ),
+        ],
     }
 
 
@@ -4974,6 +8644,29 @@ def save_judge_result(
             detail="Zawodnik nie startuje w tej konkurencji"
         )
 
+    discipline = (
+        db.query(Discipline)
+        .filter(
+            Discipline.id == discipline_id,
+            Discipline.competition_id == competition_id,
+        )
+        .first()
+    )
+    result_points = data.points.strip()
+
+    if (
+        discipline
+        and normalize_discipline_type(discipline.discipline_type or "") == SKEET_DISCIPLINE_TYPE
+    ):
+        if data.result_data is None:
+            raise HTTPException(status_code=400, detail="Brak szczegółowego wyniku Skeet")
+
+        _parsed_result, computed_points = validate_skeet_result_data(
+            discipline,
+            data.result_data,
+        )
+        result_points = str(computed_points)
+
     result = (
         db.query(DisciplineResult)
         .filter(
@@ -4989,18 +8682,22 @@ def save_judge_result(
             discipline_id=discipline_id,
             participant_id=participant.id,
             judge_email=user.email,
-            points=data.points.strip(),
+            points=result_points,
+            result_data=data.result_data,
         )
         db.add(result)
     else:
-        result.points = data.points.strip()
+        result.points = result_points
         result.judge_email = user.email
+        if data.result_data is not None:
+            result.result_data = data.result_data
 
     db.commit()
 
     return {
         "message": "Wynik zapisany",
         "points": result.points,
+        "result_data": getattr(result, "result_data", "") or "",
     }
 
 
@@ -5035,14 +8732,36 @@ def create_discipline(
             detail="Konkurencje można dodawać tylko przed publikacją zawodów"
         )
 
+    discipline_type = normalize_discipline_type(data.discipline_type)
+
+    if not discipline_type:
+        raise HTTPException(
+            status_code=400,
+            detail="Wybierz rodzaj konkurencji"
+        )
+
+    discipline_payload = normalize_discipline_payload(data, discipline_type)
+
+    if discipline_payload["shots_count"] <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Podaj liczbę strzałów"
+        )
+
     discipline = Discipline(
         competition_id=competition.id,
         name=data.name,
         description=data.description,
         scoring_type=data.scoring_type,
-        shots_count=data.shots_count,
+        discipline_type=discipline_type,
+        shots_count=discipline_payload["shots_count"],
+        trap_variant=discipline_payload["trap_variant"],
+        trap_series_count=discipline_payload["trap_series_count"],
+        clay_variant=discipline_payload["clay_variant"],
+        clay_series_count=discipline_payload["clay_series_count"],
         ammo_type=data.ammo_type,
         ammo_price=data.ammo_price,
+        clay_price=discipline_payload["clay_price"],
         entry_fee=data.entry_fee,
     )
 
@@ -5105,12 +8824,34 @@ def update_discipline(
             detail="Konkurencja nie istnieje"
         )
 
+    discipline_type = normalize_discipline_type(data.discipline_type)
+
+    if not discipline_type:
+        raise HTTPException(
+            status_code=400,
+            detail="Wybierz rodzaj konkurencji"
+        )
+
+    discipline_payload = normalize_discipline_payload(data, discipline_type)
+
+    if discipline_payload["shots_count"] <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Podaj liczbę strzałów"
+        )
+
     discipline.name = data.name
     discipline.description = data.description
     discipline.scoring_type = data.scoring_type
-    discipline.shots_count = data.shots_count
+    discipline.discipline_type = discipline_type
+    discipline.shots_count = discipline_payload["shots_count"]
+    discipline.trap_variant = discipline_payload["trap_variant"]
+    discipline.trap_series_count = discipline_payload["trap_series_count"]
+    discipline.clay_variant = discipline_payload["clay_variant"]
+    discipline.clay_series_count = discipline_payload["clay_series_count"]
     discipline.ammo_type = data.ammo_type
     discipline.ammo_price = data.ammo_price
+    discipline.clay_price = discipline_payload["clay_price"]
     discipline.entry_fee = data.entry_fee
 
     db.commit()
@@ -5118,6 +8859,77 @@ def update_discipline(
     return {
         "message": "Konkurencja zaktualizowana",
         "discipline_id": discipline.id,
+    }
+
+
+@app.delete("/competitions/{competition_id}/disciplines/{discipline_id}")
+def delete_discipline(
+    competition_id: int,
+    discipline_id: int,
+    user: User = Depends(get_current_organizer),
+    db=Depends(get_db),
+):
+    competition = (
+        db.query(Competition)
+        .filter(Competition.id == competition_id)
+        .first()
+    )
+
+    if not competition:
+        raise HTTPException(
+            status_code=404,
+            detail="Zawody nie istnieją"
+        )
+
+    if competition.created_by != user.email:
+        raise HTTPException(
+            status_code=403,
+            detail="Brak dostępu"
+        )
+
+    if competition.status != "draft":
+        raise HTTPException(
+            status_code=400,
+            detail="Konkurencje można usuwać tylko przed publikacją zawodów"
+        )
+
+    discipline = (
+        db.query(Discipline)
+        .filter(
+            Discipline.id == discipline_id,
+            Discipline.competition_id == competition.id,
+        )
+        .first()
+    )
+
+    if not discipline:
+        raise HTTPException(
+            status_code=404,
+            detail="Konkurencja nie istnieje"
+        )
+
+    (
+        db.query(DisciplineResult)
+        .filter(DisciplineResult.discipline_id == discipline.id)
+        .delete(synchronize_session=False)
+    )
+    (
+        db.query(ParticipantDiscipline)
+        .filter(ParticipantDiscipline.discipline_id == discipline.id)
+        .delete(synchronize_session=False)
+    )
+    (
+        db.query(JudgeInvitation)
+        .filter(JudgeInvitation.discipline_id == discipline.id)
+        .delete(synchronize_session=False)
+    )
+
+    db.delete(discipline)
+    db.commit()
+
+    return {
+        "message": "Konkurencja usunięta",
+        "discipline_id": discipline_id,
     }
 
 
@@ -5152,6 +8964,12 @@ def join_competition(
         raise HTTPException(
             status_code=403,
             detail="Aktywuj konto przed zapisem na zawody"
+        )
+
+    if is_pzss_club_account(user):
+        raise HTTPException(
+            status_code=403,
+            detail="Konto klubu PZSS nie może dołączać do zawodów"
         )
 
     if not is_profile_complete(user):
@@ -5267,17 +9085,19 @@ def join_competition(
             discipline_id=selected_discipline.discipline_id,
             ammo_type=selected_discipline.ammo_type,
         )
+        assign_squad_group(participant_discipline, db)
 
         db.add(participant_discipline)
 
     db.commit()
 
     participants = public_shooter_participants(competition, db)
+    include_private = can_view_participant_private_fields(user, competition)
 
     return {
         "message": "Zapisano na zawody",
         "participants": [
-            public_participant(participant, db)
+            public_participant(participant, db, include_private=include_private)
             for participant in participants
         ],
     }
@@ -5332,11 +9152,12 @@ def leave_competition(
     db.commit()
 
     participants = public_shooter_participants(competition, db)
+    include_private = can_view_participant_private_fields(user, competition)
 
     return {
         "message": "Wypisano z zawodów",
         "participants": [
-            public_participant(participant, db)
+            public_participant(participant, db, include_private=include_private)
             for participant in participants
         ],
     }
@@ -5345,25 +9166,175 @@ def leave_competition(
 @app.get("/rankings")
 def get_rankings(
     metric: str = "overall",
+    scope: str = "national",
+    voivodeship: str = "",
+    user: User = Depends(get_current_user),
     db=Depends(get_db),
 ):
+    require_active_premium(user)
+
     if metric not in RANKING_METRICS:
         raise HTTPException(
             status_code=400,
             detail="Nieprawidłowa klasyfikacja rankingu"
         )
 
-    ranking = ranking_rows(metric, db)
+    if scope not in ["national", "regional"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Nieprawidłowy zakres rankingu"
+        )
+
+    normalized_voivodeship = ""
+
+    if scope == "regional":
+        normalized_voivodeship = normalize_voivodeship(voivodeship)
+
+        if not normalized_voivodeship:
+            raise HTTPException(
+                status_code=400,
+                detail="Wybierz województwo rankingu"
+            )
+
+    ranking = cached_ranking_rows(metric, db, normalized_voivodeship)
 
     return {
-        "scope": "national",
+        "scope": scope,
+        "voivodeship": normalized_voivodeship,
         "metric": metric,
         "metric_label": RANKING_METRIC_LABELS[metric],
         "limit": RANKING_LIMIT,
         "minimum_discipline_shooters": MIN_STATISTICS_DISCIPLINE_SHOOTERS,
         "message": ranking["message"],
         "rows": ranking["rows"],
-        "updated_at": datetime.now(APP_TIMEZONE).isoformat(),
+        "updated_at": ranking["updated_at"] or datetime.now(APP_TIMEZONE).isoformat(),
+    }
+
+
+@app.post("/me/profile-photo")
+def upload_my_profile_photo(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+    db=Depends(get_db),
+):
+    db_user = save_profile_photo(file, user, db)
+
+    return private_user_response(
+        db_user,
+        db,
+        "Zdjęcie profilowe zaktualizowane"
+    )
+
+
+@app.delete("/me/profile-photo")
+def delete_my_profile_photo(
+    user: User = Depends(get_current_user),
+    db=Depends(get_db),
+):
+    db_user = (
+        db.query(User)
+        .filter(User.email == user.email)
+        .first()
+    )
+
+    if not db_user:
+        raise HTTPException(
+            status_code=404,
+            detail="Użytkownik nie istnieje"
+        )
+
+    old_photo_url = getattr(db_user, "profile_photo_url", "") or ""
+    db_user.profile_photo_url = ""
+    db.commit()
+    db.refresh(db_user)
+    delete_profile_photo_file(old_photo_url)
+
+    return private_user_response(
+        db_user,
+        db,
+        "Zdjęcie profilowe usunięte"
+    )
+
+
+def public_club_member(user: User):
+    return {
+        "id": user.id,
+        "email": user.email,
+        "first_name": user.first_name or "",
+        "last_name": user.last_name or "",
+        "license_number": user.license_number or "",
+        "phone_number": user.phone_number or "",
+        "club": user.club or "",
+        "membership_status": getattr(user, "club_membership_status", "") or CLUB_MEMBERSHIP_PENDING,
+    }
+
+
+@app.get("/me/club-members")
+def get_my_club_members(
+    club: User = Depends(get_current_pzss_club),
+    db=Depends(get_db),
+):
+    members = (
+        db.query(User)
+        .filter(User.verified_club_id == club.id)
+        .order_by(User.last_name.asc(), User.first_name.asc(), User.email.asc())
+        .all()
+    )
+
+    return [public_club_member(member) for member in members]
+
+
+@app.put("/me/club-members/{member_id}/confirm")
+def confirm_my_club_member(
+    member_id: int,
+    club: User = Depends(get_current_pzss_club),
+    db=Depends(get_db),
+):
+    member = (
+        db.query(User)
+        .filter(
+            User.id == member_id,
+            User.verified_club_id == club.id,
+        )
+        .first()
+    )
+
+    if not member:
+        raise HTTPException(status_code=404, detail="Klubowicz nie istnieje na liście tego klubu")
+
+    member.club_membership_status = CLUB_MEMBERSHIP_CONFIRMED
+    member.club = pzss_club_display_name(club)
+    db.commit()
+    db.refresh(member)
+
+    return public_club_member(member)
+
+
+@app.delete("/me/club-members/{member_id}")
+def remove_my_club_member(
+    member_id: int,
+    club: User = Depends(get_current_pzss_club),
+    db=Depends(get_db),
+):
+    member = (
+        db.query(User)
+        .filter(
+            User.id == member_id,
+            User.verified_club_id == club.id,
+        )
+        .first()
+    )
+
+    if not member:
+        raise HTTPException(status_code=404, detail="Klubowicz nie istnieje na liście tego klubu")
+
+    member.verified_club_id = None
+    member.club_membership_status = None
+    db.commit()
+
+    return {
+        "message": "Klubowicz usunięty z listy",
+        "member_id": member_id,
     }
 
 
@@ -5380,6 +9351,8 @@ def get_my_statistics(
     user: User = Depends(get_current_user),
     db=Depends(get_db),
 ):
+    require_active_premium(user)
+
     return user_competition_statistics(user, db)
 
 
@@ -5407,6 +9380,81 @@ def delete_my_account(
     }
 
 
+def user_profile_response(profile_user: User, current_user: Optional[User], db):
+    roles = get_user_roles(profile_user)
+    can_view_private = bool(
+        current_user
+        and (
+            current_user.email == profile_user.email
+            or has_role(current_user, "admin")
+        )
+    )
+
+    response = {
+        "participant_id": 0,
+        "user_id": profile_user.id,
+        "first_name": profile_user.first_name or "",
+        "last_name": profile_user.last_name or "",
+        "club": profile_user.club or "",
+        "is_owner": bool(current_user and current_user.email == profile_user.email),
+        "can_view_private": can_view_private,
+        "email": "",
+        "role": "",
+        "roles": [],
+        "is_active": False,
+        "license_number": "",
+        "no_license": bool(getattr(profile_user, "no_license", 0)),
+        "judge_license_number": "",
+        "judge_license_valid_until": "",
+        "voivodeship": getattr(profile_user, "voivodeship", "") or "",
+        "no_club": bool(getattr(profile_user, "no_club", 0)),
+        "birth_date": "",
+        "phone_number": "",
+        "requested_role": "",
+        "profile_complete": is_profile_complete(profile_user),
+        "profile_photo_url": getattr(profile_user, "profile_photo_url", "") or "",
+        "achievements": user_achievements(profile_user.email, db),
+    }
+
+    if can_view_private:
+        response.update({
+            "email": profile_user.email,
+            "role": primary_role(roles),
+            "roles": roles,
+            "is_active": bool(profile_user.is_active),
+            "license_number": profile_user.license_number or "",
+            "no_license": bool(getattr(profile_user, "no_license", 0)),
+            "judge_license_number": profile_user.judge_license_number or "",
+            "judge_license_valid_until": getattr(profile_user, "judge_license_valid_until", "") or "",
+            "birth_date": profile_user.birth_date or "",
+            "phone_number": profile_user.phone_number or "",
+            "requested_role": profile_user.requested_role or "",
+        })
+
+    return response
+
+
+@app.get("/users/{user_id}/profile")
+def get_user_profile(
+    user_id: int,
+    current_user: Optional[User] = Depends(get_optional_current_user),
+    db=Depends(get_db),
+):
+    profile_user = (
+        db.query(User)
+        .filter(User.id == user_id)
+        .first()
+    )
+
+    if not profile_user:
+        raise HTTPException(
+            status_code=404,
+            detail="Nie znaleziono użytkownika"
+        )
+
+    return user_profile_response(profile_user, current_user, db)
+
+
 @app.get("/participants/{participant_id}/profile")
 def get_participant_profile(
     participant_id: int,
@@ -5430,20 +9478,39 @@ def get_participant_profile(
         .filter(User.email == participant.user_email)
         .first()
     )
-    public_data = public_participant(participant, db)
+    competition = (
+        db.query(Competition)
+        .filter(Competition.id == participant.competition_id)
+        .first()
+    )
     is_owner = bool(
         current_user
         and participant_user
         and current_user.email == participant_user.email
     )
+    can_view_participant_private = (
+        can_view_participant_private_fields(current_user, competition)
+        or is_owner
+    )
+    can_view_profile_private = bool(
+        is_owner
+        or (current_user and has_role(current_user, "admin"))
+    )
+    public_data = public_participant(
+        participant,
+        db,
+        include_private=can_view_participant_private,
+    )
     roles = get_user_roles(participant_user) if participant_user else []
 
     response = {
         "participant_id": participant.id,
+        "user_id": participant_user.id if participant_user else 0,
         "first_name": public_data["first_name"],
         "last_name": public_data["last_name"],
         "club": public_data["club"],
         "is_owner": is_owner,
+        "can_view_private": can_view_profile_private,
         "email": "",
         "role": "",
         "roles": [],
@@ -5458,10 +9525,22 @@ def get_participant_profile(
         "phone_number": "",
         "requested_role": "",
         "profile_complete": False,
+        "profile_photo_url": getattr(participant_user, "profile_photo_url", "") or "" if participant_user else "",
         "achievements": user_achievements(participant_user.email, db) if participant_user else [],
     }
 
-    if is_owner and participant_user:
+    if can_view_participant_private:
+        response.update({
+            "email": public_data["user_email"],
+            "license_number": public_data["license_number"],
+            "no_license": bool(getattr(participant_user, "no_license", 0)) if participant_user else False,
+            "judge_license_number": public_data["judge_license_number"],
+            "judge_license_valid_until": (
+                getattr(participant_user, "judge_license_valid_until", "") or ""
+            ) if participant_user else "",
+        })
+
+    if can_view_profile_private and participant_user:
         response.update({
             "email": participant_user.email,
             "role": primary_role(roles),
@@ -5653,10 +9732,19 @@ def update_me(
     voivodeship = normalize_voivodeship(data.voivodeship)
     club = normalize_text(data.club)
     license_number = normalize_text(data.license_number)
+    license_uuid = normalize_text(data.license_uuid)
+    license_club_code = normalize_text(data.license_club_code)
     birth_date = normalize_birth_date(data.birth_date)
     phone_number = normalize_optional_phone_number(data.phone_number)
     no_club = bool(data.no_club)
     no_license = bool(data.no_license)
+    organizer_name = normalize_text(data.organizer_name)
+    organizer_name_key = normalize_unique_key(organizer_name)
+    judge_license_number = normalize_text(data.judge_license_number)
+    judge_license_number_key = normalize_unique_key(judge_license_number)
+    judge_license_valid_until = normalize_valid_until_date(
+        data.judge_license_valid_until
+    )
 
     if not first_name or not last_name:
         raise HTTPException(
@@ -5669,6 +9757,29 @@ def update_me(
             status_code=400,
             detail="Wybierz województwo z listy"
         )
+
+    selected_verified_club = None
+
+    if not no_club and data.verified_club_id:
+        selected_verified_club = (
+            db.query(User)
+            .filter(
+                User.id == data.verified_club_id,
+                User.account_type == PZSS_CLUB_ACCOUNT_TYPE,
+                User.pzss_club_status == PZSS_CLUB_APPROVED,
+                User.is_active == 1,
+            )
+            .first()
+        )
+
+        if not selected_verified_club:
+            raise HTTPException(
+                status_code=400,
+                detail="Wybrany zweryfikowany klub PZSS nie istnieje"
+            )
+
+        club = pzss_club_display_name(selected_verified_club)
+        license_club_code = getattr(selected_verified_club, "pzss_club_license_number", "") or license_club_code
 
     if not no_club and not club:
         raise HTTPException(
@@ -5700,15 +9811,99 @@ def update_me(
             detail="Telefon jest wymagany dla organizatora"
         )
 
+    if has_role(db_user, "organizer"):
+        if not organizer_name_key:
+            raise HTTPException(
+                status_code=400,
+                detail="Podaj nazwę organizatora"
+            )
+
+        duplicate_organizer = (
+            db.query(User)
+            .filter(
+                User.id != db_user.id,
+                or_(
+                    User.organizer_name_key == organizer_name_key,
+                    func.lower(User.organizer_name) == organizer_name_key,
+                ),
+            )
+            .first()
+        )
+
+        if duplicate_organizer:
+            raise HTTPException(
+                status_code=400,
+                detail="Ta nazwa organizatora jest już zajęta"
+            )
+
+    if has_role(db_user, "judge"):
+        if not judge_license_number_key:
+            raise HTTPException(
+                status_code=400,
+                detail="Podaj numer licencji sędziowskiej"
+            )
+
+        if not judge_license_valid_until:
+            raise HTTPException(
+                status_code=400,
+                detail="Podaj poprawną przyszłą datę ważności licencji sędziowskiej"
+            )
+
+        duplicate_judge_license = (
+            db.query(User)
+            .filter(
+                User.id != db_user.id,
+                or_(
+                    User.judge_license_number_key == judge_license_number_key,
+                    func.lower(User.judge_license_number) == judge_license_number_key,
+                ),
+            )
+            .first()
+        )
+
+        if duplicate_judge_license:
+            raise HTTPException(
+                status_code=400,
+                detail="Ten numer licencji sędziowskiej jest już używany"
+            )
+
+    if not license_uuid:
+        license_uuid = getattr(db_user, "license_uuid", "") or str(uuid4())
+
     db_user.first_name = first_name
     db_user.last_name = last_name
     db_user.voivodeship = voivodeship
+    previous_verified_club_id = getattr(db_user, "verified_club_id", None)
+    previous_membership_status = getattr(db_user, "club_membership_status", "") or ""
+    next_verified_club_id = None if no_club else (selected_verified_club.id if selected_verified_club else None)
+
     db_user.club = "" if no_club else club
     db_user.no_club = 1 if no_club else 0
+    db_user.verified_club_id = next_verified_club_id
+
+    if no_club or not selected_verified_club:
+        db_user.club_membership_status = None
+    elif previous_verified_club_id == next_verified_club_id and previous_membership_status == CLUB_MEMBERSHIP_CONFIRMED:
+        db_user.club_membership_status = CLUB_MEMBERSHIP_CONFIRMED
+    else:
+        db_user.club_membership_status = CLUB_MEMBERSHIP_PENDING
+
     db_user.license_number = "" if no_license else license_number
+    db_user.license_uuid = license_uuid
+    db_user.license_club_code = "" if no_club else license_club_code
     db_user.no_license = 1 if no_license else 0
     db_user.birth_date = birth_date
     db_user.phone_number = phone_number
+
+    if has_role(db_user, "organizer"):
+        db_user.organizer_name = organizer_name
+        db_user.organizer_name_key = organizer_name_key
+
+    if has_role(db_user, "judge"):
+        db_user.judge_license_number = judge_license_number
+        db_user.judge_license_number_key = judge_license_number_key
+        db_user.judge_license_valid_until = judge_license_valid_until
+
     ensure_shooter_role(db_user)
 
     db.commit()
@@ -5799,6 +9994,12 @@ def update_competition(
             detail="Limit zawodników musi być większy od zera"
         )
 
+    if data.pzss_license_calendar and not is_approved_pzss_club(user):
+        raise HTTPException(
+            status_code=403,
+            detail="Tę opcję może zaznaczyć tylko zweryfikowany klub PZSS"
+        )
+
     competition.name = data.name
     competition.date = data.date
     competition.location = data.location
@@ -5810,6 +10011,7 @@ def update_competition(
     competition.sponsors = data.sponsors
     competition.sponsor_logo = data.sponsor_logo
     competition.participant_limit = data.participant_limit
+    competition.pzss_license_calendar = 1 if data.pzss_license_calendar else 0
 
     db.commit()
 
@@ -5861,7 +10063,7 @@ def publish_competition(
     if disciplines_count == 0:
         raise HTTPException(
             status_code=400,
-            detail="Dodaj minimum jedną konkurencję przed publikacją"
+            detail="Nie dodano żadnej konkurencji."
         )
 
     competition.status = "published"
@@ -5972,6 +10174,9 @@ def start_competition(
             detail="Zawody można rozpocząć najwcześniej w dniu zawodów"
         )
 
+    validate_judges_assigned_before_start(competition, db)
+    validate_trap_squad_groups_before_start(competition, db)
+
     competition.status = "started"
     db.commit()
 
@@ -6016,6 +10221,7 @@ def finish_competition(
 
     mark_competition_completed(competition)
     award_achievements_for_competition(competition, db)
+    rebuild_ranking_entries(db)
     db.commit()
 
     return {

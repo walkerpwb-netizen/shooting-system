@@ -83,19 +83,17 @@ _load_dotenv_file()
 settings = Settings(
     secret_key=os.getenv("SECRET_KEY", "SUPER_SECRET_KEY"),
     database_url=os.getenv("DATABASE_URL", "sqlite:///./database.db"),
-    frontend_url=os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/"),
+    frontend_url=os.getenv("FRONTEND_URL", "https://system-strzelecki.pl").rstrip("/"),
     cors_origins=_get_list(
         "CORS_ORIGINS",
         [
-            "http://localhost:3000",
-            "http://127.0.0.1:3000",
-            "http://192.99.43.63",
-            "http://192.99.43.63:3000",
+            "https://system-strzelecki.pl",
+            "https://www.system-strzelecki.pl",
         ],
     ),
     cors_origin_regex=_get_optional_string(
         "CORS_ORIGIN_REGEX",
-        r"https?://(localhost|127\.0\.0\.1|192\.99\.43\.63)(:\d+)?",
+        None,
     ),
     smtp_host=os.getenv("SMTP_HOST", ""),
     smtp_port=int(os.getenv("SMTP_PORT", "587")),

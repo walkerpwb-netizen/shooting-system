@@ -4,6 +4,12 @@ import { useEffect, useState } from "react";
 
 import ResultCompetitionList from "@/app/components/ResultCompetitionList";
 import { apiUrl } from "@/lib/api";
+import { getAccessToken } from "@/lib/auth";
+import {
+  authHeaderFromToken,
+  PREMIUM_EXPIRED_MESSAGE,
+  PREMIUM_LOGIN_REQUIRED_MESSAGE,
+} from "@/lib/premium";
 
 type HistoricalCompetition = {
   id: number;
@@ -11,9 +17,12 @@ type HistoricalCompetition = {
   date: string;
   location: string;
   organizer_full_name: string;
+  organizer_logo: string;
+  sponsor_logo: string;
   shooters_count: number;
   status: string;
   completed_at: string;
+  premium_locked?: boolean;
 };
 
 export default function HistoricalResultsPage() {
@@ -26,9 +35,11 @@ export default function HistoricalResultsPage() {
 
     async function loadCompetitions() {
       try {
+        const token = getAccessToken();
         const response = await fetch(
           apiUrl("/historical-results/competitions"),
           {
+            headers: authHeaderFromToken(token),
             cache: "no-store",
           }
         );
@@ -96,6 +107,9 @@ export default function HistoricalResultsPage() {
             emptyTitle="Brak wyników historycznych"
             emptyText="Zawody trafią tutaj 24 godziny po zakończeniu."
             hrefPrefix="/historical-results"
+            onLockedClick={() => setMessage(
+              getAccessToken() ? PREMIUM_EXPIRED_MESSAGE : PREMIUM_LOGIN_REQUIRED_MESSAGE
+            )}
           />
         )}
       </div>

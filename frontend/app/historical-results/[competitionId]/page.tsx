@@ -6,6 +6,8 @@ import { useEffect, useState } from "react";
 
 import ResultCategoryList from "@/app/components/ResultCategoryList";
 import { apiUrl } from "@/lib/api";
+import { getAccessToken } from "@/lib/auth";
+import { authHeaderFromToken } from "@/lib/premium";
 
 type HistoricalCategory = {
   id: string;
@@ -39,9 +41,11 @@ export default function HistoricalCompetitionPage() {
 
     async function loadCompetition() {
       try {
+        const token = getAccessToken();
         const response = await fetch(
           apiUrl(`/historical-results/competitions/${competitionId}`),
           {
+            headers: authHeaderFromToken(token),
             cache: "no-store",
           }
         );

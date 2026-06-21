@@ -16,6 +16,10 @@ type ParsedQrPayload = {
   }[];
 };
 
+type QrCodeScannerProps = {
+  onScan?: (value: string) => void;
+};
+
 type ScanHistoryItem = {
   value: string;
   scannedAt: string;
@@ -185,7 +189,7 @@ function formatScanTime(value: string) {
   ).format(new Date(value));
 }
 
-export default function QrCodeScanner() {
+export default function QrCodeScanner({ onScan }: QrCodeScannerProps = {}) {
   const scannerRef = useRef<HTMLElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -461,6 +465,7 @@ export default function QrCodeScanner() {
 
     setMessage("Kod QR odczytany.");
     navigator.vibrate?.(80);
+    onScan?.(value);
     stopScanner();
   }
 

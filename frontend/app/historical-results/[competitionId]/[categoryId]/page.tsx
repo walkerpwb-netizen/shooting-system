@@ -6,6 +6,8 @@ import { useEffect, useState } from "react";
 
 import ResultsLeaderboardTable from "@/app/components/ResultsLeaderboardTable";
 import { apiUrl } from "@/lib/api";
+import { getAccessToken } from "@/lib/auth";
+import { authHeaderFromToken } from "@/lib/premium";
 
 type HistoricalCompetition = {
   id: number;
@@ -30,7 +32,7 @@ type HistoricalShooter = {
   display_name: string;
   first_name: string;
   last_name: string;
-  license_number: string;
+  license_number?: string;
   club: string;
   points: string;
   disciplines_count: number;
@@ -61,9 +63,11 @@ export default function HistoricalLeaderboardPage() {
 
     async function loadLeaderboard() {
       try {
+        const token = getAccessToken();
         const response = await fetch(
           apiUrl(`/historical-results/competitions/${competitionId}/categories/${categoryId}`),
           {
+            headers: authHeaderFromToken(token),
             cache: "no-store",
           }
         );

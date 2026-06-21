@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey
+from sqlalchemy import Column, Index, Integer, String, ForeignKey, Text, UniqueConstraint
 
 from database import Base
 
@@ -47,9 +47,20 @@ class User(Base):
         nullable=True,
     )
 
+    password_reset_expires_at = Column(
+        String,
+        nullable=True,
+    )
+
     password_reset_required = Column(
         Integer,
         default=0,
+    )
+
+    refresh_token_version = Column(
+        Integer,
+        default=0,
+        nullable=False,
     )
 
     first_name = Column(
@@ -63,6 +74,16 @@ class User(Base):
     )
 
     license_number = Column(
+        String,
+        nullable=True,
+    )
+
+    license_uuid = Column(
+        String,
+        nullable=True,
+    )
+
+    license_club_code = Column(
         String,
         nullable=True,
     )
@@ -136,6 +157,62 @@ class User(Base):
         nullable=True,
     )
 
+    premium_until = Column(
+        String,
+        nullable=True,
+    )
+
+    premium_disabled = Column(
+        Integer,
+        default=0,
+        nullable=False,
+        server_default="0",
+    )
+
+    profile_photo_url = Column(
+        String,
+        nullable=True,
+    )
+
+    account_type = Column(
+        String,
+        default="user",
+        index=True,
+    )
+
+    pzss_club_short_name = Column(
+        String,
+        nullable=True,
+    )
+
+    pzss_club_full_name = Column(
+        String,
+        nullable=True,
+    )
+
+    pzss_club_license_number = Column(
+        String,
+        nullable=True,
+    )
+
+    pzss_club_status = Column(
+        String,
+        nullable=True,
+        index=True,
+    )
+
+    verified_club_id = Column(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=True,
+        index=True,
+    )
+
+    club_membership_status = Column(
+        String,
+        nullable=True,
+    )
+
 
 class AppSetting(Base):
     __tablename__ = "app_settings"
@@ -156,6 +233,56 @@ class AppSetting(Base):
     value = Column(
         String,
         nullable=False,
+    )
+
+
+class AdDailyStat(Base):
+    __tablename__ = "ad_daily_stats"
+    __table_args__ = (
+        UniqueConstraint("date", "slot", "device", name="uq_ad_daily_stats_date_slot_device"),
+    )
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True,
+    )
+
+    date = Column(
+        String,
+        nullable=False,
+        index=True,
+    )
+
+    slot = Column(
+        String,
+        nullable=False,
+        index=True,
+    )
+
+    device = Column(
+        String,
+        nullable=False,
+        index=True,
+    )
+
+    impressions = Column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+
+    clicks = Column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+
+    updated_at = Column(
+        String,
+        nullable=True,
     )
 
 
@@ -213,6 +340,13 @@ class Competition(Base):
         nullable=True,
     )
 
+    pzss_license_calendar = Column(
+        Integer,
+        default=0,
+        nullable=False,
+        server_default="0",
+    )
+
     status = Column(
         String,
         default="draft",
@@ -259,9 +393,36 @@ class Discipline(Base):
         nullable=False,
     )
 
+    discipline_type = Column(
+        String,
+        nullable=False,
+        default="",
+        server_default="",
+    )
+
     shots_count = Column(
         Integer,
         nullable=False,
+    )
+
+    trap_variant = Column(
+        String,
+        nullable=True,
+    )
+
+    trap_series_count = Column(
+        Integer,
+        nullable=True,
+    )
+
+    clay_variant = Column(
+        String,
+        nullable=True,
+    )
+
+    clay_series_count = Column(
+        Integer,
+        nullable=True,
     )
 
     ammo_type = Column(
@@ -270,6 +431,11 @@ class Discipline(Base):
     )
 
     ammo_price = Column(
+        String,
+        nullable=True,
+    )
+
+    clay_price = Column(
         String,
         nullable=True,
     )
@@ -387,6 +553,16 @@ class ParticipantDiscipline(Base):
         nullable=False,
     )
 
+    squad_group_number = Column(
+        Integer,
+        nullable=True,
+    )
+
+    squad_position = Column(
+        Integer,
+        nullable=True,
+    )
+
 
 class JudgeInvitation(Base):
     __tablename__ = "judge_invitations"
@@ -457,6 +633,11 @@ class DisciplineResult(Base):
         nullable=False,
     )
 
+    result_data = Column(
+        Text,
+        nullable=True,
+    )
+
 
 class Achievement(Base):
     __tablename__ = "achievements"
@@ -521,6 +702,100 @@ class Achievement(Base):
     )
 
     awarded_at = Column(
+        String,
+        nullable=False,
+    )
+
+
+class RankingEntry(Base):
+    __tablename__ = "ranking_entries"
+    __table_args__ = (
+        UniqueConstraint(
+            "scope",
+            "voivodeship",
+            "metric",
+            "user_id",
+            name="uq_ranking_entries_scope_metric_user",
+        ),
+        Index(
+            "ix_ranking_entries_lookup",
+            "scope",
+            "voivodeship",
+            "metric",
+            "place",
+        ),
+    )
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True,
+    )
+
+    scope = Column(
+        String,
+        nullable=False,
+    )
+
+    voivodeship = Column(
+        String,
+        nullable=False,
+        default="",
+        server_default="",
+    )
+
+    metric = Column(
+        String,
+        nullable=False,
+    )
+
+    metric_label = Column(
+        String,
+        nullable=False,
+    )
+
+    place = Column(
+        Integer,
+        nullable=False,
+    )
+
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=False,
+    )
+
+    display_name = Column(
+        String,
+        nullable=False,
+    )
+
+    first_name = Column(
+        String,
+        nullable=True,
+    )
+
+    last_name = Column(
+        String,
+        nullable=True,
+    )
+
+    club = Column(
+        String,
+        nullable=True,
+    )
+
+    points = Column(
+        String,
+        nullable=False,
+    )
+
+    points_value = Column(
+        String,
+        nullable=False,
+    )
+
+    updated_at = Column(
         String,
         nullable=False,
     )

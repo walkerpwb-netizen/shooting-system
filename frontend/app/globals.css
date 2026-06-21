@@ -94,3 +94,24 @@ body {
   height: var(--ss-profile-achievement-icon-size);
   width: auto;
 }
+
+.trap-score-screen {
+  height: 100dvh;
+  width: 100dvw;
+  touch-action: manipulation;
+}
+
+.trap-landscape-stage {
+  transform-origin: center;
+}
+
+@media (orientation: portrait) and (max-width: 900px) {
+  .trap-landscape-stage {
+    height: 100dvw;
+    left: 50%;
+    position: fixed;
+    top: 50%;
+    transform: translate(-50%, -50%) rotate(90deg);
+    width: 100dvh;
+  }
+}

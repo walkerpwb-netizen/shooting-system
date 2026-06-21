@@ -1,10 +1,36 @@
 import smtplib
 import ssl
+from html import escape
 from email.message import EmailMessage
 from email.utils import formataddr
 from typing import Optional
 
 from config import settings
+
+
+ACTIVATION_LINK_PLACEHOLDER = "{{activation_link}}"
+DEFAULT_ACTIVATION_EMAIL_SUBJECT = "Aktywacja konta w Systemie Strzeleckim"
+DEFAULT_ACTIVATION_EMAIL_TEXT = (
+    "Cześć,\n\n"
+    "Dziękujemy za rejestrację w Systemie Strzeleckim. "
+    "Aby aktywować konto, otwórz link:\n"
+    f"{ACTIVATION_LINK_PLACEHOLDER}\n\n"
+    "Jeśli to nie Ty zakładałeś konto, zignoruj tę wiadomość.\n"
+)
+DEFAULT_ACTIVATION_EMAIL_HTML = f"""
+<p>Cześć,</p>
+<p>Dziękujemy za rejestrację w Systemie Strzeleckim.</p>
+<p><a href="{ACTIVATION_LINK_PLACEHOLDER}">Aktywuj konto</a></p>
+<p>Jeśli to nie Ty zakładałeś konto, zignoruj tę wiadomość.</p>
+""".strip()
+
+
+def default_activation_email_template() -> dict[str, str]:
+    return {
+        "subject": DEFAULT_ACTIVATION_EMAIL_SUBJECT,
+        "text_body": DEFAULT_ACTIVATION_EMAIL_TEXT,
+        "html_body": DEFAULT_ACTIVATION_EMAIL_HTML,
+    }
 
 
 class MailConfigurationError(RuntimeError):
@@ -86,21 +112,21 @@ def send_email(
         raise MailDeliveryError(str(exc)) from exc
 
 
-def send_activation_email(to_email: str, activation_link: str) -> None:
-    subject = "Aktywacja konta w Systemie Strzeleckim"
-    text_body = (
-        "Cześć,\n\n"
-        "Dziękujemy za rejestrację w Systemie Strzeleckim. "
-        "Aby aktywować konto, otwórz link:\n"
-        f"{activation_link}\n\n"
-        "Jeśli to nie Ty zakładałeś konto, zignoruj tę wiadomość.\n"
+def send_activation_email(
+    to_email: str,
+    activation_link: str,
+    template: Optional[dict[str, str]] = None,
+) -> None:
+    content = template or default_activation_email_template()
+    subject = content.get("subject", DEFAULT_ACTIVATION_EMAIL_SUBJECT)
+    text_body = content.get("text_body", DEFAULT_ACTIVATION_EMAIL_TEXT).replace(
+        ACTIVATION_LINK_PLACEHOLDER,
+        activation_link,
     )
-    html_body = f"""
-    <p>Cześć,</p>
-    <p>Dziękujemy za rejestrację w Systemie Strzeleckim.</p>
-    <p><a href=\"{activation_link}\">Aktywuj konto</a></p>
-    <p>Jeśli to nie Ty zakładałeś konto, zignoruj tę wiadomość.</p>
-    """
+    html_body = content.get("html_body", DEFAULT_ACTIVATION_EMAIL_HTML).replace(
+        ACTIVATION_LINK_PLACEHOLDER,
+        escape(activation_link, quote=True),
+    )
 
     send_email(to_email, subject, text_body, html_body)
 

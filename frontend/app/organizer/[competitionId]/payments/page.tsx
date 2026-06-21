@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { apiUrl } from "@/lib/api";
-import { isOrganizer } from "@/lib/auth";
+import { getAccessToken, isOrganizer } from "@/lib/auth";
 
 type Competition = {
   id: number;
@@ -119,7 +119,7 @@ export default function OrganizerPaymentsPage() {
       return;
     }
 
-    const token = localStorage.getItem("token");
+    const token = getAccessToken();
 
     if (!token) {
       router.push("/login");
@@ -244,7 +244,7 @@ export default function OrganizerPaymentsPage() {
     participant: PaymentParticipant,
     changes: Partial<Pick<PaymentParticipant, "checked_in" | "paid">>
   ) {
-    const token = localStorage.getItem("token");
+    const token = getAccessToken();
 
     if (!token) {
       router.push("/login");

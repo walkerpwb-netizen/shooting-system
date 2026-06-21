@@ -3,10 +3,10 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiUrl } from "@/lib/api";
-import { isOrganizer } from "@/lib/auth";
+import { getAccessToken, isOrganizer } from "@/lib/auth";
 
 type Competition = {
   id: number;
@@ -21,14 +21,23 @@ type Competition = {
   participant_limit: number | null;
   status: string;
   disciplines_count: number;
+  missing_judge_disciplines: string[];
   disciplines: {
     id: number;
     name: string;
     description: string;
     scoring_type: string;
+    discipline_type: string;
+    discipline_type_label?: string;
     shots_count: number;
+    trap_variant?: string;
+    trap_series_count?: number;
+    clay_variant?: string;
+    clay_series_count?: number;
+    squad_group_statuses?: Record<string, "not-started" | "in-progress" | "completed">;
     ammo_type: string;
     ammo_price: string;
+    clay_price?: string;
     entry_fee: string;
   }[];
   participants: {
@@ -37,6 +46,7 @@ type Competition = {
     total_fee: string;
     checked_in: boolean;
     paid: boolean;
+    disciplines: ParticipantDisciplineAssignment[];
   }[];
   judges: {
     id: number;
@@ -56,6 +66,15 @@ type Competition = {
   }[];
 };
 
+type ParticipantDisciplineAssignment = {
+  participant_discipline_id: number;
+  id: number;
+  name: string;
+  ammo_type: string;
+  squad_group_number: number;
+  squad_position: number;
+};
+
 type JudgeSearchResult = {
   id: number;
   email: string;
@@ -65,6 +84,9 @@ type JudgeSearchResult = {
   phone_number: string;
   judge_license_number: string;
   judge_license_valid_until: string;
+  judge_license_class: number | null;
+  judge_license_class_label: string;
+  can_be_head_judge: boolean;
 };
 
 type ManualParticipantForm = {
@@ -109,6 +131,22 @@ function canViewCompetitionResults(status: string) {
   return status === "started" || status === "completed";
 }
 
+function isTrapGroupLocked(status: string | undefined) {
+  return status === "in-progress" || status === "completed";
+}
+
+function trapGroupStatusLabel(status: string | undefined) {
+  if (status === "completed") {
+    return "Zakończona";
+  }
+
+  if (status === "in-progress") {
+    return "Rozpoczęta";
+  }
+
+  return "";
+}
+
 function isValidManualBirthDate(value: string) {
   const rawValue = value.trim();
   const isoMatch = rawValue.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -150,7 +188,7 @@ export default function OrganizerCompetitionPage() {
   const params = useParams<{ competitionId: string }>();
   const competitionId = Number(params.competitionId);
 
-  const [competitions, setCompetitions] = useState<Competition[]>([]);
+  const [competition, setCompetition] = useState<Competition | null>(null);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [judgeLicenseSearch, setJudgeLicenseSearch] = useState("");
@@ -170,22 +208,15 @@ export default function OrganizerCompetitionPage() {
   const [manualSaving, setManualSaving] = useState(false);
   const [manualFormMessage, setManualFormMessage] = useState("");
   const [manualFormErrors, setManualFormErrors] = useState<ManualFormErrors>({});
+  const [groupUpdatingId, setGroupUpdatingId] = useState<number | null>(null);
+  const [randomizingDisciplineId, setRandomizingDisciplineId] = useState<number | null>(null);
 
-  useEffect(() => {
-    if (!isOrganizer()) {
-      router.push("/");
-      return;
-    }
-
-    fetchOrganizerCompetitions();
-  }, [router]);
-
-  async function fetchOrganizerCompetitions() {
-    const token = localStorage.getItem("token");
+  const fetchOrganizerCompetition = useCallback(async () => {
+    const token = getAccessToken();
 
     try {
       const response = await fetch(
-        apiUrl("/my-competitions"),
+        apiUrl(`/organizer/competitions/${competitionId}`),
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -200,34 +231,27 @@ export default function OrganizerCompetitionPage() {
         return;
       }
 
-      setCompetitions(data);
+      setCompetition(data);
     } catch (error) {
       console.error(error);
       setMessage("Błąd połączenia z serwerem ❌");
     } finally {
       setLoading(false);
     }
-  }
+  }, [competitionId]);
 
-  const competition = useMemo(
-    () => competitions.find((item) => item.id === competitionId),
-    [competitionId, competitions]
-  );
-
-  const assignedJudgeEmails = useMemo(() => {
-    if (!competition) {
-      return new Set<string>();
+  useEffect(() => {
+    if (!isOrganizer()) {
+      router.push("/");
+      return;
     }
 
-    return new Set([
-      ...competition.judge_assignments.map(
-        (assignment) => assignment.judge_email
-      ),
-      ...competition.judges
-        .filter((judge) => judge.is_head_judge)
-        .map((judge) => judge.user_email),
-    ]);
-  }, [competition]);
+    const loadTimer = window.setTimeout(() => {
+      void fetchOrganizerCompetition();
+    }, 0);
+
+    return () => window.clearTimeout(loadTimer);
+  }, [fetchOrganizerCompetition, router]);
 
   const headJudgeAssigned = useMemo(() => {
     if (!competition) {
@@ -296,11 +320,63 @@ export default function OrganizerCompetitionPage() {
         return sum;
       }
 
-      return sum + parseFee(discipline.ammo_price) * (discipline.shots_count || 0);
+      const clayFee = parseFee(discipline.clay_price || "") * ((discipline.clay_series_count || discipline.trap_series_count || 0) * 25);
+
+      return sum
+        + parseFee(discipline.ammo_price) * (discipline.shots_count || 0)
+        + clayFee;
     }, 0);
 
     return total;
   }, [competition, manualDisciplines]);
+
+  const squadDisciplines = useMemo(() => {
+    if (!competition) {
+      return [];
+    }
+
+    return competition.disciplines
+      .filter((discipline) =>
+        ["trap", "skeet"].includes(discipline.discipline_type)
+        && Boolean(discipline.clay_variant || discipline.trap_variant)
+        && Number(discipline.clay_series_count || discipline.trap_series_count || 0) > 0
+      )
+      .map((discipline) => {
+        const assignments = competition.participants
+          .filter((participant) => participant.checked_in && participant.paid)
+          .map((participant) => {
+            const assignment = participant.disciplines.find(
+              (item) => item.id === discipline.id
+            );
+
+            return assignment
+              ? {
+                  participant,
+                  assignment,
+                }
+              : null;
+          })
+          .filter((item): item is {
+            participant: Competition["participants"][number];
+            assignment: ParticipantDisciplineAssignment;
+          } => item !== null);
+        const maxGroupNumber = Math.max(
+          1,
+          ...assignments.map((item) => item.assignment.squad_group_number || 1)
+        );
+        const groupNumbers = Array.from(
+          { length: maxGroupNumber + 1 },
+          (_item, index) => index + 1
+        );
+
+        return {
+          discipline,
+          assignments,
+          groupNumbers,
+          groupStatuses: discipline.squad_group_statuses || {},
+        };
+      });
+  }, [competition]);
 
   function manualInputClass(field: keyof ManualParticipantForm) {
     const hasError = Boolean(manualFormErrors[field]);
@@ -459,7 +535,7 @@ export default function OrganizerCompetitionPage() {
     setManualFormErrors({});
     setManualFormMessage("");
 
-    const token = localStorage.getItem("token");
+    const token = getAccessToken();
 
     try {
       setManualSaving(true);
@@ -488,7 +564,7 @@ export default function OrganizerCompetitionPage() {
 
       setMessage("Zawodnik dodany, obecność i opłata potwierdzone ✅");
       resetManualParticipantForm();
-      fetchOrganizerCompetitions();
+      fetchOrganizerCompetition();
     } catch (error) {
       console.error(error);
       setManualFormMessage("Błąd połączenia z serwerem.");
@@ -510,11 +586,12 @@ export default function OrganizerCompetitionPage() {
       return;
     }
 
-    const token = localStorage.getItem("token");
+    const token = getAccessToken();
 
     try {
       setJudgeSearchLoading(true);
       setSelectedJudge(null);
+      setHeadJudge(false);
       setMessage("");
 
       const response = await fetch(
@@ -533,6 +610,10 @@ export default function OrganizerCompetitionPage() {
       }
 
       setSelectedJudge(data);
+
+      if (!data.can_be_head_judge) {
+        setHeadJudge(false);
+      }
     } catch (error) {
       console.error(error);
       setMessage("Błąd połączenia z serwerem ❌");
@@ -556,12 +637,17 @@ export default function OrganizerCompetitionPage() {
       return;
     }
 
+    if (headJudge && !selectedJudge.can_be_head_judge) {
+      setMessage("Ten sędzia nie może pełnić funkcji sędziego głównego zawodów ❌");
+      return;
+    }
+
     if (!headJudge && !judgeDiscipline) {
       setMessage("Wybierz konkurencję albo zaznacz sędziego głównego ❌");
       return;
     }
 
-    const token = localStorage.getItem("token");
+    const token = getAccessToken();
 
     try {
       setMessage("");
@@ -594,7 +680,7 @@ export default function OrganizerCompetitionPage() {
       setSelectedJudge(null);
       setJudgeDiscipline("");
       setHeadJudge(false);
-      fetchOrganizerCompetitions();
+      fetchOrganizerCompetition();
     } catch (error) {
       console.error(error);
       setMessage("Błąd połączenia z serwerem ❌");
@@ -617,7 +703,7 @@ export default function OrganizerCompetitionPage() {
       return;
     }
 
-    const token = localStorage.getItem("token");
+    const token = getAccessToken();
 
     try {
       setMessage("");
@@ -645,10 +731,101 @@ export default function OrganizerCompetitionPage() {
       }
 
       setMessage("Przypisanie sędziego usunięte ✅");
-      fetchOrganizerCompetitions();
+      fetchOrganizerCompetition();
     } catch (error) {
       console.error(error);
       setMessage("Błąd połączenia z serwerem ❌");
+    }
+  }
+
+  async function updateParticipantGroup(
+    participantDisciplineId: number,
+    groupNumber: number,
+    squadPosition = 0
+  ) {
+    if (!competition) {
+      return;
+    }
+
+    const token = getAccessToken();
+
+    try {
+      setGroupUpdatingId(participantDisciplineId);
+      setMessage("");
+
+      const response = await fetch(
+        apiUrl(`/organizer/competitions/${competition.id}/squad-groups/${participantDisciplineId}`),
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            group_number: groupNumber,
+            squad_position: squadPosition,
+          }),
+        }
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.detail || "Nie udało się zmienić grupy zawodnika ❌");
+        return;
+      }
+
+      setMessage("Grupa zawodnika zaktualizowana ✅");
+      fetchOrganizerCompetition();
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    } finally {
+      setGroupUpdatingId(null);
+    }
+  }
+
+  async function randomizeSquadGroups(disciplineId: number) {
+    if (!competition) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Czy wylosować grupy dla tej konkurencji? Obecny układ grup zostanie zastąpiony."
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    const token = getAccessToken();
+
+    try {
+      setRandomizingDisciplineId(disciplineId);
+      setMessage("");
+
+      const response = await fetch(
+        apiUrl(`/organizer/competitions/${competition.id}/disciplines/${disciplineId}/squad-groups/randomize`),
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.detail || "Nie udało się wylosować grup ❌");
+        return;
+      }
+
+      setMessage("Grupy zostały wylosowane ✅");
+      fetchOrganizerCompetition();
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    } finally {
+      setRandomizingDisciplineId(null);
     }
   }
 
@@ -667,7 +844,7 @@ export default function OrganizerCompetitionPage() {
       return;
     }
 
-    const token = localStorage.getItem("token");
+    const token = getAccessToken();
 
     try {
       setMessage("");
@@ -689,7 +866,7 @@ export default function OrganizerCompetitionPage() {
       }
 
       setMessage("Zawodnik usunięty z listy zawodów ✅");
-      fetchOrganizerCompetitions();
+      fetchOrganizerCompetition();
     } catch (error) {
       console.error(error);
       setMessage("Błąd połączenia z serwerem ❌");
@@ -810,11 +987,19 @@ export default function OrganizerCompetitionPage() {
                         {discipline.description || "Brak opisu"}
                       </p>
                       <p className="text-gray-700 text-sm mt-2">
+                        Rodzaj: {discipline.discipline_type_label || "nie podano"}
+                      </p>
+                      <p className="text-gray-700 text-sm">
                         Punktacja: {discipline.scoring_type}, strzały: {discipline.shots_count}
                       </p>
                       <p className="text-gray-700 text-sm">
                         Amunicja: {discipline.ammo_type || "brak"}, cena: {discipline.ammo_price || "0"} zł/szt.
                       </p>
+                      {(discipline.clay_series_count || discipline.trap_series_count) ? (
+                        <p className="text-gray-700 text-sm">
+                          Rzutki: {(discipline.clay_series_count || discipline.trap_series_count || 0) * 25}, cena: {discipline.clay_price || "0"} zł/szt.
+                        </p>
+                      ) : null}
                     </div>
                   ))}
                 </div>
@@ -824,43 +1009,18 @@ export default function OrganizerCompetitionPage() {
             <section className="space-y-6">
               <div className="bg-white rounded-3xl p-6 text-black shadow-xl">
                 <h2 className="text-2xl font-bold mb-4">
-                  Sędziowie
+                  Skład Sędziowski
                 </h2>
 
-                {competition.judges.length === 0 ? (
-                  <p className="text-gray-500">
-                    Brak sędziów dodanych do tych zawodów.
-                  </p>
-                ) : (
-                  <div className="space-y-2">
-                    {competition.judges.map((judge) => (
-                      <div
-                        key={judge.id}
-                        className="bg-green-50 rounded-xl px-3 py-2"
-                      >
-                        <p className="font-semibold">
-                          {judge.display_name}
-                          {assignedJudgeEmails.has(judge.user_email) && (
-                            <span className="ml-2 text-green-800 font-bold">
-                              przypisany
-                            </span>
-                          )}
-                        </p>
-                        {judge.judge_license_number && (
-                          <p className="text-sm text-gray-600">
-                            Licencja: {judge.judge_license_number}
-                          </p>
-                        )}
-                      </div>
-                    ))}
+                {competition.missing_judge_disciplines.length > 0 && (
+                  <div className="mb-4 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-red-900">
+                    <p className="font-black">Nie można rozpocząć zawodów.</p>
+                    <p className="text-sm font-semibold">
+                      Przypisz sędziego do każdej konkurencji. Brak sędziego dla: {competition.missing_judge_disciplines.join(", ")}.
+                      Sędzia główny nie jest wymagany.
+                    </p>
                   </div>
                 )}
-              </div>
-
-              <div className="bg-white rounded-3xl p-6 text-black shadow-xl">
-                <h2 className="text-2xl font-bold mb-4">
-                  Przypisane funkcje
-                </h2>
 
                 {competition.judge_assignments.length === 0 ? (
                   <p className="text-gray-500">
@@ -914,6 +1074,7 @@ export default function OrganizerCompetitionPage() {
                     onChange={(event) => {
                       setJudgeLicenseSearch(event.target.value);
                       setSelectedJudge(null);
+                      setHeadJudge(false);
                     }}
                     placeholder="Wpisz numer licencji sędziego"
                     className="w-full border border-gray-300 rounded-xl px-3 py-3"
@@ -937,6 +1098,14 @@ export default function OrganizerCompetitionPage() {
                     <p className="text-sm text-green-900">
                       Licencja: {selectedJudge.judge_license_number}
                     </p>
+                    <p className="text-sm text-green-900">
+                      Klasa: {selectedJudge.judge_license_class_label}
+                    </p>
+                    {!selectedJudge.can_be_head_judge && (
+                      <p className="mt-2 text-sm font-semibold text-red-700">
+                        Ten sędzia może być przypisany do konkurencji, ale nie jako sędzia główny zawodów.
+                      </p>
+                    )}
                     {selectedJudge.judge_license_valid_until && (
                       <p className="text-sm text-green-900">
                         Ważna do: {selectedJudge.judge_license_valid_until}
@@ -979,7 +1148,7 @@ export default function OrganizerCompetitionPage() {
                         setJudgeDiscipline("");
                       }
                     }}
-                    disabled={headJudgeAssigned}
+                    disabled={headJudgeAssigned || Boolean(selectedJudge && !selectedJudge.can_be_head_judge)}
                   />
                   Sędzia główny zawodów
                 </label>
@@ -990,10 +1159,16 @@ export default function OrganizerCompetitionPage() {
                   </p>
                 )}
 
+                {selectedJudge && !selectedJudge.can_be_head_judge && (
+                  <p className="text-sm font-semibold text-red-700">
+                    Funkcja sędziego głównego jest dostępna tylko dla sędziów klasy 1 lub 2.
+                  </p>
+                )}
+
                 <button
                   type="button"
                   onClick={inviteJudge}
-                  disabled={!selectedJudge || (!headJudge && !judgeDiscipline)}
+                  disabled={!selectedJudge || (!headJudge && !judgeDiscipline) || (headJudge && !selectedJudge.can_be_head_judge)}
                   className="w-full bg-green-700 hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed text-white py-3 rounded-xl font-semibold transition"
                 >
                   Przypisz sędziego
@@ -1036,6 +1211,187 @@ export default function OrganizerCompetitionPage() {
                   >
                     Otwórz wyniki zawodów
                   </Link>
+                )}
+
+                {squadDisciplines.length > 0 && (
+                  <div className="mb-4 rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                    <div className="mb-4">
+                      <h3 className="text-xl font-bold">
+                        Grupy startowe konkurencji rzutkowych
+                      </h3>
+                      <p className="text-sm text-gray-500">
+                        Zawodnicy są przydzielani po potwierdzeniu przybycia i opłaty. Trap korzysta z grup do 5 osób, a Skeet z grup do 6 osób.
+                      </p>
+                    </div>
+
+                    <div className="space-y-4">
+                      {squadDisciplines.map(({ discipline, assignments, groupNumbers, groupStatuses }) => {
+                        const squadSize = discipline.discipline_type === "skeet" ? 6 : 5;
+                        const activeGroupNumbers = Array.from(
+                          new Set(
+                            assignments.map((item) => item.assignment.squad_group_number || 1)
+                          )
+                        ).sort((firstGroup, secondGroup) => firstGroup - secondGroup);
+
+                        return (
+                          <div
+                            key={discipline.id}
+                            className="rounded-2xl border border-gray-200 bg-white p-4"
+                          >
+                          <div className="mb-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                            <div>
+                              <p className="font-bold text-gray-950">
+                                {discipline.name}
+                              </p>
+                              <p className="text-sm text-gray-500">
+                                {assignments.length} potwierdzonych zawodników w konkurencji
+                              </p>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => randomizeSquadGroups(discipline.id)}
+                              disabled={
+                                competition.status === "started" ||
+                                competition.status === "completed" ||
+                                randomizingDisciplineId === discipline.id ||
+                                assignments.length === 0
+                              }
+                              className="bg-green-700 hover:bg-green-600 disabled:bg-gray-400 disabled:cursor-not-allowed text-white px-4 py-2 rounded-xl font-bold transition"
+                            >
+                              {randomizingDisciplineId === discipline.id
+                                ? "Losuję..."
+                                : "Losuj grupy"}
+                            </button>
+                          </div>
+
+                          {competition.status === "started" && (
+                            <p className="mb-3 rounded-xl border border-yellow-200 bg-yellow-50 px-3 py-2 text-sm font-semibold text-yellow-800">
+                              Losowanie grup jest zablokowane po rozpoczęciu zawodów.
+                            </p>
+                          )}
+
+                          {assignments.length === 0 ? (
+                            <p className="text-sm text-gray-500">
+                              Brak potwierdzonych zawodników w tej konkurencji.
+                            </p>
+                          ) : (
+                            <div className="space-y-3">
+	                              {activeGroupNumbers.map((groupNumber) => {
+	                                const groupAssignments = assignments
+	                                  .filter((item) => (item.assignment.squad_group_number || 1) === groupNumber)
+                                  .sort((firstItem, secondItem) =>
+                                    (firstItem.assignment.squad_position || 99)
+                                    - (secondItem.assignment.squad_position || 99)
+	                                  );
+                                  const groupStatus = groupStatuses[String(groupNumber)];
+                                  const groupLocked = isTrapGroupLocked(groupStatus);
+                                  const groupStatusLabel = trapGroupStatusLabel(groupStatus);
+
+	                                return (
+	                                  <div
+	                                    key={groupNumber}
+	                                    className={`rounded-xl border p-3 ${
+                                        groupLocked
+                                          ? "border-yellow-200 bg-yellow-50"
+                                          : "border-gray-200 bg-gray-50"
+                                      }`}
+	                                  >
+	                                    <div className="mb-2 flex items-center justify-between gap-3">
+	                                      <div>
+	                                        <p className="font-black text-gray-900">
+	                                          Grupa {groupNumber}
+	                                        </p>
+                                        {groupStatusLabel && (
+                                          <p className="text-xs font-bold uppercase text-yellow-800">
+                                            {groupStatusLabel} - przenoszenie zablokowane
+                                          </p>
+                                        )}
+                                      </div>
+	                                      <p className={`text-sm font-bold ${
+	                                        groupAssignments.length > squadSize
+	                                          ? "text-red-700"
+                                          : "text-gray-500"
+                                      }`}>
+                                        {groupAssignments.length}/{squadSize}
+                                      </p>
+                                    </div>
+
+	                                    <div className="space-y-2">
+	                                      {groupAssignments.map(({ participant, assignment }) => (
+	                                        <div
+                                          key={assignment.participant_discipline_id}
+                                          className={`grid gap-2 rounded-lg bg-white px-3 py-2 sm:items-center ${
+                                            discipline.discipline_type === "skeet"
+                                              ? "sm:grid-cols-[1fr_130px_110px]"
+                                              : "sm:grid-cols-[1fr_150px]"
+                                          }`}
+                                        >
+                                          <Link
+                                            href={`/profile/${participant.id}`}
+                                            className="font-semibold text-gray-900 transition hover:text-green-700"
+                                          >
+                                            {assignment.squad_position ? `${assignment.squad_position}. ` : ""}{participant.display_name}
+	                                          </Link>
+
+	                                          <select
+	                                            value={assignment.squad_group_number || 1}
+	                                            onChange={(event) => updateParticipantGroup(
+	                                              assignment.participant_discipline_id,
+	                                              Number(event.target.value)
+	                                            )}
+	                                            disabled={
+                                                groupLocked ||
+                                                groupUpdatingId === assignment.participant_discipline_id
+                                              }
+	                                            className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-500"
+	                                          >
+	                                            {groupNumbers.map((availableGroupNumber) => (
+	                                              <option
+	                                                key={availableGroupNumber}
+	                                                value={availableGroupNumber}
+                                                    disabled={
+                                                      availableGroupNumber !== groupNumber &&
+                                                      isTrapGroupLocked(groupStatuses[String(availableGroupNumber)])
+                                                    }
+	                                              >
+	                                                Grupa {availableGroupNumber}
+                                                    {isTrapGroupLocked(groupStatuses[String(availableGroupNumber)])
+                                                      ? " (zablokowana)"
+                                                      : ""}
+	                                              </option>
+	                                            ))}
+	                                          </select>
+
+                                          {discipline.discipline_type === "skeet" && (
+                                            <select
+                                              value={assignment.squad_position || 1}
+                                              onChange={(event) => updateParticipantGroup(
+                                                assignment.participant_discipline_id,
+                                                assignment.squad_group_number || groupNumber,
+                                                Number(event.target.value)
+                                              )}
+                                              disabled={groupLocked || groupUpdatingId === assignment.participant_discipline_id}
+                                              className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-semibold disabled:bg-gray-100"
+                                            >
+                                              {Array.from({ length: 6 }, (_item, index) => index + 1).map((position) => (
+                                                <option key={position} value={position}>Pozycja {position}</option>
+                                              ))}
+                                            </select>
+                                          )}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                 )}
 
                 {competition.status === "started" && (

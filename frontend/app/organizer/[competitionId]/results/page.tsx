@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 
 import ResultCategoryList from "@/app/components/ResultCategoryList";
 import { apiUrl } from "@/lib/api";
-import { isOrganizer } from "@/lib/auth";
+import { getAccessToken, isOrganizer } from "@/lib/auth";
 
 type OrganizerResultCategory = {
   id: string;
@@ -47,7 +47,7 @@ export default function OrganizerResultsPage() {
       return;
     }
 
-    const token = localStorage.getItem("token");
+    const token = getAccessToken();
 
     if (!token) {
       router.push("/login");

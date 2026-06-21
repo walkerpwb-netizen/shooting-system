@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { apiUrl } from "@/lib/api";
-import { isJudge } from "@/lib/auth";
+import { getAccessToken, isJudge } from "@/lib/auth";
 
 type JudgeCompetition = {
   id: number;
@@ -21,6 +21,8 @@ type JudgeDiscipline = {
   name: string;
   description: string;
   scoring_type: string;
+  discipline_type: string;
+  discipline_type_label?: string;
   shots_count: number;
   ammo_type: string;
   ammo_price: string;
@@ -43,7 +45,7 @@ export default function JudgeCompetitionPage() {
       return;
     }
 
-    const token = localStorage.getItem("token");
+    const token = getAccessToken();
 
     if (!token) {
       router.push("/login");
@@ -85,22 +87,22 @@ export default function JudgeCompetitionPage() {
   );
 
   return (
-    <main className="min-h-screen px-6 py-10">
-      <div className="max-w-7xl mx-auto">
-        <div className="mb-8">
+    <main className="min-h-screen px-4 py-4 sm:px-6 sm:py-8">
+      <div className="mx-auto max-w-7xl">
+        <div className="mb-4 sm:mb-6">
           <Link
             href="/judge"
-            className="inline-flex mb-5 bg-red-700 hover:bg-red-600 text-white px-5 py-3 rounded-xl font-bold shadow-lg shadow-red-950/30 transition"
+            className="mb-3 inline-flex bg-red-700 px-4 py-3 font-bold text-white shadow-lg shadow-red-950/30 transition hover:bg-red-600 sm:mb-5 sm:px-5"
           >
             Wróć do panelu sędziego
           </Link>
 
-          <h1 className="text-5xl font-bold text-white mb-2">
+          <h1 className="mb-1 text-2xl font-bold leading-tight text-zinc-950 dark:text-white sm:mb-2 sm:text-5xl">
             {competition?.name || "Konkurencje"}
           </h1>
 
           {competition && (
-            <p className="text-gray-400">
+            <p className="text-sm text-zinc-500 dark:text-gray-400 sm:text-base">
               {competition.date} • {competition.location}
               {competition.is_head_judge ? " • sędzia główny" : ""}
             </p>
@@ -127,16 +129,12 @@ export default function JudgeCompetitionPage() {
           </p>
         ) : (
           <section>
-            <h2 className="text-2xl font-bold text-white mb-4">
-              Konkurencje
-            </h2>
-
-            <div className="grid md:grid-cols-2 gap-5">
+            <div className="grid gap-4 md:grid-cols-2 md:gap-5">
               {competition.disciplines.map((discipline) => (
                 <Link
                   key={discipline.id}
                   href={`/judge/${competition.id}/${discipline.id}`}
-                  className="block rounded-2xl p-5 border bg-zinc-900 border-zinc-800 hover:border-green-700 hover:bg-green-950/30 transition"
+                  className="block border border-zinc-800 bg-zinc-900 p-5 transition hover:border-green-700 hover:bg-green-950/30"
                 >
                   <div className="flex items-start justify-between gap-4">
                     <h3 className="text-xl font-bold text-white">
@@ -153,6 +151,9 @@ export default function JudgeCompetitionPage() {
                   </p>
 
                   <div className="text-gray-300 mt-4 space-y-1">
+                    <p>
+                      Rodzaj: {discipline.discipline_type_label || "Nie podano"}
+                    </p>
                     <p>
                       Punktacja: {discipline.scoring_type}
                     </p>

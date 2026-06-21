@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 
 import ResultsLeaderboardTable from "@/app/components/ResultsLeaderboardTable";
 import { apiUrl } from "@/lib/api";
-import { isOrganizer } from "@/lib/auth";
+import { getAccessToken, isOrganizer } from "@/lib/auth";
 
 type OrganizerResultCompetition = {
   id: number;
@@ -31,7 +31,7 @@ type OrganizerResultShooter = {
   display_name: string;
   first_name: string;
   last_name: string;
-  license_number: string;
+  license_number?: string;
   club: string;
   points: string;
   disciplines_count: number;
@@ -81,7 +81,7 @@ export default function OrganizerLeaderboardPage() {
       return;
     }
 
-    const token = localStorage.getItem("token");
+    const token = getAccessToken();
 
     if (!token) {
       router.push("/login");
@@ -188,6 +188,7 @@ export default function OrganizerLeaderboardPage() {
               shooters={leaderboard.shooters}
               description="Dane do podglądu i przyszłych raportów organizatora."
               emptyMessage="Brak zawodników w tej klasyfikacji."
+              showLicense
             />
           </>
         )}

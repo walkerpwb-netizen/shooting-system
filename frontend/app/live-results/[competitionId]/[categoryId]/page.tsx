@@ -6,6 +6,8 @@ import { useEffect, useState } from "react";
 
 import ResultsLeaderboardTable from "@/app/components/ResultsLeaderboardTable";
 import { apiUrl } from "@/lib/api";
+import { getAccessToken } from "@/lib/auth";
+import { authHeaderFromToken, PREMIUM_LOGIN_REQUIRED_MESSAGE } from "@/lib/premium";
 
 type LiveCompetition = {
   id: number;
@@ -30,7 +32,7 @@ type LiveShooter = {
   display_name: string;
   first_name: string;
   last_name: string;
-  license_number: string;
+  license_number?: string;
   club: string;
   points: string;
   disciplines_count: number;
@@ -79,12 +81,28 @@ export default function LiveLeaderboardPage() {
 
   useEffect(() => {
     let active = true;
+    const token = getAccessToken();
+
+    if (!token) {
+      const timeoutId = window.setTimeout(() => {
+        if (active) {
+          setMessage(PREMIUM_LOGIN_REQUIRED_MESSAGE);
+          setLoading(false);
+        }
+      }, 0);
+
+      return () => {
+        active = false;
+        window.clearTimeout(timeoutId);
+      };
+    }
 
     async function loadLeaderboard() {
       try {
         const response = await fetch(
           apiUrl(`/live-results/competitions/${competitionId}/categories/${categoryId}`),
           {
+            headers: authHeaderFromToken(token),
             cache: "no-store",
           }
         );

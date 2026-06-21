@@ -17,7 +17,7 @@ export default function ForgotPasswordPage() {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
     if (!emailRegex.test(email)) {
-      setMessage("Podaj poprawny adres email ❌");
+      setMessage("Podaj poprawny adres e-mail ❌");
       return;
     }
 
@@ -64,7 +64,7 @@ export default function ForgotPasswordPage() {
         </h1>
 
         <p className="text-gray-500 text-center mb-8">
-          Podaj adres email swojego konta
+          Podaj adres e-mail swojego konta
         </p>
 
         <form
@@ -80,7 +80,7 @@ export default function ForgotPasswordPage() {
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="Adres email"
+            placeholder="Adres e-mail"
             className="border border-gray-300 rounded-xl px-4 py-3 text-black"
           />
 

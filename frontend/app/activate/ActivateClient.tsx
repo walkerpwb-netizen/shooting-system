@@ -1,9 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { apiUrl } from "@/lib/api";
+import { setSessionAuth } from "@/lib/auth";
 
 type ActivateClientProps = {
   token: string;
@@ -26,7 +26,10 @@ export default function ActivateClient({
     async function activateAccount() {
       try {
         const response = await fetch(
-          apiUrl(`/activate?token=${token}`)
+          apiUrl(`/activate?token=${token}`),
+          {
+            credentials: "include",
+          }
         );
 
         const data = await response.json();
@@ -36,7 +39,9 @@ export default function ActivateClient({
           return;
         }
 
-        setMessage("Konto zostało aktywowane. Możesz się zalogować.");
+        setSessionAuth(data);
+        setMessage("Konto zostało aktywowane. Przekierowujemy do profilu...");
+        window.location.replace("/profile");
       } catch (error) {
         console.error(error);
         setMessage("Błąd połączenia z serwerem.");
@@ -57,12 +62,6 @@ export default function ActivateClient({
           {message}
         </p>
 
-        <Link
-          href="/login"
-          className="inline-block bg-green-900 text-white px-5 py-3 rounded-xl font-semibold"
-        >
-          Przejdź do logowania
-        </Link>
       </div>
     </main>
   );
