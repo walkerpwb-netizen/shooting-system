@@ -581,6 +581,7 @@ AD_DEVICES = ["desktop", "mobile"]
 AD_EVENT_TYPES = ["impression", "click"]
 TRAP_DISCIPLINE_TYPE = "trap"
 SKEET_DISCIPLINE_TYPE = "skeet"
+CLAY_HIT_POINTS = 5
 TRAP_TARGETS_PER_SERIES = 25
 TRAP_SHOTS_PER_TARGET = 2
 TRAP_VARIANT_SERIES = {
@@ -2993,7 +2994,24 @@ def validate_skeet_result_data(discipline: Discipline, result_data: str):
 
             scores.append(score)
 
-    return parsed, sum(1 for score in scores if score == 1)
+    return parsed, sum(1 for score in scores if score == 1) * CLAY_HIT_POINTS
+
+
+def validate_trap_result_data(discipline: Discipline, result_data: str):
+    try:
+        parsed = json.loads(result_data or "[]")
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Nieprawidłowy zapis wyniku Trap")
+
+    expected_scores = discipline_clay_series_count(discipline) * TRAP_TARGETS_PER_SERIES
+
+    if not isinstance(parsed, list) or len(parsed) != expected_scores:
+        raise HTTPException(status_code=400, detail="Nieprawidłowa liczba rzutek Trap")
+
+    if any(score not in [0, 1, None] for score in parsed):
+        raise HTTPException(status_code=400, detail="Wynik rzutka Trap musi wynosić 0 lub 1")
+
+    return parsed, sum(1 for score in parsed if score == 1) * CLAY_HIT_POINTS
 
 
 def trap_result_has_started(result: DisciplineResult | None, discipline: Discipline | None = None):
@@ -4591,7 +4609,10 @@ def result_category_payload(competition: Competition, category_id: str, db, incl
                 scores[index:index + SKEET_TARGETS_PER_SERIES]
                 for index in range(0, len(scores), SKEET_TARGETS_PER_SERIES)
             ]
-            round_totals = [sum(1 for score in round_scores if score == 1) for round_scores in rounds]
+            round_totals = [
+                sum(1 for score in round_scores if score == 1) * CLAY_HIT_POINTS
+                for round_scores in rounds
+            ]
             row["round_scores"] = round_totals
             row["_countback_key"] = tuple(
                 [-round_total for round_total in reversed(round_totals)]
@@ -8842,17 +8863,25 @@ def save_judge_result(
     )
     result_points = data.points.strip()
 
-    if (
-        discipline
-        and normalize_discipline_type(discipline.discipline_type or "") == SKEET_DISCIPLINE_TYPE
-    ):
-        if data.result_data is None:
-            raise HTTPException(status_code=400, detail="Brak szczegółowego wyniku Skeet")
+    discipline_type = normalize_discipline_type(
+        getattr(discipline, "discipline_type", "") or ""
+    )
 
-        _parsed_result, computed_points = validate_skeet_result_data(
-            discipline,
-            data.result_data,
-        )
+    if discipline_type in [TRAP_DISCIPLINE_TYPE, SKEET_DISCIPLINE_TYPE]:
+        if data.result_data is None:
+            raise HTTPException(status_code=400, detail="Brak szczegółowego wyniku rzutkowego")
+
+        if discipline_type == SKEET_DISCIPLINE_TYPE:
+            _parsed_result, computed_points = validate_skeet_result_data(
+                discipline,
+                data.result_data,
+            )
+        else:
+            _parsed_result, computed_points = validate_trap_result_data(
+                discipline,
+                data.result_data,
+            )
+
         result_points = str(computed_points)
 
     result = (

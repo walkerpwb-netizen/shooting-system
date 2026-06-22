@@ -51,6 +51,7 @@ type Shooter = {
 type SortField = "name" | "license" | "club" | "points";
 type SortDirection = "asc" | "desc";
 type TrapScoreValue = 1 | 0 | null;
+const clayHitPoints = 5;
 
 type TrapHistoryEntry = {
   participantId: number;
@@ -455,7 +456,10 @@ function trapScoreTotal(scores: TrapScoreValue[] | undefined, fallbackPoints = "
     return parseScore(fallbackPoints);
   }
 
-  return scores.reduce<number>((sum, score) => sum + (score === 1 ? 1 : 0), 0);
+  return scores.reduce<number>(
+    (sum, score) => sum + (score === 1 ? clayHitPoints : 0),
+    0
+  );
 }
 
 function buildSkeetTurns(groupShooters: Shooter[], totalRounds: number) {
@@ -1357,7 +1361,7 @@ export default function JudgeDisciplinePage() {
                         <span className="text-lg font-black">{shooter.squad_position || "–"}</span>
                         <span className="font-bold">{getShooterName(shooter)}</span>
                         <span className="text-lg font-black">
-                          {trapScoreTotal(roundScores)}/{roundScores.filter((score) => score !== null).length}
+                          {trapScoreTotal(roundScores)}/{roundScores.filter((score) => score !== null).length * clayHitPoints}
                         </span>
                       </div>
                     );
@@ -1464,7 +1468,7 @@ export default function JudgeDisciplinePage() {
                           >
                             {score === 1 && (
                               <span className="text-green-600">
-                                1
+                                5
                               </span>
                             )}
 
