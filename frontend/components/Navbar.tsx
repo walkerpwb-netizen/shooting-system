@@ -628,6 +628,10 @@ export default function Navbar() {
           Ranking
         </Link>
 
+        <Link href="/kontakt">
+          Kontakt
+        </Link>
+
         {user && (
           <Link href="/profile">
             Profil
@@ -807,6 +811,14 @@ export default function Navbar() {
                 className="py-3"
               >
                 Ranking
+              </Link>
+
+              <Link
+                href="/kontakt"
+                onClick={() => setMobileMenuOpen(false)}
+                className="py-3"
+              >
+                Kontakt
               </Link>
 
               {user && (
