@@ -38,6 +38,7 @@ type UserProfile = {
   requested_role: string;
   premium_until: string;
   premium_disabled: boolean;
+  premium_organizer_disabled: boolean;
   profile_photo_url: string;
   account_type: string;
   pzss_club_short_name: string;
@@ -170,9 +171,11 @@ function premiumTimeLeft(premiumUntil: string) {
 function PremiumStatusBar({
   premiumUntil,
   premiumDisabled,
+  label = "PREMIUM",
 }: {
   premiumUntil: string;
   premiumDisabled: boolean;
+  label?: string;
 }) {
   const [timeLeft, setTimeLeft] = useState(() => premiumTimeLeft(premiumUntil));
 
@@ -196,7 +199,7 @@ function PremiumStatusBar({
     <div className="border-y border-yellow-500/40 bg-yellow-400/15 px-4 py-0 text-yellow-950 shadow-[0_0_12px_rgba(250,204,21,0.14)] dark:border-yellow-300/40 dark:bg-yellow-400/10 dark:text-yellow-100">
       <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-0 text-center text-xs font-bold uppercase leading-none tracking-wide">
         <span className="text-yellow-700 dark:text-yellow-300">
-          PREMIUM
+          {label}
         </span>
 
         <span className="text-xs text-yellow-900 dark:text-yellow-100 sm:text-sm">
@@ -1244,10 +1247,19 @@ export default function ProfilePage() {
       ) : profile ? (
         <>
           {!isPzssClubProfile && (
-            <PremiumStatusBar
-              premiumUntil={profile.premium_until}
-              premiumDisabled={profile.premium_disabled}
-            />
+            <>
+              <PremiumStatusBar
+                premiumUntil={profile.premium_until}
+                premiumDisabled={profile.premium_disabled}
+                label="PREMIUM STRZELCA"
+              />
+
+              <PremiumStatusBar
+                premiumUntil={profile.premium_until}
+                premiumDisabled={profile.premium_organizer_disabled}
+                label="PREMIUM ORGANIZATORA"
+              />
+            </>
           )}
 
           <div className="mx-auto w-full max-w-[1800px] px-6 py-8 sm:px-10 lg:px-14">
