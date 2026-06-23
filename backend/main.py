@@ -8282,7 +8282,11 @@ def invite_judge(
             )
         )
 
-    selected_discipline_ids = [] if data.is_head_judge else data.discipline_ids
+    selected_discipline_ids = (
+        []
+        if data.is_head_judge
+        else list(dict.fromkeys(data.discipline_ids))
+    )
 
     if not data.is_head_judge and not selected_discipline_ids:
         raise HTTPException(
@@ -8360,20 +8364,28 @@ def invite_judge(
                 detail="Ten sędzia jest już sędzią głównym tych zawodów"
             )
 
-        duplicate_assignment = (
-            db.query(JudgeInvitation)
-            .filter(
-                JudgeInvitation.competition_id == competition.id,
-                JudgeInvitation.judge_email == judge.email,
-                JudgeInvitation.discipline_id.in_(selected_discipline_ids),
+        existing_discipline_ids = {
+            assignment.discipline_id
+            for assignment in (
+                db.query(JudgeInvitation)
+                .filter(
+                    JudgeInvitation.competition_id == competition.id,
+                    JudgeInvitation.judge_email == judge.email,
+                    JudgeInvitation.discipline_id.in_(selected_discipline_ids),
+                )
+                .all()
             )
-            .first()
-        )
+        }
+        selected_discipline_ids = [
+            discipline_id
+            for discipline_id in selected_discipline_ids
+            if discipline_id not in existing_discipline_ids
+        ]
 
-        if duplicate_assignment:
+        if not selected_discipline_ids:
             raise HTTPException(
                 status_code=400,
-                detail="Ten sędzia jest już przypisany do wybranej konkurencji"
+                detail="Ten sędzia jest już przypisany do wybranych konkurencji"
             )
 
     if not participant:

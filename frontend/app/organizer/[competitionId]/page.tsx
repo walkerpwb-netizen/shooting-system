@@ -123,6 +123,7 @@ const competitionStatusLabels: Record<string, string> = {
   started: "Trwające",
   completed: "Zakończone",
 };
+const ALL_DISCIPLINES_VALUE = "all";
 
 function getCompetitionStatusLabel(status: string) {
   return competitionStatusLabels[status] || status;
@@ -666,6 +667,11 @@ export default function OrganizerCompetitionPage() {
       return;
     }
 
+    const selectedDisciplineIds = headJudge
+      ? []
+      : judgeDiscipline === ALL_DISCIPLINES_VALUE
+        ? competition.disciplines.map((discipline) => discipline.id)
+        : [Number(judgeDiscipline)].filter((disciplineId) => Number.isFinite(disciplineId));
     const token = getAccessToken();
 
     try {
@@ -682,7 +688,7 @@ export default function OrganizerCompetitionPage() {
           body: JSON.stringify({
             judge_license_number: selectedJudge.judge_license_number,
             judge_email: selectedJudge.email,
-            discipline_ids: headJudge ? [] : [Number(judgeDiscipline)],
+            discipline_ids: selectedDisciplineIds,
             is_head_judge: headJudge,
           }),
         }
@@ -1187,6 +1193,7 @@ export default function OrganizerCompetitionPage() {
                   className="w-full border border-gray-300 rounded-xl px-3 py-3 disabled:bg-gray-100 disabled:text-gray-500"
                 >
                   <option value="">Wybierz konkurencję</option>
+                  <option value={ALL_DISCIPLINES_VALUE}>Wszystkie konkurencje</option>
 
                   {competition.disciplines.map((discipline) => (
                     <option
