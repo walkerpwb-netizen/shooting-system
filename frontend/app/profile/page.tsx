@@ -1,6 +1,7 @@
 "use client";
 
 import type { ChangeEvent, PointerEvent, ReactNode } from "react";
+import NextImage from "next/image";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -1294,21 +1295,24 @@ export default function ProfilePage() {
                     setMessage("");
                     setLicenseScannerOpen(true);
                   }}
-                  className="inline-flex items-center gap-3 bg-zinc-900 px-5 py-3 font-semibold text-white transition hover:bg-zinc-800 dark:bg-red-950 dark:hover:bg-red-900"
+                  className="group flex w-full items-center gap-4 text-left sm:w-fit sm:gap-5"
                 >
-                  <svg
-                    aria-hidden="true"
-                    viewBox="0 0 24 24"
-                    className="h-5 w-5 shrink-0"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                  >
-                    <path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4z" />
-                    <path d="M14 14h2v2h-2zM18 14h2v2h-2zM14 18h2v2h-2zM18 18h2v2h-2z" />
-                  </svg>
-                  <span>
-                    Skanuj QR Licencji zawodniczej jeśli posiadasz
+                  <NextImage
+                    src="/icons/skaner.jpeg"
+                    alt=""
+                    width={1254}
+                    height={1254}
+                    sizes="(min-width: 640px) 144px, 112px"
+                    className="h-28 w-28 shrink-0 rounded-2xl object-cover shadow-[0_12px_35px_rgba(220,38,38,0.2)] transition group-hover:scale-[1.03] group-hover:shadow-[0_14px_40px_rgba(220,38,38,0.32)] sm:h-36 sm:w-36"
+                  />
+
+                  <span className="max-w-sm">
+                    <span className="block text-lg font-black text-zinc-950 transition group-hover:text-red-700 dark:text-white dark:group-hover:text-red-300 sm:text-2xl">
+                      Skanuj QR licencji
+                    </span>
+                    <span className="mt-2 block text-sm leading-5 text-zinc-600 dark:text-red-100/70 sm:text-base sm:leading-6">
+                      Jeśli posiadasz licencję zawodniczą, zeskanuj kod i uzupełnij dane automatycznie.
+                    </span>
                   </span>
                 </button>
               </div>

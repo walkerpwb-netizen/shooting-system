@@ -1,5 +1,6 @@
 "use client";
 
+import NextImage from "next/image";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -1851,21 +1852,24 @@ export default function JudgeDisciplinePage() {
                       setMessage("");
                       setScannerOpen(true);
                     }}
-                    className="inline-flex w-full items-center justify-center gap-3 bg-green-700 px-4 py-3 font-bold text-white transition hover:bg-green-600 sm:w-fit"
+                    className="group flex w-full items-center gap-4 text-left sm:w-fit sm:gap-5"
                   >
-                    <svg
-                      aria-hidden="true"
-                      viewBox="0 0 24 24"
-                      className="h-5 w-5 shrink-0"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                    >
-                      <path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4z" />
-                      <path d="M14 14h2v2h-2zM18 14h2v2h-2zM14 18h2v2h-2zM18 18h2v2h-2z" />
-                    </svg>
-                    <span>
-                      Skanuj QR Zawodnika
+                    <NextImage
+                      src="/icons/skaner.jpeg"
+                      alt=""
+                      width={1254}
+                      height={1254}
+                      sizes="(min-width: 640px) 144px, 112px"
+                      className="h-28 w-28 shrink-0 rounded-2xl object-cover shadow-[0_12px_35px_rgba(34,197,94,0.22)] transition group-hover:scale-[1.03] group-hover:shadow-[0_14px_40px_rgba(34,197,94,0.34)] sm:h-36 sm:w-36"
+                    />
+
+                    <span className="max-w-xs">
+                      <span className="block text-lg font-black text-white transition group-hover:text-green-300 sm:text-2xl">
+                        Skanuj QR zawodnika
+                      </span>
+                      <span className="mt-2 block text-sm leading-5 text-gray-400 sm:text-base sm:leading-6">
+                        Zeskanuj kod, aby szybko odnaleźć zawodnika na liście.
+                      </span>
                     </span>
                   </button>
 
