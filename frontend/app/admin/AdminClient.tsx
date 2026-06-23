@@ -42,6 +42,8 @@ type AdminPzssClub = {
   license_number: string;
   status: string;
   is_active: boolean;
+  premium_until: string;
+  premium_organizer_disabled: boolean;
 };
 
 type AdminUserInfoRow = {
@@ -742,6 +744,17 @@ export default function AdminClient({
           user.id === userId
             ? data
             : user
+        )
+      );
+      setPzssClubs((currentClubs) =>
+        currentClubs.map((club) =>
+          club.id === userId
+            ? {
+                ...club,
+                premium_organizer_disabled: Boolean(data.premium_organizer_disabled),
+                premium_until: data.premium_until || club.premium_until,
+              }
+            : club
         )
       );
       setMessage(
@@ -2707,13 +2720,14 @@ export default function AdminClient({
           </section>
         ) : activeTab === "pzss-clubs" ? (
           <section className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-x-auto">
-            <div className="min-w-[1100px]">
-              <div className="grid grid-cols-[1fr_1.4fr_1fr_0.9fr_1fr_1.5fr] gap-4 px-5 py-4 text-sm font-bold text-gray-400 border-b border-zinc-800">
+            <div className="min-w-[1280px]">
+              <div className="grid grid-cols-[1fr_1.4fr_1fr_0.9fr_1fr_1fr_1.5fr] gap-4 px-5 py-4 text-sm font-bold text-gray-400 border-b border-zinc-800">
                 <p>Nazwa skrócona</p>
                 <p>Nazwa pełna</p>
                 <p>Kontakt</p>
                 <p>Status</p>
                 <p>Licencja klubowa</p>
+                <p>Premium org.</p>
                 <p>Akcje</p>
               </div>
 
@@ -2724,7 +2738,7 @@ export default function AdminClient({
               ) : pzssClubs.map((club) => (
                 <div
                   key={club.id}
-                  className={`grid grid-cols-[1fr_1.4fr_1fr_0.9fr_1fr_1.5fr] gap-4 px-5 py-4 items-center border-b border-zinc-800 last:border-b-0 ${
+                  className={`grid grid-cols-[1fr_1.4fr_1fr_0.9fr_1fr_1fr_1.5fr] gap-4 px-5 py-4 items-center border-b border-zinc-800 last:border-b-0 ${
                     club.status === "pending" ? "bg-yellow-950/20" : ""
                   }`}
                 >
@@ -2768,6 +2782,28 @@ export default function AdminClient({
                     placeholder="nr licencji PZSS"
                     className="bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
                   />
+
+                  <div className="space-y-1 text-sm">
+                    <label className="flex items-center gap-2 text-gray-200">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(club.premium_organizer_disabled)}
+                        onChange={(event) => updateUserOrganizerPremiumDisabled(
+                          club.id,
+                          event.target.checked
+                        )}
+                        className="accent-red-700"
+                      />
+
+                      <span>
+                        Wyłącz
+                      </span>
+                    </label>
+
+                    <p className={club.premium_organizer_disabled ? "text-red-300" : "text-gray-400"}>
+                      do {formatPremiumUntil(club.premium_until)}
+                    </p>
+                  </div>
 
                   <div className="flex flex-wrap gap-2">
                     <button
