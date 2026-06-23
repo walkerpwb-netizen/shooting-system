@@ -275,25 +275,16 @@ const defaultPremiumSettings: PremiumSettings = {
     ],
   },
   organizer: {
-    monthly_price: "49.99",
-    yearly_price: "499.00",
+    monthly_price: "99.00",
+    yearly_price: "500.00",
     features: [
-      "organizer_panel",
-      "competition_management",
-      "judge_management",
-      "payments",
-      "live_results_publication",
-      "results_pdf",
-      "statistics_reports",
+      "unlimited_active_publications",
     ],
     available_features: [
-      { id: "organizer_panel", label: "Panel Organizatora" },
-      { id: "competition_management", label: "Tworzenie i edycja zawodów" },
-      { id: "judge_management", label: "Zarządzanie sędziami" },
-      { id: "payments", label: "Płatności i obecność" },
-      { id: "live_results_publication", label: "Publikacja wyników live" },
-      { id: "results_pdf", label: "PDF wyników" },
-      { id: "statistics_reports", label: "Raporty i statystyki zawodów" },
+      {
+        id: "unlimited_active_publications",
+        label: "Nielimitowana liczba jednocześnie opublikowanych zawodów",
+      },
     ],
   },
 };
@@ -1996,6 +1987,12 @@ export default function AdminClient({
     description: string
   ) {
     const packageSettings = premiumSettings[packageType];
+    const monthlyPriceLabel = packageType === "organizer"
+      ? "Cena za dodatkowe opublikowane zawody"
+      : "Cena za 1 miesiąc";
+    const yearlyPriceLabel = packageType === "organizer"
+      ? "Cena rocznego pakietu bez limitu"
+      : "Cena za cały rok";
 
     return (
       <div className="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-5">
@@ -2011,7 +2008,7 @@ export default function AdminClient({
         <div className="mb-6 grid gap-3 md:grid-cols-2">
           <label className="rounded-2xl border border-green-900/70 bg-green-950/30 p-4">
             <span className="block text-sm font-bold uppercase tracking-wide text-green-200">
-              Cena za 1 miesiąc
+              {monthlyPriceLabel}
             </span>
             <div className="mt-2 flex items-center gap-2">
               <input
@@ -2029,7 +2026,7 @@ export default function AdminClient({
 
           <label className="rounded-2xl border border-green-900/70 bg-green-950/30 p-4">
             <span className="block text-sm font-bold uppercase tracking-wide text-green-200">
-              Cena za cały rok
+              {yearlyPriceLabel}
             </span>
             <div className="mt-2 flex items-center gap-2">
               <input
@@ -2845,7 +2842,7 @@ export default function AdminClient({
               {renderPremiumPackage(
                 "organizer",
                 "Pakiet Premium dla Organizatorów",
-                "Funkcje związane z organizacją i obsługą zawodów."
+                "Panel organizatora, tworzenie zawodów, sędziowie, publikacja wyników, PDF, raporty i statystyki są darmowe. Premium dotyczy tylko publikowania więcej niż jednych aktywnych zawodów jednocześnie. Szkice są bez limitu."
               )}
             </div>
           </section>

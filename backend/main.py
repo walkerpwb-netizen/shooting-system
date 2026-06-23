@@ -491,13 +491,10 @@ PREMIUM_FEATURES = {
         {"id": "profile_badges", "label": "Odznaczenia w profilu"},
     ],
     "organizer": [
-        {"id": "organizer_panel", "label": "Panel Organizatora"},
-        {"id": "competition_management", "label": "Tworzenie i edycja zawodów"},
-        {"id": "judge_management", "label": "Zarządzanie sędziami"},
-        {"id": "payments", "label": "Płatności i obecność"},
-        {"id": "live_results_publication", "label": "Publikacja wyników live"},
-        {"id": "results_pdf", "label": "PDF wyników"},
-        {"id": "statistics_reports", "label": "Raporty i statystyki zawodów"},
+        {
+            "id": "unlimited_active_publications",
+            "label": "Nielimitowana liczba jednocześnie opublikowanych zawodów",
+        },
     ],
 }
 PREMIUM_SETTINGS_DEFAULTS = {
@@ -514,19 +511,14 @@ PREMIUM_SETTINGS_DEFAULTS = {
         ],
     },
     "organizer": {
-        "monthly_price": "49.99",
-        "yearly_price": "499.00",
+        "monthly_price": "99.00",
+        "yearly_price": "500.00",
         "features": [
-            "organizer_panel",
-            "competition_management",
-            "judge_management",
-            "payments",
-            "live_results_publication",
-            "results_pdf",
-            "statistics_reports",
+            "unlimited_active_publications",
         ],
     },
 }
+ORGANIZER_FREE_ACTIVE_PUBLICATIONS_LIMIT = 1
 ACHIEVEMENT_CATEGORY_IDS = ["overall", "pistol", "rifle", "shotgun"]
 ACHIEVEMENT_MEDALS = {
     1: "gold",
@@ -4377,6 +4369,59 @@ def require_active_premium(user: Optional[User]):
             status_code=403,
             detail=PREMIUM_EXPIRED_DETAIL,
         )
+
+
+def organizer_active_publications_count(
+    organizer_email: str,
+    db,
+    exclude_competition_id: Optional[int] = None,
+):
+    query = (
+        db.query(Competition)
+        .filter(
+            Competition.created_by == organizer_email,
+            Competition.status.in_(["published", "started"]),
+        )
+    )
+
+    if exclude_competition_id is not None:
+        query = query.filter(Competition.id != exclude_competition_id)
+
+    return query.count()
+
+
+def require_organizer_publication_slot(
+    user: User,
+    competition: Competition,
+    db,
+):
+    if competition.status in ["published", "started"]:
+        return
+
+    active_publications_count = organizer_active_publications_count(
+        user.email,
+        db,
+        exclude_competition_id=competition.id,
+    )
+
+    if active_publications_count < ORGANIZER_FREE_ACTIVE_PUBLICATIONS_LIMIT:
+        return
+
+    if has_active_premium(user):
+        return
+
+    premium_settings = get_premium_settings(db)
+    organizer_package = premium_settings["organizer"]
+
+    raise HTTPException(
+        status_code=403,
+        detail=(
+            "Darmowy limit organizatora to 1 jednocześnie opublikowane zawody. "
+            "Aby opublikować kolejne zawody, wykup dodatkową publikację za "
+            f"{organizer_package['monthly_price']} zł albo roczny pakiet Premium "
+            f"Organizatora za {organizer_package['yearly_price']} zł."
+        ),
+    )
 
 
 def completed_at_datetime(competition: Competition):
@@ -10509,6 +10554,8 @@ def publish_competition(
             status_code=400,
             detail="Nie dodano żadnej konkurencji."
         )
+
+    require_organizer_publication_slot(user, competition, db)
 
     competition.status = "published"
     db.commit()
