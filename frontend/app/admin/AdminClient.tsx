@@ -1005,6 +1005,13 @@ export default function AdminClient({
   }
 
   async function approvePzssClub(clubId: number) {
+    const club = pzssClubs.find((currentClub) => currentClub.id === clubId);
+
+    if (club && !club.is_active) {
+      setMessage("Klub PZSS musi najpierw aktywować konto linkiem z e-maila ❌");
+      return;
+    }
+
     const licenseNumber = (clubLicenseInputs[clubId] || "").trim();
 
     if (!licenseNumber) {
@@ -2743,9 +2750,14 @@ export default function AdminClient({
                     </p>
                   </div>
 
-                  <p className={club.status === "approved" ? "font-bold text-green-400" : club.status === "rejected" ? "font-bold text-red-400" : "font-bold text-yellow-300"}>
-                    {club.status === "approved" ? "zweryfikowany" : club.status === "rejected" ? "odrzucony" : "oczekuje"}
-                  </p>
+                  <div>
+                    <p className={club.status === "approved" ? "font-bold text-green-400" : club.status === "rejected" ? "font-bold text-red-400" : "font-bold text-yellow-300"}>
+                      {club.status === "approved" ? "zweryfikowany" : club.status === "rejected" ? "odrzucony" : "oczekuje"}
+                    </p>
+                    <p className={club.is_active ? "mt-1 text-xs font-semibold text-green-400" : "mt-1 text-xs font-semibold text-red-300"}>
+                      {club.is_active ? "e-mail aktywowany" : "brak aktywacji e-mail"}
+                    </p>
+                  </div>
 
                   <input
                     value={clubLicenseInputs[club.id] || ""}
@@ -2761,7 +2773,9 @@ export default function AdminClient({
                     <button
                       type="button"
                       onClick={() => approvePzssClub(club.id)}
-                      className="bg-green-700 hover:bg-green-600 text-white px-3 py-2 rounded-lg text-sm font-semibold transition"
+                      disabled={!club.is_active}
+                      title={!club.is_active ? "Klub musi najpierw aktywować konto linkiem z e-maila" : undefined}
+                      className="bg-green-700 hover:bg-green-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-3 py-2 rounded-lg text-sm font-semibold transition"
                     >
                       Zatwierdź
                     </button>

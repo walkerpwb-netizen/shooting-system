@@ -1666,6 +1666,7 @@ def is_pzss_club_account(user: User):
 def is_approved_pzss_club(user: User):
     return (
         is_pzss_club_account(user)
+        and bool(getattr(user, "is_active", 0))
         and getattr(user, "pzss_club_status", "") == PZSS_CLUB_APPROVED
     )
 
@@ -6254,6 +6255,12 @@ def admin_approve_pzss_club(
 
     if not club:
         raise HTTPException(status_code=404, detail="Klub PZSS nie istnieje")
+
+    if not club.is_active:
+        raise HTTPException(
+            status_code=400,
+            detail="Klub PZSS musi najpierw aktywować konto linkiem z e-maila"
+        )
 
     duplicate_license = (
         db.query(User)
