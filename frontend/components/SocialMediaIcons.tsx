@@ -5,6 +5,7 @@ type SocialMediaIconsProps = {
 const socialMedia = [
   {
     name: "Facebook",
+    href: "https://www.facebook.com/Systemstrzelecki",
     color: "bg-[#1877F2]",
     icon: (
       <path d="M14.4 8.5h3V5h-3.5C10.6 5 9 7 9 10v2H6v3.5h3V23h4v-7.5h3.2l.6-3.5H13v-1.7c0-1.2.4-1.8 1.4-1.8Z" />
@@ -12,6 +13,7 @@ const socialMedia = [
   },
   {
     name: "Instagram",
+    href: "https://www.instagram.com/systemstrzelecki",
     color: "bg-gradient-to-br from-[#833AB4] via-[#FD1D1D] to-[#FCAF45]",
     icon: (
       <>
@@ -23,6 +25,7 @@ const socialMedia = [
   },
   {
     name: "Messenger",
+    href: "https://m.me/systemstrzelecki",
     color: "bg-gradient-to-br from-[#00B2FF] to-[#7B2CFF]",
     icon: (
       <path d="M14 4C8.5 4 4 8.1 4 13.2c0 2.9 1.5 5.5 3.8 7.2V24l3.4-1.9c.9.2 1.8.3 2.8.3 5.5 0 10-4.1 10-9.2S19.5 4 14 4Zm1 12-2.5-2.7-4.8 2.7 5.3-5.7 2.5 2.7 4.8-2.7L15 16Z" />
@@ -44,18 +47,10 @@ export default function SocialMediaIcons({ compact = false }: SocialMediaIconsPr
   return (
     <div
       className="flex flex-wrap items-center gap-3"
-      aria-label="Media społecznościowe — profile zostaną udostępnione wkrótce"
+      aria-label="Media społecznościowe Systemu Strzeleckiego"
     >
-      {socialMedia.map((social) => (
-        <span
-          key={social.name}
-          title={`${social.name} — profil wkrótce`}
-          aria-label={`${social.name} — profil wkrótce`}
-          role="img"
-          className={`inline-flex items-center justify-center rounded-full text-white shadow-lg ring-1 ring-white/25 ${social.color} ${
-            compact ? "h-9 w-9" : "h-12 w-12"
-          }`}
-        >
+      {socialMedia.map((social) => {
+        const icon = (
           <svg
             viewBox="0 0 28 28"
             aria-hidden="true"
@@ -64,8 +59,39 @@ export default function SocialMediaIcons({ compact = false }: SocialMediaIconsPr
           >
             {social.icon}
           </svg>
-        </span>
-      ))}
+        );
+        const className = `inline-flex items-center justify-center rounded-full text-white shadow-lg ring-1 ring-white/25 transition hover:-translate-y-0.5 hover:shadow-emerald-900/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-200 ${social.color} ${
+          compact ? "h-9 w-9" : "h-12 w-12"
+        }`;
+
+        if (!social.href) {
+          return (
+            <span
+              key={social.name}
+              title={`${social.name} — profil wkrótce`}
+              aria-label={`${social.name} — profil wkrótce`}
+              role="img"
+              className={`${className} cursor-not-allowed opacity-70`}
+            >
+              {icon}
+            </span>
+          );
+        }
+
+        return (
+          <a
+            key={social.name}
+            href={social.href}
+            target="_blank"
+            rel="noreferrer"
+            title={`Otwórz ${social.name} Systemu Strzeleckiego`}
+            aria-label={`Otwórz ${social.name} Systemu Strzeleckiego`}
+            className={className}
+          >
+            {icon}
+          </a>
+        );
+      })}
     </div>
   );
 }
