@@ -1845,6 +1845,45 @@ export default function AdminClient({
     return user.phone_number || "";
   }
 
+  function getLastSeenTime(user: AdminUser) {
+    if (!user.last_seen) {
+      return 0;
+    }
+
+    const time = new Date(user.last_seen).getTime();
+
+    return Number.isNaN(time)
+      ? 0
+      : time;
+  }
+
+  function compareUsersByStatus(firstUser: AdminUser, secondUser: AdminUser) {
+    const firstStatusRank = firstUser.status === "online" ? 1 : 0;
+    const secondStatusRank = secondUser.status === "online" ? 1 : 0;
+
+    if (firstStatusRank !== secondStatusRank) {
+      return userSortDirection === "desc"
+        ? secondStatusRank - firstStatusRank
+        : firstStatusRank - secondStatusRank;
+    }
+
+    if (firstUser.status === "offline" && secondUser.status === "offline") {
+      const lastSeenSort = getLastSeenTime(secondUser) - getLastSeenTime(firstUser);
+
+      if (lastSeenSort !== 0) {
+        return lastSeenSort;
+      }
+    }
+
+    return getUserName(firstUser).localeCompare(
+      getUserName(secondUser),
+      "pl",
+      {
+        sensitivity: "base",
+      }
+    );
+  }
+
   function sortUsers(field: UserSortField) {
     if (userSortField === field) {
       setUserSortDirection(
@@ -1974,6 +2013,10 @@ export default function AdminClient({
 
       if (!firstUser.requested_role && secondUser.requested_role) {
         return 1;
+      }
+
+      if (userSortField === "status") {
+        return compareUsersByStatus(firstUser, secondUser);
       }
 
       return userSortDirection === "asc"
