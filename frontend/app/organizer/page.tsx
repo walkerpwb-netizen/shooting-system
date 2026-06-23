@@ -553,7 +553,7 @@ export default function OrganizerPage() {
   async function handleStartCompetition(competition: Competition) {
     if ((competition.missing_judge_disciplines?.length || 0) > 0) {
       setMessage(
-        `Nie można rozpocząć zawodów. Przypisz sędziego do każdej konkurencji. Brak sędziego dla: ${competition.missing_judge_disciplines?.join(", ")}. Sędzia główny nie jest wymagany. ❌`
+        `Nie można rozpocząć zawodów: brak przypisanego sędziego dla konkurencji: ${competition.missing_judge_disciplines?.join(", ")}. Przypisz sędziego w szczegółach zawodów. ❌`
       );
       return;
     }
@@ -1673,7 +1673,7 @@ export default function OrganizerPage() {
 
                       {(competition.missing_judge_disciplines?.length || 0) > 0 && competition.status === "published" && (
                         <p className="mt-2 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs font-bold text-red-800 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200">
-                          Nie można rozpocząć: brak sędziego dla {competition.missing_judge_disciplines?.join(", ")}.
+                          Nie można rozpocząć zawodów: brak przypisanego sędziego dla konkurencji: {competition.missing_judge_disciplines?.join(", ")}. Przypisz sędziego w szczegółach zawodów.
                         </p>
                       )}
 
@@ -1735,7 +1735,7 @@ export default function OrganizerPage() {
                           onClick={() => handleTogglePublication(competition)}
                           className="ui-button bg-orange-600 hover:bg-orange-500 text-white px-4 py-2 rounded-xl font-semibold"
                         >
-                          Cofnij
+                          Cofnij Publikację
                         </button>
                       )}
 
