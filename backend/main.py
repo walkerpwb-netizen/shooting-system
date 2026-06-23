@@ -6313,6 +6313,48 @@ def admin_reject_pzss_club(
     return public_pzss_club(club)
 
 
+@app.delete("/admin/pzss-clubs/{club_id}")
+def admin_delete_pzss_club(
+    club_id: int,
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    club = (
+        db.query(User)
+        .filter(
+            User.id == club_id,
+            User.account_type == PZSS_CLUB_ACCOUNT_TYPE,
+        )
+        .first()
+    )
+
+    if not club:
+        raise HTTPException(status_code=404, detail="Klub PZSS nie istnieje")
+
+    if club.email == admin.email:
+        raise HTTPException(
+            status_code=400,
+            detail="Nie możesz usunąć własnego konta administratora"
+        )
+
+    (
+        db.query(User)
+        .filter(User.verified_club_id == club.id)
+        .update(
+            {
+                User.verified_club_id: None,
+                User.club_membership_status: None,
+            },
+            synchronize_session=False,
+        )
+    )
+    delete_user_with_dependencies(club, db)
+
+    return {
+        "message": "Klub PZSS usunięty"
+    }
+
+
 @app.get("/admin/users")
 def admin_get_users(
     admin: User = Depends(get_current_admin),

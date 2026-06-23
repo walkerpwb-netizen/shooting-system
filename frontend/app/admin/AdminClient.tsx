@@ -1089,6 +1089,49 @@ export default function AdminClient({
     }
   }
 
+  async function deletePzssClub(club: AdminPzssClub) {
+    const confirmed = window.confirm(
+      `Czy na pewno chcesz usunąć klub PZSS "${club.short_name || club.full_name || club.email}"? Tej operacji nie można cofnąć.`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    const token = getAccessToken();
+
+    try {
+      setMessage("");
+
+      const response = await fetch(
+        apiUrl(`/admin/pzss-clubs/${club.id}`),
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.detail || "Nie udało się usunąć klubu PZSS ❌");
+        return;
+      }
+
+      setPzssClubs((currentClubs) => currentClubs.filter((currentClub) => currentClub.id !== club.id));
+      setClubLicenseInputs((currentInputs) => {
+        const nextInputs = { ...currentInputs };
+        delete nextInputs[club.id];
+        return nextInputs;
+      });
+      setMessage("Klub PZSS usunięty ✅");
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    }
+  }
+
   async function deleteCompetition(competitionId: number) {
     const confirmed = window.confirm(
       "Czy na pewno chcesz usunąć te zawody jako administrator?"
@@ -2658,7 +2701,7 @@ export default function AdminClient({
         ) : activeTab === "pzss-clubs" ? (
           <section className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-x-auto">
             <div className="min-w-[1100px]">
-              <div className="grid grid-cols-[1fr_1.4fr_1fr_0.9fr_1fr_1.2fr] gap-4 px-5 py-4 text-sm font-bold text-gray-400 border-b border-zinc-800">
+              <div className="grid grid-cols-[1fr_1.4fr_1fr_0.9fr_1fr_1.5fr] gap-4 px-5 py-4 text-sm font-bold text-gray-400 border-b border-zinc-800">
                 <p>Nazwa skrócona</p>
                 <p>Nazwa pełna</p>
                 <p>Kontakt</p>
@@ -2674,7 +2717,7 @@ export default function AdminClient({
               ) : pzssClubs.map((club) => (
                 <div
                   key={club.id}
-                  className={`grid grid-cols-[1fr_1.4fr_1fr_0.9fr_1fr_1.2fr] gap-4 px-5 py-4 items-center border-b border-zinc-800 last:border-b-0 ${
+                  className={`grid grid-cols-[1fr_1.4fr_1fr_0.9fr_1fr_1.5fr] gap-4 px-5 py-4 items-center border-b border-zinc-800 last:border-b-0 ${
                     club.status === "pending" ? "bg-yellow-950/20" : ""
                   }`}
                 >
@@ -2729,6 +2772,14 @@ export default function AdminClient({
                       className="bg-zinc-700 hover:bg-zinc-600 text-white px-3 py-2 rounded-lg text-sm font-semibold transition"
                     >
                       Odrzuć
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => deletePzssClub(club)}
+                      className="bg-red-700 hover:bg-red-600 text-white px-3 py-2 rounded-lg text-sm font-semibold transition"
+                    >
+                      Usuń klub
                     </button>
                   </div>
                 </div>
