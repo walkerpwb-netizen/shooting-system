@@ -4432,10 +4432,12 @@ def require_organizer_publication_slot(
     raise HTTPException(
         status_code=403,
         detail=(
-            "Darmowy limit organizatora to 1 jednocześnie opublikowane zawody. "
+            "Możesz mieć tylko jedne zawody opublikowane jednocześnie. "
             "Aby opublikować kolejne zawody, wykup dodatkową publikację za "
             f"{organizer_package['monthly_price']} zł albo roczny pakiet Premium "
-            f"Organizatora za {organizer_package['yearly_price']} zł."
+            f"Organizatora za {organizer_package['yearly_price']} zł który daje "
+            "nielimitowana ilość publikacji. Możesz też zaczekać aż twoje aktualne "
+            "zawody się zakończą i wtedy opublikować te za darmo."
         ),
     )
 

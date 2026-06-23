@@ -275,6 +275,7 @@ export default function OrganizerPage() {
   const [pzssLicenseCalendar, setPzssLicenseCalendar] = useState(false);
   const [requiresLicensedJudge, setRequiresLicensedJudge] = useState<boolean | null>(null);
   const [message, setMessage] = useState("");
+  const [premiumPublicationDialog, setPremiumPublicationDialog] = useState("");
   const [disciplines, setDisciplines] = useState<Discipline[]>([]);
   const [loading, setLoading] = useState(false);
   const [resultsPdfDownloadingId, setResultsPdfDownloadingId] = useState<number | null>(null);
@@ -321,6 +322,15 @@ export default function OrganizerPage() {
     competitionNameFilter,
     competitions,
   ]);
+
+  function showPremiumPublicationLimitDialog(detail: string) {
+    if (!detail.includes("Możesz mieć tylko jedne zawody opublikowane jednocześnie")) {
+      return false;
+    }
+
+    setPremiumPublicationDialog(detail);
+    return true;
+  }
 
   useEffect(() => {
     if (!isOrganizer()) {
@@ -489,7 +499,14 @@ export default function OrganizerPage() {
       const data = await response.json();
 
       if (!response.ok) {
-        setMessage(data.detail || "Nie udało się opublikować zawodów ❌");
+        const detail = data.detail || "Nie udało się opublikować zawodów ❌";
+
+        if (showPremiumPublicationLimitDialog(detail)) {
+          setMessage("");
+          return;
+        }
+
+        setMessage(detail);
         return;
       }
 
@@ -1791,6 +1808,30 @@ export default function OrganizerPage() {
         )}
 
       </div>
+
+      {premiumPublicationDialog && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 px-4 py-6">
+          <div className="w-full max-w-xl rounded-2xl border border-amber-500/70 bg-zinc-950 p-6 text-white shadow-2xl">
+            <h2 className="text-2xl font-black text-amber-200">
+              Limit opublikowanych zawodów
+            </h2>
+
+            <p className="mt-4 whitespace-pre-line text-base leading-7 text-gray-100">
+              {premiumPublicationDialog}
+            </p>
+
+            <div className="mt-6 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setPremiumPublicationDialog("")}
+                className="ui-button rounded-xl bg-green-700 px-6 py-3 font-bold text-white transition hover:bg-green-600"
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </main>
   );
