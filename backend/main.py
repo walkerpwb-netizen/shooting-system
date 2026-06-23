@@ -488,7 +488,6 @@ PREMIUM_FEATURES = {
         {"id": "ranking", "label": "Ranking"},
         {"id": "achievements", "label": "Odznaczenia"},
         {"id": "statistics", "label": "Moje statystyki"},
-        {"id": "profile_badges", "label": "Odznaczenia w profilu"},
     ],
     "organizer": [
         {
@@ -507,7 +506,6 @@ PREMIUM_SETTINGS_DEFAULTS = {
             "ranking",
             "achievements",
             "statistics",
-            "profile_badges",
         ],
     },
     "organizer": {

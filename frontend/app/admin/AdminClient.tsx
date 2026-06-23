@@ -263,7 +263,6 @@ const defaultPremiumSettings: PremiumSettings = {
       "ranking",
       "achievements",
       "statistics",
-      "profile_badges",
     ],
     available_features: [
       { id: "live_results", label: "Wyniki na Żywo" },
@@ -271,7 +270,6 @@ const defaultPremiumSettings: PremiumSettings = {
       { id: "ranking", label: "Ranking" },
       { id: "achievements", label: "Odznaczenia" },
       { id: "statistics", label: "Moje statystyki" },
-      { id: "profile_badges", label: "Odznaczenia w profilu" },
     ],
   },
   organizer: {
