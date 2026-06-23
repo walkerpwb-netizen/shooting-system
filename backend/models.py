@@ -169,6 +169,13 @@ class User(Base):
         server_default="0",
     )
 
+    premium_organizer_disabled = Column(
+        Integer,
+        default=0,
+        nullable=False,
+        server_default="0",
+    )
+
     profile_photo_url = Column(
         String,
         nullable=True,

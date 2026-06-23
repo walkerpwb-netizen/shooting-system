@@ -28,6 +28,7 @@ type AdminUser = {
   password_reset_required: boolean;
   premium_until: string;
   premium_disabled: boolean;
+  premium_organizer_disabled: boolean;
   status: "online" | "offline";
   last_seen: string;
 };
@@ -700,6 +701,54 @@ export default function AdminClient({
         )
       );
       setMessage(premiumDisabled ? "Premium użytkownika wyłączone ✅" : "Premium użytkownika przywrócone ✅");
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    }
+  }
+
+  async function updateUserOrganizerPremiumDisabled(
+    userId: number,
+    premiumOrganizerDisabled: boolean
+  ) {
+    const token = getAccessToken();
+
+    try {
+      setMessage("");
+
+      const response = await fetch(
+        apiUrl(`/admin/users/${userId}/organizer-premium-disabled`),
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            premium_organizer_disabled: premiumOrganizerDisabled,
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.detail || "Nie udało się zmienić statusu Premium Organizatora ❌");
+        return;
+      }
+
+      setUsers((currentUsers) =>
+        currentUsers.map((user) =>
+          user.id === userId
+            ? data
+            : user
+        )
+      );
+      setMessage(
+        premiumOrganizerDisabled
+          ? "Premium Organizatora wyłączone ✅"
+          : "Premium Organizatora przywrócone ✅"
+      );
     } catch (error) {
       console.error(error);
       setMessage("Błąd połączenia z serwerem ❌");
@@ -2512,11 +2561,31 @@ export default function AdminClient({
                     />
 
                     <span>
-                      Wyłącz
+                      Wyłącz strzelca
                     </span>
                   </label>
 
-                  <p className={Boolean(user.premium_disabled) ? "text-red-300" : "text-gray-400"}>
+                  <label className="flex items-center gap-2 text-gray-200">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(user.premium_organizer_disabled)}
+                      onChange={(event) => updateUserOrganizerPremiumDisabled(
+                        user.id,
+                        event.target.checked
+                      )}
+                      className="accent-red-700"
+                    />
+
+                    <span>
+                      Wyłącz organizatora
+                    </span>
+                  </label>
+
+                  <p className={
+                    Boolean(user.premium_disabled) || Boolean(user.premium_organizer_disabled)
+                      ? "text-red-300"
+                      : "text-gray-400"
+                  }>
                     do {formatPremiumUntil(user.premium_until)}
                   </p>
                 </div>

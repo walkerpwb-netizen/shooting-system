@@ -254,6 +254,10 @@ class UserPremiumDisabledData(BaseModel):
     premium_disabled: bool = False
 
 
+class UserOrganizerPremiumDisabledData(BaseModel):
+    premium_organizer_disabled: bool = False
+
+
 class RoleRequestData(BaseModel):
     role: str
     confirmed: bool = False
@@ -1702,6 +1706,7 @@ def public_user(user: User):
         "password_reset_required": bool(user.password_reset_required),
         "premium_until": getattr(user, "premium_until", "") or "",
         "premium_disabled": bool(getattr(user, "premium_disabled", 0)),
+        "premium_organizer_disabled": bool(getattr(user, "premium_organizer_disabled", 0)),
         "profile_photo_url": getattr(user, "profile_photo_url", "") or "",
         "account_type": getattr(user, "account_type", "") or USER_ACCOUNT_TYPE,
         "pzss_club_short_name": getattr(user, "pzss_club_short_name", "") or "",
@@ -1806,7 +1811,8 @@ def admin_user_profile_info(user: User):
                 "title": "Premium",
                 "rows": [
                     admin_user_info_row("Premium do", getattr(user, "premium_until", "")),
-                    admin_user_info_row("Premium ręcznie wyłączone", bool(getattr(user, "premium_disabled", 0))),
+                    admin_user_info_row("Premium strzelca ręcznie wyłączone", bool(getattr(user, "premium_disabled", 0))),
+                    admin_user_info_row("Premium organizatora ręcznie wyłączone", bool(getattr(user, "premium_organizer_disabled", 0))),
                 ],
             },
             {
@@ -4361,6 +4367,18 @@ def has_active_premium(user: Optional[User]):
     return datetime.now(APP_TIMEZONE) <= premium_until
 
 
+def has_active_organizer_premium(user: Optional[User]):
+    if not user or getattr(user, "premium_organizer_disabled", 0):
+        return False
+
+    premium_until = premium_until_datetime(user)
+
+    if not premium_until:
+        return False
+
+    return datetime.now(APP_TIMEZONE) <= premium_until
+
+
 def require_active_premium(user: Optional[User]):
     if not has_active_premium(user):
         raise HTTPException(
@@ -4405,7 +4423,7 @@ def require_organizer_publication_slot(
     if active_publications_count < ORGANIZER_FREE_ACTIVE_PUBLICATIONS_LIMIT:
         return
 
-    if has_active_premium(user):
+    if has_active_organizer_premium(user):
         return
 
     premium_settings = get_premium_settings(db)
@@ -6355,6 +6373,7 @@ def admin_create_user(
         password_reset_required=0,
         premium_until=premium_end_of_year_iso(),
         premium_disabled=0,
+        premium_organizer_disabled=0,
     )
 
     db.add(user)
@@ -6412,6 +6431,33 @@ def admin_update_user_premium_disabled(
     db.refresh(target_user)
 
     return public_user(target_user)
+
+
+@app.put("/admin/users/{user_id}/organizer-premium-disabled")
+def admin_update_user_organizer_premium_disabled(
+    user_id: int,
+    data: UserOrganizerPremiumDisabledData,
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    target_user = (
+        db.query(User)
+        .filter(User.id == user_id)
+        .first()
+    )
+
+    if not target_user:
+        raise HTTPException(
+            status_code=404,
+            detail="Użytkownik nie istnieje"
+        )
+
+    target_user.premium_organizer_disabled = 1 if data.premium_organizer_disabled else 0
+    db.commit()
+    db.refresh(target_user)
+
+    return public_user(target_user)
+
 
 @app.put("/admin/users/{user_id}/role")
 def admin_update_user_role(
