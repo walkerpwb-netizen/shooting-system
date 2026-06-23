@@ -1,5 +1,6 @@
 type SocialMediaIconsProps = {
   compact?: boolean;
+  className?: string;
 };
 
 const socialMedia = [
@@ -43,10 +44,13 @@ const socialMedia = [
   },
 ];
 
-export default function SocialMediaIcons({ compact = false }: SocialMediaIconsProps) {
+export default function SocialMediaIcons({
+  compact = false,
+  className = "",
+}: SocialMediaIconsProps) {
   return (
     <div
-      className="flex flex-wrap items-center gap-3"
+      className={`flex flex-wrap items-center ${compact ? "gap-2" : "gap-3"} ${className}`}
       aria-label="Media społecznościowe Systemu Strzeleckiego"
     >
       {socialMedia.map((social) => {
@@ -60,8 +64,8 @@ export default function SocialMediaIcons({ compact = false }: SocialMediaIconsPr
             {social.icon}
           </svg>
         );
-        const className = `inline-flex items-center justify-center rounded-full text-white shadow-lg ring-1 ring-white/25 transition hover:-translate-y-0.5 hover:shadow-emerald-900/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-200 ${social.color} ${
-          compact ? "h-9 w-9" : "h-12 w-12"
+        const iconClassName = `inline-flex items-center justify-center rounded-full text-white shadow-lg ring-1 ring-white/25 transition hover:-translate-y-0.5 hover:shadow-emerald-900/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-200 ${social.color} ${
+          compact ? "h-8 w-8" : "h-12 w-12"
         }`;
 
         if (!social.href) {
@@ -71,7 +75,7 @@ export default function SocialMediaIcons({ compact = false }: SocialMediaIconsPr
               title={`${social.name} — profil wkrótce`}
               aria-label={`${social.name} — profil wkrótce`}
               role="img"
-              className={`${className} cursor-not-allowed opacity-70`}
+              className={`${iconClassName} cursor-not-allowed opacity-70`}
             >
               {icon}
             </span>
@@ -86,7 +90,7 @@ export default function SocialMediaIcons({ compact = false }: SocialMediaIconsPr
             rel="noreferrer"
             title={`Otwórz ${social.name} Systemu Strzeleckiego`}
             aria-label={`Otwórz ${social.name} Systemu Strzeleckiego`}
-            className={className}
+            className={iconClassName}
           >
             {icon}
           </a>

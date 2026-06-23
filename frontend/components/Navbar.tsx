@@ -20,6 +20,7 @@ import {
   SESSION_TIMEOUT_MS,
   subscribeToAuthChange,
 } from "@/lib/auth";
+import SocialMediaIcons from "./SocialMediaIcons";
 
 type PublicCompetition = {
   status: string;
@@ -690,7 +691,8 @@ export default function Navbar() {
 
       </div>
 
-      <div className="flex w-full min-w-0 items-center justify-between gap-3 border-t border-green-800 pt-3 lg:w-auto lg:border-t-0 lg:pt-0">
+      <div className="flex w-full min-w-0 items-center justify-between gap-5 border-t border-green-800 pt-3 lg:w-auto lg:border-t-0 lg:pt-0">
+        <SocialMediaIcons compact className="shrink-0" />
 
         {user ? (
           <>
@@ -738,24 +740,28 @@ export default function Navbar() {
 
     <nav className="ui-navbar w-full bg-green-900 text-white px-4 py-3 sm:px-6 lg:hidden">
       <div className="ui-navbar-inner">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center justify-between gap-2">
           <Link
             href="/"
-            className="text-lg font-bold"
+            className="shrink-0 text-base font-bold min-[380px]:text-lg"
             onClick={() => setMobileMenuOpen(false)}
           >
             Panel Główny
           </Link>
 
-          <button
-            type="button"
-            onClick={() => setMobileMenuOpen((currentValue) => !currentValue)}
-            className="flex h-11 w-11 items-center justify-center rounded-lg border border-green-800 text-2xl font-bold transition hover:bg-green-800"
-            aria-label={mobileMenuOpen ? "Zamknij menu" : "Otwórz menu"}
-            aria-expanded={mobileMenuOpen}
-          >
-            {mobileMenuOpen ? "×" : "≡"}
-          </button>
+          <div className="flex min-w-0 items-center gap-2">
+            <SocialMediaIcons compact className="shrink-0 flex-nowrap" />
+
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen((currentValue) => !currentValue)}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-green-800 text-2xl font-bold transition hover:bg-green-800 min-[380px]:h-11 min-[380px]:w-11"
+              aria-label={mobileMenuOpen ? "Zamknij menu" : "Otwórz menu"}
+              aria-expanded={mobileMenuOpen}
+            >
+              {mobileMenuOpen ? "×" : "≡"}
+            </button>
+          </div>
         </div>
 
         {mobileMenuOpen && (
