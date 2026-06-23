@@ -85,6 +85,7 @@ type SkeetHistoryEntry = {
 };
 
 const trapStationsCount = 5;
+const trapSquadCycleSize = 6;
 const trapTargetsPerRound = 5;
 const trapScoreGridColumns = "clamp(52px, 8vw, 120px) clamp(118px, 20vw, 260px) repeat(5, minmax(0, 1fr)) clamp(54px, 8vw, 120px)";
 
@@ -272,25 +273,117 @@ function parseScore(value: string) {
     : 0;
 }
 
-function getTrapInitialSlots(groupShooters: Shooter[]) {
-  return Array.from(
-    { length: trapStationsCount },
-    (_item, index) => groupShooters[index] ?? null
+function sortTrapShooters(groupShooters: Shooter[]) {
+  return [...groupShooters].sort((first, second) =>
+    (first.squad_position || 99) - (second.squad_position || 99)
   );
 }
 
-function getTrapPositionShooters(groupShooters: Shooter[], cycleIndex: number) {
+function getTrapCycleSize(groupShooters: Shooter[]) {
+  const hasWaitingPosition = groupShooters.some((shooter) =>
+    Number(shooter.squad_position || 0) >= trapSquadCycleSize
+  );
+
+  return groupShooters.length > trapStationsCount || hasWaitingPosition
+    ? trapSquadCycleSize
+    : trapStationsCount;
+}
+
+function getTrapInitialSlots(groupShooters: Shooter[]) {
+  const cycleSize = getTrapCycleSize(groupShooters);
+  const slots = Array.from({ length: cycleSize }, () => null as Shooter | null);
+  const sortedShooters = sortTrapShooters(groupShooters).slice(0, cycleSize);
+
+  sortedShooters.forEach((shooter) => {
+    const position = Number(shooter.squad_position || 0);
+    const targetIndex = position >= 1 && position <= cycleSize
+      ? position - 1
+      : slots.findIndex((slot) => slot === null);
+
+    if (targetIndex >= 0) {
+      slots[targetIndex] = shooter;
+    }
+  });
+
+  return slots;
+}
+
+function getTrapRotatedSlots(groupShooters: Shooter[], roundIndex: number) {
   const initialSlots = getTrapInitialSlots(groupShooters);
+  const cycleSize = initialSlots.length || trapStationsCount;
 
   return initialSlots.map((_shooter, stationIndex) => {
     const sourceIndex = (
       stationIndex
-      - (cycleIndex % trapStationsCount)
-      + trapStationsCount
-    ) % trapStationsCount;
+      - (roundIndex % cycleSize)
+      + cycleSize
+    ) % cycleSize;
 
     return initialSlots[sourceIndex];
   });
+}
+
+function getTrapPositionShooters(groupShooters: Shooter[], roundIndex: number) {
+  return getTrapRotatedSlots(groupShooters, roundIndex).slice(0, trapStationsCount);
+}
+
+function getTrapWaitingShooter(groupShooters: Shooter[], roundIndex: number) {
+  if (getTrapCycleSize(groupShooters) <= trapStationsCount) {
+    return null;
+  }
+
+  return getTrapRotatedSlots(groupShooters, roundIndex)[trapStationsCount] ?? null;
+}
+
+function getTrapScheduleRoundCount(groupShooters: Shooter[], scoreRoundCount: number) {
+  if (scoreRoundCount <= 0) {
+    return 0;
+  }
+
+  const seriesCount = Math.max(Math.ceil(scoreRoundCount / trapStationsCount), 1);
+
+  return seriesCount * getTrapCycleSize(groupShooters);
+}
+
+function getTrapScoreRoundIndexForShooter(
+  groupShooters: Shooter[],
+  participantId: number,
+  roundIndex: number
+) {
+  let activeRoundIndex = 0;
+
+  for (let previousRoundIndex = 0; previousRoundIndex < roundIndex; previousRoundIndex += 1) {
+    const wasActive = getTrapPositionShooters(groupShooters, previousRoundIndex).some(
+      (shooter) => shooter?.participant_id === participantId
+    );
+
+    if (wasActive) {
+      activeRoundIndex += 1;
+    }
+  }
+
+  const isActiveNow = getTrapPositionShooters(groupShooters, roundIndex).some(
+    (shooter) => shooter?.participant_id === participantId
+  );
+
+  return isActiveNow ? activeRoundIndex : -1;
+}
+
+function getTrapScoreIndexForShooter(
+  groupShooters: Shooter[],
+  participantId: number,
+  roundIndex: number,
+  targetIndex: number
+) {
+  const scoreRoundIndex = getTrapScoreRoundIndexForShooter(
+    groupShooters,
+    participantId,
+    roundIndex
+  );
+
+  return scoreRoundIndex >= 0
+    ? scoreRoundIndex * trapTargetsPerRound + targetIndex
+    : -1;
 }
 
 function getTrapActiveCells(groupShooters: Shooter[], roundIndex: number) {
@@ -298,11 +391,11 @@ function getTrapActiveCells(groupShooters: Shooter[], roundIndex: number) {
     stationIndex: number;
     targetIndex: number;
     shooter: Shooter;
+    scoreIndex: number;
   }[] = [];
 
   for (let targetIndex = 0; targetIndex < trapTargetsPerRound; targetIndex += 1) {
-    const cycleIndex = roundIndex * trapTargetsPerRound + targetIndex;
-    const positionShooters = getTrapPositionShooters(groupShooters, cycleIndex);
+    const positionShooters = getTrapPositionShooters(groupShooters, roundIndex);
 
     positionShooters.forEach((shooter, stationIndex) => {
       if (shooter) {
@@ -310,6 +403,12 @@ function getTrapActiveCells(groupShooters: Shooter[], roundIndex: number) {
           stationIndex,
           targetIndex,
           shooter,
+          scoreIndex: getTrapScoreIndexForShooter(
+            groupShooters,
+            shooter.participant_id,
+            roundIndex,
+            targetIndex
+          ),
         });
       }
     });
@@ -344,18 +443,17 @@ function parseTrapScores(resultData: string, totalRounds: number) {
 
 function findFirstTrapProgress(
   groupShooters: Shooter[],
-  totalRounds: number,
+  scheduleRoundCount: number,
   scoresByParticipant: Record<number, TrapScoreValue[]>
 ) {
-  for (let roundIndex = 0; roundIndex < totalRounds; roundIndex += 1) {
+  for (let roundIndex = 0; roundIndex < scheduleRoundCount; roundIndex += 1) {
     const activeCells = getTrapActiveCells(groupShooters, roundIndex);
 
     for (let shotIndex = 0; shotIndex < activeCells.length; shotIndex += 1) {
       const activeCell = activeCells[shotIndex];
-      const scoreIndex = roundIndex * trapTargetsPerRound + activeCell.targetIndex;
       const shooterScores = scoresByParticipant[activeCell.shooter.participant_id] || [];
 
-      if ((shooterScores[scoreIndex] ?? null) === null) {
+      if ((shooterScores[activeCell.scoreIndex] ?? null) === null) {
         return {
           completed: false,
           roundIndex,
@@ -367,7 +465,7 @@ function findFirstTrapProgress(
 
   return {
     completed: true,
-    roundIndex: Math.max(totalRounds - 1, 0),
+    roundIndex: Math.max(scheduleRoundCount - 1, 0),
     shotIndex: -1,
   };
 }
@@ -390,13 +488,13 @@ function trapScoresHaveAnyValue(scoresByParticipant: Record<number, TrapScoreVal
 
 function buildTrapResumeHistory(
   groupShooters: Shooter[],
-  totalRounds: number,
+  scheduleRoundCount: number,
   scoresByParticipant: Record<number, TrapScoreValue[]>,
   progress: ReturnType<typeof findFirstTrapProgress>
 ) {
   const history: TrapHistoryEntry[] = [];
 
-  for (let roundIndex = 0; roundIndex < totalRounds; roundIndex += 1) {
+  for (let roundIndex = 0; roundIndex < scheduleRoundCount; roundIndex += 1) {
     const activeCells = getTrapActiveCells(groupShooters, roundIndex);
 
     for (let shotIndex = 0; shotIndex < activeCells.length; shotIndex += 1) {
@@ -409,14 +507,13 @@ function buildTrapResumeHistory(
       }
 
       const activeCell = activeCells[shotIndex];
-      const scoreIndex = roundIndex * trapTargetsPerRound + activeCell.targetIndex;
       const shooterScores = scoresByParticipant[activeCell.shooter.participant_id] || [];
-      const score = shooterScores[scoreIndex] ?? null;
+      const score = shooterScores[activeCell.scoreIndex] ?? null;
 
       if (score === 1 || score === 0) {
         history.push({
           participantId: activeCell.shooter.participant_id,
-          scoreIndex,
+          scoreIndex: activeCell.scoreIndex,
           roundIndex,
           shotIndex,
           previousValue: null,
@@ -428,9 +525,10 @@ function buildTrapResumeHistory(
   return history;
 }
 
-function getTrapGroupState(groupShooters: Shooter[], totalRounds: number) {
-  const scoresByParticipant = buildTrapScoresByParticipant(groupShooters, totalRounds);
-  const progress = findFirstTrapProgress(groupShooters, totalRounds, scoresByParticipant);
+function getTrapGroupState(groupShooters: Shooter[], scoreRoundCount: number) {
+  const scheduleRoundCount = getTrapScheduleRoundCount(groupShooters, scoreRoundCount);
+  const scoresByParticipant = buildTrapScoresByParticipant(groupShooters, scoreRoundCount);
+  const progress = findFirstTrapProgress(groupShooters, scheduleRoundCount, scoresByParticipant);
   const hasAnyScore = trapScoresHaveAnyValue(scoresByParticipant);
   const status: TrapGroupStatus = progress.completed
     ? "completed"
@@ -444,7 +542,7 @@ function getTrapGroupState(groupShooters: Shooter[], totalRounds: number) {
     status,
     resumeHistory: buildTrapResumeHistory(
       groupShooters,
-      totalRounds,
+      scheduleRoundCount,
       scoresByParticipant,
       progress
     ),
@@ -684,6 +782,9 @@ export default function JudgeDisciplinePage() {
   const trapRoundCount = isTrapDiscipline
     ? Math.max(Number(discipline?.clay_series_count || discipline?.trap_series_count || 1) * 5, 5)
     : 0;
+  const activeTrapScheduleRoundCount = activeTrapGroup
+    ? getTrapScheduleRoundCount(activeTrapGroup.shooters, trapRoundCount)
+    : 0;
   const skeetRoundCount = isSkeetDiscipline
     ? Math.max(Number(discipline?.clay_series_count || 1), 1)
     : 0;
@@ -711,7 +812,7 @@ export default function JudgeDisciplinePage() {
       .sort(([firstGroup], [secondGroup]) => firstGroup - secondGroup)
       .map(([groupNumber, groupShooters]) => ({
         groupNumber,
-        shooters: groupShooters.slice(0, 5),
+        shooters: sortTrapShooters(groupShooters).slice(0, trapSquadCycleSize),
       }));
   }, [isTrapDiscipline, shooters]);
   const skeetGroups = useMemo(() => {
@@ -752,18 +853,16 @@ export default function JudgeDisciplinePage() {
       return [];
     }
 
-    const activeTargetIndex = trapActiveCells[trapShotIndex]?.targetIndex ?? 0;
-    const cycleIndex = trapRoundIndex * trapTargetsPerRound + activeTargetIndex;
-
-    return getTrapPositionShooters(activeTrapGroup.shooters, cycleIndex);
+    return getTrapPositionShooters(activeTrapGroup.shooters, trapRoundIndex);
   }, [activeTrapGroup, trapActiveCells, trapRoundIndex, trapShotIndex]);
+  const trapWaitingShooter = activeTrapGroup
+    ? getTrapWaitingShooter(activeTrapGroup.shooters, trapRoundIndex)
+    : null;
 
   const trapCurrentTargetIndex = trapActiveCells[trapShotIndex]?.targetIndex ?? 0;
-  const trapCurrentCycleNumber = trapRoundIndex * trapTargetsPerRound
-    + trapCurrentTargetIndex
-    + 1;
-  const trapTotalCycleCount = trapRoundCount * trapTargetsPerRound;
-  const trapRoundLabel = `Cykl ${trapCurrentCycleNumber} z ${trapTotalCycleCount}`;
+  const trapCurrentCycleNumber = trapRoundIndex + 1;
+  const trapTotalCycleCount = activeTrapScheduleRoundCount;
+  const trapRoundLabel = `Seria ${trapCurrentCycleNumber} z ${trapTotalCycleCount}`;
   const trapTargetLabel = `rzutek ${trapCurrentTargetIndex + 1}`;
 
   const sortedShooters = useMemo(() => {
@@ -1034,8 +1133,12 @@ export default function JudgeDisciplinePage() {
       return;
     }
 
-    const { shooter, targetIndex } = activeCell;
-    const scoreIndex = trapRoundIndex * trapTargetsPerRound + targetIndex;
+    const { shooter, scoreIndex } = activeCell;
+
+    if (scoreIndex < 0) {
+      return;
+    }
+
     const previousScores = trapScores[shooter.participant_id] || emptyTrapScores(trapRoundCount);
     const previousValue = previousScores[scoreIndex] ?? null;
     const nextScoresForShooter = [...previousScores];
@@ -1046,7 +1149,7 @@ export default function JudgeDisciplinePage() {
     };
     const nextTotal = trapScoreTotal(nextScoresForShooter, shooter.points);
     const groupCompleted = trapShotIndex + 1 >= trapActiveCells.length
-      && trapRoundIndex + 1 >= trapRoundCount;
+      && trapRoundIndex + 1 >= activeTrapScheduleRoundCount;
 
     setTrapScores(nextScores);
     setTrapHistory((currentHistory) => [
@@ -1062,7 +1165,7 @@ export default function JudgeDisciplinePage() {
 
     if (trapShotIndex + 1 < trapActiveCells.length) {
       setTrapShotIndex((currentIndex) => currentIndex + 1);
-    } else if (trapRoundIndex + 1 < trapRoundCount) {
+    } else if (trapRoundIndex + 1 < activeTrapScheduleRoundCount) {
       setTrapRoundIndex((currentRound) => currentRound + 1);
       setTrapShotIndex(0);
     }
@@ -1386,6 +1489,9 @@ export default function JudgeDisciplinePage() {
                 <h2 className="text-[clamp(1.35rem,4.2vw,3rem)] font-black leading-none">
                   Grupa {activeTrapGroup.groupNumber}
                 </h2>
+                <p className="mt-1 text-[clamp(0.72rem,1.6vw,1.05rem)] font-bold text-gray-600">
+                  Oczekujący: {trapWaitingShooter ? getShooterName(trapWaitingShooter) : "brak"}
+                </p>
               </div>
 
               <button
@@ -1451,7 +1557,14 @@ export default function JudgeDisciplinePage() {
                       </div>
 
                       {[0, 1, 2, 3, 4].map((targetIndex) => {
-                        const scoreIndex = trapRoundIndex * trapTargetsPerRound + targetIndex;
+                        const scoreIndex = shooter
+                          ? getTrapScoreIndexForShooter(
+                              activeTrapGroup.shooters,
+                              shooter.participant_id,
+                              trapRoundIndex,
+                              targetIndex
+                            )
+                          : -1;
                         const score = shooterScores[scoreIndex] ?? null;
                         const active = Boolean(shooter)
                           && activeCell?.stationIndex === stationIndex
@@ -1622,7 +1735,7 @@ export default function JudgeDisciplinePage() {
                 Grupy startowe Trap
               </h2>
               <p className="mt-1 text-sm text-gray-400 sm:text-base">
-                Wybierz grupę, gdy zawodnicy są na stanowiskach i gotowi do startu.
+                Wybierz grupę 6-osobową: stanowiska 1–5 strzelają, pozycja 6 oczekuje i wchodzi na stanowisko 1 po każdej serii.
               </p>
             </div>
 
@@ -1660,7 +1773,7 @@ export default function JudgeDisciplinePage() {
                             Grupa {group.groupNumber}
                           </h3>
                           <p className="text-sm text-gray-400">
-                            {group.shooters.length}/5 zawodników
+                            {group.shooters.length}/6 zawodników
                           </p>
                         </div>
 
@@ -1693,13 +1806,15 @@ export default function JudgeDisciplinePage() {
                       )}
 
                       <div className="space-y-2">
-                        {group.shooters.map((shooter, index) => (
+                        {group.shooters.map((shooter) => (
                           <div
                             key={shooter.participant_id}
-                            className="grid grid-cols-[40px_1fr_70px] items-center gap-3 rounded-lg bg-zinc-900 px-3 py-2"
+                            className="grid grid-cols-[104px_1fr_70px] items-center gap-3 rounded-lg bg-zinc-900 px-3 py-2"
                           >
                             <span className="text-center text-lg font-black text-green-400">
-                              {index + 1}
+                              {shooter.squad_position === 6
+                                ? "oczek."
+                                : shooter.squad_position || "–"}
                             </span>
                             <span className="min-w-0 truncate font-bold text-white">
                               {getShooterName(shooter)}

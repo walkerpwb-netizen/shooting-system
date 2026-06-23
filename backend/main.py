@@ -643,7 +643,7 @@ TRAP_VARIANT_SERIES = {
     "trap-125": 5,
 }
 TRAP_MANUAL_VARIANT = "manual"
-SQUAD_GROUP_SIZE = 5
+SQUAD_GROUP_SIZE = 6
 SKEET_TARGETS_PER_SERIES = 25
 SKEET_SHOTS_PER_TARGET = 1
 SKEET_VARIANT_SERIES = {
@@ -3340,24 +3340,33 @@ def validate_trap_squad_groups_before_start(competition: Competition, db):
                 detail="Popraw grupy startowe konkurencji rzutkowych przed rozpoczęciem zawodów."
             )
 
-        if normalize_discipline_type(discipline.discipline_type or "") == SKEET_DISCIPLINE_TYPE:
+        if normalize_discipline_type(discipline.discipline_type or "") in [
+            TRAP_DISCIPLINE_TYPE,
+            SKEET_DISCIPLINE_TYPE,
+        ]:
             positions_by_group: dict[int, set[int]] = {}
+            group_size = clay_squad_group_size(discipline)
+            discipline_name = (
+                "Trap"
+                if normalize_discipline_type(discipline.discipline_type or "") == TRAP_DISCIPLINE_TYPE
+                else "Skeet"
+            )
 
             for participant_discipline in participant_disciplines:
                 group_number = int(participant_discipline.squad_group_number or 0)
                 position = int(getattr(participant_discipline, "squad_position", 0) or 0)
 
-                if position <= 0 or position > SKEET_SQUAD_GROUP_SIZE:
+                if position <= 0 or position > group_size:
                     raise HTTPException(
                         status_code=400,
-                        detail="Każdy zawodnik Skeet musi mieć pozycję od 1 do 6 w grupie."
+                        detail=f"Każdy zawodnik {discipline_name} musi mieć pozycję od 1 do {group_size} w grupie."
                     )
 
                 group_positions = positions_by_group.setdefault(group_number, set())
                 if position in group_positions:
                     raise HTTPException(
                         status_code=400,
-                        detail="Pozycje zawodników w grupie Skeet nie mogą się powtarzać."
+                        detail=f"Pozycje zawodników w grupie {discipline_name} nie mogą się powtarzać."
                     )
                 group_positions.add(position)
 

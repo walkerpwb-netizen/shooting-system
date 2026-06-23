@@ -149,6 +149,14 @@ function trapGroupStatusLabel(status: string | undefined) {
   return "";
 }
 
+function claySquadPositionLabel(disciplineType: string, position: number) {
+  if (disciplineType === "trap" && position === 6) {
+    return "Pozycja 6 - oczekujący";
+  }
+
+  return `Pozycja ${position}`;
+}
+
 function isValidManualBirthDate(value: string) {
   const rawValue = value.trim();
   const isoMatch = rawValue.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -1288,13 +1296,13 @@ export default function OrganizerCompetitionPage() {
                         Grupy startowe konkurencji rzutkowych
                       </h3>
                       <p className="text-sm text-gray-500">
-                        Zawodnicy są przydzielani po potwierdzeniu przybycia i opłaty. Trap korzysta z grup do 5 osób, a Skeet z grup do 6 osób.
+                        Zawodnicy są przydzielani po potwierdzeniu przybycia i opłaty. Trap korzysta z grup 6-osobowych: 5 stanowisk strzelających i 1 pozycja oczekująca, a Skeet z grup do 6 osób.
                       </p>
                     </div>
 
                     <div className="space-y-4">
                       {squadDisciplines.map(({ discipline, assignments, groupNumbers, groupStatuses }) => {
-                        const squadSize = discipline.discipline_type === "skeet" ? 6 : 5;
+                        const squadSize = 6;
                         const activeGroupNumbers = Array.from(
                           new Set(
                             assignments.map((item) => item.assignment.squad_group_number || 1)
@@ -1390,7 +1398,7 @@ export default function OrganizerCompetitionPage() {
 	                                        <div
                                           key={assignment.participant_discipline_id}
                                           className={`grid gap-2 rounded-lg bg-white px-3 py-2 sm:items-center ${
-                                            discipline.discipline_type === "skeet"
+                                            ["trap", "skeet"].includes(discipline.discipline_type)
                                               ? "sm:grid-cols-[1fr_130px_110px]"
                                               : "sm:grid-cols-[1fr_150px]"
                                           }`}
@@ -1399,7 +1407,10 @@ export default function OrganizerCompetitionPage() {
                                             href={`/profile/${participant.id}`}
                                             className="font-semibold text-gray-900 transition hover:text-green-700"
                                           >
-                                            {assignment.squad_position ? `${assignment.squad_position}. ` : ""}{participant.display_name}
+                                            {assignment.squad_position
+                                              ? `${claySquadPositionLabel(discipline.discipline_type, assignment.squad_position)}: `
+                                              : ""}
+                                            {participant.display_name}
 	                                          </Link>
 
 	                                          <select
@@ -1431,7 +1442,7 @@ export default function OrganizerCompetitionPage() {
 	                                            ))}
 	                                          </select>
 
-                                          {discipline.discipline_type === "skeet" && (
+                                          {["trap", "skeet"].includes(discipline.discipline_type) && (
                                             <select
                                               value={assignment.squad_position || 1}
                                               onChange={(event) => updateParticipantGroup(
@@ -1443,7 +1454,9 @@ export default function OrganizerCompetitionPage() {
                                               className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-semibold disabled:bg-gray-100"
                                             >
                                               {Array.from({ length: 6 }, (_item, index) => index + 1).map((position) => (
-                                                <option key={position} value={position}>Pozycja {position}</option>
+                                                <option key={position} value={position}>
+                                                  {claySquadPositionLabel(discipline.discipline_type, position)}
+                                                </option>
                                               ))}
                                             </select>
                                           )}
