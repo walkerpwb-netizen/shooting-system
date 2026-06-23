@@ -10,7 +10,7 @@ import { apiUrl } from "@/lib/api";
 import { getAccessToken, isAdmin } from "@/lib/auth";
 import QrCodeScanner from "@/components/QrCodeScanner";
 
-type AdminTab = "users" | "pzss-clubs" | "competitions" | "settings" | "ads" | "monitoring" | "qr-scanner" | "test-data";
+type AdminTab = "users" | "pzss-clubs" | "competitions" | "settings" | "premium" | "ads" | "monitoring" | "qr-scanner" | "test-data";
 type UserSortField = "name" | "status" | "role" | "account" | "phone";
 type SortDirection = "asc" | "desc";
 
@@ -228,12 +228,74 @@ type ActivationEmailTemplate = {
   html_body: string;
 };
 
+type PremiumFeature = {
+  id: string;
+  label: string;
+};
+
+type PremiumPackageSettings = {
+  monthly_price: string;
+  yearly_price: string;
+  features: string[];
+  available_features: PremiumFeature[];
+};
+
+type PremiumSettings = {
+  shooter: PremiumPackageSettings;
+  organizer: PremiumPackageSettings;
+};
+
 const activationLinkPlaceholder = "{{activation_link}}";
 
 const defaultActivationEmailTemplate: ActivationEmailTemplate = {
   subject: "Aktywacja konta w Systemie Strzeleckim",
   text_body: `Cześć,\n\nDziękujemy za rejestrację w Systemie Strzeleckim. Aby aktywować konto, otwórz link:\n${activationLinkPlaceholder}\n\nJeśli to nie Ty zakładałeś konto, zignoruj tę wiadomość.`,
   html_body: `<p>Cześć,</p>\n<p>Dziękujemy za rejestrację w Systemie Strzeleckim.</p>\n<p><a href="${activationLinkPlaceholder}">Aktywuj konto</a></p>\n<p>Jeśli to nie Ty zakładałeś konto, zignoruj tę wiadomość.</p>`,
+};
+
+const defaultPremiumSettings: PremiumSettings = {
+  shooter: {
+    monthly_price: "19.99",
+    yearly_price: "199.00",
+    features: [
+      "live_results",
+      "historical_results",
+      "ranking",
+      "achievements",
+      "statistics",
+      "profile_badges",
+    ],
+    available_features: [
+      { id: "live_results", label: "Wyniki na Żywo" },
+      { id: "historical_results", label: "Wyniki Historyczne" },
+      { id: "ranking", label: "Ranking" },
+      { id: "achievements", label: "Odznaczenia" },
+      { id: "statistics", label: "Moje statystyki" },
+      { id: "profile_badges", label: "Odznaczenia w profilu" },
+    ],
+  },
+  organizer: {
+    monthly_price: "49.99",
+    yearly_price: "499.00",
+    features: [
+      "organizer_panel",
+      "competition_management",
+      "judge_management",
+      "payments",
+      "live_results_publication",
+      "results_pdf",
+      "statistics_reports",
+    ],
+    available_features: [
+      { id: "organizer_panel", label: "Panel Organizatora" },
+      { id: "competition_management", label: "Tworzenie i edycja zawodów" },
+      { id: "judge_management", label: "Zarządzanie sędziami" },
+      { id: "payments", label: "Płatności i obecność" },
+      { id: "live_results_publication", label: "Publikacja wyników live" },
+      { id: "results_pdf", label: "PDF wyników" },
+      { id: "statistics_reports", label: "Raporty i statystyki zawodów" },
+    ],
+  },
 };
 
 const roles = [
@@ -358,6 +420,8 @@ export default function AdminClient({
   const [resultsTableSettings, setResultsTableSettings] = useState<ResultsTableSettings>(defaultResultsTableSettings);
   const [uiSettings, setUiSettings] = useState<UiSettings>(defaultUiSettings);
   const [profileSettings, setProfileSettings] = useState<ProfileSettings>(defaultProfileSettings);
+  const [premiumSettings, setPremiumSettings] = useState<PremiumSettings>(defaultPremiumSettings);
+  const [premiumSaving, setPremiumSaving] = useState(false);
   const [activationEmailTemplate, setActivationEmailTemplate] = useState<ActivationEmailTemplate>(defaultActivationEmailTemplate);
   const [emailAssetUploading, setEmailAssetUploading] = useState(false);
   const [activationEmailTestSending, setActivationEmailTestSending] = useState(false);
@@ -401,7 +465,7 @@ export default function AdminClient({
 
     async function loadAdminData() {
       try {
-        const [usersResponse, pzssClubsResponse, competitionsResponse, tableSettingsResponse, uiSettingsResponse, profileSettingsResponse, activationEmailResponse, monitoringResponse, adReportResponse] = await Promise.all([
+        const [usersResponse, pzssClubsResponse, competitionsResponse, tableSettingsResponse, uiSettingsResponse, profileSettingsResponse, premiumSettingsResponse, activationEmailResponse, monitoringResponse, adReportResponse] = await Promise.all([
           fetch(
             apiUrl("/admin/users"),
             {
@@ -451,6 +515,14 @@ export default function AdminClient({
             }
           ),
           fetch(
+            apiUrl("/admin/settings/premium"),
+            {
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            }
+          ),
+          fetch(
             apiUrl("/admin/settings/activation-email"),
             {
               headers: {
@@ -482,6 +554,7 @@ export default function AdminClient({
         const tableSettingsData = await tableSettingsResponse.json();
         const uiSettingsData = await uiSettingsResponse.json();
         const profileSettingsData = await profileSettingsResponse.json();
+        const premiumSettingsData = await premiumSettingsResponse.json();
         const activationEmailData = await activationEmailResponse.json();
         const monitoringData = await monitoringResponse.json();
         const adReportData = await adReportResponse.json();
@@ -517,6 +590,11 @@ export default function AdminClient({
 
         if (!profileSettingsResponse.ok) {
           setMessage(profileSettingsData.detail || "Nie udało się pobrać ustawień profilu ❌");
+          return;
+        }
+
+        if (!premiumSettingsResponse.ok) {
+          setMessage(premiumSettingsData.detail || "Nie udało się pobrać ustawień Premium ❌");
           return;
         }
 
@@ -569,6 +647,7 @@ export default function AdminClient({
           achievement_icon_size: profileSettingsData.achievement_icon_size || defaultProfileSettings.achievement_icon_size,
           achievement_gap: profileSettingsData.achievement_gap || defaultProfileSettings.achievement_gap,
         });
+        setPremiumSettings(normalizePremiumSettings(premiumSettingsData));
         setActivationEmailTemplate({
           subject: activationEmailData.subject || defaultActivationEmailTemplate.subject,
           text_body: activationEmailData.text_body || defaultActivationEmailTemplate.text_body,
@@ -703,6 +782,51 @@ export default function AdminClient({
         variableName,
         settings[key as keyof ProfileSettings]
       );
+    });
+  }
+
+  function normalizePremiumSettings(data: Partial<PremiumSettings>): PremiumSettings {
+    return {
+      shooter: {
+        monthly_price: data.shooter?.monthly_price || defaultPremiumSettings.shooter.monthly_price,
+        yearly_price: data.shooter?.yearly_price || defaultPremiumSettings.shooter.yearly_price,
+        features: data.shooter?.features || defaultPremiumSettings.shooter.features,
+        available_features: data.shooter?.available_features || defaultPremiumSettings.shooter.available_features,
+      },
+      organizer: {
+        monthly_price: data.organizer?.monthly_price || defaultPremiumSettings.organizer.monthly_price,
+        yearly_price: data.organizer?.yearly_price || defaultPremiumSettings.organizer.yearly_price,
+        features: data.organizer?.features || defaultPremiumSettings.organizer.features,
+        available_features: data.organizer?.available_features || defaultPremiumSettings.organizer.available_features,
+      },
+    };
+  }
+
+  function updatePremiumPackage(
+    packageType: keyof PremiumSettings,
+    update: Partial<Pick<PremiumPackageSettings, "monthly_price" | "yearly_price" | "features">>
+  ) {
+    setPremiumSettings((currentSettings) => ({
+      ...currentSettings,
+      [packageType]: {
+        ...currentSettings[packageType],
+        ...update,
+      },
+    }));
+  }
+
+  function togglePremiumFeature(
+    packageType: keyof PremiumSettings,
+    featureId: string,
+    checked: boolean
+  ) {
+    const currentFeatures = premiumSettings[packageType].features;
+    const nextFeatures = checked
+      ? [...currentFeatures, featureId].filter((value, index, list) => list.indexOf(value) === index)
+      : currentFeatures.filter((value) => value !== featureId);
+
+    updatePremiumPackage(packageType, {
+      features: nextFeatures,
     });
   }
 
@@ -1166,6 +1290,52 @@ export default function AdminClient({
     } catch (error) {
       console.error(error);
       setMessage("Błąd połączenia z serwerem ❌");
+    }
+  }
+
+  async function savePremiumSettings() {
+    const token = getAccessToken();
+
+    try {
+      setMessage("");
+      setPremiumSaving(true);
+
+      const response = await fetch(
+        apiUrl("/admin/settings/premium"),
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            shooter: {
+              monthly_price: premiumSettings.shooter.monthly_price,
+              yearly_price: premiumSettings.shooter.yearly_price,
+              features: premiumSettings.shooter.features,
+            },
+            organizer: {
+              monthly_price: premiumSettings.organizer.monthly_price,
+              yearly_price: premiumSettings.organizer.yearly_price,
+              features: premiumSettings.organizer.features,
+            },
+          }),
+        }
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.detail || "Nie udało się zapisać ustawień Premium ❌");
+        return;
+      }
+
+      setPremiumSettings(normalizePremiumSettings(data));
+      setMessage("Ustawienia Premium zapisane ✅");
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    } finally {
+      setPremiumSaving(false);
     }
   }
 
@@ -1820,6 +1990,92 @@ export default function AdminClient({
         : -sortResult;
     });
 
+  function renderPremiumPackage(
+    packageType: keyof PremiumSettings,
+    title: string,
+    description: string
+  ) {
+    const packageSettings = premiumSettings[packageType];
+
+    return (
+      <div className="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-5">
+        <div className="mb-5">
+          <h3 className="text-2xl font-black text-white">
+            {title}
+          </h3>
+          <p className="mt-2 text-sm leading-6 text-gray-400">
+            {description}
+          </p>
+        </div>
+
+        <div className="mb-6 grid gap-3 md:grid-cols-2">
+          <label className="rounded-2xl border border-green-900/70 bg-green-950/30 p-4">
+            <span className="block text-sm font-bold uppercase tracking-wide text-green-200">
+              Cena za 1 miesiąc
+            </span>
+            <div className="mt-2 flex items-center gap-2">
+              <input
+                type="text"
+                inputMode="decimal"
+                value={packageSettings.monthly_price}
+                onChange={(event) => updatePremiumPackage(packageType, {
+                  monthly_price: event.target.value,
+                })}
+                className="w-full rounded-xl border border-green-800 bg-zinc-900 px-4 py-3 text-2xl font-black text-white"
+              />
+              <span className="text-xl font-black text-green-100">zł</span>
+            </div>
+          </label>
+
+          <label className="rounded-2xl border border-green-900/70 bg-green-950/30 p-4">
+            <span className="block text-sm font-bold uppercase tracking-wide text-green-200">
+              Cena za cały rok
+            </span>
+            <div className="mt-2 flex items-center gap-2">
+              <input
+                type="text"
+                inputMode="decimal"
+                value={packageSettings.yearly_price}
+                onChange={(event) => updatePremiumPackage(packageType, {
+                  yearly_price: event.target.value,
+                })}
+                className="w-full rounded-xl border border-green-800 bg-zinc-900 px-4 py-3 text-2xl font-black text-white"
+              />
+              <span className="text-xl font-black text-green-100">zł</span>
+            </div>
+          </label>
+        </div>
+
+        <div className="space-y-3">
+          <p className="text-sm font-bold uppercase tracking-wide text-gray-300">
+            Funkcje w pakiecie
+          </p>
+
+          {packageSettings.available_features.map((feature) => (
+            <label
+              key={feature.id}
+              className="flex items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3 text-white transition hover:border-green-700"
+            >
+              <input
+                type="checkbox"
+                checked={packageSettings.features.includes(feature.id)}
+                onChange={(event) => togglePremiumFeature(
+                  packageType,
+                  feature.id,
+                  event.target.checked
+                )}
+                className="h-5 w-5 accent-green-600"
+              />
+              <span className="font-semibold">
+                {feature.label}
+              </span>
+            </label>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <main className="min-h-screen px-6 py-10">
       <div className="max-w-7xl mx-auto">
@@ -1880,6 +2136,18 @@ export default function AdminClient({
             }`}
           >
             Settings
+          </button>
+
+          <button
+            type="button"
+            onClick={() => selectTab("premium")}
+            className={`ui-button min-w-0 px-5 py-3 rounded-xl font-bold transition ${
+              activeTab === "premium"
+                ? "bg-green-700 text-white"
+                : "bg-zinc-800 text-gray-300 hover:bg-zinc-700"
+            }`}
+          >
+            Premium
           </button>
 
           <button
@@ -2542,6 +2810,43 @@ export default function AdminClient({
                   </div>
                 );
               })}
+            </div>
+          </section>
+        ) : activeTab === "premium" ? (
+          <section className="ui-block bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+            <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <h2 className="text-3xl font-bold text-white mb-2">
+                  Premium
+                </h2>
+
+                <p className="max-w-3xl text-gray-400">
+                  Zarządzaj funkcjami i cenami pakietów Premium. Zmiana ceny w polu od razu aktualizuje pakiet w tym widoku, a przycisk zapisu publikuje ustawienia w systemie.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={savePremiumSettings}
+                disabled={premiumSaving}
+                className="ui-button bg-green-700 hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-50 text-white px-5 py-3 rounded-xl font-bold transition"
+              >
+                {premiumSaving ? "Zapisuję..." : "Zapisz Premium"}
+              </button>
+            </div>
+
+            <div className="grid gap-6 xl:grid-cols-2">
+              {renderPremiumPackage(
+                "shooter",
+                "Pakiet Premium dla Strzelców",
+                "Funkcje widoczne dla zwykłych użytkowników i strzelców."
+              )}
+
+              {renderPremiumPackage(
+                "organizer",
+                "Pakiet Premium dla Organizatorów",
+                "Funkcje związane z organizacją i obsługą zawodów."
+              )}
             </div>
           </section>
         ) : activeTab === "settings" ? (

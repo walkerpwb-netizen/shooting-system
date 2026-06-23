@@ -952,6 +952,14 @@ export default function Navbar() {
                     </Link>
 
                     <Link
+                      href="/admin?tab=premium"
+                      onClick={() => setMobileMenuOpen(false)}
+                      className="block py-2"
+                    >
+                      Premium
+                    </Link>
+
+                    <Link
                       href="/admin?tab=ads"
                       onClick={() => setMobileMenuOpen(false)}
                       className="block py-2"
@@ -1063,6 +1071,13 @@ export default function Navbar() {
             className="ui-button min-w-0 bg-zinc-800 hover:bg-zinc-700 px-4 py-2 rounded-lg text-center transition"
           >
             Settings
+          </Link>
+
+          <Link
+            href="/admin?tab=premium"
+            className="ui-button min-w-0 bg-zinc-800 hover:bg-zinc-700 px-4 py-2 rounded-lg text-center transition"
+          >
+            Premium
           </Link>
 
           <Link

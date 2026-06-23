@@ -186,6 +186,17 @@ class ActivationEmailTemplateData(BaseModel):
     html_body: str
 
 
+class PremiumPackageSettingsData(BaseModel):
+    monthly_price: str
+    yearly_price: str
+    features: list[str]
+
+
+class PremiumSettingsData(BaseModel):
+    shooter: PremiumPackageSettingsData
+    organizer: PremiumPackageSettingsData
+
+
 class CompetitionData(BaseModel):
     name: str
     date: str
@@ -468,6 +479,53 @@ PROFILE_SETTINGS_DEFAULTS = {
     "profile_row_gap": "2rem",
     "profile_achievement_icon_size": "4rem",
     "profile_achievement_gap": "1.25rem",
+}
+PREMIUM_SETTINGS_KEY = "premium_packages"
+PREMIUM_FEATURES = {
+    "shooter": [
+        {"id": "live_results", "label": "Wyniki na Żywo"},
+        {"id": "historical_results", "label": "Wyniki Historyczne"},
+        {"id": "ranking", "label": "Ranking"},
+        {"id": "achievements", "label": "Odznaczenia"},
+        {"id": "statistics", "label": "Moje statystyki"},
+        {"id": "profile_badges", "label": "Odznaczenia w profilu"},
+    ],
+    "organizer": [
+        {"id": "organizer_panel", "label": "Panel Organizatora"},
+        {"id": "competition_management", "label": "Tworzenie i edycja zawodów"},
+        {"id": "judge_management", "label": "Zarządzanie sędziami"},
+        {"id": "payments", "label": "Płatności i obecność"},
+        {"id": "live_results_publication", "label": "Publikacja wyników live"},
+        {"id": "results_pdf", "label": "PDF wyników"},
+        {"id": "statistics_reports", "label": "Raporty i statystyki zawodów"},
+    ],
+}
+PREMIUM_SETTINGS_DEFAULTS = {
+    "shooter": {
+        "monthly_price": "19.99",
+        "yearly_price": "199.00",
+        "features": [
+            "live_results",
+            "historical_results",
+            "ranking",
+            "achievements",
+            "statistics",
+            "profile_badges",
+        ],
+    },
+    "organizer": {
+        "monthly_price": "49.99",
+        "yearly_price": "499.00",
+        "features": [
+            "organizer_panel",
+            "competition_management",
+            "judge_management",
+            "payments",
+            "live_results_publication",
+            "results_pdf",
+            "statistics_reports",
+        ],
+    },
 }
 ACHIEVEMENT_CATEGORY_IDS = ["overall", "pistol", "rifle", "shotgun"]
 ACHIEVEMENT_MEDALS = {
@@ -768,6 +826,67 @@ def validate_profile_settings(data: ProfileSettingsData):
     return settings
 
 
+def normalize_premium_price(value: str):
+    price_text = (value or "").strip().replace(",", ".")
+
+    try:
+        price = Decimal(price_text)
+    except (InvalidOperation, ValueError):
+        raise HTTPException(
+            status_code=400,
+            detail="Cena premium musi być poprawną liczbą"
+        )
+
+    if price < 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Cena premium nie może być ujemna"
+        )
+
+    if price > Decimal("999999.99"):
+        raise HTTPException(
+            status_code=400,
+            detail="Cena premium jest zbyt wysoka"
+        )
+
+    return str(price.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+
+def premium_feature_ids(package_type: str):
+    return {
+        feature["id"]
+        for feature in PREMIUM_FEATURES[package_type]
+    }
+
+
+def normalize_premium_package(package_type: str, package):
+    allowed_feature_ids = premium_feature_ids(package_type)
+    selected_features = []
+
+    for feature_id in package.features:
+        if feature_id not in allowed_feature_ids:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Nieprawidłowa funkcja premium: {feature_id}"
+            )
+
+        if feature_id not in selected_features:
+            selected_features.append(feature_id)
+
+    return {
+        "monthly_price": normalize_premium_price(package.monthly_price),
+        "yearly_price": normalize_premium_price(package.yearly_price),
+        "features": selected_features,
+    }
+
+
+def validate_premium_settings(data: PremiumSettingsData):
+    return {
+        "shooter": normalize_premium_package("shooter", data.shooter),
+        "organizer": normalize_premium_package("organizer", data.organizer),
+    }
+
+
 def validate_registration_consents(data: RegisterData | PzssClubRegisterData):
     if (
         not data.terms_accepted
@@ -896,6 +1015,53 @@ def get_profile_settings(db):
         "achievement_icon_size": stored_settings["profile_achievement_icon_size"],
         "achievement_gap": stored_settings["profile_achievement_gap"],
     }
+
+
+def get_premium_settings(db):
+    setting = (
+        db.query(AppSetting)
+        .filter(AppSetting.key == PREMIUM_SETTINGS_KEY)
+        .first()
+    )
+    stored = {}
+
+    if setting:
+        try:
+            stored = json.loads(setting.value)
+        except (TypeError, json.JSONDecodeError):
+            stored = {}
+
+    if not isinstance(stored, dict):
+        stored = {}
+
+    packages = {}
+
+    for package_type, defaults in PREMIUM_SETTINGS_DEFAULTS.items():
+        stored_package = stored.get(package_type, {})
+
+        if not isinstance(stored_package, dict):
+            stored_package = {}
+
+        allowed_feature_ids = premium_feature_ids(package_type)
+        stored_features = stored_package.get("features", defaults["features"])
+
+        if not isinstance(stored_features, list):
+            stored_features = defaults["features"]
+
+        features = [
+            feature_id
+            for feature_id in stored_features
+            if isinstance(feature_id, str) and feature_id in allowed_feature_ids
+        ]
+
+        packages[package_type] = {
+            "monthly_price": str(stored_package.get("monthly_price") or defaults["monthly_price"]),
+            "yearly_price": str(stored_package.get("yearly_price") or defaults["yearly_price"]),
+            "features": features,
+            "available_features": PREMIUM_FEATURES[package_type],
+        }
+
+    return packages
 
 
 def validate_ad_event(data: AdEventData):
@@ -5746,6 +5912,11 @@ def get_public_profile_settings(db=Depends(get_db)):
     return get_profile_settings(db)
 
 
+@app.get("/settings/premium")
+def get_public_premium_settings(db=Depends(get_db)):
+    return get_premium_settings(db)
+
+
 @app.get("/admin/settings/results-table")
 def get_admin_results_table_settings(
     admin: User = Depends(get_current_admin),
@@ -5768,6 +5939,14 @@ def get_admin_profile_settings(
     db=Depends(get_db),
 ):
     return get_profile_settings(db)
+
+
+@app.get("/admin/settings/premium")
+def get_admin_premium_settings(
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    return get_premium_settings(db)
 
 
 @app.get("/admin/settings/activation-email")
@@ -5861,6 +6040,23 @@ def update_admin_profile_settings(
     db.commit()
 
     return get_profile_settings(db)
+
+
+@app.put("/admin/settings/premium")
+def update_admin_premium_settings(
+    data: PremiumSettingsData,
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    premium_settings = validate_premium_settings(data)
+    set_setting_value(
+        PREMIUM_SETTINGS_KEY,
+        json.dumps(premium_settings, ensure_ascii=False),
+        db,
+    )
+    db.commit()
+
+    return get_premium_settings(db)
 
 
 @app.put("/admin/settings/activation-email")
