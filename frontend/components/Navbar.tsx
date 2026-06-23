@@ -629,10 +629,6 @@ export default function Navbar() {
           Ranking
         </Link>
 
-        <Link href="/kontakt">
-          Kontakt
-        </Link>
-
         {user && (
           <Link href="/profile">
             Profil
@@ -682,6 +678,10 @@ export default function Navbar() {
             Panel Sędziego
           </Link>
         )}
+
+        <Link href="/kontakt">
+          Kontakt
+        </Link>
 
         {isAdmin && (
           <Link href="/admin">
@@ -819,14 +819,6 @@ export default function Navbar() {
                 Ranking
               </Link>
 
-              <Link
-                href="/kontakt"
-                onClick={() => setMobileMenuOpen(false)}
-                className="py-3"
-              >
-                Kontakt
-              </Link>
-
               {user && (
                 <Link
                   href="/profile"
@@ -903,6 +895,14 @@ export default function Navbar() {
                   Panel Sędziego
                 </Link>
               )}
+
+              <Link
+                href="/kontakt"
+                onClick={() => setMobileMenuOpen(false)}
+                className="py-3"
+              >
+                Kontakt
+              </Link>
 
               {isAdmin && (
                 <>

@@ -326,12 +326,12 @@ export default function Home() {
                 Wszystko, czego potrzebują zawody
               </div>
 
-              <h1 className="mt-7 max-w-4xl text-4xl font-black leading-[1.02] tracking-[-0.045em] text-white sm:text-6xl lg:text-7xl">
+              <h1 className="mt-7 w-full text-4xl font-black leading-[0.98] tracking-[-0.055em] text-white sm:text-6xl lg:text-[clamp(4.75rem,5vw,6rem)]">
                 System Organizacji
                 <span className="block text-emerald-300">Zawodów Strzeleckich</span>
               </h1>
 
-              <p className="mt-7 max-w-2xl text-base leading-7 text-zinc-300 sm:text-xl sm:leading-8">
+              <p className="mt-8 max-w-3xl text-base leading-7 text-zinc-300 sm:text-xl sm:leading-8">
                 Kompleksowy system do obsługi zawodów strzeleckich. Rejestracja zawodników,
                 sędziowanie, wyniki na żywo, rankingi i historia startów w jednym miejscu.
               </p>
@@ -352,13 +352,13 @@ export default function Home() {
               </div>
 
               <Image
-                src="/icons/Logo-final-20260604-2200-cropped.png"
-                alt="Logo Systemu Strzeleckiego — mechaniczna sowa"
-                width={1317}
-                height={1010}
+                src="/icons/system-strzelecki-logo-20260623.png"
+                alt="Logo Systemu Organizacji Zawodów Strzeleckich"
+                width={1560}
+                height={1008}
                 priority
-                sizes="(min-width: 640px) 340px, 260px"
-                className="mt-10 h-auto w-[250px] opacity-85 drop-shadow-[0_18px_35px_rgba(0,0,0,0.45)] sm:w-[320px]"
+                sizes="(min-width: 1024px) 430px, (min-width: 640px) 360px, 280px"
+                className="mt-10 h-auto w-[280px] drop-shadow-[0_22px_40px_rgba(0,0,0,0.5)] sm:w-[360px] lg:w-[430px]"
               />
             </section>
 
