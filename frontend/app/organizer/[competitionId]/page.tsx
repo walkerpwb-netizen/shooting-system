@@ -1026,7 +1026,7 @@ export default function OrganizerCompetitionPage() {
               </div>
             </section>
 
-            <section className="space-y-6">
+            <section id="judges" className="scroll-mt-24 space-y-6">
               <div className="bg-white rounded-3xl p-6 text-black shadow-xl">
                 <h2 className="text-2xl font-bold mb-4">
                   Skład Sędziowski
@@ -1086,6 +1086,9 @@ export default function OrganizerCompetitionPage() {
                 <h2 className="text-2xl font-bold">
                   Przypisz sędziego do funkcji
                 </h2>
+                <p className="text-sm font-semibold text-zinc-600">
+                  Sędziów możesz dodawać i zmieniać także po opublikowaniu zawodów.
+                </p>
 
                 <div className="grid gap-3 md:grid-cols-[1fr_auto]">
                   <input

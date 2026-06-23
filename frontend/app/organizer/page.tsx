@@ -1684,6 +1684,14 @@ export default function OrganizerPage() {
                         Szczegóły
                       </button>
 
+                      <button
+                        type="button"
+                        onClick={() => router.push(`/organizer/${competition.id}#judges`)}
+                        className="ui-button bg-emerald-800 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl font-semibold"
+                      >
+                        Sędziowie
+                      </button>
+
                       {competition.status === "draft" && (
                         <button
                           type="button"
