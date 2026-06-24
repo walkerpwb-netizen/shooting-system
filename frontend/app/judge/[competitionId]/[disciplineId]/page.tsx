@@ -714,6 +714,7 @@ export default function JudgeDisciplinePage() {
   const [skeetSaving, setSkeetSaving] = useState(false);
   const [skeetReadOnly, setSkeetReadOnly] = useState(false);
   const skeetScreenRef = useRef<HTMLDivElement | null>(null);
+  const keyboardActionPendingRef = useRef(false);
 
   useEffect(() => {
     const token = getAccessToken();
@@ -855,7 +856,7 @@ export default function JudgeDisciplinePage() {
     }
 
     return getTrapPositionShooters(activeTrapGroup.shooters, trapRoundIndex);
-  }, [activeTrapGroup, trapActiveCells, trapRoundIndex, trapShotIndex]);
+  }, [activeTrapGroup, trapRoundIndex]);
   const trapWaitingShooter = activeTrapGroup
     ? getTrapWaitingShooter(activeTrapGroup.shooters, trapRoundIndex)
     : null;
@@ -1355,6 +1356,102 @@ export default function JudgeDisciplinePage() {
     }
   }
 
+  useEffect(() => {
+    if (!activeTrapGroup && !activeSkeetGroup) {
+      return;
+    }
+
+    function runKeyboardAction(action: () => Promise<void>) {
+      if (keyboardActionPendingRef.current) {
+        return;
+      }
+
+      keyboardActionPendingRef.current = true;
+      action().finally(() => {
+        keyboardActionPendingRef.current = false;
+      });
+    }
+
+    function handleClayKeyboard(event: KeyboardEvent) {
+      if (
+        event.repeat
+        || event.altKey
+        || event.ctrlKey
+        || event.metaKey
+        || event.shiftKey
+        || event.target instanceof HTMLInputElement
+        || event.target instanceof HTMLTextAreaElement
+        || event.target instanceof HTMLSelectElement
+      ) {
+        return;
+      }
+
+      if (activeTrapGroup) {
+        if (event.key === "ArrowUp") {
+          event.preventDefault();
+          runKeyboardAction(() => markTrapCell(1));
+        } else if (event.key === "ArrowDown") {
+          event.preventDefault();
+          runKeyboardAction(() => markTrapCell(0));
+        } else if (event.key === "Backspace") {
+          event.preventDefault();
+          runKeyboardAction(undoTrapCell);
+        }
+
+        return;
+      }
+
+      if (!activeSkeetGroup || !activeSkeetTurn) {
+        return;
+      }
+
+      const isDouble = activeSkeetTurn.presentation.houses.length === 2;
+      const handledSkeetKeys = isDouble
+        ? ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Backspace"]
+        : ["ArrowUp", "ArrowDown", "Backspace"];
+
+      if (!handledSkeetKeys.includes(event.key)) {
+        return;
+      }
+
+      event.preventDefault();
+
+      if (skeetReadOnly || !resultsEnabled) {
+        return;
+      }
+
+      let values: (0 | 1)[] | null = null;
+
+      if (isDouble) {
+        if (event.key === "ArrowUp") {
+          values = [1, 1];
+        } else if (event.key === "ArrowLeft") {
+          values = [1, 0];
+        } else if (event.key === "ArrowRight") {
+          values = [0, 1];
+        } else if (event.key === "ArrowDown") {
+          values = [0, 0];
+        }
+      } else if (event.key === "ArrowUp") {
+        values = [1];
+      } else if (event.key === "ArrowDown") {
+        values = [0];
+      }
+
+      if (values) {
+        runKeyboardAction(() => markSkeetPresentation(values));
+      } else if (event.key === "Backspace") {
+        runKeyboardAction(undoSkeetPresentation);
+      }
+    }
+
+    window.addEventListener("keydown", handleClayKeyboard);
+
+    return () => {
+      window.removeEventListener("keydown", handleClayKeyboard);
+    };
+  });
+
   return (
     <main className="min-h-screen px-4 py-6 sm:px-6 lg:px-10">
       {activeSkeetGroup && activeSkeetTurn && (
@@ -1407,7 +1504,10 @@ export default function JudgeDisciplinePage() {
                         disabled={skeetSaving || skeetReadOnly || !resultsEnabled}
                         className="rounded-2xl bg-green-600 px-4 py-8 text-3xl font-black disabled:bg-slate-600"
                       >
-                        HIT
+                        <span className="block">HIT</span>
+                        <kbd className="mt-2 inline-flex min-w-10 items-center justify-center rounded-lg border border-white/40 bg-black/20 px-3 py-1 text-xl font-black shadow-inner">
+                          ↑
+                        </kbd>
                       </button>
                       <button
                         type="button"
@@ -1415,16 +1515,19 @@ export default function JudgeDisciplinePage() {
                         disabled={skeetSaving || skeetReadOnly || !resultsEnabled}
                         className="rounded-2xl bg-red-600 px-4 py-8 text-3xl font-black disabled:bg-slate-600"
                       >
-                        MISS
+                        <span className="block">MISS</span>
+                        <kbd className="mt-2 inline-flex min-w-10 items-center justify-center rounded-lg border border-white/40 bg-black/20 px-3 py-1 text-xl font-black shadow-inner">
+                          ↓
+                        </kbd>
                       </button>
                     </div>
                   ) : (
                     <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                       {[
-                        { values: [1, 1] as (0 | 1)[], label: "HIT / HIT", color: "bg-green-600" },
-                        { values: [1, 0] as (0 | 1)[], label: "HIT / MISS", color: "bg-lime-700" },
-                        { values: [0, 1] as (0 | 1)[], label: "MISS / HIT", color: "bg-orange-600" },
-                        { values: [0, 0] as (0 | 1)[], label: "MISS / MISS", color: "bg-red-700" },
+                        { values: [1, 1] as (0 | 1)[], label: "HIT / HIT", keyLabel: "↑", color: "bg-green-600" },
+                        { values: [1, 0] as (0 | 1)[], label: "HIT / MISS", keyLabel: "←", color: "bg-lime-700" },
+                        { values: [0, 1] as (0 | 1)[], label: "MISS / HIT", keyLabel: "→", color: "bg-orange-600" },
+                        { values: [0, 0] as (0 | 1)[], label: "MISS / MISS", keyLabel: "↓", color: "bg-red-700" },
                       ].map((option) => (
                         <button
                           key={option.label}
@@ -1433,7 +1536,10 @@ export default function JudgeDisciplinePage() {
                           disabled={skeetSaving || skeetReadOnly || !resultsEnabled}
                           className={`rounded-2xl px-3 py-7 text-lg font-black disabled:bg-slate-600 ${option.color}`}
                         >
-                          {option.label}
+                          <span className="block">{option.label}</span>
+                          <kbd className="mt-2 inline-flex min-w-10 items-center justify-center rounded-lg border border-white/40 bg-black/20 px-3 py-1 text-xl font-black shadow-inner">
+                            {option.keyLabel}
+                          </kbd>
                         </button>
                       ))}
                     </div>
@@ -1445,7 +1551,10 @@ export default function JudgeDisciplinePage() {
                     disabled={skeetSaving || skeetHistory.length === 0}
                     className="rounded-xl bg-yellow-400 px-4 py-4 text-xl font-black text-black disabled:bg-slate-700 disabled:text-slate-400"
                   >
-                    COFNIJ
+                    <span>COFNIJ</span>
+                    <kbd className="ml-3 inline-flex items-center justify-center rounded-lg border border-black/30 bg-black/10 px-3 py-1 text-base font-black shadow-inner">
+                      ⌫
+                    </kbd>
                   </button>
                 </div>
               </section>
@@ -1600,7 +1709,10 @@ export default function JudgeDisciplinePage() {
                                   disabled={trapSaving || !resultsEnabled}
                                   className="rounded-lg bg-green-700 px-1 py-3 text-[clamp(0.76rem,1.8vw,1rem)] font-black text-white disabled:bg-gray-400"
                                 >
-                                  Hit
+                                  <span className="block">Hit</span>
+                                  <kbd className="mt-1 inline-flex min-w-7 items-center justify-center rounded border border-white/40 bg-black/20 px-2 py-0.5 text-sm font-black shadow-inner">
+                                    ↑
+                                  </kbd>
                                 </button>
                                 <button
                                   type="button"
@@ -1608,7 +1720,10 @@ export default function JudgeDisciplinePage() {
                                   disabled={trapSaving || !resultsEnabled}
                                   className="rounded-lg bg-red-700 px-1 py-3 text-[clamp(0.76rem,1.8vw,1rem)] font-black text-white disabled:bg-gray-400"
                                 >
-                                  Miss
+                                  <span className="block">Miss</span>
+                                  <kbd className="mt-1 inline-flex min-w-7 items-center justify-center rounded border border-white/40 bg-black/20 px-2 py-0.5 text-sm font-black shadow-inner">
+                                    ↓
+                                  </kbd>
                                 </button>
                                 <button
                                   type="button"
@@ -1616,7 +1731,10 @@ export default function JudgeDisciplinePage() {
                                   disabled={trapSaving || trapHistory.length === 0}
                                   className="rounded-lg bg-yellow-400 px-1 py-3 text-[clamp(0.72rem,1.65vw,1rem)] font-black text-black disabled:bg-gray-300"
                                 >
-                                  Cofnij
+                                  <span className="block">Cofnij</span>
+                                  <kbd className="mt-1 inline-flex min-w-7 items-center justify-center rounded border border-black/30 bg-black/10 px-2 py-0.5 text-sm font-black shadow-inner">
+                                    ⌫
+                                  </kbd>
                                 </button>
                               </div>
                             )}
