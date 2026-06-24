@@ -250,8 +250,8 @@ type FieldTone = "neutral" | "valid" | "invalid";
 const fieldBaseClassName = "w-full rounded-lg border bg-white px-4 py-3 text-zinc-950 placeholder:text-zinc-400 outline-none transition disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500 dark:bg-black dark:text-red-50 dark:placeholder:text-red-900/70 dark:disabled:bg-zinc-950 dark:disabled:text-zinc-600";
 const fieldToneClassNames: Record<FieldTone, string> = {
   neutral: "border-zinc-300 focus:border-zinc-500 dark:border-zinc-700 dark:focus:border-red-500",
-  valid: "border-green-500 focus:border-green-600 dark:border-green-500 dark:focus:border-green-400",
-  invalid: "border-red-500 focus:border-red-600 dark:border-red-500 dark:focus:border-red-400",
+  valid: "border-green-500 ring-2 ring-green-500/30 shadow-[0_0_18px_rgba(34,197,94,0.18)] focus:border-green-600 focus:ring-green-500/50 dark:border-green-400 dark:ring-green-400/35 dark:focus:border-green-300",
+  invalid: "border-red-500 ring-2 ring-red-500/35 shadow-[0_0_18px_rgba(239,68,68,0.22)] focus:border-red-600 focus:ring-red-500/55 dark:border-red-400 dark:ring-red-400/40 dark:focus:border-red-300",
 };
 const checkboxClassName = "h-5 w-5 rounded border-red-300 text-green-700 focus:ring-green-700";
 
@@ -308,6 +308,25 @@ function ProfileField({
         {value || "-"}
       </dd>
     </div>
+  );
+}
+
+function ProfileSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="rounded-2xl border border-zinc-200 bg-zinc-50/80 p-5 dark:border-red-950 dark:bg-zinc-950/70">
+      <h2 className="mb-5 text-xl font-black text-zinc-950 dark:text-red-300">
+        {title}
+      </h2>
+      <dl className="ui-profile-fields grid gap-5 sm:grid-cols-2">
+        {children}
+      </dl>
+    </section>
   );
 }
 
@@ -1365,9 +1384,25 @@ export default function ProfilePage() {
               </div>
 
               <div className="grid gap-5 md:grid-cols-2">
-                <label>
+                <h2 className="order-[1] border-b border-zinc-200 pb-2 text-2xl font-black text-zinc-950 dark:border-red-950 dark:text-red-300 md:col-span-2">
+                  Dane podstawowe
+                </h2>
+
+                <h2 className="order-[6] mt-5 border-b border-zinc-200 pb-2 text-2xl font-black text-zinc-950 dark:border-red-950 dark:text-red-300 md:col-span-2">
+                  Dane sportowe
+                </h2>
+
+                <h2 className="order-[10] mt-5 border-b border-zinc-200 pb-2 text-2xl font-black text-zinc-950 dark:border-red-950 dark:text-red-300 md:col-span-2">
+                  Dane kontaktowe
+                </h2>
+
+                <h2 className="order-[13] mt-5 border-b border-zinc-200 pb-2 text-2xl font-black text-zinc-950 dark:border-red-950 dark:text-red-300 md:col-span-2">
+                  Pozostałe dane
+                </h2>
+
+                <label className="order-[11]">
                   <span className="mb-2 block text-sm font-semibold text-red-700 dark:text-red-300">
-                    email
+                    Email
                   </span>
                   <input
                     value={profile.email}
@@ -1376,7 +1411,7 @@ export default function ProfilePage() {
                   />
                 </label>
 
-                <label>
+                <label className="order-[2]">
                   <RequiredLabel>Imię</RequiredLabel>
                   <input
                     value={firstName}
@@ -1386,7 +1421,7 @@ export default function ProfilePage() {
                   />
                 </label>
 
-                <label>
+                <label className="order-[3]">
                   <RequiredLabel>Nazwisko</RequiredLabel>
                   <input
                     value={lastName}
@@ -1396,7 +1431,7 @@ export default function ProfilePage() {
                   />
                 </label>
 
-                <label>
+                <label className="order-[5]">
                   <RequiredLabel>Województwo</RequiredLabel>
                   <select
                     value={voivodeship}
@@ -1412,7 +1447,7 @@ export default function ProfilePage() {
                   </select>
                 </label>
 
-                <label>
+                <label className="order-[14]">
                   <RequiredLabel>Data urodzenia</RequiredLabel>
                   <input
                     type="date"
@@ -1422,7 +1457,7 @@ export default function ProfilePage() {
                   />
                 </label>
 
-                <div>
+                <div className="order-[4]">
                   {noClub ? (
                     <OptionalLabel>Klub</OptionalLabel>
                   ) : (
@@ -1501,11 +1536,11 @@ export default function ProfilePage() {
                   </label>
                 </div>
 
-                <div>
+                <div className="order-[7]">
                   {noLicense ? (
-                    <OptionalLabel>Nr licencji zawodniczej</OptionalLabel>
+                    <OptionalLabel>Licencja zawodnicza</OptionalLabel>
                   ) : (
-                    <RequiredLabel>Nr licencji zawodniczej</RequiredLabel>
+                    <RequiredLabel>Licencja zawodnicza</RequiredLabel>
                   )}
                   <input
                     value={licenseNumber}
@@ -1531,7 +1566,7 @@ export default function ProfilePage() {
                   </label>
                 </div>
 
-                <label>
+                <label className="order-[12]">
                   <span className="mb-2 block text-sm font-semibold text-red-700 dark:text-red-300">
                     Telefon
                   </span>
@@ -1546,7 +1581,7 @@ export default function ProfilePage() {
                 </label>
 
                 {canEditOrganizerProfileFields && (
-                  <label>
+                  <label className="order-[15]">
                     <RequiredLabel>Nazwa organizatora</RequiredLabel>
                     <input
                       value={organizerName}
@@ -1559,8 +1594,8 @@ export default function ProfilePage() {
 
                 {canEditJudgeProfileFields && (
                   <>
-                    <label>
-                      <RequiredLabel>Nr licencji sędziowskiej</RequiredLabel>
+                    <label className="order-[8]">
+                      <RequiredLabel>Licencja sędziowska</RequiredLabel>
                       <input
                         value={roleJudgeLicenseNumber}
                         onChange={(e) => setRoleJudgeLicenseNumber(e.target.value)}
@@ -1569,7 +1604,7 @@ export default function ProfilePage() {
                       />
                     </label>
 
-                    <label>
+                    <label className="order-[9]">
                       <RequiredLabel>Ważność licencji sędziowskiej</RequiredLabel>
                       <input
                         type="date"
@@ -1617,81 +1652,77 @@ export default function ProfilePage() {
             </section>
           ) : (
             <>
-              <div className="grid min-h-[calc(100vh-12rem)] gap-12 lg:grid-cols-[320px_minmax(0,1fr)] xl:grid-cols-[380px_minmax(0,1fr)]">
-                <aside>
-                  <dl className="ui-profile-fields">
-                    <ProfileField
-                      label="Nazwisko"
-                      value={displayValue(profile.last_name)}
-                    />
-
+              <div className="grid min-h-[calc(100vh-12rem)] gap-12 lg:grid-cols-[minmax(0,720px)_minmax(280px,1fr)]">
+                <aside className="space-y-5">
+                  <ProfileSection title="Dane podstawowe">
                     <ProfileField
                       label="Imię"
                       value={displayValue(profile.first_name)}
                     />
-
                     <ProfileField
-                      label="Województwo"
-                      value={displayValue(profile.voivodeship)}
+                      label="Nazwisko"
+                      value={displayValue(profile.last_name)}
                     />
-
                     <ProfileField
                       label="Klub"
                       value={profile.no_club ? "Nie posiada" : displayValue(profile.club)}
                     />
+                    <ProfileField
+                      label="Województwo"
+                      value={displayValue(profile.voivodeship)}
+                    />
+                  </ProfileSection>
 
-                    {isOwnerProfile && (
-                      <div className="ui-profile-fields pt-2">
+                  {isOwnerProfile && (
+                    <>
+                      <ProfileSection title="Dane sportowe">
                         <ProfileField
-                          label="E-mail"
-                          value={profile.email}
-                        />
-
-                        <ProfileField
-                          label="Nr licencji zawodniczej"
+                          label="Licencja zawodnicza"
                           value={profile.no_license ? "Nie posiada" : displayValue(profile.license_number)}
                         />
+                        <ProfileField
+                          label="Licencja sędziowska"
+                          value={showJudgeData ? displayValue(profile.judge_license_number) : "Nie posiada"}
+                        />
+                        {showJudgeData && (
+                          <ProfileField
+                            label="Ważność licencji sędziowskiej"
+                            value={displayValue(profile.judge_license_valid_until)}
+                          />
+                        )}
+                      </ProfileSection>
 
+                      <ProfileSection title="Dane kontaktowe">
+                        <ProfileField
+                          label="Email"
+                          value={profile.email}
+                        />
+                        <ProfileField
+                          label="Telefon"
+                          value={displayValue(profile.phone_number, "Brak numeru")}
+                        />
+                      </ProfileSection>
+
+                      <ProfileSection title="Pozostałe dane">
+                        <ProfileField
+                          label="Data urodzenia"
+                          value={displayValue(profile.birth_date)}
+                        />
                         {showOrganizerData && (
                           <ProfileField
                             label="Nazwa organizatora"
                             value={displayValue(profile.organizer_name)}
                           />
                         )}
-
-                        {showJudgeData && (
-                          <>
-                            <ProfileField
-                              label="Nr licencji sędziowskiej"
-                              value={displayValue(profile.judge_license_number)}
-                            />
-
-                            <ProfileField
-                              label="Ważność licencji sędziowskiej"
-                              value={displayValue(profile.judge_license_valid_until)}
-                            />
-                          </>
-                        )}
-
-                        <ProfileField
-                          label="Data Urodzenia"
-                          value={displayValue(profile.birth_date)}
-                        />
-
-                        <ProfileField
-                          label="Telefon"
-                          value={displayValue(profile.phone_number, "Brak numeru")}
-                        />
-
                         {hasShooterRole && (
                           <ProfileField
                             label="Rola w systemie"
                             value={rolesText || "Brak"}
                           />
                         )}
-                      </div>
-                    )}
-                  </dl>
+                      </ProfileSection>
+                    </>
+                  )}
                 </aside>
 
                 <section className="flex min-w-0 flex-col items-center gap-8 text-center">

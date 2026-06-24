@@ -6564,6 +6564,12 @@ def admin_get_users(
 ):
     users = (
         db.query(User)
+        .filter(
+            or_(
+                User.account_type != PZSS_CLUB_ACCOUNT_TYPE,
+                User.account_type.is_(None),
+            )
+        )
         .order_by(User.id.asc())
         .all()
     )
@@ -9273,6 +9279,9 @@ def get_judge_competitions(
 ):
     auto_complete_started_competitions(db)
 
+    if is_pzss_club_account(user):
+        raise HTTPException(status_code=403, detail="Konto klubu PZSS nie ma dostępu do panelu sędziego")
+
     judge_participants = (
         db.query(CompetitionParticipant)
         .filter(
@@ -9399,6 +9408,9 @@ def get_judge_discipline_shooters(
 ):
     auto_complete_started_competitions(db)
 
+    if is_pzss_club_account(user):
+        raise HTTPException(status_code=403, detail="Konto klubu PZSS nie ma dostępu do panelu sędziego")
+
     if not judge_can_access_discipline(user, competition_id, discipline_id, db):
         raise HTTPException(
             status_code=403,
@@ -9524,6 +9536,9 @@ def save_judge_result(
     db=Depends(get_db),
 ):
     auto_complete_started_competitions(db)
+
+    if is_pzss_club_account(user):
+        raise HTTPException(status_code=403, detail="Konto klubu PZSS nie ma dostępu do panelu sędziego")
 
     if not judge_can_access_discipline(user, competition_id, discipline_id, db):
         raise HTTPException(

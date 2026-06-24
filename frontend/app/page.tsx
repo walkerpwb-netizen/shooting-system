@@ -94,158 +94,49 @@ const features: Feature[] = [
   },
 ];
 
-const mockupTitles: Record<FeatureKind, string> = {
-  qr: "Skaner zawodnika",
-  organizer: "Panel organizatora",
-  live: "Wyniki na żywo",
-  judge: "Stanowisko sędziowskie",
-  history: "Historia startów",
-  ranking: "Ranking zawodników",
+const featureScreens: Record<FeatureKind, { src: string; alt: string }> = {
+  qr: {
+    src: "/home-screens/qr-attendance.png",
+    alt: "Lista obecności i opłat z szybkim skanowaniem licencji QR",
+  },
+  organizer: {
+    src: "/home-screens/organizer-panel.png",
+    alt: "Panel organizatora zawodów z obsługą sędziów, opłat i grup",
+  },
+  live: {
+    src: "/home-screens/live-groups.png",
+    alt: "Bieżący status grup startowych podczas zawodów",
+  },
+  judge: {
+    src: "/home-screens/judge-trap.png",
+    alt: "Pełnoekranowy interfejs sędziowski konkurencji Trap",
+  },
+  history: {
+    src: "/home-screens/history-statistics.png",
+    alt: "Statystyki i historia startów zawodnika",
+  },
+  ranking: {
+    src: "/home-screens/live-ranking.png",
+    alt: "Ranking zawodników aktualizowany podczas zawodów",
+  },
 };
 
-function QrPattern() {
-  return (
-    <svg viewBox="0 0 96 96" aria-hidden="true" className="h-24 w-24 text-zinc-950">
-      <rect width="96" height="96" rx="8" fill="white" />
-      <g fill="currentColor">
-        <path d="M12 12h28v28H12zm6 6v16h16V18zM56 12h28v28H56zm6 6v16h16V18zM12 56h28v28H12zm6 6v16h16V62z" />
-        <path d="M50 50h10v10H50zm12 0h8v8h-8zm10 0h12v10H72zM48 64h8v20h-8zm12-2h10v10H60zm14 2h10v8H74zM60 76h8v8h-8zm12 0h12v8H72zM44 12h6v16h-6zm0 22h8v8h-8zM12 46h18v6H12zm22 0h8v10h-8z" />
-      </g>
-    </svg>
-  );
-}
-
-function ScreenPlaceholder({ kind }: { kind: FeatureKind }) {
-  const rows =
-    kind === "ranking"
-      ? ["A. Kowalski", "M. Nowak", "P. Wiśniewski"]
-      : kind === "history"
-        ? ["Pistolet sportowy 25 m", "Karabin 50 m", "Pistolet centralnego zapłonu"]
-        : kind === "organizer"
-          ? ["Puchar Wiosny", "Liga Regionalna", "Otwarte Zawody Klubowe"]
-          : ["Jan Kowalski", "Anna Nowak", "Marek Zieliński"];
-
-  const scores =
-    kind === "history"
-      ? ["284 pkt", "571 pkt", "276 pkt"]
-      : kind === "organizer"
-        ? ["Trwają", "Zapisy", "Zakończone"]
-        : ["293", "288", "284"];
+function FeatureScreen({ kind }: { kind: FeatureKind }) {
+  const screen = featureScreens[kind];
 
   return (
-    <div className="relative mx-auto w-full max-w-[590px]">
+    <div className="relative mx-auto w-full max-w-[650px]">
       <div className="absolute -inset-4 rounded-[2rem] bg-emerald-400/10 blur-2xl" />
       <div className="relative overflow-hidden rounded-[1.35rem] border border-white/10 bg-[#071713] shadow-[0_28px_80px_rgba(0,0,0,0.38)]">
-        <div className="flex items-center gap-2 border-b border-white/8 bg-white/[0.035] px-4 py-3">
-          <span className="h-2.5 w-2.5 rounded-full bg-red-400/75" />
-          <span className="h-2.5 w-2.5 rounded-full bg-amber-300/75" />
-          <span className="h-2.5 w-2.5 rounded-full bg-emerald-400/75" />
-          <span className="ml-3 text-[11px] font-bold uppercase tracking-[0.18em] text-zinc-500">
-            {mockupTitles[kind]}
-          </span>
-          <span className="ml-auto rounded-full bg-emerald-400/10 px-2.5 py-1 text-[9px] font-black uppercase tracking-wider text-emerald-300">
-            Podgląd
-          </span>
-        </div>
-
-        <div className="min-h-[300px] p-4 sm:min-h-[340px] sm:p-6">
-          {kind === "qr" ? (
-            <div className="grid min-h-[268px] place-items-center rounded-2xl border border-white/8 bg-gradient-to-br from-emerald-400/8 to-transparent p-5 text-center">
-              <div>
-                <div className="mx-auto grid h-32 w-32 place-items-center rounded-2xl bg-white shadow-[0_0_45px_rgba(52,211,153,0.15)]">
-                  <QrPattern />
-                </div>
-                <p className="mt-5 text-lg font-bold text-white">Jan Kowalski</p>
-                <p className="mt-1 text-xs text-zinc-400">Licencja PZSS · L-12345</p>
-                <div className="mx-auto mt-4 flex w-fit items-center gap-2 rounded-full bg-emerald-400/12 px-3 py-1.5 text-xs font-bold text-emerald-300">
-                  <span className="h-2 w-2 rounded-full bg-emerald-400" />
-                  Zawodnik rozpoznany
-                </div>
-              </div>
-            </div>
-          ) : kind === "judge" ? (
-            <div>
-              <div className="rounded-xl border border-white/8 bg-white/[0.035] p-4">
-                <p className="text-xs font-bold uppercase tracking-wider text-emerald-300">
-                  Zawodnik 04 / 18
-                </p>
-                <p className="mt-1 text-xl font-black text-white">Jan Kowalski</p>
-              </div>
-              <div className="mt-4 grid grid-cols-5 gap-2">
-                {[10, 9, 10, 8, 9, 10, 10, 9, 8, 10].map((score, index) => (
-                  <div
-                    key={`${score}-${index}`}
-                    className="grid aspect-square place-items-center rounded-xl border border-emerald-400/15 bg-emerald-400/8 text-lg font-black text-white"
-                  >
-                    {score}
-                  </div>
-                ))}
-              </div>
-              <div className="mt-4 flex items-center justify-between rounded-xl bg-emerald-400 px-4 py-3 text-zinc-950">
-                <span className="text-sm font-bold">Suma serii</span>
-                <span className="text-xl font-black">93 pkt</span>
-              </div>
-            </div>
-          ) : (
-            <div>
-              <div className="grid grid-cols-3 gap-2 sm:gap-3">
-                {["Zawodnicy", "Konkurencje", kind === "live" ? "Online" : "Wyniki"].map(
-                  (label, index) => (
-                    <div
-                      key={label}
-                      className="rounded-xl border border-white/8 bg-white/[0.035] p-3"
-                    >
-                      <p className="text-[9px] font-bold uppercase tracking-wider text-zinc-500">
-                        {label}
-                      </p>
-                      <p className="mt-2 text-lg font-black text-white sm:text-xl">
-                        {index === 0 ? "128" : index === 1 ? "12" : "LIVE"}
-                      </p>
-                    </div>
-                  )
-                )}
-              </div>
-              <div className="mt-4 overflow-hidden rounded-xl border border-white/8">
-                <div className="grid grid-cols-[32px_1fr_auto] bg-white/[0.045] px-3 py-2 text-[9px] font-black uppercase tracking-wider text-zinc-500 sm:px-4">
-                  <span>#</span>
-                  <span>{kind === "organizer" ? "Zawody" : "Zawodnik / konkurencja"}</span>
-                  <span>{kind === "organizer" ? "Status" : "Wynik"}</span>
-                </div>
-                {rows.map((row, index) => (
-                  <div
-                    key={row}
-                    className="grid grid-cols-[32px_1fr_auto] items-center border-t border-white/7 px-3 py-3 text-xs sm:px-4 sm:text-sm"
-                  >
-                    <span className="font-bold text-emerald-400">{index + 1}</span>
-                    <span className="pr-2 font-semibold text-zinc-200">{row}</span>
-                    <span
-                      className={
-                        kind === "organizer"
-                          ? "rounded-full bg-emerald-400/10 px-2 py-1 text-[10px] font-bold text-emerald-300"
-                          : "font-black text-white"
-                      }
-                    >
-                      {scores[index]}
-                    </span>
-                  </div>
-                ))}
-              </div>
-              {kind === "live" && (
-                <div className="mt-4 flex items-center gap-2 text-xs font-bold text-emerald-300">
-                  <span className="relative flex h-2.5 w-2.5">
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                    <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-400" />
-                  </span>
-                  Aktualizacja w czasie rzeczywistym
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+        <Image
+          src={screen.src}
+          alt={screen.alt}
+          width={2880}
+          height={1800}
+          sizes="(min-width: 1024px) 650px, 100vw"
+          className="h-auto w-full"
+        />
       </div>
-      <p className="mt-3 text-center text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-100/35">
-        Miejsce na screen aplikacji
-      </p>
     </div>
   );
 }
@@ -254,7 +145,7 @@ function FeatureSection({ feature, reversed }: { feature: Feature; reversed: boo
   return (
     <section className="grid items-center gap-10 py-14 lg:grid-cols-2 lg:gap-16 lg:py-24">
       <div className={reversed ? "lg:order-2" : ""}>
-        <ScreenPlaceholder kind={feature.kind} />
+        <FeatureScreen kind={feature.kind} />
       </div>
 
       <div className={reversed ? "lg:order-1" : ""}>

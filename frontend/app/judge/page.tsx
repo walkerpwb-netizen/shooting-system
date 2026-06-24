@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { apiUrl } from "@/lib/api";
-import { getAccessToken } from "@/lib/auth";
+import { getAccessToken, isPzssClubAccount } from "@/lib/auth";
 
 type JudgeCompetition = {
   id: number;
@@ -34,6 +34,11 @@ export default function JudgePage() {
 
     if (!token) {
       router.push("/login");
+      return;
+    }
+
+    if (isPzssClubAccount()) {
+      router.replace("/profile");
       return;
     }
 

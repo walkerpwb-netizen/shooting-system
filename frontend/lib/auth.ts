@@ -327,4 +327,9 @@ export function isJudge() {
   return getStoredRoles().includes("judge");
 }
 
+export function isPzssClubAccount() {
+  return typeof window !== "undefined"
+    && localStorage.getItem("account_type") === "pzss_club";
+}
+
 installFetchBridge();

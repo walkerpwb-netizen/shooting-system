@@ -117,8 +117,9 @@ export default function Navbar() {
     : null;
   const isShooter = Boolean(user?.roles.includes("shooter"));
   const isAdmin = Boolean(user?.roles.includes("admin"));
+  const isPzssClubAccount = user?.accountType === "pzss_club";
   const isVerifiedPzssClub = Boolean(
-    user?.accountType === "pzss_club" && user?.pzssClubStatus === "approved"
+    isPzssClubAccount && user?.pzssClubStatus === "approved"
   );
   const liveResultsClass = hasStartedCompetition
     ? "font-bold text-red-400"
@@ -635,7 +636,7 @@ export default function Navbar() {
           </Link>
         )}
 
-        {user && (
+        {user && !isPzssClubAccount && (
           <Link href="/achievements" onClick={guardPremiumLink}>
             Odznaczenia
           </Link>
@@ -670,7 +671,7 @@ export default function Navbar() {
           </Link>
         )}
 
-        {user && (
+        {user && !isPzssClubAccount && (
           <Link
             href="/judge"
             onClick={(event) => void openRolePanel(event, "judge")}
@@ -829,7 +830,7 @@ export default function Navbar() {
                 </Link>
               )}
 
-              {user && (
+              {user && !isPzssClubAccount && (
                 <Link
                   href="/achievements"
                   onClick={(event) => {
@@ -886,7 +887,7 @@ export default function Navbar() {
                 </Link>
               )}
 
-              {user && (
+              {user && !isPzssClubAccount && (
                 <Link
                   href="/judge"
                   onClick={(event) => void openRolePanel(event, "judge")}

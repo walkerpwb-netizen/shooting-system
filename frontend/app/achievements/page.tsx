@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import AchievementsSection from "./AchievementsSection";
 import type { Achievement } from "./AchievementsSection";
 import { apiUrl } from "@/lib/api";
-import { getAccessToken } from "@/lib/auth";
+import { getAccessToken, isPzssClubAccount } from "@/lib/auth";
 import { isPremiumActive, PREMIUM_EXPIRED_MESSAGE } from "@/lib/premium";
 
 type AchievementsResponse = {
@@ -32,6 +32,11 @@ export default function AchievementsPage() {
 
     if (!token) {
       router.push("/login");
+      return;
+    }
+
+    if (isPzssClubAccount()) {
+      router.replace("/profile");
       return;
     }
 

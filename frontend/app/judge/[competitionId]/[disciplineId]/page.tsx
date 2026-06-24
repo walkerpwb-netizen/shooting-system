@@ -7,7 +7,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import QrCodeScanner from "@/components/QrCodeScanner";
 import { apiUrl } from "@/lib/api";
-import { getAccessToken } from "@/lib/auth";
+import { getAccessToken, isPzssClubAccount } from "@/lib/auth";
 
 type JudgeCompetition = {
   id: number;
@@ -721,6 +721,11 @@ export default function JudgeDisciplinePage() {
 
     if (!token) {
       router.push("/login");
+      return;
+    }
+
+    if (isPzssClubAccount()) {
+      router.replace("/profile");
       return;
     }
 
