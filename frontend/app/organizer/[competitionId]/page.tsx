@@ -1,5 +1,6 @@
 "use client";
 
+import type { DragEvent } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -74,6 +75,16 @@ type ParticipantDisciplineAssignment = {
   ammo_type: string;
   squad_group_number: number;
   squad_position: number;
+};
+
+type SquadAssignmentItem = {
+  participant: Competition["participants"][number];
+  assignment: ParticipantDisciplineAssignment;
+};
+
+type SquadDraftItem = SquadAssignmentItem & {
+  groupNumber: number;
+  squadPosition: number;
 };
 
 type JudgeSearchResult = {
@@ -219,8 +230,11 @@ export default function OrganizerCompetitionPage() {
   const [manualSaving, setManualSaving] = useState(false);
   const [manualFormMessage, setManualFormMessage] = useState("");
   const [manualFormErrors, setManualFormErrors] = useState<ManualFormErrors>({});
-  const [groupUpdatingId, setGroupUpdatingId] = useState<number | null>(null);
   const [randomizingDisciplineId, setRandomizingDisciplineId] = useState<number | null>(null);
+  const [editingSquadDisciplineId, setEditingSquadDisciplineId] = useState<number | null>(null);
+  const [squadDraft, setSquadDraft] = useState<SquadDraftItem[]>([]);
+  const [draggingSquadAssignmentId, setDraggingSquadAssignmentId] = useState<number | null>(null);
+  const [savingSquadLayout, setSavingSquadLayout] = useState(false);
 
   const fetchOrganizerCompetition = useCallback(async () => {
     const token = getAccessToken();
@@ -367,23 +381,11 @@ export default function OrganizerCompetitionPage() {
                 }
               : null;
           })
-          .filter((item): item is {
-            participant: Competition["participants"][number];
-            assignment: ParticipantDisciplineAssignment;
-          } => item !== null);
-        const maxGroupNumber = Math.max(
-          1,
-          ...assignments.map((item) => item.assignment.squad_group_number || 1)
-        );
-        const groupNumbers = Array.from(
-          { length: maxGroupNumber + 1 },
-          (_item, index) => index + 1
-        );
+          .filter((item): item is SquadAssignmentItem => item !== null);
 
         return {
           discipline,
           assignments,
-          groupNumbers,
           groupStatuses: discipline.squad_group_statuses || {},
         };
       });
@@ -772,23 +774,116 @@ export default function OrganizerCompetitionPage() {
     }
   }
 
-  async function updateParticipantGroup(
-    participantDisciplineId: number,
-    groupNumber: number,
-    squadPosition = 0
+  function startSquadLayoutEditing(
+    disciplineId: number,
+    assignments: SquadAssignmentItem[]
   ) {
-    if (!competition) {
+    setMessage("");
+    setEditingSquadDisciplineId(disciplineId);
+    setSquadDraft(assignments.map(({ participant, assignment }) => ({
+      participant,
+      assignment,
+      groupNumber: assignment.squad_group_number || 1,
+      squadPosition: assignment.squad_position || 1,
+    })));
+  }
+
+  function cancelSquadLayoutEditing() {
+    setEditingSquadDisciplineId(null);
+    setSquadDraft([]);
+    setDraggingSquadAssignmentId(null);
+  }
+
+  function moveSquadDraftAssignment(
+    participantDisciplineId: number,
+    targetGroupNumber: number,
+    targetPosition: number
+  ) {
+    setSquadDraft((currentDraft) => {
+      const source = currentDraft.find(
+        (item) => item.assignment.participant_discipline_id === participantDisciplineId
+      );
+
+      if (!source) {
+        return currentDraft;
+      }
+
+      const target = currentDraft.find(
+        (item) =>
+          item.groupNumber === targetGroupNumber
+          && item.squadPosition === targetPosition
+      );
+
+      return currentDraft.map((item) => {
+        if (item.assignment.participant_discipline_id === participantDisciplineId) {
+          return {
+            ...item,
+            groupNumber: targetGroupNumber,
+            squadPosition: targetPosition,
+          };
+        }
+
+        if (target && item.assignment.participant_discipline_id === target.assignment.participant_discipline_id) {
+          return {
+            ...item,
+            groupNumber: source.groupNumber,
+            squadPosition: source.squadPosition,
+          };
+        }
+
+        return item;
+      });
+    });
+  }
+
+  function handleSquadDragStart(
+    event: DragEvent<HTMLElement>,
+    participantDisciplineId: number
+  ) {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData(
+      "text/plain",
+      String(participantDisciplineId)
+    );
+    setDraggingSquadAssignmentId(participantDisciplineId);
+  }
+
+  function handleSquadDrop(
+    event: DragEvent<HTMLElement>,
+    targetGroupNumber: number,
+    targetPosition: number
+  ) {
+    event.preventDefault();
+    const participantDisciplineId = Number(
+      event.dataTransfer.getData("text/plain")
+      || draggingSquadAssignmentId
+      || 0
+    );
+
+    if (participantDisciplineId > 0) {
+      moveSquadDraftAssignment(
+        participantDisciplineId,
+        targetGroupNumber,
+        targetPosition
+      );
+    }
+
+    setDraggingSquadAssignmentId(null);
+  }
+
+  async function saveSquadLayout(disciplineId: number) {
+    if (!competition || editingSquadDisciplineId !== disciplineId) {
       return;
     }
 
     const token = getAccessToken();
 
     try {
-      setGroupUpdatingId(participantDisciplineId);
+      setSavingSquadLayout(true);
       setMessage("");
 
       const response = await fetch(
-        apiUrl(`/organizer/competitions/${competition.id}/squad-groups/${participantDisciplineId}`),
+        apiUrl(`/organizer/competitions/${competition.id}/disciplines/${disciplineId}/squad-groups/layout`),
         {
           method: "PUT",
           headers: {
@@ -796,25 +891,29 @@ export default function OrganizerCompetitionPage() {
             Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
-            group_number: groupNumber,
-            squad_position: squadPosition,
+            assignments: squadDraft.map((item) => ({
+              participant_discipline_id: item.assignment.participant_discipline_id,
+              group_number: item.groupNumber,
+              squad_position: item.squadPosition,
+            })),
           }),
         }
       );
       const data = await response.json();
 
       if (!response.ok) {
-        setMessage(data.detail || "Nie udało się zmienić grupy zawodnika ❌");
+        setMessage(data.detail || "Nie udało się zapisać układu grup ❌");
         return;
       }
 
-      setMessage("Grupa zawodnika zaktualizowana ✅");
-      fetchOrganizerCompetition();
+      cancelSquadLayoutEditing();
+      setMessage("Układ grup zapisany i uzupełniony ✅");
+      await fetchOrganizerCompetition();
     } catch (error) {
       console.error(error);
       setMessage("Błąd połączenia z serwerem ❌");
     } finally {
-      setGroupUpdatingId(null);
+      setSavingSquadLayout(false);
     }
   }
 
@@ -1301,45 +1400,107 @@ export default function OrganizerCompetitionPage() {
                     </div>
 
                     <div className="space-y-4">
-                      {squadDisciplines.map(({ discipline, assignments, groupNumbers, groupStatuses }) => {
+                      {squadDisciplines.map(({ discipline, assignments, groupStatuses }) => {
                         const squadSize = 6;
-                        const activeGroupNumbers = Array.from(
-                          new Set(
-                            assignments.map((item) => item.assignment.squad_group_number || 1)
-                          )
-                        ).sort((firstGroup, secondGroup) => firstGroup - secondGroup);
+                        const isEditing = editingSquadDisciplineId === discipline.id;
+                        const layoutItems: SquadDraftItem[] = isEditing
+                          ? squadDraft
+                          : assignments.map(({ participant, assignment }) => ({
+                              participant,
+                              assignment,
+                              groupNumber: assignment.squad_group_number || 1,
+                              squadPosition: assignment.squad_position || 1,
+                            }));
+                        const maxGroupNumber = Math.max(
+                          1,
+                          ...layoutItems.map((item) => item.groupNumber)
+                        );
+                        const activeGroupNumbers = isEditing
+                          ? Array.from(
+                              { length: maxGroupNumber + 1 },
+                              (_item, index) => index + 1
+                            )
+                          : Array.from(
+                              new Set(layoutItems.map((item) => item.groupNumber))
+                            ).sort((firstGroup, secondGroup) => firstGroup - secondGroup);
 
                         return (
                           <div
                             key={discipline.id}
                             className="rounded-2xl border border-gray-200 bg-white p-4"
                           >
-                          <div className="mb-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                            <div>
-                              <p className="font-bold text-gray-950">
-                                {discipline.name}
-                              </p>
-                              <p className="text-sm text-gray-500">
-                                {assignments.length} potwierdzonych zawodników w konkurencji
-                              </p>
+                            <div className="mb-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                              <div>
+                                <p className="font-bold text-gray-950">
+                                  {discipline.name}
+                                </p>
+                                <p className="text-sm text-gray-500">
+                                  {assignments.length} potwierdzonych zawodników w konkurencji
+                                </p>
+                              </div>
+
+                              <div className="flex flex-wrap gap-2">
+                                {isEditing ? (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => saveSquadLayout(discipline.id)}
+                                      disabled={savingSquadLayout}
+                                      className="rounded-xl bg-blue-700 px-4 py-2 font-bold text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:bg-gray-400"
+                                    >
+                                      {savingSquadLayout ? "Zapisuję..." : "Zapisz"}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={cancelSquadLayoutEditing}
+                                      disabled={savingSquadLayout}
+                                      className="rounded-xl bg-gray-200 px-4 py-2 font-bold text-gray-800 transition hover:bg-gray-300 disabled:opacity-50"
+                                    >
+                                      Anuluj
+                                    </button>
+                                  </>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => startSquadLayoutEditing(
+                                      discipline.id,
+                                      assignments
+                                    )}
+                                    disabled={
+                                      competition.status === "completed"
+                                      || assignments.length === 0
+                                      || editingSquadDisciplineId !== null
+                                    }
+                                    className="rounded-xl bg-blue-700 px-4 py-2 font-bold text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:bg-gray-400"
+                                  >
+                                    Dostosuj grupy ręcznie
+                                  </button>
+                                )}
+
+                                <button
+                                  type="button"
+                                  onClick={() => randomizeSquadGroups(discipline.id)}
+                                  disabled={
+                                    competition.status === "started" ||
+                                    competition.status === "completed" ||
+                                    randomizingDisciplineId === discipline.id ||
+                                    assignments.length === 0 ||
+                                    editingSquadDisciplineId !== null
+                                  }
+                                  className="rounded-xl bg-green-700 px-4 py-2 font-bold text-white transition hover:bg-green-600 disabled:cursor-not-allowed disabled:bg-gray-400"
+                                >
+                                  {randomizingDisciplineId === discipline.id
+                                    ? "Losuję..."
+                                    : "Losuj grupy"}
+                                </button>
+                              </div>
                             </div>
 
-                            <button
-                              type="button"
-                              onClick={() => randomizeSquadGroups(discipline.id)}
-                              disabled={
-                                competition.status === "started" ||
-                                competition.status === "completed" ||
-                                randomizingDisciplineId === discipline.id ||
-                                assignments.length === 0
-                              }
-                              className="bg-green-700 hover:bg-green-600 disabled:bg-gray-400 disabled:cursor-not-allowed text-white px-4 py-2 rounded-xl font-bold transition"
-                            >
-                              {randomizingDisciplineId === discipline.id
-                                ? "Losuję..."
-                                : "Losuj grupy"}
-                            </button>
-                          </div>
+                            {isEditing && (
+                              <p className="mb-3 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-900">
+                                Przeciągaj zawodników między pozycjami. Upuszczenie na zajęte pole zamienia zawodników miejscami. Zmiany trafią do systemu dopiero po kliknięciu „Zapisz”.
+                              </p>
+                            )}
 
                           {competition.status === "started" && (
                             <p className="mb-3 rounded-xl border border-yellow-200 bg-yellow-50 px-3 py-2 text-sm font-semibold text-yellow-800">
@@ -1353,115 +1514,139 @@ export default function OrganizerCompetitionPage() {
                             </p>
                           ) : (
                             <div className="space-y-3">
-	                              {activeGroupNumbers.map((groupNumber) => {
-	                                const groupAssignments = assignments
-	                                  .filter((item) => (item.assignment.squad_group_number || 1) === groupNumber)
+                              {activeGroupNumbers.map((groupNumber) => {
+                                const groupAssignments = layoutItems
+                                  .filter((item) => item.groupNumber === groupNumber)
                                   .sort((firstItem, secondItem) =>
-                                    (firstItem.assignment.squad_position || 99)
-                                    - (secondItem.assignment.squad_position || 99)
-	                                  );
+                                    firstItem.squadPosition - secondItem.squadPosition
+                                  );
                                   const groupStatus = groupStatuses[String(groupNumber)];
                                   const groupLocked = isTrapGroupLocked(groupStatus);
                                   const groupStatusLabel = trapGroupStatusLabel(groupStatus);
 
-	                                return (
-	                                  <div
-	                                    key={groupNumber}
-	                                    className={`rounded-xl border p-3 ${
+                                return (
+                                  <div
+                                    key={groupNumber}
+                                    className={`rounded-xl border p-3 ${
                                         groupLocked
                                           ? "border-yellow-200 bg-yellow-50"
                                           : "border-gray-200 bg-gray-50"
                                       }`}
-	                                  >
-	                                    <div className="mb-2 flex items-center justify-between gap-3">
-	                                      <div>
-	                                        <p className="font-black text-gray-900">
-	                                          Grupa {groupNumber}
-	                                        </p>
+                                  >
+                                    <div className="mb-2 flex items-center justify-between gap-3">
+                                      <div>
+                                        <p className="font-black text-gray-900">
+                                          Grupa {groupNumber}
+                                        </p>
                                         {groupStatusLabel && (
                                           <p className="text-xs font-bold uppercase text-yellow-800">
                                             {groupStatusLabel} - przenoszenie zablokowane
                                           </p>
                                         )}
                                       </div>
-	                                      <p className={`text-sm font-bold ${
-	                                        groupAssignments.length > squadSize
-	                                          ? "text-red-700"
+                                      <p className={`text-sm font-bold ${
+                                        groupAssignments.length > squadSize
+                                          ? "text-red-700"
                                           : "text-gray-500"
                                       }`}>
                                         {groupAssignments.length}/{squadSize}
                                       </p>
                                     </div>
 
-	                                    <div className="space-y-2">
-	                                      {groupAssignments.map(({ participant, assignment }) => (
-	                                        <div
-                                          key={assignment.participant_discipline_id}
-                                          className={`grid gap-2 rounded-lg bg-white px-3 py-2 sm:items-center ${
-                                            ["trap", "skeet"].includes(discipline.discipline_type)
-                                              ? "sm:grid-cols-[1fr_130px_110px]"
-                                              : "sm:grid-cols-[1fr_150px]"
-                                          }`}
-                                        >
-                                          <Link
-                                            href={`/profile/${participant.id}`}
-                                            className="font-semibold text-gray-900 transition hover:text-green-700"
-                                          >
-                                            {assignment.squad_position
-                                              ? `${claySquadPositionLabel(discipline.discipline_type, assignment.squad_position)}: `
-                                              : ""}
-                                            {participant.display_name}
-	                                          </Link>
+                                    <div className="space-y-2">
+                                      {(isEditing
+                                        ? Array.from({ length: squadSize }, (_item, index) => index + 1)
+                                        : groupAssignments.map((item) => item.squadPosition)
+                                      ).map((position) => {
+                                        const item = groupAssignments.find(
+                                          (currentItem) => currentItem.squadPosition === position
+                                        );
+                                        const canDrop = isEditing && !groupLocked;
 
-	                                          <select
-	                                            value={assignment.squad_group_number || 1}
-	                                            onChange={(event) => updateParticipantGroup(
-	                                              assignment.participant_discipline_id,
-	                                              Number(event.target.value)
-	                                            )}
-	                                            disabled={
-                                                groupLocked ||
-                                                groupUpdatingId === assignment.participant_discipline_id
+                                        return (
+                                          <div
+                                            key={position}
+                                            onDragOver={(event) => {
+                                              if (canDrop) {
+                                                event.preventDefault();
+                                                event.dataTransfer.dropEffect = "move";
                                               }
-	                                            className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-500"
-	                                          >
-	                                            {groupNumbers.map((availableGroupNumber) => (
-	                                              <option
-	                                                key={availableGroupNumber}
-	                                                value={availableGroupNumber}
-                                                    disabled={
-                                                      availableGroupNumber !== groupNumber &&
-                                                      isTrapGroupLocked(groupStatuses[String(availableGroupNumber)])
-                                                    }
-	                                              >
-	                                                Grupa {availableGroupNumber}
-                                                    {isTrapGroupLocked(groupStatuses[String(availableGroupNumber)])
-                                                      ? " (zablokowana)"
-                                                      : ""}
-	                                              </option>
-	                                            ))}
-	                                          </select>
-
-                                          {["trap", "skeet"].includes(discipline.discipline_type) && (
-                                            <select
-                                              value={assignment.squad_position || 1}
-                                              onChange={(event) => updateParticipantGroup(
-                                                assignment.participant_discipline_id,
-                                                assignment.squad_group_number || groupNumber,
-                                                Number(event.target.value)
-                                              )}
-                                              disabled={groupLocked || groupUpdatingId === assignment.participant_discipline_id}
-                                              className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-semibold disabled:bg-gray-100"
-                                            >
-                                              {Array.from({ length: 6 }, (_item, index) => index + 1).map((position) => (
-                                                <option key={position} value={position}>
-                                                  {claySquadPositionLabel(discipline.discipline_type, position)}
-                                                </option>
-                                              ))}
-                                            </select>
-                                          )}
-                                        </div>
-                                      ))}
+                                            }}
+                                            onDrop={(event) => {
+                                              if (canDrop) {
+                                                handleSquadDrop(event, groupNumber, position);
+                                              }
+                                            }}
+                                            className={`min-h-14 rounded-lg border-2 px-3 py-2 transition ${
+                                              item
+                                                ? "border-white bg-white"
+                                                : canDrop
+                                                  ? "border-dashed border-blue-300 bg-blue-50/60"
+                                                  : "border-dashed border-gray-200 bg-white/60"
+                                            }`}
+                                          >
+                                            {item ? (
+                                              <div
+                                                draggable={canDrop}
+                                                onDragStart={(event) => {
+                                                  if (canDrop) {
+                                                    handleSquadDragStart(
+                                                      event,
+                                                      item.assignment.participant_discipline_id
+                                                    );
+                                                  }
+                                                }}
+                                                onDragEnd={() => setDraggingSquadAssignmentId(null)}
+                                                className={`flex items-center gap-3 ${
+                                                  canDrop
+                                                    ? "cursor-grab active:cursor-grabbing"
+                                                    : ""
+                                                } ${
+                                                  draggingSquadAssignmentId === item.assignment.participant_discipline_id
+                                                    ? "opacity-40"
+                                                    : ""
+                                                }`}
+                                              >
+                                                {isEditing && (
+                                                  <span
+                                                    aria-hidden="true"
+                                                    className="text-xl font-black text-blue-500"
+                                                  >
+                                                    ⋮⋮
+                                                  </span>
+                                                )}
+                                                <div className="min-w-0">
+                                                  <p className="text-xs font-bold text-gray-500">
+                                                    {claySquadPositionLabel(
+                                                      discipline.discipline_type,
+                                                      position
+                                                    )}
+                                                  </p>
+                                                  {isEditing ? (
+                                                    <p className="truncate font-semibold text-gray-900">
+                                                      {item.participant.display_name}
+                                                    </p>
+                                                  ) : (
+                                                    <Link
+                                                      href={`/profile/${item.participant.id}`}
+                                                      className="font-semibold text-gray-900 transition hover:text-green-700"
+                                                    >
+                                                      {item.participant.display_name}
+                                                    </Link>
+                                                  )}
+                                                </div>
+                                              </div>
+                                            ) : (
+                                              <p className="py-1 text-sm font-semibold text-gray-400">
+                                                {claySquadPositionLabel(
+                                                  discipline.discipline_type,
+                                                  position
+                                                )} — wolne
+                                              </p>
+                                            )}
+                                          </div>
+                                        );
+                                      })}
                                     </div>
                                   </div>
                                 );

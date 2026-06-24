@@ -314,6 +314,16 @@ class ParticipantSquadGroupData(BaseModel):
     squad_position: int = 0
 
 
+class ParticipantSquadGroupAssignmentData(BaseModel):
+    participant_discipline_id: int
+    group_number: int
+    squad_position: int
+
+
+class ParticipantSquadGroupsLayoutData(BaseModel):
+    assignments: list[ParticipantSquadGroupAssignmentData]
+
+
 class ResultsTableSettingsData(BaseModel):
     grid_template_columns: str
     min_width: str
@@ -3567,6 +3577,55 @@ def fill_squad_group_vacancies(
         donor_assignment.squad_group_number = group_number
         donor_assignment.squad_position = target_position
         db.flush()
+
+
+def compact_squad_group_layout(discipline: Discipline, db):
+    group_size = clay_squad_group_size(discipline)
+    assignments = (
+        db.query(ParticipantDiscipline)
+        .join(
+            CompetitionParticipant,
+            CompetitionParticipant.id == ParticipantDiscipline.participant_id,
+        )
+        .filter(
+            ParticipantDiscipline.discipline_id == discipline.id,
+            ParticipantDiscipline.squad_group_number > 0,
+            CompetitionParticipant.checked_in == 1,
+            CompetitionParticipant.paid == 1,
+            or_(
+                CompetitionParticipant.entry_type == "shooter",
+                CompetitionParticipant.entry_type.is_(None),
+            ),
+        )
+        .all()
+    )
+
+    if not assignments:
+        return
+
+    group_statuses = trap_squad_group_statuses(discipline, db)
+    max_group_number = max(
+        int(assignment.squad_group_number or 0)
+        for assignment in assignments
+    )
+    occupied_positions_by_group: dict[int, set[int]] = {}
+
+    for assignment in assignments:
+        group_number = int(assignment.squad_group_number or 0)
+        position = int(assignment.squad_position or 0)
+
+        if group_number > 0 and position > 0:
+            occupied_positions_by_group.setdefault(group_number, set()).add(position)
+
+    vacancies = [
+        (discipline.id, group_number, position)
+        for group_number in range(1, max_group_number)
+        if not trap_squad_group_is_locked(group_statuses.get(group_number))
+        for position in range(1, group_size + 1)
+        if position not in occupied_positions_by_group.get(group_number, set())
+    ]
+
+    fill_squad_group_vacancies(vacancies, db)
 
 
 def parse_price(value):
@@ -8598,6 +8657,148 @@ def organizer_randomize_squad_groups(
 
     return {
         "message": "Grupy wylosowane",
+        "discipline_id": discipline.id,
+    }
+
+
+@app.put("/organizer/competitions/{competition_id}/disciplines/{discipline_id}/squad-groups/layout")
+def organizer_update_squad_groups_layout(
+    competition_id: int,
+    discipline_id: int,
+    data: ParticipantSquadGroupsLayoutData,
+    user: User = Depends(get_current_organizer),
+    db=Depends(get_db),
+):
+    auto_complete_started_competitions(db)
+
+    competition = (
+        db.query(Competition)
+        .filter(Competition.id == competition_id)
+        .first()
+    )
+
+    if not competition:
+        raise HTTPException(status_code=404, detail="Zawody nie istnieją")
+
+    if competition.created_by != user.email and not has_role(user, "admin"):
+        raise HTTPException(status_code=403, detail="Nie masz dostępu do tych zawodów")
+
+    if competition.status == "completed":
+        raise HTTPException(
+            status_code=400,
+            detail="Nie można zmieniać grup po zakończeniu zawodów",
+        )
+
+    discipline = (
+        db.query(Discipline)
+        .filter(
+            Discipline.id == discipline_id,
+            Discipline.competition_id == competition.id,
+        )
+        .first()
+    )
+
+    if not discipline or not is_clay_squad_discipline(discipline):
+        raise HTTPException(
+            status_code=400,
+            detail="Grupy startowe są dostępne tylko dla skonfigurowanego Trap lub Skeet",
+        )
+
+    current_assignments = (
+        db.query(ParticipantDiscipline)
+        .join(
+            CompetitionParticipant,
+            CompetitionParticipant.id == ParticipantDiscipline.participant_id,
+        )
+        .filter(
+            ParticipantDiscipline.discipline_id == discipline.id,
+            CompetitionParticipant.checked_in == 1,
+            CompetitionParticipant.paid == 1,
+            or_(
+                CompetitionParticipant.entry_type == "shooter",
+                CompetitionParticipant.entry_type.is_(None),
+            ),
+        )
+        .all()
+    )
+    assignments_by_id = {
+        assignment.id: assignment
+        for assignment in current_assignments
+    }
+    submitted_by_id = {
+        assignment.participant_discipline_id: assignment
+        for assignment in data.assignments
+    }
+
+    if (
+        len(submitted_by_id) != len(data.assignments)
+        or set(submitted_by_id) != set(assignments_by_id)
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Układ grup nie zawiera dokładnie wszystkich potwierdzonych zawodników",
+        )
+
+    group_size = clay_squad_group_size(discipline)
+    occupied_slots: set[tuple[int, int]] = set()
+    group_statuses = trap_squad_group_statuses(discipline, db)
+
+    for assignment_id, submitted in submitted_by_id.items():
+        group_number = int(submitted.group_number or 0)
+        position = int(submitted.squad_position or 0)
+
+        if group_number <= 0 or position <= 0 or position > group_size:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Każdy zawodnik musi mieć grupę i pozycję od 1 do {group_size}",
+            )
+
+        slot = (group_number, position)
+
+        if slot in occupied_slots:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Pozycja {position} w grupie {group_number} jest zajęta więcej niż raz",
+            )
+
+        occupied_slots.add(slot)
+        current = assignments_by_id[assignment_id]
+        current_group_number = int(current.squad_group_number or 0)
+        current_position = int(current.squad_position or 0)
+        changed = (
+            current_group_number != group_number
+            or current_position != position
+        )
+
+        if changed and trap_squad_group_is_locked(
+            group_statuses.get(current_group_number)
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="Nie można przenosić zawodników z rozpoczętej lub zakończonej grupy",
+            )
+
+        if changed and trap_squad_group_is_locked(group_statuses.get(group_number)):
+            raise HTTPException(
+                status_code=400,
+                detail="Nie można przenosić zawodników do rozpoczętej lub zakończonej grupy",
+            )
+
+    try:
+        for assignment_id, submitted in submitted_by_id.items():
+            current = assignments_by_id[assignment_id]
+            current.squad_group_number = submitted.group_number
+            current.squad_position = submitted.squad_position
+
+        db.flush()
+        compact_squad_group_layout(discipline, db)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    return {
+        "message": "Układ grup zapisany",
         "discipline_id": discipline.id,
     }
 
