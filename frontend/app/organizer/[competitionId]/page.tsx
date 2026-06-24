@@ -1504,7 +1504,7 @@ export default function OrganizerCompetitionPage() {
 
                           {competition.status === "started" && (
                             <p className="mb-3 rounded-xl border border-yellow-200 bg-yellow-50 px-3 py-2 text-sm font-semibold text-yellow-800">
-                              Losowanie grup jest zablokowane po rozpoczęciu zawodów.
+                              Losowanie grup jest zablokowane po rozpoczęciu zawodów. Grupy, które jeszcze nie wystartowały, nadal możesz dostosować ręcznie.
                             </p>
                           )}
 
