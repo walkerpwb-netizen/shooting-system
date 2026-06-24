@@ -132,7 +132,7 @@ function FeatureScreen({ kind }: { kind: FeatureKind }) {
           src={screen.src}
           alt={screen.alt}
           width={2880}
-          height={1800}
+          height={1578}
           sizes="(min-width: 1024px) 650px, 100vw"
           className="h-auto w-full"
         />
