@@ -1,9 +1,11 @@
 "use client";
 
+import NextImage from "next/image";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
+import QrCodeScanner from "@/components/QrCodeScanner";
 import { apiUrl } from "@/lib/api";
 import { getAccessToken, isOrganizer } from "@/lib/auth";
 
@@ -36,6 +38,37 @@ type PaymentParticipant = {
 
 type SortField = "name" | "license" | "club" | "disciplines" | "fee" | "checked_in" | "paid";
 type SortDirection = "asc" | "desc";
+
+function licenseDigits(value: string) {
+  return value.replace(/\D/g, "");
+}
+
+function licenseFromQrPayload(value: string) {
+  try {
+    const parsed = JSON.parse(value);
+
+    if (Array.isArray(parsed)) {
+      const licenseNumber = parsed[2];
+
+      return typeof licenseNumber === "string" || typeof licenseNumber === "number"
+        ? String(licenseNumber).trim()
+        : "";
+    }
+
+    if (parsed && typeof parsed === "object") {
+      const payload = parsed as Record<string, unknown>;
+      const licenseNumber = payload.license_number ?? payload.licenseNumber;
+
+      return typeof licenseNumber === "string" || typeof licenseNumber === "number"
+        ? String(licenseNumber).trim()
+        : "";
+    }
+  } catch {
+    // Plain license numbers are handled below.
+  }
+
+  return value.trim();
+}
 
 function parseFee(value: string) {
   const fee = Number((value || "0").replace(",", "."));
@@ -110,6 +143,7 @@ export default function OrganizerPaymentsPage() {
   const [savingId, setSavingId] = useState<number | null>(null);
   const [message, setMessage] = useState("");
   const [filter, setFilter] = useState("");
+  const [scannerOpen, setScannerOpen] = useState(false);
   const [sortField, setSortField] = useState<SortField>("name");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
 
@@ -238,6 +272,37 @@ export default function OrganizerPaymentsPage() {
     }
 
     return sortDirection === "asc" ? "↑" : "↓";
+  }
+
+  function handleParticipantQrScan(value: string) {
+    const scannedLicense = licenseFromQrPayload(value);
+    const scannedLicenseDigits = licenseDigits(scannedLicense);
+
+    setScannerOpen(false);
+
+    if (!scannedLicense) {
+      setMessage("Nie rozpoznano numeru licencji w kodzie QR ❌");
+      return;
+    }
+
+    const participant = participants.find((currentParticipant) => {
+      const currentLicense = currentParticipant.license_number || "";
+
+      return currentLicense.toLocaleLowerCase("pl-PL")
+        === scannedLicense.toLocaleLowerCase("pl-PL")
+        || Boolean(
+          scannedLicenseDigits
+          && licenseDigits(currentLicense) === scannedLicenseDigits
+        );
+    });
+
+    if (!participant) {
+      setMessage("Brak zawodnika z zeskanowaną licencją na liście opłat ❌");
+      return;
+    }
+
+    setFilter(participantName(participant));
+    setMessage(`Znaleziono zawodnika: ${participantName(participant)} ✅`);
   }
 
   async function updateParticipant(
@@ -374,12 +439,41 @@ export default function OrganizerPaymentsPage() {
                   Potwierdzaj przybycie i opłaty w dniu zawodów.
                 </p>
 
-                <input
-                  value={filter}
-                  onChange={(event) => setFilter(event.target.value)}
-                  placeholder="Filtruj zawodnika"
-                  className="mt-4 w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-base text-white placeholder:text-gray-500 focus:outline-none focus:border-green-700"
-                />
+                <div className="mt-4 flex flex-col gap-3">
+                  <input
+                    value={filter}
+                    onChange={(event) => setFilter(event.target.value)}
+                    placeholder="Filtruj zawodnika"
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-base text-white placeholder:text-gray-500 focus:outline-none focus:border-green-700"
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMessage("");
+                      setScannerOpen(true);
+                    }}
+                    className="group flex items-center gap-3 text-left"
+                  >
+                    <NextImage
+                      src="/icons/skaner.jpeg"
+                      alt=""
+                      width={1254}
+                      height={1254}
+                      sizes="64px"
+                      className="h-16 w-16 shrink-0 rounded-xl object-cover shadow-[0_8px_24px_rgba(34,197,94,0.2)] transition group-hover:scale-[1.03]"
+                    />
+
+                    <span>
+                      <span className="block font-black text-white transition group-hover:text-green-300">
+                        Skanuj QR licencji zawodnika
+                      </span>
+                      <span className="mt-1 block text-sm leading-5 text-gray-400">
+                        Zeskanuj kod, aby szybko odnaleźć zawodnika na liście.
+                      </span>
+                    </span>
+                  </button>
+                </div>
               </div>
 
               <div className="p-3 space-y-3">
@@ -523,12 +617,41 @@ export default function OrganizerPaymentsPage() {
                       </p>
                     </div>
 
-                    <input
-                      value={filter}
-                      onChange={(event) => setFilter(event.target.value)}
-                      placeholder="Filtruj po nazwisku, licencji, klubie lub konkurencji"
-                      className="w-full md:w-[420px] bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:border-green-700"
-                    />
+                    <div className="flex items-center gap-3">
+                      <input
+                        value={filter}
+                        onChange={(event) => setFilter(event.target.value)}
+                        placeholder="Filtruj po nazwisku, licencji, klubie lub konkurencji"
+                        className="w-[420px] bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:border-green-700"
+                      />
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMessage("");
+                          setScannerOpen(true);
+                        }}
+                        className="group flex items-center gap-2 text-left"
+                      >
+                        <NextImage
+                          src="/icons/skaner.jpeg"
+                          alt=""
+                          width={1254}
+                          height={1254}
+                          sizes="56px"
+                          className="h-14 w-14 shrink-0 rounded-xl object-cover shadow-[0_8px_24px_rgba(34,197,94,0.2)] transition group-hover:scale-[1.03]"
+                        />
+
+                        <span className="max-w-44">
+                          <span className="block text-sm font-black text-white transition group-hover:text-green-300">
+                            Skanuj QR licencji
+                          </span>
+                          <span className="mt-0.5 block text-xs leading-4 text-gray-400">
+                            Odszukaj zawodnika na liście.
+                          </span>
+                        </span>
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -693,6 +816,33 @@ export default function OrganizerPaymentsPage() {
               </div>
             </div>
           </section>
+        )}
+
+        {scannerOpen && (
+          <div className="fixed inset-0 z-50 overflow-y-auto bg-black/75 px-3 py-4 sm:px-6">
+            <div className="mx-auto w-full max-w-5xl rounded-xl border border-zinc-800 bg-black p-3 shadow-2xl sm:p-5">
+              <div className="mb-4 flex items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-xl font-bold text-white sm:text-2xl">
+                    Skan QR licencji zawodnika
+                  </h2>
+                  <p className="mt-1 text-sm text-gray-400">
+                    Zeskanuj kod, aby odnaleźć zawodnika na liście obecności i opłat.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setScannerOpen(false)}
+                  className="shrink-0 rounded-lg bg-zinc-800 px-4 py-2 font-semibold text-white transition hover:bg-zinc-700"
+                >
+                  Zamknij
+                </button>
+              </div>
+
+              <QrCodeScanner onScan={handleParticipantQrScan} />
+            </div>
+          </div>
         )}
       </div>
     </main>
