@@ -17,6 +17,7 @@ type ParsedQrPayload = {
 };
 
 type QrCodeScannerProps = {
+  autoStart?: boolean;
   onScan?: (value: string) => void;
 };
 
@@ -189,7 +190,10 @@ function formatScanTime(value: string) {
   ).format(new Date(value));
 }
 
-export default function QrCodeScanner({ onScan }: QrCodeScannerProps = {}) {
+export default function QrCodeScanner({
+  autoStart = false,
+  onScan,
+}: QrCodeScannerProps = {}) {
   const scannerRef = useRef<HTMLElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -201,6 +205,7 @@ export default function QrCodeScanner({ onScan }: QrCodeScannerProps = {}) {
   const barcodeDetectorRef = useRef<InstanceType<BarcodeDetectorConstructor> | null>(null);
   const lastScanValueRef = useRef("");
   const lastScanAtRef = useRef(0);
+  const autoStartAttemptedRef = useRef(false);
 
   const [devices, setDevices] = useState<CameraDevice[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState("");
@@ -619,6 +624,21 @@ export default function QrCodeScanner({ onScan }: QrCodeScannerProps = {}) {
       setMessage("Nie udało się uruchomić kamery. Sprawdź uprawnienia przeglądarki.");
     }
   }
+
+  useEffect(() => {
+    if (!autoStart || autoStartAttemptedRef.current) {
+      return;
+    }
+
+    autoStartAttemptedRef.current = true;
+    const startTimeout = window.setTimeout(() => {
+      startScanner().catch(() => undefined);
+    }, 0);
+
+    return () => window.clearTimeout(startTimeout);
+    // The scanner is mounted for one modal session, so auto-start must run once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoStart]);
 
   async function copyLatestScan() {
     if (!latestScan) {

@@ -840,7 +840,10 @@ export default function OrganizerPaymentsPage() {
                 </button>
               </div>
 
-              <QrCodeScanner onScan={handleParticipantQrScan} />
+              <QrCodeScanner
+                autoStart
+                onScan={handleParticipantQrScan}
+              />
             </div>
           </div>
         )}
