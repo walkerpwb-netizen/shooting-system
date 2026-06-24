@@ -3444,6 +3444,131 @@ def sync_participant_squad_groups(
         assign_squad_group(participant_discipline, db)
 
 
+def fill_squad_group_vacancies(
+    vacancies: list[tuple[int, int, int]],
+    db,
+):
+    db.flush()
+
+    for discipline_id, group_number, squad_position in vacancies:
+        discipline = (
+            db.query(Discipline)
+            .filter(Discipline.id == discipline_id)
+            .first()
+        )
+
+        if (
+            not discipline
+            or not is_clay_squad_discipline(discipline)
+            or group_number <= 0
+        ):
+            continue
+
+        group_statuses = trap_squad_group_statuses(discipline, db)
+
+        if trap_squad_group_is_locked(group_statuses.get(group_number)):
+            continue
+
+        group_size = clay_squad_group_size(discipline)
+        group_assignments = (
+            db.query(ParticipantDiscipline)
+            .join(
+                CompetitionParticipant,
+                CompetitionParticipant.id == ParticipantDiscipline.participant_id,
+            )
+            .filter(
+                ParticipantDiscipline.discipline_id == discipline.id,
+                ParticipantDiscipline.squad_group_number == group_number,
+                CompetitionParticipant.checked_in == 1,
+                CompetitionParticipant.paid == 1,
+                or_(
+                    CompetitionParticipant.entry_type == "shooter",
+                    CompetitionParticipant.entry_type.is_(None),
+                ),
+            )
+            .all()
+        )
+
+        if len(group_assignments) >= group_size:
+            continue
+
+        occupied_positions = {
+            int(getattr(assignment, "squad_position", 0) or 0)
+            for assignment in group_assignments
+        }
+        target_position = (
+            squad_position
+            if 1 <= squad_position <= group_size
+            and squad_position not in occupied_positions
+            else next(
+                (
+                    position
+                    for position in range(1, group_size + 1)
+                    if position not in occupied_positions
+                ),
+                0,
+            )
+        )
+
+        if target_position <= 0:
+            continue
+
+        last_group_number = (
+            db.query(func.max(ParticipantDiscipline.squad_group_number))
+            .join(
+                CompetitionParticipant,
+                CompetitionParticipant.id == ParticipantDiscipline.participant_id,
+            )
+            .filter(
+                ParticipantDiscipline.discipline_id == discipline.id,
+                CompetitionParticipant.checked_in == 1,
+                CompetitionParticipant.paid == 1,
+                or_(
+                    CompetitionParticipant.entry_type == "shooter",
+                    CompetitionParticipant.entry_type.is_(None),
+                ),
+            )
+            .scalar()
+        )
+        last_group_number = int(last_group_number or 0)
+
+        if (
+            last_group_number <= group_number
+            or trap_squad_group_is_locked(group_statuses.get(last_group_number))
+        ):
+            continue
+
+        donor_assignment = (
+            db.query(ParticipantDiscipline)
+            .join(
+                CompetitionParticipant,
+                CompetitionParticipant.id == ParticipantDiscipline.participant_id,
+            )
+            .filter(
+                ParticipantDiscipline.discipline_id == discipline.id,
+                ParticipantDiscipline.squad_group_number == last_group_number,
+                CompetitionParticipant.checked_in == 1,
+                CompetitionParticipant.paid == 1,
+                or_(
+                    CompetitionParticipant.entry_type == "shooter",
+                    CompetitionParticipant.entry_type.is_(None),
+                ),
+            )
+            .order_by(
+                ParticipantDiscipline.squad_position.desc(),
+                ParticipantDiscipline.id.desc(),
+            )
+            .first()
+        )
+
+        if not donor_assignment:
+            continue
+
+        donor_assignment.squad_group_number = group_number
+        donor_assignment.squad_position = target_position
+        db.flush()
+
+
 def parse_price(value):
     if value is None:
         return Decimal("0")
@@ -7994,6 +8119,45 @@ def update_organizer_participant_payment_status(
         )
 
     was_confirmed = is_participant_confirmed(participant)
+    squad_vacancies: list[tuple[int, int, int]] = []
+
+    if was_confirmed:
+        participant_disciplines = (
+            db.query(ParticipantDiscipline)
+            .filter(ParticipantDiscipline.participant_id == participant.id)
+            .all()
+        )
+
+        for participant_discipline in participant_disciplines:
+            discipline = (
+                db.query(Discipline)
+                .filter(Discipline.id == participant_discipline.discipline_id)
+                .first()
+            )
+            group_number = int(
+                getattr(participant_discipline, "squad_group_number", 0) or 0
+            )
+            squad_position = int(
+                getattr(participant_discipline, "squad_position", 0) or 0
+            )
+
+            if (
+                discipline
+                and is_clay_squad_discipline(discipline)
+                and group_number > 0
+                and squad_position > 0
+                and not trap_squad_group_is_locked(
+                    trap_squad_group_statuses(discipline, db).get(group_number)
+                )
+            ):
+                squad_vacancies.append(
+                    (
+                        participant_discipline.discipline_id,
+                        group_number,
+                        squad_position,
+                    )
+                )
+
     now = datetime.now(APP_TIMEZONE).isoformat()
 
     if data.checked_in is not None:
@@ -8009,6 +8173,9 @@ def update_organizer_participant_payment_status(
         db,
         reset_existing=not was_confirmed and is_participant_confirmed(participant),
     )
+
+    if was_confirmed and not is_participant_confirmed(participant):
+        fill_squad_group_vacancies(squad_vacancies, db)
 
     db.commit()
     db.refresh(participant)
