@@ -15,25 +15,11 @@ type SessionAuthData = {
   pzss_club_status?: string;
 };
 
-type SetSessionAuthOptions = {
-  resetDeadline?: boolean;
-};
-
 const PENDING_ACCESS_TOKEN = "__shooting_system_refreshing_access_token__";
 
 let accessToken: string | null = null;
 let refreshPromise: Promise<string | null> | null = null;
 let fetchBridgeInstalled = false;
-
-function hasActiveSessionDeadline() {
-  if (typeof window === "undefined") {
-    return false;
-  }
-
-  const deadline = Number(localStorage.getItem(SESSION_DEADLINE_STORAGE_KEY));
-
-  return Number.isFinite(deadline) && deadline > Date.now();
-}
 
 function normalizeRoles(roles: SessionAuthData["roles"], fallbackRole?: string) {
   if (Array.isArray(roles)) {
@@ -103,10 +89,7 @@ export function subscribeToAuthChange(onStoreChange: () => void) {
   };
 }
 
-export function setSessionAuth(
-  data: SessionAuthData,
-  options: SetSessionAuthOptions = {}
-) {
+export function setSessionAuth(data: SessionAuthData) {
   if (typeof window === "undefined") {
     return;
   }
@@ -119,27 +102,19 @@ export function setSessionAuth(
   }
 
   storeSessionMetadata(data);
-
-  if (options.resetDeadline !== false) {
-    localStorage.setItem(
-      SESSION_DEADLINE_STORAGE_KEY,
-      String(Date.now() + SESSION_TIMEOUT_MS)
-    );
-  }
-
+  localStorage.setItem(
+    SESSION_DEADLINE_STORAGE_KEY,
+    String(Date.now() + SESSION_TIMEOUT_MS)
+  );
   notifyAuthChange();
 }
 
 export function getAccessToken() {
-  if (accessToken && hasActiveSessionDeadline()) {
+  if (accessToken) {
     return accessToken;
   }
 
-  if (
-    typeof window !== "undefined"
-    && localStorage.getItem("email")
-    && hasActiveSessionDeadline()
-  ) {
+  if (typeof window !== "undefined" && localStorage.getItem("email")) {
     void refreshAccessToken();
     return PENDING_ACCESS_TOKEN;
   }
@@ -230,7 +205,7 @@ export async function refreshAccessToken() {
       }
 
       const data: SessionAuthData = await response.json();
-      setSessionAuth(data, { resetDeadline: false });
+      setSessionAuth(data);
 
       return accessToken;
     })
@@ -246,10 +221,6 @@ export async function refreshAccessToken() {
 }
 
 export async function getValidAccessToken() {
-  if (!hasActiveSessionDeadline()) {
-    return null;
-  }
-
   return accessToken || refreshAccessToken();
 }
 
@@ -258,7 +229,10 @@ export async function restoreSession() {
     return null;
   }
 
-  if (!hasActiveSessionDeadline()) {
+  const deadline = Number(localStorage.getItem(SESSION_DEADLINE_STORAGE_KEY));
+  const deadlineIsValid = Number.isFinite(deadline) && deadline > Date.now();
+
+  if (!deadlineIsValid) {
     clearStoredAuth();
     localStorage.removeItem(SESSION_DEADLINE_STORAGE_KEY);
     return null;
