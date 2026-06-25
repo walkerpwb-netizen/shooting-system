@@ -381,7 +381,7 @@ export default function AdminClient({
 }: AdminClientProps) {
   const router = useRouter();
 
-  const [activeTab, setActiveTab] = useState<AdminTab>(initialTab);
+  const activeTab = initialTab;
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [pzssClubs, setPzssClubs] = useState<AdminPzssClub[]>([]);
   const [clubLicenseInputs, setClubLicenseInputs] = useState<Record<number, string>>({});
@@ -428,18 +428,6 @@ export default function AdminClient({
   const [testParticipantResults, setTestParticipantResults] = useState(false);
   const [testOverwriteResults, setTestOverwriteResults] = useState(true);
   const [testWorking, setTestWorking] = useState(false);
-
-  function selectTab(tab: AdminTab) {
-    setActiveTab(tab);
-    router.replace(
-      tab === "users"
-        ? "/admin"
-        : `/admin?tab=${tab}`,
-      {
-        scroll: false,
-      }
-    );
-  }
 
   useEffect(() => {
     if (!isAdmin()) {
@@ -2227,128 +2215,8 @@ export default function AdminClient({
   }
 
   return (
-    <main className="min-h-screen px-6 py-10">
+    <main className="min-h-screen px-6 py-6">
       <div className="max-w-7xl mx-auto">
-        <div className="mb-8">
-          <h1 className="text-5xl font-bold text-zinc-950 dark:text-white mb-2">
-            Panel Administratora
-          </h1>
-
-          <p className="text-zinc-600 dark:text-gray-400">
-            Zarządzaj użytkownikami, rolami i wszystkimi zawodami w systemie.
-          </p>
-        </div>
-
-        <div className="mb-8 flex flex-wrap gap-2 sm:gap-3">
-          <button
-            type="button"
-            onClick={() => selectTab("users")}
-            className={`ui-button min-w-0 px-5 py-3 rounded-xl font-bold transition ${
-              activeTab === "users"
-                ? "bg-green-700 text-white"
-                : "bg-zinc-800 text-gray-300 hover:bg-zinc-700"
-            }`}
-          >
-            Użytkownicy
-          </button>
-
-          <button
-            type="button"
-            onClick={() => selectTab("pzss-clubs")}
-            className={`ui-button min-w-0 px-5 py-3 rounded-xl font-bold transition ${
-              activeTab === "pzss-clubs"
-                ? "bg-green-700 text-white"
-                : "bg-zinc-800 text-gray-300 hover:bg-zinc-700"
-            }`}
-          >
-            Kluby PZSS
-          </button>
-
-          <button
-            type="button"
-            onClick={() => selectTab("competitions")}
-            className={`ui-button min-w-0 px-5 py-3 rounded-xl font-bold transition ${
-              activeTab === "competitions"
-                ? "bg-green-700 text-white"
-                : "bg-zinc-800 text-gray-300 hover:bg-zinc-700"
-            }`}
-          >
-            Zawody
-          </button>
-
-          <button
-            type="button"
-            onClick={() => selectTab("settings")}
-            className={`ui-button min-w-0 px-5 py-3 rounded-xl font-bold transition ${
-              activeTab === "settings"
-                ? "bg-green-700 text-white"
-                : "bg-zinc-800 text-gray-300 hover:bg-zinc-700"
-            }`}
-          >
-            Settings
-          </button>
-
-          <button
-            type="button"
-            onClick={() => selectTab("premium")}
-            className={`ui-button min-w-0 px-5 py-3 rounded-xl font-bold transition ${
-              activeTab === "premium"
-                ? "bg-green-700 text-white"
-                : "bg-zinc-800 text-gray-300 hover:bg-zinc-700"
-            }`}
-          >
-            Premium
-          </button>
-
-          <button
-            type="button"
-            onClick={() => selectTab("ads")}
-            className={`ui-button min-w-0 px-5 py-3 rounded-xl font-bold transition ${
-              activeTab === "ads"
-                ? "bg-green-700 text-white"
-                : "bg-zinc-800 text-gray-300 hover:bg-zinc-700"
-            }`}
-          >
-            Reklamy
-          </button>
-
-          <button
-            type="button"
-            onClick={() => selectTab("monitoring")}
-            className={`ui-button min-w-0 px-5 py-3 rounded-xl font-bold transition ${
-              activeTab === "monitoring"
-                ? "bg-green-700 text-white"
-                : "bg-zinc-800 text-gray-300 hover:bg-zinc-700"
-            }`}
-          >
-            Monitoring
-          </button>
-
-          <button
-            type="button"
-            onClick={() => selectTab("qr-scanner")}
-            className={`ui-button min-w-0 px-5 py-3 rounded-xl font-bold transition ${
-              activeTab === "qr-scanner"
-                ? "bg-green-700 text-white"
-                : "bg-zinc-800 text-gray-300 hover:bg-zinc-700"
-            }`}
-          >
-            QR skaner
-          </button>
-
-          <button
-            type="button"
-            onClick={() => selectTab("test-data")}
-            className={`ui-button min-w-0 px-5 py-3 rounded-xl font-bold transition ${
-              activeTab === "test-data"
-                ? "bg-green-700 text-white"
-                : "bg-zinc-800 text-gray-300 hover:bg-zinc-700"
-            }`}
-          >
-            Test danych
-          </button>
-        </div>
-
         {message && (
           <p className="bg-zinc-900 border border-zinc-800 text-white rounded-xl p-4 mb-6">
             {message}
