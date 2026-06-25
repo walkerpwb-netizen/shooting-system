@@ -1,20 +1,26 @@
-export const HUNTING_TRAP_TYPE = "hunting-trap";
 export const HUNTING_TRAP_VARIANT = "hunting-trap-20";
 export const HUNTING_TRAP_TARGETS_COUNT = 20;
 export const HUNTING_TRAP_SHOTS_COUNT = 20;
 
 type ClayDiscipline = {
   discipline_type?: string;
+  trap_variant?: string;
+  clay_variant?: string;
   trap_series_count?: number;
   clay_series_count?: number;
 };
 
 export function isClayDisciplineType(disciplineType: string) {
-  return ["trap", HUNTING_TRAP_TYPE, "skeet"].includes(disciplineType);
+  return ["trap", "skeet"].includes(disciplineType);
+}
+
+export function isHuntingTrapDiscipline(discipline: ClayDiscipline) {
+  return discipline.discipline_type === "trap"
+    && (discipline.clay_variant || discipline.trap_variant) === HUNTING_TRAP_VARIANT;
 }
 
 export function getClayTargetsCount(discipline: ClayDiscipline) {
-  if (discipline.discipline_type === HUNTING_TRAP_TYPE) {
+  if (isHuntingTrapDiscipline(discipline)) {
     return HUNTING_TRAP_TARGETS_COUNT;
   }
 

@@ -25,7 +25,9 @@ type Discipline = {
   name: string;
   discipline_type: string;
   shots_count: number;
+  trap_variant?: string;
   trap_series_count?: number;
+  clay_variant?: string;
   clay_series_count?: number;
   ammo_price: string;
   clay_price?: string;

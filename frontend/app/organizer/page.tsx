@@ -9,8 +9,8 @@ import { authFetch, getAuthSnapshot, isOrganizer, subscribeToAuthChange } from "
 import {
   HUNTING_TRAP_SHOTS_COUNT,
   HUNTING_TRAP_TARGETS_COUNT,
-  HUNTING_TRAP_TYPE,
   HUNTING_TRAP_VARIANT,
+  isHuntingTrapDiscipline,
   isClayDisciplineType,
 } from "@/lib/disciplines";
 
@@ -121,7 +121,6 @@ const disciplineTypeGroups = [
     label: "Konkurencje strzelbowe",
     options: [
       { value: "trap", label: "Trap" },
-      { value: HUNTING_TRAP_TYPE, label: "Trap Myśliwski" },
       { value: "skeet", label: "Skeet" },
       { value: "double-trap", label: "Double Trap" },
       { value: "trap-mix", label: "Trap MIX" },
@@ -171,6 +170,7 @@ const ammoTypes = [
 const trapTargetsPerSeries = 25;
 const trapShotsPerTarget = 2;
 const trapVariantOptions = [
+  { value: HUNTING_TRAP_VARIANT, label: "Trap Myśliwski 20", seriesCount: 1 },
   { value: "trap-25", label: "Trap 25", seriesCount: 1 },
   { value: "trap-50", label: "Trap 50", seriesCount: 2 },
   { value: "trap-75", label: "Trap 75", seriesCount: 3 },
@@ -198,10 +198,6 @@ function getTrapPresetSeriesCount(discipline: Discipline, trapVariant: string) {
 }
 
 function getTrapSeriesCount(discipline: Discipline) {
-  if (discipline.discipline_type === HUNTING_TRAP_TYPE) {
-    return 1;
-  }
-
   const presetSeriesCount = getTrapPresetSeriesCount(discipline, discipline.trap_variant);
 
   if (presetSeriesCount !== null) {
@@ -212,7 +208,7 @@ function getTrapSeriesCount(discipline: Discipline) {
 }
 
 function getTrapTargetsCount(discipline: Discipline) {
-  if (discipline.discipline_type === HUNTING_TRAP_TYPE) {
+  if (isHuntingTrapDiscipline(discipline)) {
     return HUNTING_TRAP_TARGETS_COUNT;
   }
 
@@ -220,7 +216,7 @@ function getTrapTargetsCount(discipline: Discipline) {
 }
 
 function getTrapShotsCount(discipline: Discipline) {
-  if (discipline.discipline_type === HUNTING_TRAP_TYPE) {
+  if (isHuntingTrapDiscipline(discipline)) {
     return HUNTING_TRAP_SHOTS_COUNT;
   }
 
@@ -1333,15 +1329,7 @@ export default function OrganizerPage() {
                             updated[index].trap_variant = "";
                             updated[index].trap_series_count = 0;
                             updated[index].clay_price = "";
-                          } else if (selectedDisciplineType === HUNTING_TRAP_TYPE) {
-                            updated[index].trap_variant = HUNTING_TRAP_VARIANT;
-                            updated[index].trap_series_count = 1;
-                            updated[index].shots_count = HUNTING_TRAP_SHOTS_COUNT;
                           } else {
-                            if (updated[index].trap_variant === HUNTING_TRAP_VARIANT) {
-                              updated[index].trap_variant = "";
-                              updated[index].trap_series_count = 0;
-                            }
                             updated[index].shots_count = 0;
                           }
 
@@ -1368,14 +1356,14 @@ export default function OrganizerPage() {
 
                     {trapDiscipline && (
                       <div className="grid md:grid-cols-2 gap-4">
-                        {discipline.discipline_type === HUNTING_TRAP_TYPE ? (
+                        {isHuntingTrapDiscipline(discipline) && (
                           <div className="md:col-span-2 rounded-xl border border-emerald-700/60 bg-emerald-950/30 p-4 text-sm text-emerald-100">
                             <p className="font-black">Trap Myśliwski — 20 rzutek</p>
                             <p className="mt-1">
                               5 pojedynczych, 10 w parach i 5 z podchodu. Każde trafienie jest warte 5 punktów.
                             </p>
                           </div>
-                        ) : (
+                        )}
                         <div>
                           <p className="text-white font-semibold mb-3">
                             wybierz wariant {discipline.discipline_type === "skeet" ? "Skeet" : "Trapa"}
@@ -1391,7 +1379,9 @@ export default function OrganizerPage() {
 
                               updated[index].trap_variant = selectedTrapVariant;
                               updated[index].trap_series_count = presetSeriesCount ?? 0;
-                              updated[index].shots_count = presetSeriesCount
+                              updated[index].shots_count = selectedTrapVariant === HUNTING_TRAP_VARIANT
+                                ? HUNTING_TRAP_SHOTS_COUNT
+                                : presetSeriesCount
                                 ? presetSeriesCount * trapTargetsPerSeries * (discipline.discipline_type === "skeet" ? 1 : trapShotsPerTarget)
                                 : 0;
 
@@ -1411,7 +1401,6 @@ export default function OrganizerPage() {
                             ))}
                           </select>
                         </div>
-                        )}
 
                         {discipline.trap_variant === "manual" && (
                           <div>

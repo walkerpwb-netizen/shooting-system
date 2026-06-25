@@ -9,7 +9,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiUrl } from "@/lib/api";
 import { getAccessToken, isOrganizer } from "@/lib/auth";
 import {
-  HUNTING_TRAP_TYPE,
   getClayTargetsCount,
   isClayDisciplineType,
 } from "@/lib/disciplines";
@@ -166,7 +165,7 @@ function trapGroupStatusLabel(status: string | undefined) {
 }
 
 function claySquadPositionLabel(disciplineType: string, position: number) {
-  if (["trap", HUNTING_TRAP_TYPE].includes(disciplineType) && position === 6) {
+  if (disciplineType === "trap" && position === 6) {
     return "Pozycja 6 - oczekujący";
   }
 
@@ -1400,7 +1399,7 @@ export default function OrganizerCompetitionPage() {
                         Grupy startowe konkurencji rzutkowych
                       </h3>
                       <p className="text-sm text-gray-500">
-                        Zawodnicy są przydzielani po potwierdzeniu przybycia i opłaty. Trap oraz Trap Myśliwski korzystają z grup 6-osobowych: 5 stanowisk strzelających i 1 pozycja oczekująca, a Skeet z grup do 6 osób.
+                        Zawodnicy są przydzielani po potwierdzeniu przybycia i opłaty. Trap korzysta z grup 6-osobowych: 5 stanowisk strzelających i 1 pozycja oczekująca, a Skeet z grup do 6 osób.
                       </p>
                     </div>
 

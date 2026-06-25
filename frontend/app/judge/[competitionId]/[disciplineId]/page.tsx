@@ -10,7 +10,7 @@ import { apiUrl } from "@/lib/api";
 import { getAccessToken, isPzssClubAccount } from "@/lib/auth";
 import {
   HUNTING_TRAP_TARGETS_COUNT,
-  HUNTING_TRAP_TYPE,
+  isHuntingTrapDiscipline,
 } from "@/lib/disciplines";
 
 type JudgeCompetition = {
@@ -886,15 +886,15 @@ export default function JudgeDisciplinePage() {
   const discipline = competition?.disciplines.find(
     (item) => item.id === disciplineId
   );
-  const isHuntingTrapDiscipline = discipline?.discipline_type === HUNTING_TRAP_TYPE;
-  const isTrapDiscipline = discipline?.discipline_type === "trap" || isHuntingTrapDiscipline;
+  const isHuntingTrap = Boolean(discipline && isHuntingTrapDiscipline(discipline));
+  const isTrapDiscipline = discipline?.discipline_type === "trap";
   const isSkeetDiscipline = discipline?.discipline_type === "skeet";
   const trapSeriesCount = isTrapDiscipline
     ? Math.max(Number(discipline?.clay_series_count || discipline?.trap_series_count || 1), 1)
     : 0;
   const trapFormat = useMemo(
-    () => buildTrapFormat(isHuntingTrapDiscipline, trapSeriesCount),
-    [isHuntingTrapDiscipline, trapSeriesCount]
+    () => buildTrapFormat(isHuntingTrap, trapSeriesCount),
+    [isHuntingTrap, trapSeriesCount]
   );
   const activeTrapScheduleRoundCount = activeTrapGroup
     ? getTrapScheduleRoundCount(activeTrapGroup.shooters, trapFormat)
@@ -980,10 +980,10 @@ export default function JudgeDisciplinePage() {
   const trapPhase = trapFormat.phases[trapPhaseIndex];
   const trapRoundLabel = trapPhase?.label || "Trap";
   const trapCurrentScoreIndex = trapActiveCells[trapShotIndex]?.scoreIndex ?? 0;
-  const trapTargetLabel = isHuntingTrapDiscipline
+  const trapTargetLabel = isHuntingTrap
     ? `rzutek ${trapCurrentScoreIndex + 1} z ${trapFormat.targetsCount}`
     : `rzutek ${trapCurrentTargetIndex + 1}`;
-  const trapColumnLabels = isHuntingTrapDiscipline
+  const trapColumnLabels = isHuntingTrap
     ? ["rzutek 1", "rzutek 2", "—", "—", "—"]
     : ["rzutek 1", "rzutek 2", "rzutek 3", "rzutek 4", "rzutek 5"];
 
@@ -1972,11 +1972,11 @@ export default function JudgeDisciplinePage() {
           <section className="rounded-xl border border-zinc-800 bg-zinc-900">
             <div className="border-b border-zinc-800 px-4 py-4 sm:px-5">
               <h2 className="text-2xl font-bold text-white">
-                Grupy startowe {isHuntingTrapDiscipline ? "Trap Myśliwski" : "Trap"}
+                Grupy startowe {isHuntingTrap ? "Trap Myśliwski" : "Trap"}
               </h2>
               <p className="mt-1 text-sm text-gray-400 sm:text-base">
                 Wybierz grupę 6-osobową: stanowiska 1–5 strzelają, pozycja 6 oczekuje i wchodzi na stanowisko 1 po każdej zmianie.
-                {isHuntingTrapDiscipline && " Format: 5 pojedynczych, 10 w parach i 5 z podchodu."}
+                {isHuntingTrap && " Format: 5 pojedynczych, 10 w parach i 5 z podchodu."}
               </p>
             </div>
 
@@ -1986,7 +1986,7 @@ export default function JudgeDisciplinePage() {
               </p>
             ) : trapGroups.length === 0 ? (
               <p className="px-4 py-5 text-gray-400">
-                Brak potwierdzonych zawodników przypisanych do grup {isHuntingTrapDiscipline ? "Trap Myśliwski" : "Trap"}.
+                Brak potwierdzonych zawodników przypisanych do grup {isHuntingTrap ? "Trap Myśliwski" : "Trap"}.
               </p>
             ) : (
               <div className="grid gap-4 p-4 md:grid-cols-2">
