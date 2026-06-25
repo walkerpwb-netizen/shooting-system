@@ -2,6 +2,7 @@ import JoinCompetitionPanel from "./JoinCompetitionPanel";
 import LogoPreviewLink from "./LogoPreviewLink";
 
 import { apiUrl } from "@/lib/api";
+import { getClayTargetsCount } from "@/lib/disciplines";
 
 type CompetitionPageProps = {
   params: Promise<{
@@ -13,6 +14,7 @@ type Discipline = {
   id: number;
   name: string;
   description: string;
+  discipline_type: string;
   discipline_type_label?: string;
   scoring_type: string;
   shots_count: number;
@@ -191,9 +193,9 @@ export default async function CompetitionPage({
                     Amunicja: {discipline.ammo_type || "Nie podano"}, cena: {discipline.ammo_price || "0"} zł/szt.
                   </p>
 
-                  {(discipline.clay_series_count || discipline.trap_series_count) ? (
+                  {getClayTargetsCount(discipline) > 0 ? (
                     <p className="text-zinc-700 dark:text-gray-300">
-                      Rzutki: {(discipline.clay_series_count || discipline.trap_series_count || 0) * 25}, cena: {discipline.clay_price || "0"} zł/szt.
+                      Rzutki: {getClayTargetsCount(discipline)}, cena: {discipline.clay_price || "0"} zł/szt.
                     </p>
                   ) : null}
 

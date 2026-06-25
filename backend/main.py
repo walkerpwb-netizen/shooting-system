@@ -576,6 +576,7 @@ DISCIPLINE_TYPE_GROUPS = [
         "firearm_type": "shotgun",
         "options": [
             ("trap", "Trap"),
+            ("hunting-trap", "Trap Myśliwski"),
             ("skeet", "Skeet"),
             ("double-trap", "Double Trap"),
             ("trap-mix", "Trap MIX"),
@@ -642,10 +643,14 @@ AD_SLOT_LABELS = {
 AD_DEVICES = ["desktop", "mobile"]
 AD_EVENT_TYPES = ["impression", "click"]
 TRAP_DISCIPLINE_TYPE = "trap"
+HUNTING_TRAP_DISCIPLINE_TYPE = "hunting-trap"
 SKEET_DISCIPLINE_TYPE = "skeet"
 CLAY_HIT_POINTS = 5
 TRAP_TARGETS_PER_SERIES = 25
 TRAP_SHOTS_PER_TARGET = 2
+HUNTING_TRAP_TARGETS_COUNT = 20
+HUNTING_TRAP_SHOTS_COUNT = 20
+HUNTING_TRAP_VARIANT = "hunting-trap-20"
 TRAP_VARIANT_SERIES = {
     "trap-25": 1,
     "trap-50": 2,
@@ -3020,7 +3025,11 @@ def is_clay_squad_discipline(discipline: Discipline):
         getattr(discipline, "discipline_type", "") or ""
     )
     return (
-        discipline_type in [TRAP_DISCIPLINE_TYPE, SKEET_DISCIPLINE_TYPE]
+        discipline_type in [
+            TRAP_DISCIPLINE_TYPE,
+            HUNTING_TRAP_DISCIPLINE_TYPE,
+            SKEET_DISCIPLINE_TYPE,
+        ]
         and bool(discipline_clay_variant(discipline))
         and discipline_clay_series_count(discipline) > 0
     )
@@ -3176,7 +3185,7 @@ def validate_trap_result_data(discipline: Discipline, result_data: str):
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="Nieprawidłowy zapis wyniku Trap")
 
-    expected_scores = discipline_clay_series_count(discipline) * TRAP_TARGETS_PER_SERIES
+    expected_scores = trap_targets_count(discipline)
 
     if not isinstance(parsed, list) or len(parsed) != expected_scores:
         raise HTTPException(status_code=400, detail="Nieprawidłowa liczba rzutek Trap")
@@ -3227,10 +3236,7 @@ def trap_squad_group_statuses(discipline: Discipline, db):
     if not discipline or not is_clay_squad_discipline(discipline):
         return {}
 
-    expected_scores_count = max(
-        discipline_clay_series_count(discipline),
-        0,
-    ) * TRAP_TARGETS_PER_SERIES
+    expected_scores_count = trap_targets_count(discipline)
     participant_disciplines = (
         db.query(ParticipantDiscipline)
         .join(CompetitionParticipant, CompetitionParticipant.id == ParticipantDiscipline.participant_id)
@@ -3353,14 +3359,16 @@ def validate_trap_squad_groups_before_start(competition: Competition, db):
 
         if normalize_discipline_type(discipline.discipline_type or "") in [
             TRAP_DISCIPLINE_TYPE,
+            HUNTING_TRAP_DISCIPLINE_TYPE,
             SKEET_DISCIPLINE_TYPE,
         ]:
             positions_by_group: dict[int, set[int]] = {}
             group_size = clay_squad_group_size(discipline)
             discipline_name = (
-                "Trap"
-                if normalize_discipline_type(discipline.discipline_type or "") == TRAP_DISCIPLINE_TYPE
-                else "Skeet"
+                DISCIPLINE_TYPE_LABELS.get(
+                    normalize_discipline_type(discipline.discipline_type or ""),
+                    "konkurencji rzutkowej",
+                )
             )
 
             for participant_discipline in participant_disciplines:
@@ -3789,7 +3797,14 @@ def normalize_discipline_type(value: str):
 
 
 def trap_targets_count(discipline: Discipline):
-    if normalize_discipline_type(getattr(discipline, "discipline_type", "") or "") not in [
+    discipline_type = normalize_discipline_type(
+        getattr(discipline, "discipline_type", "") or ""
+    )
+
+    if discipline_type == HUNTING_TRAP_DISCIPLINE_TYPE:
+        return HUNTING_TRAP_TARGETS_COUNT
+
+    if discipline_type not in [
         TRAP_DISCIPLINE_TYPE,
         SKEET_DISCIPLINE_TYPE,
     ]:
@@ -3803,6 +3818,9 @@ def normalize_trap_variant(value: str):
 
 
 def clay_configuration_from_data(data: DisciplineData, discipline_type: str):
+    if discipline_type == HUNTING_TRAP_DISCIPLINE_TYPE:
+        return HUNTING_TRAP_VARIANT, 1
+
     legacy_variant = data.trap_variant if discipline_type == TRAP_DISCIPLINE_TYPE else ""
     variant = normalize_trap_variant(data.clay_variant or legacy_variant)
     manual_series_count = data.clay_series_count or (
@@ -3824,7 +3842,11 @@ def clay_configuration_from_data(data: DisciplineData, discipline_type: str):
 
 
 def normalize_discipline_payload(data: DisciplineData, discipline_type: str):
-    if discipline_type not in [TRAP_DISCIPLINE_TYPE, SKEET_DISCIPLINE_TYPE]:
+    if discipline_type not in [
+        TRAP_DISCIPLINE_TYPE,
+        HUNTING_TRAP_DISCIPLINE_TYPE,
+        SKEET_DISCIPLINE_TYPE,
+    ]:
         return {
             "shots_count": data.shots_count,
             "trap_variant": "",
@@ -3835,6 +3857,23 @@ def normalize_discipline_payload(data: DisciplineData, discipline_type: str):
         }
 
     clay_variant, clay_series_count = clay_configuration_from_data(data, discipline_type)
+
+    if discipline_type == HUNTING_TRAP_DISCIPLINE_TYPE:
+        if parse_price(data.clay_price) <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Podaj cenę za rzutek"
+            )
+
+        return {
+            "shots_count": HUNTING_TRAP_SHOTS_COUNT,
+            "trap_variant": "",
+            "trap_series_count": 0,
+            "clay_variant": HUNTING_TRAP_VARIANT,
+            "clay_series_count": 1,
+            "clay_price": data.clay_price,
+        }
+
     variant_series = (
         TRAP_VARIANT_SERIES
         if discipline_type == TRAP_DISCIPLINE_TYPE
@@ -8439,7 +8478,11 @@ def organizer_update_squad_group(
         .filter(
             ParticipantDiscipline.id == participant_discipline_id,
             Discipline.competition_id == competition.id,
-            Discipline.discipline_type.in_([TRAP_DISCIPLINE_TYPE, SKEET_DISCIPLINE_TYPE]),
+            Discipline.discipline_type.in_([
+                TRAP_DISCIPLINE_TYPE,
+                HUNTING_TRAP_DISCIPLINE_TYPE,
+                SKEET_DISCIPLINE_TYPE,
+            ]),
             CompetitionParticipant.checked_in == 1,
             CompetitionParticipant.paid == 1,
             or_(
@@ -9609,7 +9652,11 @@ def save_judge_result(
         getattr(discipline, "discipline_type", "") or ""
     )
 
-    if discipline_type in [TRAP_DISCIPLINE_TYPE, SKEET_DISCIPLINE_TYPE]:
+    if discipline_type in [
+        TRAP_DISCIPLINE_TYPE,
+        HUNTING_TRAP_DISCIPLINE_TYPE,
+        SKEET_DISCIPLINE_TYPE,
+    ]:
         if data.result_data is None:
             raise HTTPException(status_code=400, detail="Brak szczegółowego wyniku rzutkowego")
 

@@ -8,6 +8,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiUrl } from "@/lib/api";
 import { getAccessToken, isOrganizer } from "@/lib/auth";
+import {
+  HUNTING_TRAP_TYPE,
+  getClayTargetsCount,
+  isClayDisciplineType,
+} from "@/lib/disciplines";
 
 type Competition = {
   id: number;
@@ -161,7 +166,7 @@ function trapGroupStatusLabel(status: string | undefined) {
 }
 
 function claySquadPositionLabel(disciplineType: string, position: number) {
-  if (disciplineType === "trap" && position === 6) {
+  if (["trap", HUNTING_TRAP_TYPE].includes(disciplineType) && position === 6) {
     return "Pozycja 6 - oczekujący";
   }
 
@@ -345,7 +350,7 @@ export default function OrganizerCompetitionPage() {
         return sum;
       }
 
-      const clayFee = parseFee(discipline.clay_price || "") * ((discipline.clay_series_count || discipline.trap_series_count || 0) * 25);
+      const clayFee = parseFee(discipline.clay_price || "") * getClayTargetsCount(discipline);
 
       return sum
         + parseFee(discipline.ammo_price) * (discipline.shots_count || 0)
@@ -362,7 +367,7 @@ export default function OrganizerCompetitionPage() {
 
     return competition.disciplines
       .filter((discipline) =>
-        ["trap", "skeet"].includes(discipline.discipline_type)
+        isClayDisciplineType(discipline.discipline_type)
         && Boolean(discipline.clay_variant || discipline.trap_variant)
         && Number(discipline.clay_series_count || discipline.trap_series_count || 0) > 0
       )
@@ -1128,9 +1133,9 @@ export default function OrganizerCompetitionPage() {
                       <p className="text-gray-700 text-sm">
                         Amunicja: {discipline.ammo_type || "brak"}, cena: {discipline.ammo_price || "0"} zł/szt.
                       </p>
-                      {(discipline.clay_series_count || discipline.trap_series_count) ? (
+                      {getClayTargetsCount(discipline) > 0 ? (
                         <p className="text-gray-700 text-sm">
-                          Rzutki: {(discipline.clay_series_count || discipline.trap_series_count || 0) * 25}, cena: {discipline.clay_price || "0"} zł/szt.
+                          Rzutki: {getClayTargetsCount(discipline)}, cena: {discipline.clay_price || "0"} zł/szt.
                         </p>
                       ) : null}
                     </div>
@@ -1395,7 +1400,7 @@ export default function OrganizerCompetitionPage() {
                         Grupy startowe konkurencji rzutkowych
                       </h3>
                       <p className="text-sm text-gray-500">
-                        Zawodnicy są przydzielani po potwierdzeniu przybycia i opłaty. Trap korzysta z grup 6-osobowych: 5 stanowisk strzelających i 1 pozycja oczekująca, a Skeet z grup do 6 osób.
+                        Zawodnicy są przydzielani po potwierdzeniu przybycia i opłaty. Trap oraz Trap Myśliwski korzystają z grup 6-osobowych: 5 stanowisk strzelających i 1 pozycja oczekująca, a Skeet z grup do 6 osób.
                       </p>
                     </div>
 

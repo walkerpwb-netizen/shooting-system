@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 
 import { apiUrl } from "@/lib/api";
 import { getAccessToken } from "@/lib/auth";
+import { getClayTargetsCount } from "@/lib/disciplines";
 
 const subscribeToUserEmail = () => () => {};
 const getUserEmailSnapshot = () => localStorage.getItem("email") || "";
@@ -22,6 +23,7 @@ type Participant = {
 type Discipline = {
   id: number;
   name: string;
+  discipline_type: string;
   shots_count: number;
   trap_series_count?: number;
   clay_series_count?: number;
@@ -208,7 +210,7 @@ export default function JoinCompetitionPanel({
         return sum;
       }
 
-      const clayTargetsCount = Math.max(Number(discipline.clay_series_count || discipline.trap_series_count || 0), 0) * 25;
+      const clayTargetsCount = getClayTargetsCount(discipline);
 
       return sum
         + parsePrice(discipline.ammo_price) * discipline.shots_count
@@ -445,7 +447,7 @@ export default function JoinCompetitionPanel({
                           <>
                             {" "}+ amunicja i rzutki: {
                               parsePrice(discipline.ammo_price) * discipline.shots_count
-                              + parsePrice(discipline.clay_price || "") * Math.max(Number(discipline.clay_series_count || discipline.trap_series_count || 0), 0) * 25
+                              + parsePrice(discipline.clay_price || "") * getClayTargetsCount(discipline)
                             } zł
                           </>
                         )}

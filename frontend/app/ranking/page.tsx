@@ -84,6 +84,7 @@ const metricGroups: Array<{
     label: "Konkurencje strzelbowe",
     options: [
       { id: "trap", label: "Trap" },
+      { id: "hunting-trap", label: "Trap Myśliwski" },
       { id: "skeet", label: "Skeet" },
       { id: "double-trap", label: "Double Trap" },
       { id: "trap-mix", label: "Trap MIX" },

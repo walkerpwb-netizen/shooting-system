@@ -6,6 +6,13 @@ import { useRouter } from "next/navigation";
 
 import { apiUrl } from "@/lib/api";
 import { authFetch, getAuthSnapshot, isOrganizer, subscribeToAuthChange } from "@/lib/auth";
+import {
+  HUNTING_TRAP_SHOTS_COUNT,
+  HUNTING_TRAP_TARGETS_COUNT,
+  HUNTING_TRAP_TYPE,
+  HUNTING_TRAP_VARIANT,
+  isClayDisciplineType,
+} from "@/lib/disciplines";
 
 type Competition = {
   id: number;
@@ -114,6 +121,7 @@ const disciplineTypeGroups = [
     label: "Konkurencje strzelbowe",
     options: [
       { value: "trap", label: "Trap" },
+      { value: HUNTING_TRAP_TYPE, label: "Trap Myśliwski" },
       { value: "skeet", label: "Skeet" },
       { value: "double-trap", label: "Double Trap" },
       { value: "trap-mix", label: "Trap MIX" },
@@ -178,7 +186,7 @@ const skeetVariantOptions = [
 ];
 
 function isClayDiscipline(discipline: Discipline) {
-  return ["trap", "skeet"].includes(discipline.discipline_type);
+  return isClayDisciplineType(discipline.discipline_type);
 }
 
 function getClayVariantOptions(discipline: Discipline) {
@@ -190,6 +198,10 @@ function getTrapPresetSeriesCount(discipline: Discipline, trapVariant: string) {
 }
 
 function getTrapSeriesCount(discipline: Discipline) {
+  if (discipline.discipline_type === HUNTING_TRAP_TYPE) {
+    return 1;
+  }
+
   const presetSeriesCount = getTrapPresetSeriesCount(discipline, discipline.trap_variant);
 
   if (presetSeriesCount !== null) {
@@ -200,10 +212,18 @@ function getTrapSeriesCount(discipline: Discipline) {
 }
 
 function getTrapTargetsCount(discipline: Discipline) {
+  if (discipline.discipline_type === HUNTING_TRAP_TYPE) {
+    return HUNTING_TRAP_TARGETS_COUNT;
+  }
+
   return getTrapSeriesCount(discipline) * trapTargetsPerSeries;
 }
 
 function getTrapShotsCount(discipline: Discipline) {
+  if (discipline.discipline_type === HUNTING_TRAP_TYPE) {
+    return HUNTING_TRAP_SHOTS_COUNT;
+  }
+
   const shotsPerTarget = discipline.discipline_type === "skeet" ? 1 : trapShotsPerTarget;
   return getTrapTargetsCount(discipline) * shotsPerTarget;
 }
@@ -1309,11 +1329,19 @@ export default function OrganizerPage() {
 
                           updated[index].discipline_type = selectedDisciplineType;
 
-                          if (!["trap", "skeet"].includes(selectedDisciplineType)) {
+                          if (!isClayDisciplineType(selectedDisciplineType)) {
                             updated[index].trap_variant = "";
                             updated[index].trap_series_count = 0;
                             updated[index].clay_price = "";
+                          } else if (selectedDisciplineType === HUNTING_TRAP_TYPE) {
+                            updated[index].trap_variant = HUNTING_TRAP_VARIANT;
+                            updated[index].trap_series_count = 1;
+                            updated[index].shots_count = HUNTING_TRAP_SHOTS_COUNT;
                           } else {
+                            if (updated[index].trap_variant === HUNTING_TRAP_VARIANT) {
+                              updated[index].trap_variant = "";
+                              updated[index].trap_series_count = 0;
+                            }
                             updated[index].shots_count = 0;
                           }
 
@@ -1340,6 +1368,14 @@ export default function OrganizerPage() {
 
                     {trapDiscipline && (
                       <div className="grid md:grid-cols-2 gap-4">
+                        {discipline.discipline_type === HUNTING_TRAP_TYPE ? (
+                          <div className="md:col-span-2 rounded-xl border border-emerald-700/60 bg-emerald-950/30 p-4 text-sm text-emerald-100">
+                            <p className="font-black">Trap Myśliwski — 20 rzutek</p>
+                            <p className="mt-1">
+                              5 pojedynczych, 10 w parach i 5 z podchodu. Każde trafienie jest warte 5 punktów.
+                            </p>
+                          </div>
+                        ) : (
                         <div>
                           <p className="text-white font-semibold mb-3">
                             wybierz wariant {discipline.discipline_type === "skeet" ? "Skeet" : "Trapa"}
@@ -1375,6 +1411,7 @@ export default function OrganizerPage() {
                             ))}
                           </select>
                         </div>
+                        )}
 
                         {discipline.trap_variant === "manual" && (
                           <div>
