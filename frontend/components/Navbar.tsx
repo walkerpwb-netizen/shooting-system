@@ -684,6 +684,10 @@ export default function Navbar() {
           Kontakt
         </Link>
 
+        <Link href="/pobierz-aplikacje">
+          Pobierz Aplikację
+        </Link>
+
         {isAdmin && (
           <Link href="/admin">
             Panel Administratora
@@ -903,6 +907,14 @@ export default function Navbar() {
                 className="py-3"
               >
                 Kontakt
+              </Link>
+
+              <Link
+                href="/pobierz-aplikacje"
+                onClick={() => setMobileMenuOpen(false)}
+                className="py-3"
+              >
+                Pobierz Aplikację
               </Link>
 
               {isAdmin && (
