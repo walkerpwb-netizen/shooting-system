@@ -133,19 +133,24 @@ const featureScreens: Record<FeatureKind, { src: string; alt: string }> = {
   },
 };
 
-function FeatureScreen({ kind }: { kind: FeatureKind }) {
+function FeatureScreen({
+  kind,
+  onOpen,
+}: {
+  kind: FeatureKind;
+  onOpen: (image: { src: string; alt: string }) => void;
+}) {
   const screen = featureScreens[kind];
 
   return (
     <div className="relative mx-auto w-full max-w-[650px]">
       <div className="absolute -inset-4 rounded-[2rem] bg-emerald-400/10 blur-2xl" />
-      <a
-        href={screen.src}
-        target="_blank"
-        rel="noreferrer"
+      <button
+        type="button"
+        onClick={() => onOpen(screen)}
         aria-label={`Otwórz screen w pełnej rozdzielczości: ${screen.alt}`}
-        title="Kliknij, aby otworzyć screen w pełnej rozdzielczości"
-        className="group relative block overflow-hidden rounded-[1.35rem] border border-white/10 bg-[#071713] shadow-[0_28px_80px_rgba(0,0,0,0.38)] outline-none transition hover:-translate-y-1 hover:border-emerald-300/50 focus-visible:ring-2 focus-visible:ring-emerald-300"
+        title="Kliknij, aby powiększyć screen"
+        className="group relative block w-full cursor-zoom-in overflow-hidden rounded-[1.35rem] border border-white/10 bg-[#071713] p-0 text-left shadow-[0_28px_80px_rgba(0,0,0,0.38)] outline-none transition hover:-translate-y-1 hover:border-emerald-300/50 focus-visible:ring-2 focus-visible:ring-emerald-300"
       >
         <Image
           src={screen.src}
@@ -156,14 +161,22 @@ function FeatureScreen({ kind }: { kind: FeatureKind }) {
           className="h-auto w-full transition duration-300 group-hover:scale-[1.01]"
         />
         <span className="absolute bottom-3 right-3 rounded-lg bg-black/75 px-3 py-2 text-xs font-black text-white opacity-100 shadow-lg backdrop-blur-sm transition sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-visible:opacity-100">
-          Otwórz pełny rozmiar ↗
+          Powiększ
         </span>
-      </a>
+      </button>
     </div>
   );
 }
 
-function FeatureSection({ feature, reversed }: { feature: Feature; reversed: boolean }) {
+function FeatureSection({
+  feature,
+  reversed,
+  onOpenScreen,
+}: {
+  feature: Feature;
+  reversed: boolean;
+  onOpenScreen: (image: { src: string; alt: string }) => void;
+}) {
   return (
     <section className="my-5 grid items-center gap-8 rounded-2xl border border-white/12 bg-white/[0.045] p-5 shadow-xl sm:p-7 lg:my-0 lg:grid-cols-2 lg:gap-16 lg:rounded-none lg:border-0 lg:bg-transparent lg:px-0 lg:py-24 lg:shadow-none">
       <div className={reversed ? "lg:order-1" : "lg:order-2"}>
@@ -189,7 +202,7 @@ function FeatureSection({ feature, reversed }: { feature: Feature; reversed: boo
       </div>
 
       <div className={reversed ? "lg:order-2" : "lg:order-1"}>
-        <FeatureScreen kind={feature.kind} />
+        <FeatureScreen kind={feature.kind} onOpen={onOpenScreen} />
       </div>
     </section>
   );
@@ -204,6 +217,7 @@ export default function Home() {
   const [postImage, setPostImage] = useState<File | null>(null);
   const [postImagePreview, setPostImagePreview] = useState("");
   const [postSaving, setPostSaving] = useState(false);
+  const [openedScreen, setOpenedScreen] = useState<{ src: string; alt: string } | null>(null);
   const authSnapshot = useSyncExternalStore(
     subscribeToAuthChange,
     getAuthSnapshot,
@@ -252,6 +266,28 @@ export default function Home() {
       }
     };
   }, [postImagePreview]);
+
+  useEffect(() => {
+    if (!openedScreen) {
+      return;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setOpenedScreen(null);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [openedScreen]);
 
   function handlePostImageChange(file: File | null) {
     setPostImage(file);
@@ -483,13 +519,15 @@ export default function Home() {
                         </time>
                       </div>
 
-                      <a
-                        href={apiUrl(post.image_url)}
-                        target="_blank"
-                        rel="noreferrer"
+                      <button
+                        type="button"
+                        onClick={() => setOpenedScreen({
+                          src: apiUrl(post.image_url),
+                          alt: "Screen do aktualności",
+                        })}
                         aria-label="Otwórz screen aktualności w pełnej rozdzielczości"
-                        title="Kliknij, aby otworzyć screen w pełnej rozdzielczości"
-                        className="group relative block overflow-hidden rounded-xl border border-white/10 bg-[#071713] outline-none transition hover:-translate-y-1 hover:border-emerald-300/50 focus-visible:ring-2 focus-visible:ring-emerald-300"
+                        title="Kliknij, aby powiększyć screen"
+                        className="group relative block w-full cursor-zoom-in overflow-hidden rounded-xl border border-white/10 bg-[#071713] p-0 text-left outline-none transition hover:-translate-y-1 hover:border-emerald-300/50 focus-visible:ring-2 focus-visible:ring-emerald-300"
                       >
                         <Image
                           src={apiUrl(post.image_url)}
@@ -501,9 +539,9 @@ export default function Home() {
                           className="h-auto w-full transition duration-300 group-hover:scale-[1.01]"
                         />
                         <span className="absolute bottom-3 right-3 rounded-lg bg-black/75 px-3 py-2 text-xs font-black text-white opacity-100 shadow-lg backdrop-blur-sm transition sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-visible:opacity-100">
-                          Otwórz pełny rozmiar ↗
+                          Powiększ
                         </span>
-                      </a>
+                      </button>
                     </article>
                   ))}
                 </div>
@@ -516,6 +554,7 @@ export default function Home() {
                   key={feature.title}
                   feature={feature}
                   reversed={index % 2 === 1}
+                  onOpenScreen={setOpenedScreen}
                 />
               ))}
             </div>
@@ -555,6 +594,39 @@ export default function Home() {
           />
         </div>
       </div>
+
+      {openedScreen && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/90 p-3 backdrop-blur-sm sm:p-6"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Powiększony screen"
+          onClick={() => setOpenedScreen(null)}
+        >
+          <div
+            className="relative flex max-h-full max-w-full items-center justify-center"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <Image
+              src={openedScreen.src}
+              alt={openedScreen.alt}
+              width={2880}
+              height={1800}
+              unoptimized
+              priority
+              className="max-h-[calc(100vh-1.5rem)] w-auto max-w-[calc(100vw-1.5rem)] rounded-xl object-contain shadow-2xl sm:max-h-[calc(100vh-3rem)] sm:max-w-[calc(100vw-3rem)]"
+            />
+            <button
+              type="button"
+              onClick={() => setOpenedScreen(null)}
+              aria-label="Zamknij powiększony screen"
+              className="absolute right-2 top-2 grid h-11 w-11 place-items-center rounded-full bg-black/80 text-2xl font-black text-white shadow-xl transition hover:bg-emerald-500 hover:text-emerald-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
