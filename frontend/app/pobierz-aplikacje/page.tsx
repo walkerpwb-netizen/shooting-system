@@ -48,9 +48,9 @@ const iosSteps = [
       "Dotknij przycisku udostępniania — kwadratu ze strzałką skierowaną do góry. Przy niektórych układach Safari najpierw trzeba dotknąć przycisku menu, a następnie „Udostępnij”.",
   },
   {
-    title: "Wybierz „Do ekranu początkowego”",
+    title: "Wybierz „Dodaj do ekranu Głównego”",
     description:
-      "Przewiń listę działań i dotknij „Do ekranu początkowego”. Jeżeli tej pozycji nie widać, wybierz „Edytuj czynności” na dole listy i dodaj ją do dostępnych działań.",
+      "Przewiń listę działań i dotknij „Dodaj do ekranu Głównego”. Jeżeli tej pozycji nie widać, wybierz „Edytuj czynności” na dole listy i dodaj ją do dostępnych działań.",
   },
   {
     title: "Włącz tryb aplikacji",
@@ -185,12 +185,12 @@ export default function DownloadAppPage() {
 
           <div className="mt-7 rounded-2xl border border-sky-300/20 bg-sky-300/[0.08] p-5">
             <h3 className="font-black text-sky-100">
-              Gdy nie ma opcji „Do ekranu początkowego”
+              Gdy nie ma opcji „Dodaj do ekranu Głównego”
             </h3>
             <p className="mt-2 leading-7 text-zinc-300">
               Otwórz stronę bezpośrednio w Safari, nie w podglądzie linku innej
               aplikacji. W arkuszu udostępniania przewiń na sam dół, wybierz
-              „Edytuj czynności” i włącz pozycję „Do ekranu początkowego”.
+              „Edytuj czynności” i włącz pozycję „Dodaj do ekranu Głównego”.
             </p>
           </div>
 

@@ -3,7 +3,7 @@ import type { MetadataRoute } from "next";
 export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "System Strzelecki",
-    short_name: "S-S",
+    short_name: "SystemStrzelecki",
     description: "System Organizacji Zawodów Strzeleckich",
     start_url: "/",
     display: "standalone",
