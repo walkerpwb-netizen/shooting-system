@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile, Request
+from fastapi import FastAPI, File, Form, UploadFile, Request
 from fastapi import Depends, HTTPException, Cookie
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
@@ -22,6 +22,7 @@ from mailer import (
 from models import (
     AdDailyStat,
     AppSetting,
+    HomePost,
     User,
     Competition,
     Discipline,
@@ -76,13 +77,17 @@ BACKUP_DIR = Path("/home/ubuntu/backups/shooting-system/postgres")
 UPLOADS_DIR = Path(__file__).resolve().parent / "uploads"
 PROFILE_PHOTO_DIR = UPLOADS_DIR / "profile-photos"
 EMAIL_ASSET_DIR = UPLOADS_DIR / "email-assets"
+HOME_POST_DIR = UPLOADS_DIR / "home-posts"
 PROFILE_PHOTO_ROUTE_PREFIX = "/uploads/profile-photos"
 EMAIL_ASSET_ROUTE_PREFIX = "/uploads/email-assets"
+HOME_POST_ROUTE_PREFIX = "/uploads/home-posts"
 PROFILE_PHOTO_SIZE = 320
 PROFILE_PHOTO_MAX_BYTES = 8 * 1024 * 1024
 PROFILE_PHOTO_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 EMAIL_ASSET_MAX_BYTES = 8 * 1024 * 1024
 EMAIL_ASSET_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+HOME_POST_IMAGE_MAX_BYTES = 10 * 1024 * 1024
+HOME_POST_IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 ACTIVATION_EMAIL_SETTING_KEY = "activation_email_template"
 MONITORED_LOG_FILES = [
     {
@@ -118,6 +123,7 @@ pwd_context = CryptContext(
 app = FastAPI()
 PROFILE_PHOTO_DIR.mkdir(parents=True, exist_ok=True)
 EMAIL_ASSET_DIR.mkdir(parents=True, exist_ok=True)
+HOME_POST_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 
 oauth2_scheme = OAuth2PasswordBearer(
@@ -2034,6 +2040,64 @@ def save_email_asset(file: UploadFile):
         "path": relative_url,
         "url": f"{settings.frontend_url}/api{relative_url}",
     }
+
+
+def home_post_image_path_from_url(image_url: str):
+    if not image_url or not image_url.startswith(f"{HOME_POST_ROUTE_PREFIX}/"):
+        return None
+
+    file_path = HOME_POST_DIR / Path(image_url).name
+
+    try:
+        file_path.resolve().relative_to(HOME_POST_DIR.resolve())
+    except ValueError:
+        return None
+
+    return file_path
+
+
+def delete_home_post_image(image_url: str):
+    file_path = home_post_image_path_from_url(image_url)
+
+    if file_path and file_path.exists():
+        file_path.unlink()
+
+
+def save_home_post_image(file: UploadFile):
+    content_type = (file.content_type or "").lower()
+
+    if content_type not in HOME_POST_IMAGE_CONTENT_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail="Dodaj screen w formacie JPG, PNG albo WebP",
+        )
+
+    contents = file.file.read(HOME_POST_IMAGE_MAX_BYTES + 1)
+
+    if len(contents) > HOME_POST_IMAGE_MAX_BYTES:
+        raise HTTPException(status_code=400, detail="Screen może mieć maksymalnie 10 MB")
+
+    try:
+        image = Image.open(BytesIO(contents))
+        image.load()
+    except (UnidentifiedImageError, OSError) as exc:
+        raise HTTPException(status_code=400, detail="Nie udało się odczytać screena") from exc
+
+    image = ImageOps.exif_transpose(image)
+    image.thumbnail((2200, 2200), Image.Resampling.LANCZOS)
+
+    if image.mode not in ("RGB", "RGBA"):
+        image = image.convert("RGBA" if "transparency" in image.info else "RGB")
+
+    file_name = f"{uuid4().hex}.webp"
+    image.save(
+        HOME_POST_DIR / file_name,
+        format="WEBP",
+        quality=88,
+        method=6,
+    )
+
+    return f"{HOME_POST_ROUTE_PREFIX}/{file_name}"
 
 def organizer_display_name(user: User):
     return (
@@ -6214,6 +6278,65 @@ def get_public_profile_settings(db=Depends(get_db)):
 @app.get("/settings/premium")
 def get_public_premium_settings(db=Depends(get_db)):
     return get_premium_settings(db)
+
+
+@app.get("/home-posts")
+def get_home_posts(db=Depends(get_db)):
+    posts = (
+        db.query(HomePost)
+        .order_by(HomePost.created_at.desc(), HomePost.id.desc())
+        .all()
+    )
+
+    return [
+        {
+            "id": post.id,
+            "description": post.description,
+            "image_url": post.image_url,
+            "created_at": post.created_at,
+        }
+        for post in posts
+    ]
+
+
+@app.post("/admin/home-posts")
+def create_home_post(
+    description: str = Form(...),
+    image: UploadFile = File(...),
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    normalized_description = description.strip()
+
+    if not normalized_description:
+        raise HTTPException(status_code=400, detail="Dodaj opis wpisu")
+
+    if len(normalized_description) > 4000:
+        raise HTTPException(status_code=400, detail="Opis może mieć maksymalnie 4000 znaków")
+
+    image_url = save_home_post_image(image)
+    post = HomePost(
+        description=normalized_description,
+        image_url=image_url,
+        created_at=datetime.now(timezone.utc).isoformat(),
+        created_by=admin.email,
+    )
+
+    try:
+        db.add(post)
+        db.commit()
+        db.refresh(post)
+    except Exception:
+        db.rollback()
+        delete_home_post_image(image_url)
+        raise
+
+    return {
+        "id": post.id,
+        "description": post.description,
+        "image_url": post.image_url,
+        "created_at": post.created_at,
+    }
 
 
 @app.get("/admin/settings/results-table")

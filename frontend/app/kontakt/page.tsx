@@ -84,7 +84,7 @@ export default function ContactPage() {
         <section className="mt-8 rounded-2xl border border-white/15 bg-black/30 p-6 sm:p-8">
           <h2 className="text-2xl font-black text-white">Znajdź nas także tutaj</h2>
           <p className="mt-2 max-w-2xl leading-7 text-emerald-50/90">
-            Jesteśmy już na Facebooku, Instagramie i Messengerze. YouTube zostawiamy przygotowany w układzie strony — podepniemy go, gdy kanał będzie gotowy.
+            Jesteśmy na Facebooku, Instagramie i Messengerze. Możesz też od razu otworzyć wiadomość e-mail do naszego zespołu.
           </p>
           <div className="mt-5">
             <SocialMediaIcons />

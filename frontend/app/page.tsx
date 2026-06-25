@@ -1,7 +1,12 @@
+"use client";
+
 import Image from "next/image";
 import Link from "next/link";
+import { FormEvent, useEffect, useState, useSyncExternalStore } from "react";
 
 import TrackedAdSlot from "@/components/TrackedAdSlot";
+import { apiUrl } from "@/lib/api";
+import { authFetch, getAuthSnapshot, subscribeToAuthChange } from "@/lib/auth";
 
 type FeatureKind =
   | "qr"
@@ -17,6 +22,13 @@ type Feature = {
   description: string;
   bullets: string[];
   kind: FeatureKind;
+};
+
+type HomePost = {
+  id: number;
+  description: string;
+  image_url: string;
+  created_at: string;
 };
 
 const features: Feature[] = [
@@ -143,12 +155,8 @@ function FeatureScreen({ kind }: { kind: FeatureKind }) {
 
 function FeatureSection({ feature, reversed }: { feature: Feature; reversed: boolean }) {
   return (
-    <section className="grid items-center gap-10 py-14 lg:grid-cols-2 lg:gap-16 lg:py-24">
-      <div className={reversed ? "lg:order-2" : ""}>
-        <FeatureScreen kind={feature.kind} />
-      </div>
-
-      <div className={reversed ? "lg:order-1" : ""}>
+    <section className="my-5 grid items-center gap-8 rounded-2xl border border-white/12 bg-white/[0.045] p-5 shadow-xl sm:p-7 lg:my-0 lg:grid-cols-2 lg:gap-16 lg:rounded-none lg:border-0 lg:bg-transparent lg:px-0 lg:py-24 lg:shadow-none">
+      <div className={reversed ? "lg:order-1" : "lg:order-2"}>
         <p className="text-xs font-black uppercase tracking-[0.24em] text-emerald-300">
           {feature.eyebrow}
         </p>
@@ -169,11 +177,117 @@ function FeatureSection({ feature, reversed }: { feature: Feature; reversed: boo
           ))}
         </ul>
       </div>
+
+      <div className={reversed ? "lg:order-2" : "lg:order-1"}>
+        <FeatureScreen kind={feature.kind} />
+      </div>
     </section>
   );
 }
 
 export default function Home() {
+  const [posts, setPosts] = useState<HomePost[]>([]);
+  const [postsLoading, setPostsLoading] = useState(true);
+  const [postsMessage, setPostsMessage] = useState("");
+  const [showPostForm, setShowPostForm] = useState(false);
+  const [postDescription, setPostDescription] = useState("");
+  const [postImage, setPostImage] = useState<File | null>(null);
+  const [postImagePreview, setPostImagePreview] = useState("");
+  const [postSaving, setPostSaving] = useState(false);
+  const authSnapshot = useSyncExternalStore(
+    subscribeToAuthChange,
+    getAuthSnapshot,
+    () => ""
+  );
+  const roles = authSnapshot.split("|")[2]?.split(",").filter(Boolean) || [];
+  const canAddPost = roles.includes("admin");
+
+  useEffect(() => {
+    let active = true;
+
+    fetch(apiUrl("/home-posts"), { cache: "no-store" })
+      .then(async (response) => {
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.detail || "Nie udało się pobrać aktualności");
+        }
+
+        if (active) {
+          setPosts(data);
+        }
+      })
+      .catch((error) => {
+        console.error(error);
+
+        if (active) {
+          setPostsMessage("Aktualności są chwilowo niedostępne.");
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setPostsLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (postImagePreview) {
+        URL.revokeObjectURL(postImagePreview);
+      }
+    };
+  }, [postImagePreview]);
+
+  function handlePostImageChange(file: File | null) {
+    setPostImage(file);
+    setPostImagePreview(file ? URL.createObjectURL(file) : "");
+  }
+
+  async function handleAddPost(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPostsMessage("");
+
+    if (!postDescription.trim() || !postImage) {
+      setPostsMessage("Dodaj opis oraz plik screena.");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("description", postDescription.trim());
+    formData.append("image", postImage);
+
+    try {
+      setPostSaving(true);
+      const response = await authFetch(apiUrl("/admin/home-posts"), {
+        method: "POST",
+        body: formData,
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        setPostsMessage(data.detail || "Nie udało się dodać wpisu.");
+        return;
+      }
+
+      setPosts((currentPosts) => [data, ...currentPosts]);
+      setPostDescription("");
+      setPostImage(null);
+      setPostImagePreview("");
+      setShowPostForm(false);
+      setPostsMessage("Nowy wpis został opublikowany.");
+    } catch (error) {
+      console.error(error);
+      setPostsMessage("Błąd połączenia z serwerem.");
+    } finally {
+      setPostSaving(false);
+    }
+  }
+
   return (
     <main className="relative min-h-screen overflow-hidden bg-[#031c18] text-white">
       <div
@@ -251,7 +365,130 @@ export default function Home() {
                 sizes="(min-width: 1024px) 430px, (min-width: 640px) 360px, 280px"
                 className="mt-10 h-auto w-[280px] drop-shadow-[0_22px_40px_rgba(0,0,0,0.5)] sm:w-[360px] lg:w-[430px]"
               />
+
+              {canAddPost && (
+                <div className="mt-7 w-full max-w-2xl">
+                  <button
+                    type="button"
+                    onClick={() => setShowPostForm((currentValue) => !currentValue)}
+                    className="rounded-xl border border-emerald-300/45 bg-emerald-300/10 px-5 py-3 text-sm font-black text-emerald-100 transition hover:bg-emerald-300/20"
+                  >
+                    {showPostForm ? "Anuluj dodawanie wpisu" : "+ Dodaj nowy wpis"}
+                  </button>
+
+                  {showPostForm && (
+                    <form
+                      onSubmit={handleAddPost}
+                      className="mt-5 rounded-2xl border border-emerald-300/25 bg-black/30 p-5 text-left shadow-2xl backdrop-blur-sm"
+                    >
+                      <label htmlFor="home-post-description" className="block text-sm font-black text-white">
+                        Opis aktualności
+                      </label>
+                      <textarea
+                        id="home-post-description"
+                        value={postDescription}
+                        onChange={(event) => setPostDescription(event.target.value)}
+                        maxLength={4000}
+                        required
+                        placeholder="Napisz, co nowego pojawiło się w systemie..."
+                        className="mt-2 min-h-32 w-full rounded-xl border border-white/15 bg-[#031713] p-4 text-white outline-none transition focus:border-emerald-300"
+                      />
+
+                      <label htmlFor="home-post-image" className="mt-4 block text-sm font-black text-white">
+                        Screen
+                      </label>
+                      <input
+                        id="home-post-image"
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        required
+                        onChange={(event) => handlePostImageChange(event.target.files?.[0] || null)}
+                        className="mt-2 w-full text-sm text-zinc-300 file:mr-3 file:rounded-lg file:border-0 file:bg-emerald-500 file:px-4 file:py-2 file:font-black file:text-emerald-950"
+                      />
+
+                      {postImagePreview && (
+                        <div className="relative mt-4 aspect-video overflow-hidden rounded-xl border border-white/10 bg-black/30">
+                          <Image
+                            src={postImagePreview}
+                            alt="Podgląd dodawanego screena"
+                            fill
+                            unoptimized
+                            className="object-contain"
+                          />
+                        </div>
+                      )}
+
+                      <button
+                        type="submit"
+                        disabled={postSaving}
+                        className="mt-5 w-full rounded-xl bg-emerald-400 px-5 py-3 font-black text-emerald-950 transition hover:bg-emerald-300 disabled:cursor-wait disabled:opacity-60"
+                      >
+                        {postSaving ? "Publikowanie..." : "Opublikuj wpis"}
+                      </button>
+                    </form>
+                  )}
+                </div>
+              )}
             </section>
+
+            {(posts.length > 0 || postsLoading || postsMessage) && (
+              <section aria-labelledby="home-news-title" className="border-t border-white/8 py-10 lg:py-16">
+                <div className="mb-7">
+                  <p className="text-xs font-black uppercase tracking-[0.24em] text-emerald-300">
+                    Co nowego
+                  </p>
+                  <h2 id="home-news-title" className="mt-3 text-3xl font-black tracking-tight text-white sm:text-4xl">
+                    Aktualności
+                  </h2>
+                </div>
+
+                {postsMessage && (
+                  <p className="mb-5 rounded-xl border border-emerald-300/20 bg-emerald-300/8 px-4 py-3 text-sm font-semibold text-emerald-100">
+                    {postsMessage}
+                  </p>
+                )}
+
+                {postsLoading && (
+                  <p className="text-zinc-400">Ładowanie aktualności...</p>
+                )}
+
+                <div className="space-y-7">
+                  {posts.map((post) => (
+                    <article
+                      key={post.id}
+                      className="grid gap-7 rounded-2xl border border-white/12 bg-white/[0.05] p-5 shadow-2xl sm:p-7 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] lg:items-center"
+                    >
+                      <div>
+                        <p className="whitespace-pre-line text-base leading-7 text-zinc-200 sm:text-lg">
+                          {post.description}
+                        </p>
+                        <time
+                          dateTime={post.created_at}
+                          className="mt-4 block text-xs font-bold uppercase tracking-wider text-emerald-300/80"
+                        >
+                          {new Intl.DateTimeFormat("pl-PL", {
+                            dateStyle: "long",
+                            timeZone: "Europe/Warsaw",
+                          }).format(new Date(post.created_at))}
+                        </time>
+                      </div>
+
+                      <div className="overflow-hidden rounded-xl border border-white/10 bg-[#071713]">
+                        <Image
+                          src={apiUrl(post.image_url)}
+                          alt="Screen do aktualności"
+                          width={2200}
+                          height={1400}
+                          sizes="(min-width: 1024px) 650px, 100vw"
+                          unoptimized
+                          className="h-auto w-full"
+                        />
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            )}
 
             <div className="border-t border-white/8">
               {features.map((feature, index) => (

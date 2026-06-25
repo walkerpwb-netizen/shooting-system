@@ -4,6 +4,7 @@ import Image from "next/image";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 
+import SocialMediaIcons from "@/components/SocialMediaIcons";
 import { apiUrl } from "@/lib/api";
 import { authFetch, getAuthSnapshot, isOrganizer, subscribeToAuthChange } from "@/lib/auth";
 import {
@@ -140,6 +141,59 @@ const disciplineTypeGroups = [
     ],
   },
 ];
+
+const temporarilyUnsupportedDisciplineTypes = new Set([
+  "ipsc-pistol",
+  "action-air",
+  "idpa",
+  "practical-rifle",
+  "pcc",
+  "2gun",
+  "3gun",
+  "practical-shotgun",
+  "ipsc-shotgun",
+  "double-trap",
+  "trap-mix",
+  "skeet-mix",
+  "sporting-clays",
+  "cowboy-action-shooting",
+]);
+
+function hasText(value: string) {
+  return Boolean(value.trim());
+}
+
+function isPositiveNumber(value: string | number) {
+  return hasText(String(value)) && Number(value) > 0;
+}
+
+function isNonNegativeNumber(value: string) {
+  return hasText(value) && Number(value) >= 0;
+}
+
+function requiredFieldClass(isValid: boolean) {
+  return `w-full border bg-zinc-800 p-4 rounded-xl text-white outline-none transition focus:ring-2 ${
+    isValid
+      ? "border-emerald-500 focus:border-emerald-400 focus:ring-emerald-500/30"
+      : "border-red-500 focus:border-red-400 focus:ring-red-500/30"
+  }`;
+}
+
+function optionalNumberFieldClass(value: string) {
+  if (!hasText(value)) {
+    return "w-full border border-zinc-700 bg-zinc-800 p-4 rounded-xl text-white outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-500/20";
+  }
+
+  return requiredFieldClass(isNonNegativeNumber(value));
+}
+
+function requiredContainerClass(isValid: boolean) {
+  return `border p-4 rounded-xl text-white transition ${
+    isValid
+      ? "border-emerald-500 bg-emerald-950/20"
+      : "border-red-500 bg-red-950/20"
+  }`;
+}
 
 const ammoTypes = [
   ".22 LR (5,6 mm)",
@@ -299,6 +353,7 @@ export default function OrganizerPage() {
   const [editingCompetitionStatus, setEditingCompetitionStatus] = useState("");
   const [deletingDisciplineId, setDeletingDisciplineId] = useState<number | null>(null);
   const [competitionNameFilter, setCompetitionNameFilter] = useState("");
+  const [showDisciplineContact, setShowDisciplineContact] = useState(false);
   const canManageDisciplines = !editingCompetitionId || editingCompetitionStatus === "draft";
   const authSnapshot = useSyncExternalStore(
     subscribeToAuthChange,
@@ -373,6 +428,7 @@ export default function OrganizerPage() {
     setEditingCompetitionId(null);
     setEditingCompetitionStatus("");
     setDeletingDisciplineId(null);
+    setShowDisciplineContact(false);
     setMessage("");
   }
 
@@ -804,45 +860,106 @@ export default function OrganizerPage() {
     }
   }
 
-  async function handleSaveCompetition() {
-    setMessage("");
+  function getFirstInvalidFieldId() {
+    if (!hasText(name)) {
+      return "competition-name";
+    }
 
-    if (!name || !date || !location) {
-      setMessage("Wypełnij wszystkie pola ❌");
-      return;
+    if (!hasText(date)) {
+      return "competition-date";
+    }
+
+    if (!hasText(location)) {
+      return "competition-location";
     }
 
     if (!canMarkPzssLicenseCalendar && requiresLicensedJudge === null) {
-      setMessage("Wybierz, czy zawody wymagają licencjonowanego sędziego PZSS ❌");
-      return;
+      return "competition-requires-licensed-judge-yes";
     }
 
-    if (
-      useParticipantLimit
-      && (!participantLimit || Number(participantLimit) <= 0)
-    ) {
-      setMessage("Podaj prawidłowy limit zawodników ❌");
-      return;
+    if (useParticipantLimit && !isPositiveNumber(participantLimit)) {
+      return "competition-participant-limit";
     }
 
-    const invalidDiscipline = disciplines.some((discipline) => {
-      const trapDiscipline = isClayDiscipline(discipline);
-      const trapSeriesCount = getTrapSeriesCount(discipline);
-      const shotsCount = trapDiscipline
-        ? getTrapShotsCount(discipline)
-        : discipline.shots_count;
+    if (hasText(entryFee) && !isNonNegativeNumber(entryFee)) {
+      return "competition-entry-fee";
+    }
 
-      return !discipline.name
-        || !discipline.discipline_type
-        || !shotsCount
-        || (trapDiscipline && (!discipline.trap_variant || trapSeriesCount <= 0 || !discipline.clay_price))
-        || !discipline.ammo_type
-        || !discipline.ammo_price
-        || (!entryFee && !discipline.entry_fee);
+    for (let index = 0; index < disciplines.length; index += 1) {
+      const discipline = disciplines[index];
+      const clayDiscipline = isClayDiscipline(discipline);
+
+      if (!hasText(discipline.name)) {
+        return `discipline-${index}-name`;
+      }
+
+      if (!hasText(discipline.discipline_type)) {
+        return `discipline-${index}-type`;
+      }
+
+      if (clayDiscipline && !hasText(discipline.trap_variant)) {
+        return `discipline-${index}-variant`;
+      }
+
+      if (
+        clayDiscipline
+        && discipline.trap_variant === "manual"
+        && !isPositiveNumber(discipline.trap_series_count)
+      ) {
+        return `discipline-${index}-series`;
+      }
+
+      if (!hasText(discipline.ammo_type)) {
+        return `discipline-${index}-ammo-type`;
+      }
+
+      if (!isNonNegativeNumber(discipline.ammo_price)) {
+        return `discipline-${index}-ammo-price`;
+      }
+
+      if (clayDiscipline && !isNonNegativeNumber(discipline.clay_price)) {
+        return `discipline-${index}-clay-price`;
+      }
+
+      if (!hasText(entryFee) && !isNonNegativeNumber(discipline.entry_fee)) {
+        return `discipline-${index}-entry-fee`;
+      }
+
+      if (!clayDiscipline && !isPositiveNumber(discipline.shots_count)) {
+        return `discipline-${index}-shots`;
+      }
+    }
+
+    return "";
+  }
+
+  function focusInvalidField(fieldId: string) {
+    window.requestAnimationFrame(() => {
+      const field = document.getElementById(fieldId);
+
+      if (!field) {
+        return;
+      }
+
+      field.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+
+      window.setTimeout(() => {
+        field.focus({ preventScroll: true });
+      }, 350);
     });
+  }
 
-    if (invalidDiscipline) {
-      setMessage("Uzupełnij wszystkie dane konkurencji ❌");
+  async function handleSaveCompetition() {
+    setMessage("");
+
+    const firstInvalidFieldId = getFirstInvalidFieldId();
+
+    if (firstInvalidFieldId) {
+      setMessage("Uzupełnij pole podświetlone na czerwono ❌");
+      focusInvalidField(firstInvalidFieldId);
       return;
     }
 
@@ -1045,36 +1162,47 @@ export default function OrganizerPage() {
             <div className="space-y-4 mb-10">
 
               <input
+                id="competition-name"
                 type="text"
-                placeholder="Nazwa zawodów"
+                placeholder="Nazwa zawodów *"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="w-full border border-zinc-700 bg-zinc-800 p-4 rounded-xl text-white"
+                aria-invalid={!hasText(name)}
+                required
+                className={requiredFieldClass(hasText(name))}
               />
 
               <input
+                id="competition-date"
                 type="date"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
-                className="w-full border border-zinc-700 bg-zinc-800 p-4 rounded-xl text-white"
+                aria-label="Data zawodów"
+                aria-invalid={!hasText(date)}
+                required
+                className={requiredFieldClass(hasText(date))}
               />
 
               <input
+                id="competition-location"
                 type="text"
-                placeholder="Lokalizacja"
+                placeholder="Lokalizacja *"
                 value={location}
                 onChange={(e) => setLocation(e.target.value)}
-                className="w-full border border-zinc-700 bg-zinc-800 p-4 rounded-xl text-white"
+                aria-invalid={!hasText(location)}
+                required
+                className={requiredFieldClass(hasText(location))}
               />
 
               {!canMarkPzssLicenseCalendar && (
-                <fieldset className="border border-zinc-700 bg-zinc-950 p-4 rounded-xl text-white">
+                <fieldset className={requiredContainerClass(requiresLicensedJudge !== null)}>
                   <legend className="px-2 font-semibold">
                     Czy te zawody wymagają licencjonowanego sędziego PZSS? *
                   </legend>
                   <div className="mt-2 flex flex-wrap gap-6">
                     <label className="flex items-center gap-2 font-semibold">
                       <input
+                        id="competition-requires-licensed-judge-yes"
                         type="radio"
                         name="requires-licensed-judge"
                         checked={requiresLicensedJudge === true}
@@ -1085,6 +1213,7 @@ export default function OrganizerPage() {
                     </label>
                     <label className="flex items-center gap-2 font-semibold">
                       <input
+                        id="competition-requires-licensed-judge-no"
                         type="radio"
                         name="requires-licensed-judge"
                         checked={requiresLicensedJudge === false}
@@ -1115,13 +1244,16 @@ export default function OrganizerPage() {
 
               {useParticipantLimit && (
                 <input
+                  id="competition-participant-limit"
                   type="number"
                   min="1"
                   step="1"
-                  placeholder="Maksymalna liczba zawodników"
+                  placeholder="Maksymalna liczba zawodników *"
                   value={participantLimit}
                   onChange={(e) => setParticipantLimit(e.target.value)}
-                  className="w-full border border-zinc-700 bg-zinc-800 p-4 rounded-xl text-white"
+                  aria-invalid={!isPositiveNumber(participantLimit)}
+                  required
+                  className={requiredFieldClass(isPositiveNumber(participantLimit))}
                 />
               )}
 
@@ -1233,13 +1365,14 @@ export default function OrganizerPage() {
               />
 
               <input
+                id="competition-entry-fee"
                 type="number"
                 step="0.01"
                 min="0"
                 placeholder="Podaj koszt udziału w całych zawodach lub pozostaw puste, jeśli pobierasz opłatę za poszczególne konkurencje"
                 value={entryFee}
                 onChange={(e) => setEntryFee(e.target.value)}
-                className="w-full border border-zinc-700 bg-zinc-800 p-4 rounded-xl text-white"
+                className={optionalNumberFieldClass(entryFee)}
               />
 
             </div>
@@ -1281,8 +1414,9 @@ export default function OrganizerPage() {
                   <div className="space-y-5">
 
                     <input
+                      id={`discipline-${index}-name`}
                       type="text"
-                      placeholder="Nazwa konkurencji"
+                      placeholder="Nazwa konkurencji *"
                       value={discipline.name}
                       onChange={(e) => {
 
@@ -1293,7 +1427,9 @@ export default function OrganizerPage() {
                         setDisciplines(updated);
 
                       }}
-                      className="w-full border border-zinc-700 bg-zinc-800 p-4 rounded-xl text-white"
+                      aria-invalid={!hasText(discipline.name)}
+                      required
+                      className={requiredFieldClass(hasText(discipline.name))}
                     />
 
                     <textarea
@@ -1317,6 +1453,7 @@ export default function OrganizerPage() {
                       </p>
 
                       <select
+                        id={`discipline-${index}-type`}
                         value={discipline.discipline_type}
                         onChange={(e) => {
 
@@ -1336,7 +1473,9 @@ export default function OrganizerPage() {
                           setDisciplines(updated);
 
                         }}
-                        className="w-full border border-zinc-700 bg-zinc-800 p-4 rounded-xl text-white"
+                        aria-invalid={!hasText(discipline.discipline_type)}
+                        required
+                        className={requiredFieldClass(hasText(discipline.discipline_type))}
                       >
                         <option value="" disabled>
                           Wybierz rodzaj konkurencji
@@ -1352,7 +1491,27 @@ export default function OrganizerPage() {
                           </optgroup>
                         ))}
                       </select>
+
+                      <button
+                        type="button"
+                        onClick={() => setShowDisciplineContact(true)}
+                        className="mt-3 text-left text-sm font-bold text-emerald-300 underline decoration-emerald-400/50 underline-offset-4 transition hover:text-emerald-200"
+                      >
+                        Nie znalazłem mojej konkurencji / dodaj konkurencję
+                      </button>
                     </div>
+
+                    {temporarilyUnsupportedDisciplineTypes.has(discipline.discipline_type) && (
+                      <div className="rounded-xl border border-amber-500/70 bg-amber-950/35 p-4 text-amber-100">
+                        <p className="font-black">Ta konkurencja jest jeszcze rozwijana</p>
+                        <p className="mt-1 text-sm leading-6">
+                          Dedykowany system punktowania nie został jeszcze odpowiednio zaimplementowany.
+                          Obecnie możliwe jest wyłącznie wpisanie końcowego wyniku zawodnika. Osobny
+                          system sędziowania, podobny do przygotowanego dla Trap i Skeet, pojawi się
+                          w kolejnych etapach rozwoju.
+                        </p>
+                      </div>
+                    )}
 
                     {trapDiscipline && (
                       <div className="grid md:grid-cols-2 gap-4">
@@ -1370,6 +1529,7 @@ export default function OrganizerPage() {
                           </p>
 
                           <select
+                            id={`discipline-${index}-variant`}
                             value={discipline.trap_variant}
                             onChange={(e) => {
 
@@ -1388,7 +1548,9 @@ export default function OrganizerPage() {
                               setDisciplines(updated);
 
                             }}
-                            className="w-full border border-zinc-700 bg-zinc-800 p-4 rounded-xl text-white"
+                            aria-invalid={!hasText(discipline.trap_variant)}
+                            required
+                            className={requiredFieldClass(hasText(discipline.trap_variant))}
                           >
                             <option value="" disabled>
                               Wybierz wariant {discipline.discipline_type === "skeet" ? "Skeet" : "Trapa"}
@@ -1409,6 +1571,7 @@ export default function OrganizerPage() {
                             </p>
 
                             <input
+                              id={`discipline-${index}-series`}
                               type="number"
                               min="1"
                               step="1"
@@ -1431,7 +1594,9 @@ export default function OrganizerPage() {
                                 setDisciplines(updated);
 
                               }}
-                              className="w-full border border-zinc-700 bg-zinc-800 p-4 rounded-xl text-white"
+                              aria-invalid={!isPositiveNumber(discipline.trap_series_count)}
+                              required
+                              className={requiredFieldClass(isPositiveNumber(discipline.trap_series_count))}
                             />
                           </div>
                         )}
@@ -1451,6 +1616,7 @@ export default function OrganizerPage() {
                         </p>
 
                         <select
+                          id={`discipline-${index}-ammo-type`}
                           value={discipline.ammo_type}
                           onChange={(e) => {
 
@@ -1461,7 +1627,9 @@ export default function OrganizerPage() {
                             setDisciplines(updated);
 
                           }}
-                          className="w-full border border-zinc-700 bg-zinc-800 p-4 rounded-xl text-white"
+                          aria-invalid={!hasText(discipline.ammo_type)}
+                          required
+                          className={requiredFieldClass(hasText(discipline.ammo_type))}
                         >
                           <option value="" disabled>
                             Wybierz typ amunicji
@@ -1481,10 +1649,11 @@ export default function OrganizerPage() {
                         </p>
 
                         <input
+                          id={`discipline-${index}-ammo-price`}
                           type="number"
                           step="0.01"
                           min="0"
-                          placeholder="Podaj cenę za sztukę"
+                          placeholder="Podaj cenę za sztukę *"
                           value={discipline.ammo_price}
                           onChange={(e) => {
 
@@ -1495,7 +1664,9 @@ export default function OrganizerPage() {
                             setDisciplines(updated);
 
                           }}
-                          className="w-full border border-zinc-700 bg-zinc-800 p-4 rounded-xl text-white"
+                          aria-invalid={!isNonNegativeNumber(discipline.ammo_price)}
+                          required
+                          className={requiredFieldClass(isNonNegativeNumber(discipline.ammo_price))}
                         />
                       </div>
 
@@ -1506,10 +1677,11 @@ export default function OrganizerPage() {
                           </p>
 
                           <input
+                            id={`discipline-${index}-clay-price`}
                             type="number"
                             step="0.01"
                             min="0"
-                            placeholder="Podaj cenę za 1 rzutek"
+                            placeholder="Podaj cenę za 1 rzutek *"
                             value={discipline.clay_price}
                             onChange={(e) => {
 
@@ -1520,7 +1692,9 @@ export default function OrganizerPage() {
                               setDisciplines(updated);
 
                             }}
-                            className="w-full border border-zinc-700 bg-zinc-800 p-4 rounded-xl text-white"
+                            aria-invalid={!isNonNegativeNumber(discipline.clay_price)}
+                            required
+                            className={requiredFieldClass(isNonNegativeNumber(discipline.clay_price))}
                           />
                         </div>
                       )}
@@ -1535,10 +1709,11 @@ export default function OrganizerPage() {
                           </p>
 
                           <input
+                            id={`discipline-${index}-entry-fee`}
                             type="number"
                             step="0.01"
                             min="0"
-                            placeholder="podaj cenę dołączenia do konkurencji"
+                            placeholder="podaj cenę dołączenia do konkurencji *"
                             value={discipline.entry_fee}
                             onChange={(e) => {
 
@@ -1549,7 +1724,9 @@ export default function OrganizerPage() {
                               setDisciplines(updated);
 
                             }}
-                            className="w-full border border-zinc-700 bg-zinc-800 p-4 rounded-xl text-white"
+                            aria-invalid={!isNonNegativeNumber(discipline.entry_fee)}
+                            required
+                            className={requiredFieldClass(isNonNegativeNumber(discipline.entry_fee))}
                           />
                         </div>
                       )}
@@ -1561,8 +1738,11 @@ export default function OrganizerPage() {
                           </p>
 
                           <input
+                            id={`discipline-${index}-shots`}
                             type="number"
-                            placeholder="Podaj liczbę wszystkich strzałów"
+                            min="1"
+                            step="1"
+                            placeholder="Podaj liczbę wszystkich strzałów *"
                             value={
                               discipline.shots_count === 0
                                 ? ""
@@ -1577,7 +1757,9 @@ export default function OrganizerPage() {
                               setDisciplines(updated);
 
                             }}
-                            className="w-full border border-zinc-700 bg-zinc-800 p-4 rounded-xl text-white"
+                            aria-invalid={!isPositiveNumber(discipline.shots_count)}
+                            required
+                            className={requiredFieldClass(isPositiveNumber(discipline.shots_count))}
                           />
                         </>
                       )}
@@ -1834,6 +2016,52 @@ export default function OrganizerPage() {
         )}
 
       </div>
+
+      {showDisciplineContact && (
+        <div
+          className="fixed inset-0 z-[110] flex items-center justify-center bg-black/80 px-4 py-6"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="discipline-contact-title"
+        >
+          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-emerald-500/60 bg-zinc-950 p-6 text-white shadow-2xl sm:p-8">
+            <h2 id="discipline-contact-title" className="text-2xl font-black text-emerald-200 sm:text-3xl">
+              Dodajmy Twoją konkurencję
+            </h2>
+            <p className="mt-4 leading-7 text-zinc-200">
+              Nie znalazłeś tutaj swojej konkurencji albo uważasz, że jest źle skonfigurowana?
+              To nie problem 🙂 Skontaktuj się z nami, a przygotujemy ją specjalnie dla Ciebie.
+              Opisz dokładnie, czego potrzebujesz oraz w jaki sposób konkurencja powinna być
+              sędziowana. Brakująca konkurencja pojawi się na tej liście, a o przebiegu prac
+              będziesz informowany na bieżąco.
+            </p>
+
+            <a
+              href="mailto:info@system-strzelecki.pl?subject=Nowa%20konkurencja%20w%20Systemie%20Strzeleckim"
+              className="mt-6 inline-flex items-center rounded-xl bg-emerald-400 px-5 py-3 font-black text-emerald-950 transition hover:bg-emerald-300"
+            >
+              Napisz: info@system-strzelecki.pl
+            </a>
+
+            <div className="mt-6">
+              <p className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-400">
+                Lub skontaktuj się przez media społecznościowe
+              </p>
+              <SocialMediaIcons />
+            </div>
+
+            <div className="mt-7 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowDisciplineContact(false)}
+                className="rounded-xl bg-zinc-800 px-6 py-3 font-bold text-white transition hover:bg-zinc-700"
+              >
+                Zamknij
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {premiumPublicationDialog && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 px-4 py-6">

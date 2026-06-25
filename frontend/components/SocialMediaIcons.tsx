@@ -33,13 +33,11 @@ const socialMedia = [
     ),
   },
   {
-    name: "YouTube",
-    color: "bg-[#FF0000]",
+    name: "E-mail",
+    href: "mailto:info@system-strzelecki.pl",
+    color: "bg-emerald-600",
     icon: (
-      <>
-        <rect x="3" y="6" width="22" height="16" rx="5" />
-        <path d="m12 10 6 4-6 4v-8Z" className="fill-white" />
-      </>
+      <path d="M4 6h20a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Zm10 9L24 8H4l10 7Zm0 2.5L4 10.6V20h20v-9.4l-10 6.9Z" />
     ),
   },
 ];
@@ -86,8 +84,8 @@ export default function SocialMediaIcons({
           <a
             key={social.name}
             href={social.href}
-            target="_blank"
-            rel="noreferrer"
+            target={social.href.startsWith("mailto:") ? undefined : "_blank"}
+            rel={social.href.startsWith("mailto:") ? undefined : "noreferrer"}
             title={`Otwórz ${social.name} Systemu Strzeleckiego`}
             aria-label={`Otwórz ${social.name} Systemu Strzeleckiego`}
             className={iconClassName}

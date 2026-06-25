@@ -293,6 +293,37 @@ class AdDailyStat(Base):
     )
 
 
+class HomePost(Base):
+    __tablename__ = "home_posts"
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True,
+    )
+
+    description = Column(
+        Text,
+        nullable=False,
+    )
+
+    image_url = Column(
+        String,
+        nullable=False,
+    )
+
+    created_at = Column(
+        String,
+        nullable=False,
+        index=True,
+    )
+
+    created_by = Column(
+        String,
+        nullable=False,
+    )
+
+
 class Competition(Base):
     __tablename__ = "competitions"
 
