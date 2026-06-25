@@ -1392,15 +1392,15 @@ export default function ProfilePage() {
                   Dane sportowe
                 </h2>
 
-                <h2 className="order-[10] mt-5 border-b border-zinc-200 pb-2 text-2xl font-black text-zinc-950 dark:border-red-950 dark:text-red-300 md:col-span-2">
+                <h2 className="order-[11] mt-5 border-b border-zinc-200 pb-2 text-2xl font-black text-zinc-950 dark:border-red-950 dark:text-red-300 md:col-span-2">
                   Dane kontaktowe
                 </h2>
 
-                <h2 className="order-[13] mt-5 border-b border-zinc-200 pb-2 text-2xl font-black text-zinc-950 dark:border-red-950 dark:text-red-300 md:col-span-2">
+                <h2 className="order-[14] mt-5 border-b border-zinc-200 pb-2 text-2xl font-black text-zinc-950 dark:border-red-950 dark:text-red-300 md:col-span-2">
                   Pozostałe dane
                 </h2>
 
-                <label className="order-[11]">
+                <label className="order-[12]">
                   <span className="mb-2 block text-sm font-semibold text-red-700 dark:text-red-300">
                     Email
                   </span>
@@ -1447,7 +1447,7 @@ export default function ProfilePage() {
                   </select>
                 </label>
 
-                <label className="order-[14]">
+                <label className="order-[4]">
                   <RequiredLabel>Data urodzenia</RequiredLabel>
                   <input
                     type="date"
@@ -1457,7 +1457,7 @@ export default function ProfilePage() {
                   />
                 </label>
 
-                <div className="order-[4]">
+                <div className="order-[7]">
                   {noClub ? (
                     <OptionalLabel>Klub</OptionalLabel>
                   ) : (
@@ -1536,7 +1536,7 @@ export default function ProfilePage() {
                   </label>
                 </div>
 
-                <div className="order-[7]">
+                <div className="order-[8]">
                   {noLicense ? (
                     <OptionalLabel>Licencja zawodnicza</OptionalLabel>
                   ) : (
@@ -1566,7 +1566,7 @@ export default function ProfilePage() {
                   </label>
                 </div>
 
-                <label className="order-[12]">
+                <label className="order-[13]">
                   <span className="mb-2 block text-sm font-semibold text-red-700 dark:text-red-300">
                     Telefon
                   </span>
@@ -1594,7 +1594,7 @@ export default function ProfilePage() {
 
                 {canEditJudgeProfileFields && (
                   <>
-                    <label className="order-[8]">
+                    <label className="order-[9]">
                       <RequiredLabel>Licencja sędziowska</RequiredLabel>
                       <input
                         value={roleJudgeLicenseNumber}
@@ -1604,7 +1604,7 @@ export default function ProfilePage() {
                       />
                     </label>
 
-                    <label className="order-[9]">
+                    <label className="order-[10]">
                       <RequiredLabel>Ważność licencji sędziowskiej</RequiredLabel>
                       <input
                         type="date"
@@ -1664,8 +1664,8 @@ export default function ProfilePage() {
                       value={displayValue(profile.last_name)}
                     />
                     <ProfileField
-                      label="Klub"
-                      value={profile.no_club ? "Nie posiada" : displayValue(profile.club)}
+                      label="Data urodzenia"
+                      value={displayValue(profile.birth_date)}
                     />
                     <ProfileField
                       label="Województwo"
@@ -1676,6 +1676,10 @@ export default function ProfilePage() {
                   {isOwnerProfile && (
                     <>
                       <ProfileSection title="Dane sportowe">
+                        <ProfileField
+                          label="Klub"
+                          value={profile.no_club ? "Nie posiada" : displayValue(profile.club)}
+                        />
                         <ProfileField
                           label="Licencja zawodnicza"
                           value={profile.no_license ? "Nie posiada" : displayValue(profile.license_number)}
@@ -1704,10 +1708,6 @@ export default function ProfilePage() {
                       </ProfileSection>
 
                       <ProfileSection title="Pozostałe dane">
-                        <ProfileField
-                          label="Data urodzenia"
-                          value={displayValue(profile.birth_date)}
-                        />
                         {showOrganizerData && (
                           <ProfileField
                             label="Nazwa organizatora"
