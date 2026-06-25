@@ -15,7 +15,7 @@ import {
   getAuthSnapshot,
   logoutSession,
   notifyAuthChange,
-  refreshAccessToken,
+  restoreSession,
   SESSION_DEADLINE_STORAGE_KEY,
   SESSION_TIMEOUT_MS,
   subscribeToAuthChange,
@@ -129,7 +129,7 @@ export default function Navbar() {
 
 
   useEffect(() => {
-    void refreshAccessToken();
+    void restoreSession();
   }, []);
 
   useEffect(() => {

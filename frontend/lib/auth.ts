@@ -15,11 +15,25 @@ type SessionAuthData = {
   pzss_club_status?: string;
 };
 
+type SetSessionAuthOptions = {
+  resetDeadline?: boolean;
+};
+
 const PENDING_ACCESS_TOKEN = "__shooting_system_refreshing_access_token__";
 
 let accessToken: string | null = null;
 let refreshPromise: Promise<string | null> | null = null;
 let fetchBridgeInstalled = false;
+
+function hasActiveSessionDeadline() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  const deadline = Number(localStorage.getItem(SESSION_DEADLINE_STORAGE_KEY));
+
+  return Number.isFinite(deadline) && deadline > Date.now();
+}
 
 function normalizeRoles(roles: SessionAuthData["roles"], fallbackRole?: string) {
   if (Array.isArray(roles)) {
@@ -89,7 +103,10 @@ export function subscribeToAuthChange(onStoreChange: () => void) {
   };
 }
 
-export function setSessionAuth(data: SessionAuthData) {
+export function setSessionAuth(
+  data: SessionAuthData,
+  options: SetSessionAuthOptions = {}
+) {
   if (typeof window === "undefined") {
     return;
   }
@@ -102,19 +119,27 @@ export function setSessionAuth(data: SessionAuthData) {
   }
 
   storeSessionMetadata(data);
-  localStorage.setItem(
-    SESSION_DEADLINE_STORAGE_KEY,
-    String(Date.now() + SESSION_TIMEOUT_MS)
-  );
+
+  if (options.resetDeadline !== false) {
+    localStorage.setItem(
+      SESSION_DEADLINE_STORAGE_KEY,
+      String(Date.now() + SESSION_TIMEOUT_MS)
+    );
+  }
+
   notifyAuthChange();
 }
 
 export function getAccessToken() {
-  if (accessToken) {
+  if (accessToken && hasActiveSessionDeadline()) {
     return accessToken;
   }
 
-  if (typeof window !== "undefined" && localStorage.getItem("email")) {
+  if (
+    typeof window !== "undefined"
+    && localStorage.getItem("email")
+    && hasActiveSessionDeadline()
+  ) {
     void refreshAccessToken();
     return PENDING_ACCESS_TOKEN;
   }
@@ -205,7 +230,7 @@ export async function refreshAccessToken() {
       }
 
       const data: SessionAuthData = await response.json();
-      setSessionAuth(data);
+      setSessionAuth(data, { resetDeadline: false });
 
       return accessToken;
     })
@@ -221,7 +246,25 @@ export async function refreshAccessToken() {
 }
 
 export async function getValidAccessToken() {
+  if (!hasActiveSessionDeadline()) {
+    return null;
+  }
+
   return accessToken || refreshAccessToken();
+}
+
+export async function restoreSession() {
+  if (typeof window === "undefined" || !localStorage.getItem("email")) {
+    return null;
+  }
+
+  if (!hasActiveSessionDeadline()) {
+    clearStoredAuth();
+    localStorage.removeItem(SESSION_DEADLINE_STORAGE_KEY);
+    return null;
+  }
+
+  return refreshAccessToken();
 }
 
 export async function authFetch(input: RequestInfo | URL, init: RequestInit = {}) {
