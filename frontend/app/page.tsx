@@ -139,16 +139,26 @@ function FeatureScreen({ kind }: { kind: FeatureKind }) {
   return (
     <div className="relative mx-auto w-full max-w-[650px]">
       <div className="absolute -inset-4 rounded-[2rem] bg-emerald-400/10 blur-2xl" />
-      <div className="relative overflow-hidden rounded-[1.35rem] border border-white/10 bg-[#071713] shadow-[0_28px_80px_rgba(0,0,0,0.38)]">
+      <a
+        href={screen.src}
+        target="_blank"
+        rel="noreferrer"
+        aria-label={`Otwórz screen w pełnej rozdzielczości: ${screen.alt}`}
+        title="Kliknij, aby otworzyć screen w pełnej rozdzielczości"
+        className="group relative block overflow-hidden rounded-[1.35rem] border border-white/10 bg-[#071713] shadow-[0_28px_80px_rgba(0,0,0,0.38)] outline-none transition hover:-translate-y-1 hover:border-emerald-300/50 focus-visible:ring-2 focus-visible:ring-emerald-300"
+      >
         <Image
           src={screen.src}
           alt={screen.alt}
           width={2880}
           height={1578}
           sizes="(min-width: 1024px) 650px, 100vw"
-          className="h-auto w-full"
+          className="h-auto w-full transition duration-300 group-hover:scale-[1.01]"
         />
-      </div>
+        <span className="absolute bottom-3 right-3 rounded-lg bg-black/75 px-3 py-2 text-xs font-black text-white opacity-100 shadow-lg backdrop-blur-sm transition sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-visible:opacity-100">
+          Otwórz pełny rozmiar ↗
+        </span>
+      </a>
     </div>
   );
 }
@@ -473,7 +483,14 @@ export default function Home() {
                         </time>
                       </div>
 
-                      <div className="overflow-hidden rounded-xl border border-white/10 bg-[#071713]">
+                      <a
+                        href={apiUrl(post.image_url)}
+                        target="_blank"
+                        rel="noreferrer"
+                        aria-label="Otwórz screen aktualności w pełnej rozdzielczości"
+                        title="Kliknij, aby otworzyć screen w pełnej rozdzielczości"
+                        className="group relative block overflow-hidden rounded-xl border border-white/10 bg-[#071713] outline-none transition hover:-translate-y-1 hover:border-emerald-300/50 focus-visible:ring-2 focus-visible:ring-emerald-300"
+                      >
                         <Image
                           src={apiUrl(post.image_url)}
                           alt="Screen do aktualności"
@@ -481,9 +498,12 @@ export default function Home() {
                           height={1400}
                           sizes="(min-width: 1024px) 650px, 100vw"
                           unoptimized
-                          className="h-auto w-full"
+                          className="h-auto w-full transition duration-300 group-hover:scale-[1.01]"
                         />
-                      </div>
+                        <span className="absolute bottom-3 right-3 rounded-lg bg-black/75 px-3 py-2 text-xs font-black text-white opacity-100 shadow-lg backdrop-blur-sm transition sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-visible:opacity-100">
+                          Otwórz pełny rozmiar ↗
+                        </span>
+                      </a>
                     </article>
                   ))}
                 </div>
