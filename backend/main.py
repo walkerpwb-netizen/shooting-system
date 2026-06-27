@@ -2802,6 +2802,7 @@ def generate_test_results_for_competition(
 
 
 def delete_user_with_dependencies(user: User, db):
+    profile_photo_url = getattr(user, "profile_photo_url", "") or ""
     participants = (
         db.query(CompetitionParticipant)
         .filter(CompetitionParticipant.user_email == user.email)
@@ -2843,9 +2844,13 @@ def delete_user_with_dependencies(user: User, db):
         .delete(synchronize_session=False)
     )
 
-    delete_profile_photo_file(getattr(user, "profile_photo_url", "") or "")
     db.delete(user)
+
+    if participant_ids:
+        refresh_ranking_and_achievement_entries(db)
+
     db.commit()
+    delete_profile_photo_file(profile_photo_url)
 
 
 def delete_participant_with_dependencies(participant: CompetitionParticipant, db):
@@ -5317,12 +5322,18 @@ def user_achievements(user_email: str, db):
     ]
 
 
-def award_achievements_for_competition(competition: Competition, db):
-    (
-        db.query(Achievement)
-        .filter(Achievement.competition_id == competition.id)
-        .delete(synchronize_session=False)
-    )
+def award_achievements_for_competition(
+    competition: Competition,
+    db,
+    delete_existing: bool = True,
+):
+    if delete_existing:
+        (
+            db.query(Achievement)
+            .filter(Achievement.competition_id == competition.id)
+            .delete(synchronize_session=False)
+        )
+        db.flush()
 
     if competition.status != "completed":
         return 0
@@ -5389,15 +5400,136 @@ def award_achievements_for_competition(competition: Competition, db):
     return awarded_count
 
 
+def completed_competitions_for_achievements(db):
+    return (
+        db.query(Competition)
+        .filter(Competition.status == "completed")
+        .order_by(Competition.id.asc())
+        .all()
+    )
+
+
+def rebuild_achievement_entries(db):
+    db.query(Achievement).delete(synchronize_session=False)
+    db.flush()
+
+    return sum(
+        award_achievements_for_competition(
+            competition,
+            db,
+            delete_existing=False,
+        )
+        for competition in completed_competitions_for_achievements(db)
+    )
+
+
+def achievement_consistency_issues(db, limit: int = 50):
+    issues = []
+
+    achievements = (
+        db.query(Achievement)
+        .order_by(
+            Achievement.competition_id.asc(),
+            Achievement.category_id.asc(),
+            Achievement.place.asc(),
+            Achievement.id.asc(),
+        )
+        .all()
+    )
+    competitions_by_id = {
+        competition.id: competition
+        for competition in (
+            db.query(Competition)
+            .filter(Competition.id.in_({
+                achievement.competition_id
+                for achievement in achievements
+            }))
+            .all()
+        )
+    } if achievements else {}
+
+    for achievement in achievements:
+        competition = competitions_by_id.get(achievement.competition_id)
+
+        if not competition:
+            issues.append({
+                "achievement_id": achievement.id,
+                "user_email": achievement.user_email,
+                "competition_id": achievement.competition_id,
+                "category_id": achievement.category_id,
+                "reason": "missing_competition",
+            })
+        elif competition.status != "completed":
+            issues.append({
+                "achievement_id": achievement.id,
+                "user_email": achievement.user_email,
+                "competition_id": achievement.competition_id,
+                "category_id": achievement.category_id,
+                "reason": "competition_not_completed",
+                "status": competition.status,
+            })
+        else:
+            payload = result_category_payload(
+                competition,
+                achievement.category_id,
+                db,
+            )
+            current_shooter = next(
+                (
+                    shooter
+                    for shooter in payload["shooters"]
+                    if shooter["participant_id"] == achievement.participant_id
+                ),
+                None,
+            )
+
+            if not current_shooter:
+                issues.append({
+                    "achievement_id": achievement.id,
+                    "user_email": achievement.user_email,
+                    "competition_id": achievement.competition_id,
+                    "category_id": achievement.category_id,
+                    "reason": "participant_not_in_category",
+                })
+            elif (
+                int(current_shooter["place"]) != int(achievement.place)
+                or str(current_shooter["points"]) != str(achievement.points)
+            ):
+                issues.append({
+                    "achievement_id": achievement.id,
+                    "user_email": achievement.user_email,
+                    "competition_id": achievement.competition_id,
+                    "category_id": achievement.category_id,
+                    "reason": "stale_result",
+                    "stored_place": achievement.place,
+                    "stored_points": achievement.points,
+                    "current_place": current_shooter["place"],
+                    "current_points": current_shooter["points"],
+                })
+
+        if len(issues) >= limit:
+            break
+
+    return issues
+
+
 def refresh_ranking_and_achievement_entries(
     db,
     achievement_competitions: tuple[Competition, ...] = (),
 ):
     ranking_entries_count = rebuild_ranking_entries(db)
-    achievement_entries_count = sum(
-        award_achievements_for_competition(competition, db)
-        for competition in achievement_competitions
-    )
+
+    if achievement_competitions:
+        unique_competitions = {
+            competition.id: competition
+            for competition in achievement_competitions
+        }.values()
+        achievement_entries_count = sum(
+            award_achievements_for_competition(competition, db)
+            for competition in unique_competitions
+        )
+    else:
+        achievement_entries_count = rebuild_achievement_entries(db)
 
     return {
         "ranking_entries_count": ranking_entries_count,
@@ -5602,7 +5734,7 @@ def backfill_participant_total_fees():
 
 def backfill_competition_derived_cache():
     cache_key = "competition_derived_cache_version"
-    cache_version = "2026-06-21-ranking-achievements-v1"
+    cache_version = "2026-06-27-ranking-achievements-v2"
     db = SessionLocal()
 
     try:
@@ -5615,17 +5747,7 @@ def backfill_competition_derived_cache():
         if setting and setting.value == cache_version:
             return
 
-        completed_competitions = (
-            db.query(Competition)
-            .filter(Competition.status == "completed")
-            .all()
-        )
-
-        db.query(Achievement).delete(synchronize_session=False)
-        refresh_ranking_and_achievement_entries(
-            db,
-            tuple(completed_competitions),
-        )
+        refresh_ranking_and_achievement_entries(db)
 
         if setting:
             setting.value = cache_version
@@ -7274,6 +7396,24 @@ def admin_delete_competition(
 
     return {
         "message": "Zawody usunięte przez administratora"
+    }
+
+
+@app.post("/admin/derived-cache/rebuild")
+def admin_rebuild_derived_cache(
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    refresh_result = refresh_ranking_and_achievement_entries(db)
+    consistency_issues = achievement_consistency_issues(db)
+    db.commit()
+
+    return {
+        "message": "Rankingi i odznaczenia zostały przeliczone od zera",
+        "ranking_entries_count": refresh_result["ranking_entries_count"],
+        "achievement_entries_count": refresh_result["achievement_entries_count"],
+        "achievement_consistency_issues_count": len(consistency_issues),
+        "achievement_consistency_issues": consistency_issues,
     }
 
 
@@ -9140,6 +9280,10 @@ def organizer_delete_participant(
         )
 
     delete_participant_with_dependencies(participant, db)
+
+    if competition.status == "completed":
+        refresh_ranking_and_achievement_entries(db, (competition,))
+
     db.commit()
 
     return {
@@ -11160,6 +11304,16 @@ def update_me(
         db_user.judge_license_valid_until = judge_license_valid_until
 
     ensure_shooter_role(db_user)
+
+    has_competition_history = (
+        db.query(CompetitionParticipant.id)
+        .filter(CompetitionParticipant.user_email == db_user.email)
+        .first()
+        is not None
+    )
+
+    if has_competition_history:
+        refresh_ranking_and_achievement_entries(db)
 
     db.commit()
     db.refresh(db_user)

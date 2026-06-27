@@ -428,6 +428,7 @@ export default function AdminClient({
   const [testParticipantResults, setTestParticipantResults] = useState(false);
   const [testOverwriteResults, setTestOverwriteResults] = useState(true);
   const [testWorking, setTestWorking] = useState(false);
+  const [derivedCacheWorking, setDerivedCacheWorking] = useState(false);
 
   useEffect(() => {
     if (!isAdmin()) {
@@ -1379,6 +1380,53 @@ export default function AdminClient({
     } catch (error) {
       console.error(error);
       setMessage("Błąd połączenia z serwerem ❌");
+    }
+  }
+
+  async function rebuildDerivedCache() {
+    const confirmed = window.confirm(
+      "Czy przeliczyć od zera wszystkie rankingi i odznaczenia? Operacja może potrwać kilkadziesiąt sekund."
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    const token = getAccessToken();
+
+    try {
+      setDerivedCacheWorking(true);
+      setMessage("");
+
+      const response = await fetch(
+        apiUrl("/admin/derived-cache/rebuild"),
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.detail || "Nie udało się przeliczyć rankingów i odznaczeń ❌");
+        return;
+      }
+
+      const issuesCount = Number(data.achievement_consistency_issues_count || 0);
+      setMessage(
+        `Przeliczono rankingi: ${data.ranking_entries_count}, odznaczenia: ${data.achievement_entries_count}. ${
+          issuesCount === 0
+            ? "Kontrola spójności: OK"
+            : `Kontrola spójności wykryła problemy: ${issuesCount}`
+        } ✅`
+      );
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    } finally {
+      setDerivedCacheWorking(false);
     }
   }
 
@@ -3379,6 +3427,31 @@ export default function AdminClient({
                   className="ui-button bg-green-700 hover:bg-green-600 text-white px-5 py-3 rounded-xl font-bold transition"
                 >
                   Zapisz ustawienia profilu
+                </button>
+              </div>
+
+              <div className="rounded-2xl border border-yellow-600/50 bg-yellow-500/10 p-5 space-y-4">
+                <div>
+                  <h3 className="text-2xl font-bold text-white">
+                    Dane wyliczane
+                  </h3>
+
+                  <p className="mt-1 max-w-3xl text-sm leading-6 text-yellow-100/80">
+                    Rankingi i odznaczenia są liczone na podstawie aktualnych wyników zawodów.
+                    Użyj tego przycisku po większych zmianach danych albo gdy chcesz wymusić pełną
+                    kontrolę spójności profili, trofeów i rankingów.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={rebuildDerivedCache}
+                  disabled={derivedCacheWorking}
+                  className="ui-button rounded-xl bg-yellow-600 px-5 py-3 font-bold text-black transition hover:bg-yellow-500 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {derivedCacheWorking
+                    ? "Przeliczanie..."
+                    : "Przelicz rankingi i odznaczenia od zera"}
                 </button>
               </div>
 

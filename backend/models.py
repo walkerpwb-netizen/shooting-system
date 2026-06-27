@@ -687,6 +687,12 @@ class DisciplineResult(Base):
 class Achievement(Base):
     __tablename__ = "achievements"
     __table_args__ = (
+        UniqueConstraint(
+            "competition_id",
+            "participant_id",
+            "category_id",
+            name="uq_achievements_competition_participant_category",
+        ),
         Index(
             "ix_achievements_user_timeline",
             "user_email",
