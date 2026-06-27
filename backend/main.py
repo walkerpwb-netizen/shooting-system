@@ -78,9 +78,11 @@ UPLOADS_DIR = Path(__file__).resolve().parent / "uploads"
 PROFILE_PHOTO_DIR = UPLOADS_DIR / "profile-photos"
 EMAIL_ASSET_DIR = UPLOADS_DIR / "email-assets"
 HOME_POST_DIR = UPLOADS_DIR / "home-posts"
+HOME_SCREEN_DIR = UPLOADS_DIR / "home-screens"
 PROFILE_PHOTO_ROUTE_PREFIX = "/uploads/profile-photos"
 EMAIL_ASSET_ROUTE_PREFIX = "/uploads/email-assets"
 HOME_POST_ROUTE_PREFIX = "/uploads/home-posts"
+HOME_SCREEN_ROUTE_PREFIX = "/uploads/home-screens"
 PROFILE_PHOTO_SIZE = 320
 PROFILE_PHOTO_MAX_BYTES = 8 * 1024 * 1024
 PROFILE_PHOTO_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
@@ -88,6 +90,9 @@ EMAIL_ASSET_MAX_BYTES = 8 * 1024 * 1024
 EMAIL_ASSET_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 HOME_POST_IMAGE_MAX_BYTES = 10 * 1024 * 1024
 HOME_POST_IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
+HOME_SCREEN_IMAGE_MAX_BYTES = 10 * 1024 * 1024
+HOME_SCREEN_IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
+HOME_SCREEN_KINDS = {"qr", "organizer", "live", "judge", "history", "ranking"}
 ACTIVATION_EMAIL_SETTING_KEY = "activation_email_template"
 MONITORED_LOG_FILES = [
     {
@@ -124,6 +129,7 @@ app = FastAPI()
 PROFILE_PHOTO_DIR.mkdir(parents=True, exist_ok=True)
 EMAIL_ASSET_DIR.mkdir(parents=True, exist_ok=True)
 HOME_POST_DIR.mkdir(parents=True, exist_ok=True)
+HOME_SCREEN_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 
 oauth2_scheme = OAuth2PasswordBearer(
@@ -2098,6 +2104,67 @@ def save_home_post_image(file: UploadFile):
     )
 
     return f"{HOME_POST_ROUTE_PREFIX}/{file_name}"
+
+
+def public_home_screen(kind: str):
+    file_path = HOME_SCREEN_DIR / f"{kind}.webp"
+
+    if not file_path.exists():
+        return None
+
+    version = int(file_path.stat().st_mtime)
+
+    return {
+        "kind": kind,
+        "image_url": f"{HOME_SCREEN_ROUTE_PREFIX}/{kind}.webp?v={version}",
+    }
+
+
+def save_home_screen_image(kind: str, file: UploadFile):
+    if kind not in HOME_SCREEN_KINDS:
+        raise HTTPException(status_code=404, detail="Nie znaleziono screena do podmiany")
+
+    content_type = (file.content_type or "").lower()
+
+    if content_type not in HOME_SCREEN_IMAGE_CONTENT_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail="Dodaj screen w formacie JPG, PNG albo WebP",
+        )
+
+    contents = file.file.read(HOME_SCREEN_IMAGE_MAX_BYTES + 1)
+
+    if len(contents) > HOME_SCREEN_IMAGE_MAX_BYTES:
+        raise HTTPException(status_code=400, detail="Screen może mieć maksymalnie 10 MB")
+
+    try:
+        image = Image.open(BytesIO(contents))
+        image.load()
+    except (UnidentifiedImageError, OSError) as exc:
+        raise HTTPException(status_code=400, detail="Nie udało się odczytać screena") from exc
+
+    image = ImageOps.exif_transpose(image)
+    image.thumbnail((2200, 2200), Image.Resampling.LANCZOS)
+
+    if image.mode not in ("RGB", "RGBA"):
+        image = image.convert("RGBA" if "transparency" in image.info else "RGB")
+
+    target_path = HOME_SCREEN_DIR / f"{kind}.webp"
+    temp_path = HOME_SCREEN_DIR / f"{kind}-{uuid4().hex}.tmp.webp"
+
+    try:
+        image.save(
+            temp_path,
+            format="WEBP",
+            quality=88,
+            method=6,
+        )
+        temp_path.replace(target_path)
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
+
+    return public_home_screen(kind)
 
 def organizer_display_name(user: User):
     return (
@@ -6299,6 +6366,15 @@ def get_home_posts(db=Depends(get_db)):
     ]
 
 
+@app.get("/home-screens")
+def get_home_screens():
+    return [
+        screen
+        for kind in sorted(HOME_SCREEN_KINDS)
+        if (screen := public_home_screen(kind))
+    ]
+
+
 @app.post("/admin/home-posts")
 def create_home_post(
     description: str = Form(...),
@@ -6337,6 +6413,49 @@ def create_home_post(
         "image_url": post.image_url,
         "created_at": post.created_at,
     }
+
+
+@app.put("/admin/home-posts/{post_id}/image")
+def replace_home_post_image(
+    post_id: int,
+    image: UploadFile = File(...),
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    post = db.query(HomePost).filter(HomePost.id == post_id).first()
+
+    if not post:
+        raise HTTPException(status_code=404, detail="Nie znaleziono wpisu")
+
+    old_image_url = post.image_url
+    image_url = save_home_post_image(image)
+    post.image_url = image_url
+
+    try:
+        db.commit()
+        db.refresh(post)
+    except Exception:
+        db.rollback()
+        delete_home_post_image(image_url)
+        raise
+
+    delete_home_post_image(old_image_url)
+
+    return {
+        "id": post.id,
+        "description": post.description,
+        "image_url": post.image_url,
+        "created_at": post.created_at,
+    }
+
+
+@app.put("/admin/home-screens/{kind}")
+def replace_home_screen(
+    kind: str,
+    image: UploadFile = File(...),
+    admin: User = Depends(get_current_admin),
+):
+    return save_home_screen_image(kind, image)
 
 
 @app.get("/admin/settings/results-table")

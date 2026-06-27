@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { FormEvent, useEffect, useState, useSyncExternalStore } from "react";
+import { ChangeEvent, FormEvent, useEffect, useState, useSyncExternalStore } from "react";
 
 import TrackedAdSlot from "@/components/TrackedAdSlot";
 import { apiUrl } from "@/lib/api";
@@ -29,6 +29,16 @@ type HomePost = {
   description: string;
   image_url: string;
   created_at: string;
+};
+
+type HomeScreenOverride = {
+  kind: FeatureKind;
+  image_url: string;
+};
+
+type FeatureScreenImage = {
+  src: string;
+  alt: string;
 };
 
 const features: Feature[] = [
@@ -135,16 +145,58 @@ const featureScreens: Record<FeatureKind, { src: string; alt: string }> = {
 
 function FeatureScreen({
   kind,
+  screen,
+  canReplace,
+  replaceSaving,
+  replaceMessage,
   onOpen,
+  onReplace,
 }: {
   kind: FeatureKind;
-  onOpen: (image: { src: string; alt: string }) => void;
+  screen: FeatureScreenImage;
+  canReplace: boolean;
+  replaceSaving: boolean;
+  replaceMessage: string;
+  onOpen: (image: FeatureScreenImage) => void;
+  onReplace: (kind: FeatureKind, file: File) => void;
 }) {
-  const screen = featureScreens[kind];
+  const inputId = `home-screen-replace-${kind}`;
+
+  function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (file) {
+      onReplace(kind, file);
+    }
+  }
 
   return (
     <div className="relative mx-auto w-full max-w-[650px]">
       <div className="absolute -inset-4 rounded-[2rem] bg-emerald-400/10 blur-2xl" />
+      {canReplace && (
+        <div className="absolute left-3 top-3 z-10 flex max-w-[calc(100%-1.5rem)] flex-col items-start gap-2 rounded-xl border border-emerald-300/40 bg-black/80 p-2 shadow-xl backdrop-blur-sm">
+          <input
+            id={inputId}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            disabled={replaceSaving}
+            onChange={handleFileChange}
+            className="sr-only"
+          />
+          <label
+            htmlFor={inputId}
+            className="cursor-pointer rounded-lg bg-emerald-400 px-3 py-2 text-xs font-black text-emerald-950 transition hover:bg-emerald-300"
+          >
+            {replaceSaving ? "Wgrywanie..." : "Podmień screen"}
+          </label>
+          {replaceMessage && (
+            <p className="max-w-56 text-left text-[11px] font-semibold leading-4 text-emerald-100">
+              {replaceMessage}
+            </p>
+          )}
+        </div>
+      )}
       <button
         type="button"
         onClick={() => onOpen(screen)}
@@ -158,6 +210,7 @@ function FeatureScreen({
           width={2880}
           height={1578}
           sizes="(min-width: 1024px) 650px, 100vw"
+          unoptimized={screen.src.startsWith("http")}
           className="h-auto w-full transition duration-300 group-hover:scale-[1.01]"
         />
         <span className="absolute bottom-3 right-3 rounded-lg bg-black/75 px-3 py-2 text-xs font-black text-white opacity-100 shadow-lg backdrop-blur-sm transition sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-visible:opacity-100">
@@ -170,12 +223,22 @@ function FeatureScreen({
 
 function FeatureSection({
   feature,
+  screen,
   reversed,
+  canReplaceScreen,
+  replaceSaving,
+  replaceMessage,
   onOpenScreen,
+  onReplaceScreen,
 }: {
   feature: Feature;
+  screen: FeatureScreenImage;
   reversed: boolean;
-  onOpenScreen: (image: { src: string; alt: string }) => void;
+  canReplaceScreen: boolean;
+  replaceSaving: boolean;
+  replaceMessage: string;
+  onOpenScreen: (image: FeatureScreenImage) => void;
+  onReplaceScreen: (kind: FeatureKind, file: File) => void;
 }) {
   return (
     <section className="my-5 grid items-center gap-8 rounded-2xl border border-white/12 bg-white/[0.045] p-5 shadow-xl sm:p-7 lg:my-0 lg:grid-cols-2 lg:gap-16 lg:rounded-none lg:border-0 lg:bg-transparent lg:px-0 lg:py-24 lg:shadow-none">
@@ -202,7 +265,15 @@ function FeatureSection({
       </div>
 
       <div className={reversed ? "lg:order-2" : "lg:order-1"}>
-        <FeatureScreen kind={feature.kind} onOpen={onOpenScreen} />
+        <FeatureScreen
+          kind={feature.kind}
+          screen={screen}
+          canReplace={canReplaceScreen}
+          replaceSaving={replaceSaving}
+          replaceMessage={replaceMessage}
+          onOpen={onOpenScreen}
+          onReplace={onReplaceScreen}
+        />
       </div>
     </section>
   );
@@ -217,7 +288,12 @@ export default function Home() {
   const [postImage, setPostImage] = useState<File | null>(null);
   const [postImagePreview, setPostImagePreview] = useState("");
   const [postSaving, setPostSaving] = useState(false);
+  const [postImageSaving, setPostImageSaving] = useState<Record<number, boolean>>({});
+  const [postImageMessages, setPostImageMessages] = useState<Record<number, string>>({});
   const [openedScreen, setOpenedScreen] = useState<{ src: string; alt: string } | null>(null);
+  const [featureScreenOverrides, setFeatureScreenOverrides] = useState<Partial<Record<FeatureKind, string>>>({});
+  const [screenUploadSaving, setScreenUploadSaving] = useState<Partial<Record<FeatureKind, boolean>>>({});
+  const [screenUploadMessages, setScreenUploadMessages] = useState<Partial<Record<FeatureKind, string>>>({});
   const authSnapshot = useSyncExternalStore(
     subscribeToAuthChange,
     getAuthSnapshot,
@@ -252,6 +328,40 @@ export default function Home() {
         if (active) {
           setPostsLoading(false);
         }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    fetch(apiUrl("/home-screens"), { cache: "no-store" })
+      .then(async (response) => {
+        const data: HomeScreenOverride[] = await response.json();
+
+        if (!response.ok) {
+          throw new Error("Nie udało się pobrać podmienionych screenów");
+        }
+
+        if (!active) {
+          return;
+        }
+
+        const overrides: Partial<Record<FeatureKind, string>> = {};
+
+        data.forEach((screen) => {
+          if (screen.kind in featureScreens) {
+            overrides[screen.kind] = apiUrl(screen.image_url);
+          }
+        });
+
+        setFeatureScreenOverrides(overrides);
+      })
+      .catch((error) => {
+        console.error(error);
       });
 
     return () => {
@@ -331,6 +441,123 @@ export default function Home() {
       setPostsMessage("Błąd połączenia z serwerem.");
     } finally {
       setPostSaving(false);
+    }
+  }
+
+  async function handleReplaceFeatureScreen(kind: FeatureKind, file: File) {
+    if (!file.type.startsWith("image/")) {
+      setScreenUploadMessages((currentMessages) => ({
+        ...currentMessages,
+        [kind]: "Wybierz plik JPG, PNG albo WebP.",
+      }));
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("image", file);
+
+    setScreenUploadSaving((currentSaving) => ({
+      ...currentSaving,
+      [kind]: true,
+    }));
+    setScreenUploadMessages((currentMessages) => ({
+      ...currentMessages,
+      [kind]: "",
+    }));
+
+    try {
+      const response = await authFetch(apiUrl(`/admin/home-screens/${kind}`), {
+        method: "PUT",
+        body: formData,
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        setScreenUploadMessages((currentMessages) => ({
+          ...currentMessages,
+          [kind]: data.detail || "Nie udało się podmienić screena.",
+        }));
+        return;
+      }
+
+      const nextSrc = apiUrl(data.image_url);
+
+      setFeatureScreenOverrides((currentOverrides) => ({
+        ...currentOverrides,
+        [kind]: nextSrc,
+      }));
+      setScreenUploadMessages((currentMessages) => ({
+        ...currentMessages,
+        [kind]: "Screen podmieniony.",
+      }));
+    } catch (error) {
+      console.error(error);
+      setScreenUploadMessages((currentMessages) => ({
+        ...currentMessages,
+        [kind]: "Błąd połączenia z serwerem.",
+      }));
+    } finally {
+      setScreenUploadSaving((currentSaving) => ({
+        ...currentSaving,
+        [kind]: false,
+      }));
+    }
+  }
+
+  async function handleReplacePostImage(postId: number, file: File) {
+    if (!file.type.startsWith("image/")) {
+      setPostImageMessages((currentMessages) => ({
+        ...currentMessages,
+        [postId]: "Wybierz plik JPG, PNG albo WebP.",
+      }));
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("image", file);
+
+    setPostImageSaving((currentSaving) => ({
+      ...currentSaving,
+      [postId]: true,
+    }));
+    setPostImageMessages((currentMessages) => ({
+      ...currentMessages,
+      [postId]: "",
+    }));
+
+    try {
+      const response = await authFetch(apiUrl(`/admin/home-posts/${postId}/image`), {
+        method: "PUT",
+        body: formData,
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        setPostImageMessages((currentMessages) => ({
+          ...currentMessages,
+          [postId]: data.detail || "Nie udało się podmienić screena.",
+        }));
+        return;
+      }
+
+      setPosts((currentPosts) => currentPosts.map((post) => (
+        post.id === postId ? data : post
+      )));
+      setPostImageMessages((currentMessages) => ({
+        ...currentMessages,
+        [postId]: "Screen podmieniony.",
+      }));
+    } catch (error) {
+      console.error(error);
+      setPostImageMessages((currentMessages) => ({
+        ...currentMessages,
+        [postId]: "Błąd połączenia z serwerem.",
+      }));
+    } finally {
+      setPostImageSaving((currentSaving) => ({
+        ...currentSaving,
+        [postId]: false,
+      }));
     }
   }
 
@@ -499,64 +726,114 @@ export default function Home() {
                 )}
 
                 <div className="space-y-7">
-                  {posts.map((post) => (
-                    <article
-                      key={post.id}
-                      className="grid gap-7 rounded-2xl border border-white/12 bg-white/[0.05] p-5 shadow-2xl sm:p-7 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] lg:items-center"
-                    >
-                      <div>
-                        <p className="whitespace-pre-line text-base leading-7 text-zinc-200 sm:text-lg">
-                          {post.description}
-                        </p>
-                        <time
-                          dateTime={post.created_at}
-                          className="mt-4 block text-xs font-bold uppercase tracking-wider text-emerald-300/80"
-                        >
-                          {new Intl.DateTimeFormat("pl-PL", {
-                            dateStyle: "long",
-                            timeZone: "Europe/Warsaw",
-                          }).format(new Date(post.created_at))}
-                        </time>
-                      </div>
+                  {posts.map((post) => {
+                    const postImageInputId = `home-post-image-replace-${post.id}`;
+                    const postImageUrl = apiUrl(post.image_url);
 
-                      <button
-                        type="button"
-                        onClick={() => setOpenedScreen({
-                          src: apiUrl(post.image_url),
-                          alt: "Screen do aktualności",
-                        })}
-                        aria-label="Otwórz screen aktualności w pełnej rozdzielczości"
-                        title="Kliknij, aby powiększyć screen"
-                        className="group relative block w-full cursor-zoom-in overflow-hidden rounded-xl border border-white/10 bg-[#071713] p-0 text-left outline-none transition hover:-translate-y-1 hover:border-emerald-300/50 focus-visible:ring-2 focus-visible:ring-emerald-300"
+                    return (
+                      <article
+                        key={post.id}
+                        className="grid gap-7 rounded-2xl border border-white/12 bg-white/[0.05] p-5 shadow-2xl sm:p-7 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] lg:items-center"
                       >
-                        <Image
-                          src={apiUrl(post.image_url)}
-                          alt="Screen do aktualności"
-                          width={2200}
-                          height={1400}
-                          sizes="(min-width: 1024px) 650px, 100vw"
-                          unoptimized
-                          className="h-auto w-full transition duration-300 group-hover:scale-[1.01]"
-                        />
-                        <span className="absolute bottom-3 right-3 rounded-lg bg-black/75 px-3 py-2 text-xs font-black text-white opacity-100 shadow-lg backdrop-blur-sm transition sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-visible:opacity-100">
-                          Powiększ
-                        </span>
-                      </button>
-                    </article>
-                  ))}
+                        <div>
+                          <p className="whitespace-pre-line text-base leading-7 text-zinc-200 sm:text-lg">
+                            {post.description}
+                          </p>
+                          <time
+                            dateTime={post.created_at}
+                            className="mt-4 block text-xs font-bold uppercase tracking-wider text-emerald-300/80"
+                          >
+                            {new Intl.DateTimeFormat("pl-PL", {
+                              dateStyle: "long",
+                              timeZone: "Europe/Warsaw",
+                            }).format(new Date(post.created_at))}
+                          </time>
+                        </div>
+
+                        <div className="relative">
+                          {canAddPost && (
+                            <div className="absolute left-3 top-3 z-10 flex max-w-[calc(100%-1.5rem)] flex-col items-start gap-2 rounded-xl border border-emerald-300/40 bg-black/80 p-2 shadow-xl backdrop-blur-sm">
+                              <input
+                                id={postImageInputId}
+                                type="file"
+                                accept="image/jpeg,image/png,image/webp"
+                                disabled={Boolean(postImageSaving[post.id])}
+                                onChange={(event) => {
+                                  const file = event.target.files?.[0];
+                                  event.target.value = "";
+
+                                  if (file) {
+                                    void handleReplacePostImage(post.id, file);
+                                  }
+                                }}
+                                className="sr-only"
+                              />
+                              <label
+                                htmlFor={postImageInputId}
+                                className="cursor-pointer rounded-lg bg-emerald-400 px-3 py-2 text-xs font-black text-emerald-950 transition hover:bg-emerald-300"
+                              >
+                                {postImageSaving[post.id] ? "Wgrywanie..." : "Podmień screen"}
+                              </label>
+                              {postImageMessages[post.id] && (
+                                <p className="max-w-56 text-left text-[11px] font-semibold leading-4 text-emerald-100">
+                                  {postImageMessages[post.id]}
+                                </p>
+                              )}
+                            </div>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => setOpenedScreen({
+                              src: postImageUrl,
+                              alt: "Screen do aktualności",
+                            })}
+                            aria-label="Otwórz screen aktualności w pełnej rozdzielczości"
+                            title="Kliknij, aby powiększyć screen"
+                            className="group relative block w-full cursor-zoom-in overflow-hidden rounded-xl border border-white/10 bg-[#071713] p-0 text-left outline-none transition hover:-translate-y-1 hover:border-emerald-300/50 focus-visible:ring-2 focus-visible:ring-emerald-300"
+                          >
+                            <Image
+                              src={postImageUrl}
+                              alt="Screen do aktualności"
+                              width={2200}
+                              height={1400}
+                              sizes="(min-width: 1024px) 650px, 100vw"
+                              unoptimized
+                              className="h-auto w-full transition duration-300 group-hover:scale-[1.01]"
+                            />
+                            <span className="absolute bottom-3 right-3 rounded-lg bg-black/75 px-3 py-2 text-xs font-black text-white opacity-100 shadow-lg backdrop-blur-sm transition sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-visible:opacity-100">
+                              Powiększ
+                            </span>
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })}
                 </div>
               </section>
             )}
 
             <div className="border-t border-white/8">
-              {features.map((feature, index) => (
-                <FeatureSection
-                  key={feature.title}
-                  feature={feature}
-                  reversed={index % 2 === 1}
-                  onOpenScreen={setOpenedScreen}
-                />
-              ))}
+              {features.map((feature, index) => {
+                const screen = {
+                  ...featureScreens[feature.kind],
+                  src: featureScreenOverrides[feature.kind] || featureScreens[feature.kind].src,
+                };
+
+                return (
+                  <FeatureSection
+                    key={feature.title}
+                    feature={feature}
+                    screen={screen}
+                    reversed={index % 2 === 1}
+                    canReplaceScreen={canAddPost}
+                    replaceSaving={Boolean(screenUploadSaving[feature.kind])}
+                    replaceMessage={screenUploadMessages[feature.kind] || ""}
+                    onOpenScreen={setOpenedScreen}
+                    onReplaceScreen={handleReplaceFeatureScreen}
+                  />
+                );
+              })}
             </div>
 
             <section className="my-12 overflow-hidden rounded-[2rem] border border-emerald-300/15 bg-emerald-300/[0.07] px-6 py-12 text-center shadow-[0_24px_80px_rgba(0,0,0,0.2)] sm:px-10 sm:py-16">
