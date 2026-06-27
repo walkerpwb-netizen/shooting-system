@@ -216,7 +216,7 @@ function FeatureScreen({
           width={2880}
           height={1578}
           sizes="(min-width: 1024px) 650px, 100vw"
-          unoptimized={screen.src.startsWith("http")}
+          unoptimized
           className="h-auto w-full transition duration-300 group-hover:scale-[1.01]"
         />
         <span className="absolute bottom-3 right-3 rounded-lg bg-black/75 px-3 py-2 text-xs font-black text-white opacity-100 shadow-lg backdrop-blur-sm transition sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-visible:opacity-100">
