@@ -6824,6 +6824,34 @@ def admin_get_pzss_clubs(
     return [public_pzss_club(club) for club in clubs]
 
 
+@app.get("/admin/home-stats")
+def admin_home_stats(
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    users_count = db.query(User).count()
+    verified_pzss_clubs_count = (
+        db.query(User)
+        .filter(
+            User.account_type == PZSS_CLUB_ACCOUNT_TYPE,
+            User.pzss_club_status == PZSS_CLUB_APPROVED,
+            User.is_active == 1,
+        )
+        .count()
+    )
+    online_users_count = sum(
+        1
+        for user in db.query(User).all()
+        if is_user_online(user)
+    )
+
+    return {
+        "users_count": users_count,
+        "verified_pzss_clubs_count": verified_pzss_clubs_count,
+        "online_users_count": online_users_count,
+    }
+
+
 @app.put("/admin/pzss-clubs/{club_id}/approve")
 def admin_approve_pzss_club(
     club_id: int,

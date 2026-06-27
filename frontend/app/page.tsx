@@ -36,6 +36,12 @@ type HomeScreenOverride = {
   image_url: string;
 };
 
+type HomeStats = {
+  users_count: number;
+  verified_pzss_clubs_count: number;
+  online_users_count: number;
+};
+
 type FeatureScreenImage = {
   src: string;
   alt: string;
@@ -279,10 +285,74 @@ function FeatureSection({
   );
 }
 
+function AdminHomeStatsPanel({
+  stats,
+  loading,
+  message,
+}: {
+  stats: HomeStats | null;
+  loading: boolean;
+  message: string;
+}) {
+  const statItems = [
+    {
+      label: "Użytkownicy w bazie",
+      value: stats?.users_count,
+    },
+    {
+      label: "Zweryfikowane kluby PZSS",
+      value: stats?.verified_pzss_clubs_count,
+    },
+    {
+      label: "Aktualnie online",
+      value: stats?.online_users_count,
+    },
+  ];
+
+  return (
+    <aside className="mt-7 w-full max-w-3xl rounded-2xl border border-emerald-300/25 bg-black/25 p-4 shadow-2xl backdrop-blur-sm sm:p-5">
+      <div className="mb-4 flex flex-col gap-1 text-left sm:text-center">
+        <p className="text-[10px] font-black uppercase tracking-[0.24em] text-emerald-300">
+          Panel administratora
+        </p>
+        <p className="text-sm font-semibold text-emerald-50/80">
+          Statystyki widoczne tylko dla administratora. W przyszłości można przełączyć je na publiczne.
+        </p>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        {statItems.map((item) => (
+          <div
+            key={item.label}
+            className="rounded-xl border border-white/10 bg-white/[0.06] px-4 py-4 text-center"
+          >
+            <p className="text-3xl font-black text-white">
+              {loading && item.value === undefined
+                ? "..."
+                : new Intl.NumberFormat("pl-PL").format(item.value ?? 0)}
+            </p>
+            <p className="mt-2 text-xs font-bold uppercase tracking-wide text-emerald-200/80">
+              {item.label}
+            </p>
+          </div>
+        ))}
+      </div>
+
+      {message && (
+        <p className="mt-4 rounded-xl border border-yellow-300/30 bg-yellow-300/10 px-4 py-3 text-sm font-semibold text-yellow-100">
+          {message}
+        </p>
+      )}
+    </aside>
+  );
+}
+
 export default function Home() {
   const [posts, setPosts] = useState<HomePost[]>([]);
   const [postsLoading, setPostsLoading] = useState(true);
   const [postsMessage, setPostsMessage] = useState("");
+  const [homeStats, setHomeStats] = useState<HomeStats | null>(null);
+  const [homeStatsMessage, setHomeStatsMessage] = useState("");
   const [showPostForm, setShowPostForm] = useState(false);
   const [postDescription, setPostDescription] = useState("");
   const [postImage, setPostImage] = useState<File | null>(null);
@@ -301,6 +371,40 @@ export default function Home() {
   );
   const roles = authSnapshot.split("|")[2]?.split(",").filter(Boolean) || [];
   const canAddPost = roles.includes("admin");
+
+  useEffect(() => {
+    let active = true;
+
+    if (!canAddPost) {
+      return () => {
+        active = false;
+      };
+    }
+
+    authFetch(apiUrl("/admin/home-stats"), { cache: "no-store" })
+      .then(async (response) => {
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.detail || "Nie udało się pobrać statystyk strony głównej");
+        }
+
+        if (active) {
+          setHomeStats(data);
+        }
+      })
+      .catch((error) => {
+        console.error(error);
+
+        if (active) {
+          setHomeStatsMessage("Nie udało się pobrać statystyk administracyjnych.");
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [canAddPost]);
 
   useEffect(() => {
     let active = true;
@@ -638,6 +742,14 @@ export default function Home() {
                 sizes="(min-width: 1024px) 430px, (min-width: 640px) 360px, 280px"
                 className="mt-10 h-auto w-[280px] drop-shadow-[0_22px_40px_rgba(0,0,0,0.5)] sm:w-[360px] lg:w-[430px]"
               />
+
+              {canAddPost && (
+                <AdminHomeStatsPanel
+                  stats={homeStats}
+                  loading={!homeStats && !homeStatsMessage}
+                  message={homeStatsMessage}
+                />
+              )}
 
               {canAddPost && (
                 <div className="mt-7 w-full max-w-2xl">
