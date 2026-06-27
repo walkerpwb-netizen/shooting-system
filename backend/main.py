@@ -2730,7 +2730,7 @@ def create_test_participant(
 
 
 def test_result_points(participant: CompetitionParticipant, discipline: Discipline):
-    return str((participant.id * 37 + discipline.id * 17) % 100)
+    return str((participant.id * 37 + discipline.id * 17) % 101)
 
 
 def generate_test_results_for_competition(
