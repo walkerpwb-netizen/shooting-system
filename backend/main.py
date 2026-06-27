@@ -4328,6 +4328,149 @@ def user_competition_statistics(user: User, db):
     }
 
 
+def user_start_history(user: User, db):
+    participants = (
+        db.query(CompetitionParticipant)
+        .filter(
+            CompetitionParticipant.user_email == user.email,
+            or_(
+                CompetitionParticipant.entry_type == "shooter",
+                CompetitionParticipant.entry_type.is_(None),
+            ),
+        )
+        .all()
+    )
+    participant_ids = [
+        participant.id
+        for participant in participants
+    ]
+
+    if not participant_ids:
+        return {
+            "starts": [],
+            "total_competitions": 0,
+            "total_disciplines": 0,
+            "total_points": "0",
+            "updated_at": datetime.now(APP_TIMEZONE).isoformat(),
+        }
+
+    participants_by_id = {
+        participant.id: participant
+        for participant in participants
+    }
+    results = (
+        db.query(DisciplineResult)
+        .filter(DisciplineResult.participant_id.in_(participant_ids))
+        .all()
+    )
+
+    if not results:
+        return {
+            "starts": [],
+            "total_competitions": 0,
+            "total_disciplines": 0,
+            "total_points": "0",
+            "updated_at": datetime.now(APP_TIMEZONE).isoformat(),
+        }
+
+    discipline_ids = {
+        result.discipline_id
+        for result in results
+    }
+    competition_ids = {
+        result.competition_id
+        for result in results
+    }
+    disciplines_by_id = {
+        discipline.id: discipline
+        for discipline in (
+            db.query(Discipline)
+            .filter(Discipline.id.in_(discipline_ids))
+            .all()
+        )
+    } if discipline_ids else {}
+    competitions_by_id = {
+        competition.id: competition
+        for competition in (
+            db.query(Competition)
+            .filter(
+                Competition.id.in_(competition_ids),
+                Competition.status == "completed",
+            )
+            .all()
+        )
+    } if competition_ids else {}
+    rows_by_competition = {}
+
+    for result in results:
+        competition = competitions_by_id.get(result.competition_id)
+        discipline = disciplines_by_id.get(result.discipline_id)
+        participant = participants_by_id.get(result.participant_id)
+
+        if not competition or not discipline or not participant:
+            continue
+
+        row = rows_by_competition.setdefault(
+            competition.id,
+            {
+                "competition_id": competition.id,
+                "competition_name": competition.name,
+                "date": competition.date,
+                "location": competition.location,
+                "organizer_full_name": competition.organizer_full_name or competition.created_by,
+                "completed_at": competition.completed_at or "",
+                "participant_id": participant.id,
+                "total_points_value": Decimal("0"),
+                "disciplines": [],
+                "results_path": f"/historical-results/{competition.id}",
+            },
+        )
+        points = parse_points(result.points)
+        row["total_points_value"] += points
+        row["disciplines"].append({
+            "discipline_id": discipline.id,
+            "name": discipline.name,
+            "discipline_type": normalize_discipline_type(discipline.discipline_type or ""),
+            "firearm_type": discipline_firearm_type(discipline),
+            "points": format_points(points),
+            "category_path": f"/historical-results/{competition.id}/discipline-{discipline.id}",
+        })
+
+    starts = []
+
+    for row in rows_by_competition.values():
+        row["disciplines"].sort(
+            key=lambda item: item["name"].lower()
+        )
+        total_points_value = row.pop("total_points_value")
+        row["total_points"] = format_points(total_points_value)
+        starts.append(row)
+
+    starts.sort(
+        key=lambda row: (
+            historical_sort_key(competitions_by_id[row["competition_id"]]),
+            row["competition_id"],
+        ),
+        reverse=True,
+    )
+
+    total_points = sum(
+        (
+            parse_points(start["total_points"])
+            for start in starts
+        ),
+        Decimal("0"),
+    )
+
+    return {
+        "starts": starts,
+        "total_competitions": len(starts),
+        "total_disciplines": sum(len(start["disciplines"]) for start in starts),
+        "total_points": format_points(total_points),
+        "updated_at": datetime.now(APP_TIMEZONE).isoformat(),
+    }
+
+
 def ranking_points_for_metric(statistics, metric: str):
     if metric == "overall":
         return parse_points(statistics["total_points_sum"])
@@ -10775,6 +10918,20 @@ def get_my_statistics(
     require_active_premium(user)
 
     return user_competition_statistics(user, db)
+
+
+@app.get("/me/start-history")
+def get_my_start_history(
+    user: User = Depends(get_current_user),
+    db=Depends(get_db),
+):
+    if is_pzss_club_account(user):
+        raise HTTPException(
+            status_code=403,
+            detail="Historia startów nie jest dostępna dla kont klubów PZSS"
+        )
+
+    return user_start_history(user, db)
 
 
 @app.delete("/me")

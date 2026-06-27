@@ -637,6 +637,12 @@ export default function Navbar() {
         )}
 
         {user && !isPzssClubAccount && (
+          <Link href="/start-history">
+            Historia Startów
+          </Link>
+        )}
+
+        {user && !isPzssClubAccount && (
           <Link href="/achievements" onClick={guardPremiumLink}>
             Odznaczenia
           </Link>
@@ -831,6 +837,16 @@ export default function Navbar() {
                   className="py-3"
                 >
                   Profil
+                </Link>
+              )}
+
+              {user && !isPzssClubAccount && (
+                <Link
+                  href="/start-history"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="py-3"
+                >
+                  Historia Startów
                 </Link>
               )}
 
