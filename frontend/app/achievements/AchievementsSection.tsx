@@ -21,6 +21,7 @@ export type Achievement = {
 
 type AchievementsSectionProps = {
   achievements: Achievement[];
+  emptyMessage?: string;
 };
 
 const medalLabels: Record<string, string> = {
@@ -51,11 +52,12 @@ function achievementIconSrc({
 
 export default function AchievementsSection({
   achievements,
+  emptyMessage = "Nie masz jeszcze odznaczeń.",
 }: AchievementsSectionProps) {
   if (achievements.length === 0) {
     return (
       <p className="mt-8 text-zinc-600 dark:text-red-100">
-        Nie masz jeszcze odznaczeń.
+        {emptyMessage}
       </p>
     );
   }
