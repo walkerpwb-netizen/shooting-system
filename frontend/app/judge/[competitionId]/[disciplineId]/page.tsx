@@ -10,6 +10,7 @@ import { apiUrl } from "@/lib/api";
 import { getAccessToken, isPzssClubAccount } from "@/lib/auth";
 import {
   HUNTING_TRAP_TARGETS_COUNT,
+  PRACTICAL_SHOTGUN_DISCIPLINE_TYPE,
   isHuntingTrapDiscipline,
 } from "@/lib/disciplines";
 
@@ -57,6 +58,10 @@ type SortField = "name" | "license" | "club" | "points";
 type SortDirection = "asc" | "desc";
 type TrapScoreValue = 1 | 0 | null;
 const clayHitPoints = 5;
+type PracticalShotgunInput = {
+  time: string;
+  hits: string;
+};
 
 type TrapHistoryEntry = {
   participantId: number;
@@ -322,6 +327,45 @@ function parseScore(value: string) {
   return Number.isFinite(score)
     ? score
     : 0;
+}
+
+function formatFactor(value: number) {
+  if (!Number.isFinite(value)) {
+    return "0";
+  }
+
+  return value.toFixed(4).replace(/\.?0+$/, "");
+}
+
+function parsePracticalShotgunResult(resultData: string) {
+  try {
+    const parsed = JSON.parse(resultData || "{}");
+
+    if (!parsed || parsed.discipline !== PRACTICAL_SHOTGUN_DISCIPLINE_TYPE) {
+      return null;
+    }
+
+    return {
+      time: String(parsed.time_seconds || ""),
+      hits: String(parsed.hits ?? ""),
+      factor: String(parsed.factor || ""),
+      disqualified: Boolean(parsed.disqualified),
+      disqualificationReason: String(parsed.disqualification_reason || ""),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function practicalShotgunInputsFromShooters(shooters: Shooter[]) {
+  return shooters.reduce<Record<number, PracticalShotgunInput>>((inputs, shooter) => {
+    const parsedResult = parsePracticalShotgunResult(shooter.result_data || "");
+    inputs[shooter.participant_id] = {
+      time: parsedResult?.time || "",
+      hits: parsedResult?.hits || "",
+    };
+    return inputs;
+  }, {});
 }
 
 function sortTrapShooters(groupShooters: Shooter[]) {
@@ -817,6 +861,8 @@ export default function JudgeDisciplinePage() {
   const [skeetReadOnly, setSkeetReadOnly] = useState(false);
   const skeetScreenRef = useRef<HTMLDivElement | null>(null);
   const keyboardActionPendingRef = useRef(false);
+  const [practicalShotgunInputs, setPracticalShotgunInputs] = useState<Record<number, PracticalShotgunInput>>({});
+  const [practicalShotgunSavingId, setPracticalShotgunSavingId] = useState<number | null>(null);
 
   useEffect(() => {
     const token = getAccessToken();
@@ -867,6 +913,7 @@ export default function JudgeDisciplinePage() {
         }
 
         setShooters(shootersData.shooters);
+        setPracticalShotgunInputs(practicalShotgunInputsFromShooters(shootersData.shooters));
       } catch (error) {
         console.error(error);
         setMessage("Błąd połączenia z serwerem ❌");
@@ -889,6 +936,9 @@ export default function JudgeDisciplinePage() {
   const isHuntingTrap = Boolean(discipline && isHuntingTrapDiscipline(discipline));
   const isTrapDiscipline = discipline?.discipline_type === "trap";
   const isSkeetDiscipline = discipline?.discipline_type === "skeet";
+  const isPracticalShotgunDiscipline = discipline?.discipline_type === PRACTICAL_SHOTGUN_DISCIPLINE_TYPE;
+  const practicalShotgunTargetsCount = Math.max(Number(discipline?.shots_count || 0), 0);
+  const practicalShotgunTimeLimit = Math.max(Number(discipline?.trap_series_count || 0), 0);
   const trapSeriesCount = isTrapDiscipline
     ? Math.max(Number(discipline?.clay_series_count || discipline?.trap_series_count || 1), 1)
     : 0;
@@ -1151,6 +1201,116 @@ export default function JudgeDisciplinePage() {
     } catch (error) {
       console.error(error);
       setMessage("Błąd połączenia z serwerem ❌");
+    }
+  }
+
+  function updatePracticalShotgunInput(
+    participantId: number,
+    field: keyof PracticalShotgunInput,
+    value: string
+  ) {
+    setPracticalShotgunInputs((currentInputs) => ({
+      ...currentInputs,
+      [participantId]: {
+        time: currentInputs[participantId]?.time || "",
+        hits: currentInputs[participantId]?.hits || "",
+        [field]: value,
+      },
+    }));
+  }
+
+  function practicalShotgunPreview(input: PracticalShotgunInput | undefined) {
+    const time = Number((input?.time || "").replace(",", "."));
+    const hits = Number(input?.hits || "");
+    const hasHits = Boolean((input?.hits || "").trim());
+    const validTime = Number.isFinite(time) && time > 0;
+    const validHits = hasHits && Number.isInteger(hits) && hits >= 0 && hits <= practicalShotgunTargetsCount;
+    const disqualified = validTime && practicalShotgunTimeLimit > 0 && time > practicalShotgunTimeLimit;
+
+    return {
+      time,
+      hits,
+      validTime,
+      validHits,
+      disqualified,
+      factor: validTime && validHits && !disqualified
+        ? formatFactor((hits * 10) / time)
+        : "0",
+    };
+  }
+
+  async function savePracticalShotgunResult(shooter: Shooter) {
+    if (!resultsEnabled || practicalShotgunSavingId !== null) {
+      return;
+    }
+
+    const input = practicalShotgunInputs[shooter.participant_id];
+    const preview = practicalShotgunPreview(input);
+
+    if (!preview.validTime) {
+      setMessage("Czas musi być większy od 0 ❌");
+      return;
+    }
+
+    if (!preview.validHits) {
+      setMessage("Liczba trafień nie może być większa niż liczba celów ❌");
+      return;
+    }
+
+    const safeInput = input || { time: "", hits: "" };
+    const token = getAccessToken();
+    const resultData = JSON.stringify({
+      discipline: PRACTICAL_SHOTGUN_DISCIPLINE_TYPE,
+      time_seconds: safeInput.time.replace(",", "."),
+      hits: preview.hits,
+    });
+
+    try {
+      setMessage("");
+      setPracticalShotgunSavingId(shooter.participant_id);
+
+      const response = await fetch(
+        apiUrl(`/judge/competitions/${competitionId}/disciplines/${disciplineId}/results`),
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            participant_id: shooter.participant_id,
+            points: preview.factor,
+            result_data: resultData,
+          }),
+        }
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.detail || "Nie udało się zapisać wyniku ❌");
+        return;
+      }
+
+      setShooters((currentShooters) =>
+        currentShooters.map((currentShooter) =>
+          currentShooter.participant_id === shooter.participant_id
+            ? {
+                ...currentShooter,
+                points: data.points,
+                result_data: data.result_data || resultData,
+              }
+            : currentShooter
+        )
+      );
+      setMessage(data.points === "0" && preview.disqualified
+        ? "Wynik zapisany jako DQ za przekroczenie limitu czasu ✅"
+        : "Wynik zapisany ✅"
+      );
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    } finally {
+      setPracticalShotgunSavingId(null);
     }
   }
 
@@ -1909,6 +2069,211 @@ export default function JudgeDisciplinePage() {
           <p className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 text-gray-300">
             Nie masz dostępu do tej konkurencji albo zawody nie są już opublikowane.
           </p>
+        ) : isPracticalShotgunDiscipline ? (
+          <section className="rounded-xl border border-zinc-800 bg-zinc-900">
+            <div className="border-b border-zinc-800 px-4 py-4 sm:px-5">
+              <div className="flex flex-col gap-4">
+                <div>
+                  <h2 className="text-2xl font-bold text-white">
+                    {discipline.name}
+                  </h2>
+                  <p className="text-sm text-gray-400 sm:text-base">
+                    Strzelba praktyczna: wpisz czas i trafienia. System wyliczy factor przed zapisem.
+                  </p>
+                  <p className="mt-2 text-sm font-bold text-emerald-300">
+                    Cele: {practicalShotgunTargetsCount}
+                    {practicalShotgunTimeLimit > 0
+                      ? ` • Limit czasu: ${practicalShotgunTimeLimit} s`
+                      : " • Bez limitu czasu"}
+                  </p>
+                </div>
+
+                <div className="flex flex-col gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMessage("");
+                      setScannerOpen(true);
+                    }}
+                    className="group flex w-full items-center gap-4 text-left sm:w-fit sm:gap-5"
+                  >
+                    <NextImage
+                      src="/icons/skaner.jpeg"
+                      alt=""
+                      width={1254}
+                      height={1254}
+                      sizes="(min-width: 640px) 144px, 112px"
+                      className="h-28 w-28 shrink-0 rounded-2xl object-cover shadow-[0_12px_35px_rgba(34,197,94,0.22)] transition group-hover:scale-[1.03] group-hover:shadow-[0_14px_40px_rgba(34,197,94,0.34)] sm:h-36 sm:w-36"
+                    />
+
+                    <span className="max-w-xs">
+                      <span className="block text-lg font-black text-white transition group-hover:text-green-300 sm:text-2xl">
+                        Skanuj QR zawodnika
+                      </span>
+                      <span className="mt-2 block text-sm leading-5 text-gray-400 sm:text-base sm:leading-6">
+                        Zeskanuj kod, aby szybko odnaleźć zawodnika.
+                      </span>
+                    </span>
+                  </button>
+
+                  <input
+                    value={shooterFilter}
+                    onChange={(event) => {
+                      setShooterFilter(event.target.value);
+                      setHighlightedParticipantId(null);
+                    }}
+                    placeholder="Filtruj strzelca"
+                    className="w-full border border-zinc-700 bg-zinc-800 px-4 py-4 text-lg text-white placeholder:text-gray-500 focus:border-green-700 focus:outline-none"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {shootersLoading ? (
+              <p className="px-4 py-5 text-gray-400">
+                Ładowanie zawodników...
+              </p>
+            ) : sortedShooters.length === 0 ? (
+              <p className="px-4 py-5 text-gray-400">
+                Brak zawodników pasujących do filtra.
+              </p>
+            ) : (
+              <div className="grid gap-4 p-4">
+                {sortedShooters.map((shooter) => {
+                  const highlighted = highlightedParticipantId === shooter.participant_id;
+                  const input = practicalShotgunInputs[shooter.participant_id] || { time: "", hits: "" };
+                  const preview = practicalShotgunPreview(input);
+                  const existingResult = parsePracticalShotgunResult(shooter.result_data || "");
+                  const finalResult = preview.disqualified
+                    ? "DQ"
+                    : preview.validTime && preview.validHits
+                    ? preview.factor
+                    : existingResult?.disqualified
+                    ? "DQ"
+                    : existingResult?.factor || shooter.points || "0";
+
+                  return (
+                    <article
+                      id={`shooter-${shooter.participant_id}`}
+                      key={shooter.participant_id}
+                      className={`rounded-2xl border p-4 transition sm:p-5 ${
+                        highlighted
+                          ? "border-green-500 bg-green-950/40"
+                          : "border-zinc-800 bg-zinc-950"
+                      }`}
+                    >
+                      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <Link
+                            href={`/profile/${shooter.participant_id}`}
+                            className="text-2xl font-black text-white transition hover:text-green-300"
+                          >
+                            {getShooterName(shooter)}
+                          </Link>
+                          <p className="mt-1 text-sm text-gray-400">
+                            {shooter.club || "brak klubu"} • licencja: {shooter.license_number || "brak"}
+                          </p>
+                        </div>
+                        <div className="rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-center">
+                          <p className="text-xs font-bold uppercase text-gray-500">Wynik</p>
+                          <p className={`text-3xl font-black ${preview.disqualified ? "text-red-400" : "text-green-300"}`}>
+                            {finalResult}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="block">
+                          <span className="mb-2 block text-base font-black text-white">
+                            Czas przejazdu [s]
+                          </span>
+                          <input
+                            type="number"
+                            min="0.01"
+                            step="0.01"
+                            inputMode="decimal"
+                            placeholder="18.42"
+                            value={input.time}
+                            onChange={(event) =>
+                              updatePracticalShotgunInput(shooter.participant_id, "time", event.target.value)
+                            }
+                            className="w-full rounded-2xl border border-zinc-700 bg-zinc-900 px-5 py-5 text-3xl font-black text-white outline-none focus:border-green-500"
+                          />
+                        </label>
+
+                        <label className="block">
+                          <span className="mb-2 block text-base font-black text-white">
+                            Trafione cele
+                          </span>
+                          <div className="grid grid-cols-[1fr_auto] overflow-hidden rounded-2xl border border-zinc-700 bg-zinc-900 focus-within:border-green-500">
+                            <input
+                              type="number"
+                              min="0"
+                              max={practicalShotgunTargetsCount}
+                              step="1"
+                              inputMode="numeric"
+                              placeholder="0"
+                              value={input.hits}
+                              onChange={(event) =>
+                                updatePracticalShotgunInput(shooter.participant_id, "hits", event.target.value)
+                              }
+                              className="min-w-0 bg-transparent px-5 py-5 text-3xl font-black text-white outline-none"
+                            />
+                            <span className="flex items-center bg-zinc-800 px-5 text-3xl font-black text-gray-300">
+                              /{practicalShotgunTargetsCount}
+                            </span>
+                          </div>
+                        </label>
+                      </div>
+
+                      <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-center">
+                        <p className={`rounded-xl px-4 py-3 text-base font-bold ${
+                          !preview.validTime && input.time
+                            ? "bg-red-950/50 text-red-100"
+                            : !preview.validHits && input.hits
+                            ? "bg-red-950/50 text-red-100"
+                            : preview.disqualified
+                            ? "bg-red-950/50 text-red-100"
+                            : "bg-zinc-900 text-gray-300"
+                        }`}>
+                          {!preview.validTime && input.time
+                            ? "Czas musi być większy od 0."
+                            : !preview.validHits && input.hits
+                            ? `Trafienia muszą być w zakresie 0-${practicalShotgunTargetsCount}.`
+                            : preview.disqualified
+                            ? `Przekroczono limit ${practicalShotgunTimeLimit} s - wynik będzie zapisany jako DQ.`
+                            : `Wyliczony factor: ${preview.factor}`}
+                        </p>
+
+                        <button
+                          type="button"
+                          onClick={() => savePracticalShotgunResult(shooter)}
+                          disabled={!resultsEnabled || practicalShotgunSavingId === shooter.participant_id}
+                          className={`w-full rounded-2xl px-5 py-5 text-xl font-black text-white transition sm:w-56 ${
+                            !resultsEnabled
+                              ? "cursor-not-allowed bg-zinc-700 text-gray-300"
+                              : practicalShotgunSavingId === shooter.participant_id
+                              ? "bg-zinc-700"
+                              : shooter.points
+                              ? "bg-red-700 hover:bg-red-600"
+                              : "bg-green-700 hover:bg-green-600"
+                          }`}
+                        >
+                          {!resultsEnabled
+                            ? "Zawody nierozpoczęte"
+                            : practicalShotgunSavingId === shooter.participant_id
+                            ? "Zapisuję..."
+                            : shooter.points
+                            ? "Zapisz zmianę"
+                            : "Zapisz wynik"}
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </section>
         ) : isSkeetDiscipline ? (
           <section className="rounded-xl border border-zinc-800 bg-zinc-900">
             <div className="border-b border-zinc-800 px-4 py-4 sm:px-5">

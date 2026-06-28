@@ -13,6 +13,13 @@ export type ResultShooter = {
   points: string;
   place: number;
   round_scores?: number[];
+  practical_shotgun?: boolean;
+  time_seconds?: string;
+  hits?: number | string;
+  targets_count?: number | string;
+  final_result?: string;
+  disqualified?: boolean;
+  disqualification_reason?: string;
 };
 
 type ResultsLeaderboardTableProps = {
@@ -40,6 +47,7 @@ export default function ResultsLeaderboardTable({
 }: ResultsLeaderboardTableProps) {
   const [filter, setFilter] = useState("");
   const showRoundScores = shooters.some((shooter) => (shooter.round_scores?.length || 0) > 0);
+  const showPracticalShotgunScores = shooters.some((shooter) => shooter.practical_shotgun);
 
   const visibleShooters = useMemo(() => {
     const normalizedFilter = filter.trim().toLowerCase();
@@ -93,11 +101,21 @@ export default function ResultsLeaderboardTable({
             <thead>
               <tr className="border-b border-zinc-200 bg-zinc-50 text-xs font-bold uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950/50 dark:text-gray-400">
                 <th className="whitespace-nowrap px-4 py-3">Miejsce</th>
-                <th className="whitespace-nowrap px-4 py-3">Punkty</th>
-                {showRoundScores && (
-                  <th className="whitespace-nowrap px-4 py-3">Wyniki serii</th>
-                )}
                 <th className="whitespace-nowrap px-4 py-3">Zawodnik</th>
+                {showPracticalShotgunScores ? (
+                  <>
+                    <th className="whitespace-nowrap px-4 py-3">Czas</th>
+                    <th className="whitespace-nowrap px-4 py-3">Trafienia</th>
+                    <th className="whitespace-nowrap px-4 py-3">Wynik końcowy</th>
+                  </>
+                ) : (
+                  <>
+                    <th className="whitespace-nowrap px-4 py-3">Punkty</th>
+                    {showRoundScores && (
+                      <th className="whitespace-nowrap px-4 py-3">Wyniki serii</th>
+                    )}
+                  </>
+                )}
                 <th className="whitespace-nowrap px-4 py-3">Klub</th>
                 {showLicense && (
                   <th className="whitespace-nowrap px-4 py-3">Licencja</th>
@@ -115,18 +133,6 @@ export default function ResultsLeaderboardTable({
                     {shooter.place}
                   </td>
 
-                  <td className="whitespace-nowrap px-4 py-3 text-xl font-black text-zinc-950 dark:text-white">
-                    {shooter.points || "0"}
-                  </td>
-
-                  {showRoundScores && (
-                    <td className="whitespace-nowrap px-4 py-3 font-bold text-zinc-700 dark:text-gray-300">
-                      {shooter.round_scores
-                        ?.map((score, index) => `S${index + 1}: ${score}/25`)
-                        .join(" • ") || "–"}
-                    </td>
-                  )}
-
                   <td className="whitespace-nowrap px-4 py-3">
                     <Link
                       href={`/profile/${shooter.participant_id}`}
@@ -135,6 +141,47 @@ export default function ResultsLeaderboardTable({
                       {shooterName(shooter)}
                     </Link>
                   </td>
+
+                  {showPracticalShotgunScores ? (
+                    <>
+                      <td className="whitespace-nowrap px-4 py-3 font-bold text-zinc-700 dark:text-gray-300">
+                        {shooter.time_seconds ? `${shooter.time_seconds} s` : "–"}
+                      </td>
+
+                      <td className="whitespace-nowrap px-4 py-3 font-bold text-zinc-700 dark:text-gray-300">
+                        {shooter.hits !== "" && shooter.hits !== undefined
+                          ? `${shooter.hits}/${shooter.targets_count || "–"}`
+                          : `–/${shooter.targets_count || "–"}`}
+                      </td>
+
+                      <td className={`whitespace-nowrap px-4 py-3 text-xl font-black ${
+                        shooter.disqualified
+                          ? "text-red-600 dark:text-red-400"
+                          : "text-zinc-950 dark:text-white"
+                      }`}>
+                        {shooter.final_result || shooter.points || "0"}
+                        {shooter.disqualified && shooter.disqualification_reason ? (
+                          <span className="ml-2 text-xs font-bold text-red-500">
+                            {shooter.disqualification_reason}
+                          </span>
+                        ) : null}
+                      </td>
+                    </>
+                  ) : (
+                    <>
+                      <td className="whitespace-nowrap px-4 py-3 text-xl font-black text-zinc-950 dark:text-white">
+                        {shooter.points || "0"}
+                      </td>
+
+                      {showRoundScores && (
+                        <td className="whitespace-nowrap px-4 py-3 font-bold text-zinc-700 dark:text-gray-300">
+                          {shooter.round_scores
+                            ?.map((score, index) => `S${index + 1}: ${score}/25`)
+                            .join(" • ") || "–"}
+                        </td>
+                      )}
+                    </>
+                  )}
 
                   <td className="whitespace-nowrap px-4 py-3 text-zinc-700 dark:text-gray-300">
                     {shooter.club || "brak"}

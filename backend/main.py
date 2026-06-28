@@ -655,6 +655,7 @@ AD_DEVICES = ["desktop", "mobile"]
 AD_EVENT_TYPES = ["impression", "click"]
 TRAP_DISCIPLINE_TYPE = "trap"
 SKEET_DISCIPLINE_TYPE = "skeet"
+PRACTICAL_SHOTGUN_DISCIPLINE_TYPE = "practical-shotgun"
 CLAY_HIT_POINTS = 5
 TRAP_TARGETS_PER_SERIES = 25
 TRAP_SHOTS_PER_TARGET = 2
@@ -3945,6 +3946,14 @@ def trap_targets_count(discipline: Discipline):
     return discipline_clay_series_count(discipline) * TRAP_TARGETS_PER_SERIES
 
 
+def practical_shotgun_targets_count(discipline: Discipline):
+    return max(int(getattr(discipline, "shots_count", 0) or 0), 0)
+
+
+def practical_shotgun_time_limit(discipline: Discipline):
+    return max(int(getattr(discipline, "trap_series_count", 0) or 0), 0)
+
+
 def normalize_trap_variant(value: str):
     return normalize_search_text(value).strip()
 
@@ -3974,6 +3983,16 @@ def clay_configuration_from_data(data: DisciplineData, discipline_type: str):
 
 
 def normalize_discipline_payload(data: DisciplineData, discipline_type: str):
+    if discipline_type == PRACTICAL_SHOTGUN_DISCIPLINE_TYPE:
+        return {
+            "shots_count": data.shots_count,
+            "trap_variant": "",
+            "trap_series_count": max(int(data.trap_series_count or 0), 0),
+            "clay_variant": "",
+            "clay_series_count": 0,
+            "clay_price": "",
+        }
+
     if discipline_type not in [
         TRAP_DISCIPLINE_TYPE,
         SKEET_DISCIPLINE_TYPE,
@@ -4082,6 +4101,110 @@ def format_points(value: Decimal):
         return str(normalized.quantize(Decimal("1")))
 
     return format(normalized, "f")
+
+
+def practical_shotgun_factor(hits: int, time_seconds: Decimal):
+    return (Decimal(hits) * Decimal("10") / time_seconds).quantize(
+        Decimal("0.0001"),
+        rounding=ROUND_HALF_UP,
+    )
+
+
+def format_time_seconds(value: Decimal):
+    return format(value.normalize(), "f")
+
+
+def parse_decimal_field(value, field_label: str):
+    try:
+        parsed = Decimal(str(value).strip().replace(",", "."))
+    except (InvalidOperation, AttributeError):
+        raise HTTPException(status_code=400, detail=f"Nieprawidłowa wartość pola: {field_label}")
+
+    if not parsed.is_finite():
+        raise HTTPException(status_code=400, detail=f"Nieprawidłowa wartość pola: {field_label}")
+
+    return parsed
+
+
+def validate_practical_shotgun_result_data(discipline: Discipline, result_data: str):
+    try:
+        parsed = json.loads(result_data or "{}")
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Nieprawidłowy zapis wyniku Strzelby praktycznej")
+
+    if not isinstance(parsed, dict):
+        raise HTTPException(status_code=400, detail="Nieprawidłowy zapis wyniku Strzelby praktycznej")
+
+    time_seconds = parse_decimal_field(
+        parsed.get("time_seconds"),
+        "czas przejazdu",
+    )
+
+    if time_seconds <= 0:
+        raise HTTPException(status_code=400, detail="Czas musi być większy od 0")
+
+    raw_hits = parsed.get("hits")
+    try:
+        hits_decimal = Decimal(str(raw_hits).strip())
+    except (InvalidOperation, AttributeError):
+        raise HTTPException(status_code=400, detail="Podaj liczbę trafionych celów")
+
+    if hits_decimal != hits_decimal.to_integral_value():
+        raise HTTPException(status_code=400, detail="Liczba trafień musi być liczbą całkowitą")
+
+    hits = int(hits_decimal)
+
+    targets_count = practical_shotgun_targets_count(discipline)
+
+    if targets_count <= 0:
+        raise HTTPException(status_code=400, detail="Konkurencja nie ma skonfigurowanej liczby celów")
+
+    if hits < 0:
+        raise HTTPException(status_code=400, detail="Liczba trafień nie może być ujemna")
+
+    if hits > targets_count:
+        raise HTTPException(status_code=400, detail="Liczba trafień nie może być większa niż liczba celów")
+
+    time_limit = practical_shotgun_time_limit(discipline)
+    disqualified = time_limit > 0 and time_seconds > Decimal(time_limit)
+    factor = Decimal("0") if disqualified else practical_shotgun_factor(hits, time_seconds)
+
+    normalized_result = {
+        "version": 1,
+        "discipline": PRACTICAL_SHOTGUN_DISCIPLINE_TYPE,
+        "time_seconds": format_time_seconds(time_seconds),
+        "hits": hits,
+        "targets_count": targets_count,
+        "time_limit_seconds": time_limit,
+        "factor": format_points(factor),
+        "disqualified": disqualified,
+        "disqualification_reason": "Przekroczono limit czasu" if disqualified else "",
+    }
+
+    return normalized_result, format_points(factor)
+
+
+def practical_shotgun_result_details(result: DisciplineResult | None):
+    if not result:
+        return {}
+
+    try:
+        parsed = json.loads(getattr(result, "result_data", "") or "{}")
+    except (TypeError, ValueError):
+        return {}
+
+    if not isinstance(parsed, dict) or parsed.get("discipline") != PRACTICAL_SHOTGUN_DISCIPLINE_TYPE:
+        return {}
+
+    return {
+        "time_seconds": str(parsed.get("time_seconds", "")),
+        "hits": parsed.get("hits", ""),
+        "targets_count": parsed.get("targets_count", ""),
+        "time_limit_seconds": parsed.get("time_limit_seconds", 0) or 0,
+        "factor": str(parsed.get("factor", getattr(result, "points", "") or "0")),
+        "disqualified": bool(parsed.get("disqualified")),
+        "disqualification_reason": str(parsed.get("disqualification_reason", "")),
+    }
 
 
 def format_average_points(total: Decimal, starts_count: int):
@@ -5317,6 +5440,15 @@ def result_category_payload(competition: Competition, category_id: str, db, incl
         ),
         None,
     ) if len(discipline_ids) == 1 else None
+    practical_shotgun_discipline = next(
+        (
+            discipline
+            for discipline in disciplines
+            if discipline.id in discipline_ids
+            and normalize_discipline_type(discipline.discipline_type or "") == PRACTICAL_SHOTGUN_DISCIPLINE_TYPE
+        ),
+        None,
+    ) if len(discipline_ids) == 1 else None
 
     rows = []
 
@@ -5362,6 +5494,24 @@ def result_category_payload(competition: Competition, category_id: str, db, incl
                 [-round_total for round_total in reversed(round_totals)]
                 + [-(score or 0) for score in reversed(scores)]
             )
+
+        if practical_shotgun_discipline:
+            result = results_by_participant.get(participant.id)
+            details = practical_shotgun_result_details(result)
+            row["practical_shotgun"] = True
+            row["time_seconds"] = details.get("time_seconds", "")
+            row["hits"] = details.get("hits", "")
+            row["targets_count"] = details.get(
+                "targets_count",
+                practical_shotgun_targets_count(practical_shotgun_discipline),
+            )
+            row["time_limit_seconds"] = details.get(
+                "time_limit_seconds",
+                practical_shotgun_time_limit(practical_shotgun_discipline),
+            )
+            row["disqualified"] = bool(details.get("disqualified", False))
+            row["disqualification_reason"] = details.get("disqualification_reason", "")
+            row["final_result"] = "DQ" if row["disqualified"] else row["points"]
 
         if include_license:
             row["license_number"] = participant_data["license_number"]
@@ -10214,22 +10364,30 @@ def save_judge_result(
     if discipline_type in [
         TRAP_DISCIPLINE_TYPE,
         SKEET_DISCIPLINE_TYPE,
+        PRACTICAL_SHOTGUN_DISCIPLINE_TYPE,
     ]:
         if data.result_data is None:
-            raise HTTPException(status_code=400, detail="Brak szczegółowego wyniku rzutkowego")
+            raise HTTPException(status_code=400, detail="Brak szczegółowego wyniku")
 
         if discipline_type == SKEET_DISCIPLINE_TYPE:
             _parsed_result, computed_points = validate_skeet_result_data(
                 discipline,
                 data.result_data,
             )
+            result_points = str(computed_points)
+        elif discipline_type == PRACTICAL_SHOTGUN_DISCIPLINE_TYPE:
+            parsed_result, computed_points = validate_practical_shotgun_result_data(
+                discipline,
+                data.result_data,
+            )
+            data.result_data = json.dumps(parsed_result, ensure_ascii=False)
+            result_points = computed_points
         else:
             _parsed_result, computed_points = validate_trap_result_data(
                 discipline,
                 data.result_data,
             )
-
-        result_points = str(computed_points)
+            result_points = str(computed_points)
 
     result = (
         db.query(DisciplineResult)

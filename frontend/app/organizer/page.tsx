@@ -13,6 +13,7 @@ import {
   HUNTING_TRAP_VARIANT,
   isHuntingTrapDiscipline,
   isClayDisciplineType,
+  isPracticalShotgunDisciplineType,
 } from "@/lib/disciplines";
 
 type Competition = {
@@ -150,7 +151,6 @@ const temporarilyUnsupportedDisciplineTypes = new Set([
   "pcc",
   "2gun",
   "3gun",
-  "practical-shotgun",
   "ipsc-shotgun",
   "double-trap",
   "trap-mix",
@@ -169,6 +169,13 @@ function isPositiveNumber(value: string | number) {
 
 function isNonNegativeNumber(value: string) {
   return hasText(value) && Number(value) >= 0;
+}
+
+function isNonNegativeWholeNumber(value: string | number) {
+  const normalizedValue = String(value);
+  return hasText(normalizedValue)
+    && Number(normalizedValue) >= 0
+    && Number.isInteger(Number(normalizedValue));
 }
 
 function requiredFieldClass(isValid: boolean) {
@@ -241,6 +248,10 @@ const skeetVariantOptions = [
 
 function isClayDiscipline(discipline: Discipline) {
   return isClayDisciplineType(discipline.discipline_type);
+}
+
+function isPracticalShotgunDiscipline(discipline: Discipline) {
+  return isPracticalShotgunDisciplineType(discipline.discipline_type);
 }
 
 function getClayVariantOptions(discipline: Discipline) {
@@ -888,6 +899,7 @@ export default function OrganizerPage() {
     for (let index = 0; index < disciplines.length; index += 1) {
       const discipline = disciplines[index];
       const clayDiscipline = isClayDiscipline(discipline);
+      const practicalShotgunDiscipline = isPracticalShotgunDiscipline(discipline);
 
       if (!hasText(discipline.name)) {
         return `discipline-${index}-name`;
@@ -921,11 +933,22 @@ export default function OrganizerPage() {
         return `discipline-${index}-clay-price`;
       }
 
+      if (practicalShotgunDiscipline && !isPositiveNumber(discipline.shots_count)) {
+        return `discipline-${index}-targets`;
+      }
+
+      if (
+        practicalShotgunDiscipline
+        && !isNonNegativeWholeNumber(discipline.trap_series_count)
+      ) {
+        return `discipline-${index}-time-limit`;
+      }
+
       if (!hasText(entryFee) && !isNonNegativeNumber(discipline.entry_fee)) {
         return `discipline-${index}-entry-fee`;
       }
 
-      if (!clayDiscipline && !isPositiveNumber(discipline.shots_count)) {
+      if (!clayDiscipline && !practicalShotgunDiscipline && !isPositiveNumber(discipline.shots_count)) {
         return `discipline-${index}-shots`;
       }
     }
@@ -1020,6 +1043,7 @@ export default function OrganizerPage() {
             ? "PUT"
             : "POST";
           const trapDiscipline = isClayDiscipline(discipline);
+          const practicalShotgunDiscipline = isPracticalShotgunDiscipline(discipline);
           const trapShotsCount = getTrapShotsCount(discipline);
 
           const disciplineResponse = await authFetch(
@@ -1042,7 +1066,9 @@ export default function OrganizerPage() {
                   && discipline.discipline_type === "trap"
                   ? discipline.trap_variant
                   : "",
-                trap_series_count: trapDiscipline
+                trap_series_count: practicalShotgunDiscipline
+                  ? Math.max(Number(discipline.trap_series_count || 0), 0)
+                  : trapDiscipline
                   && discipline.discipline_type === "trap"
                   ? getTrapSeriesCount(discipline)
                   : 0,
@@ -1382,6 +1408,7 @@ export default function OrganizerPage() {
 
                 {disciplines.map((discipline, index) => {
                   const trapDiscipline = isClayDiscipline(discipline);
+                  const practicalShotgunDiscipline = isPracticalShotgunDiscipline(discipline);
                   const trapTargetsCount = getTrapTargetsCount(discipline);
                   const trapShotsCount = getTrapShotsCount(discipline);
 
@@ -1609,6 +1636,70 @@ export default function OrganizerPage() {
                       </div>
                     )}
 
+                    {practicalShotgunDiscipline && (
+                      <div className="grid gap-4 rounded-xl border border-emerald-700/60 bg-emerald-950/25 p-4 md:grid-cols-2">
+                        <div className="md:col-span-2 text-sm text-emerald-100">
+                          <p className="font-black">Strzelba praktyczna</p>
+                          <p className="mt-1">
+                            Sędzia wpisuje czas przejazdu i liczbę trafionych celów. System liczy factor: trafienia × 10 / czas.
+                          </p>
+                        </div>
+
+                        <div>
+                          <p className="text-white font-semibold mb-3">
+                            Liczba celów
+                          </p>
+
+                          <input
+                            id={`discipline-${index}-targets`}
+                            type="number"
+                            min="1"
+                            step="1"
+                            placeholder="Podaj liczbę celów *"
+                            value={
+                              discipline.shots_count === 0
+                                ? ""
+                                : discipline.shots_count
+                            }
+                            onChange={(e) => {
+                              const updated = [...disciplines];
+                              updated[index].shots_count = Number(e.target.value);
+                              setDisciplines(updated);
+                            }}
+                            aria-invalid={!isPositiveNumber(discipline.shots_count)}
+                            required
+                            className={requiredFieldClass(isPositiveNumber(discipline.shots_count))}
+                          />
+                        </div>
+
+                        <div>
+                          <p className="text-white font-semibold mb-3">
+                            Limit czasu w sekundach
+                          </p>
+
+                          <input
+                            id={`discipline-${index}-time-limit`}
+                            type="number"
+                            min="0"
+                            step="1"
+                            placeholder="Opcjonalnie, np. 60"
+                            value={
+                              discipline.trap_series_count === 0
+                                ? ""
+                                : discipline.trap_series_count
+                            }
+                            onChange={(e) => {
+                              const updated = [...disciplines];
+                              updated[index].trap_series_count = Number(e.target.value);
+                              setDisciplines(updated);
+                            }}
+                            aria-invalid={!isNonNegativeWholeNumber(discipline.trap_series_count)}
+                            className={requiredFieldClass(isNonNegativeWholeNumber(discipline.trap_series_count))}
+                          />
+                        </div>
+                      </div>
+                    )}
+
                     <div className={`grid gap-4 ${trapDiscipline ? "md:grid-cols-3" : "md:grid-cols-2"}`}>
                       <div>
                         <p className="text-white font-semibold mb-3">
@@ -1731,7 +1822,7 @@ export default function OrganizerPage() {
                         </div>
                       )}
 
-                      {!trapDiscipline && (
+                      {!trapDiscipline && !practicalShotgunDiscipline && (
                         <>
                           <p className="text-white font-semibold mb-3">
                             Liczba wszystkich strzałów: ocenianych i próbnych
