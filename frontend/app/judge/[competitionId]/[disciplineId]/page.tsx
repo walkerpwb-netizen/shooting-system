@@ -2453,6 +2453,68 @@ export default function JudgeDisciplinePage() {
                     Brak konfiguracji Stage. Organizator musi uzupełnić tory przed sędziowaniem.
                   </p>
                 )}
+
+                <div className="flex flex-col gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMessage("");
+                      setScannerOpen(true);
+                    }}
+                    className="group flex w-full min-w-0 items-center gap-4 text-left sm:w-fit sm:gap-5"
+                  >
+                    <NextImage
+                      src="/icons/skaner.jpeg"
+                      alt=""
+                      width={1254}
+                      height={1254}
+                      sizes="(min-width: 640px) 144px, 112px"
+                      className="h-24 w-24 shrink-0 rounded-2xl object-cover shadow-[0_12px_35px_rgba(34,197,94,0.22)] transition group-hover:scale-[1.03] group-hover:shadow-[0_14px_40px_rgba(34,197,94,0.34)] sm:h-36 sm:w-36"
+                    />
+
+                    <span className="min-w-0 max-w-xs">
+                      <span className="block break-words text-lg font-black text-white transition group-hover:text-green-300 sm:text-2xl">
+                        Skanuj QR zawodnika
+                      </span>
+                      <span className="mt-2 block break-words text-sm leading-5 text-gray-400 sm:text-base sm:leading-6">
+                        Zeskanuj kod, aby szybko odnaleźć i rozwinąć kartę zawodnika.
+                      </span>
+                    </span>
+                  </button>
+
+                  <input
+                    value={shooterFilter}
+                    onChange={(event) => {
+                      setShooterFilter(event.target.value);
+                      setHighlightedParticipantId(null);
+                      setExpandedDynamicShooterId(null);
+                    }}
+                    placeholder="Filtruj strzelca"
+                    className="w-full min-w-0 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-base text-white placeholder:text-gray-500 focus:border-green-700 focus:outline-none sm:py-4 sm:text-lg"
+                  />
+
+                  <div className="grid min-w-0 grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+                    {[
+                      { field: "name" as const, label: "Nazwisko" },
+                      { field: "license" as const, label: "Licencja" },
+                      { field: "club" as const, label: "Klub" },
+                      { field: "points" as const, label: "Punkty" },
+                    ].map((item) => (
+                      <button
+                        key={item.field}
+                        type="button"
+                        onClick={() => toggleSort(item.field)}
+                        className={`min-w-0 rounded-xl px-3 py-2 text-sm font-bold transition ${
+                          sortField === item.field
+                            ? "bg-green-700 text-white"
+                            : "bg-zinc-800 text-gray-300 hover:bg-zinc-700"
+                        }`}
+                      >
+                        {item.label} {sortMark(item.field)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -2460,6 +2522,8 @@ export default function JudgeDisciplinePage() {
               <p className="px-4 py-5 text-gray-400">Brak Stage do punktowania.</p>
             ) : shootersLoading ? (
               <p className="px-4 py-5 text-gray-400">Ładowanie zawodników...</p>
+            ) : sortedShooters.length === 0 ? (
+              <p className="px-4 py-5 text-gray-400">Brak zawodników pasujących do filtra.</p>
             ) : (
               <div className="grid min-w-0 gap-3 p-2 sm:gap-4 sm:p-4">
                 <div className="min-w-0 rounded-xl border border-zinc-700 bg-zinc-950 p-3 text-white sm:p-4">
