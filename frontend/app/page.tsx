@@ -720,6 +720,12 @@ export default function Home() {
 
               <div className="mt-9 flex w-full max-w-md flex-col justify-center gap-3 sm:w-auto sm:max-w-none sm:flex-row">
                 <Link
+                  href="/login"
+                  className="rounded-xl border border-emerald-300/35 bg-emerald-300/10 px-7 py-3.5 text-sm font-black text-emerald-100 transition hover:-translate-y-0.5 hover:border-emerald-300/70 hover:bg-emerald-300/15"
+                >
+                  Logowanie
+                </Link>
+                <Link
                   href="/register"
                   className="rounded-xl bg-emerald-400 px-7 py-3.5 text-sm font-black text-[#05221d] shadow-[0_12px_35px_rgba(52,211,153,0.2)] transition hover:-translate-y-0.5 hover:bg-emerald-300"
                 >
@@ -959,6 +965,12 @@ export default function Home() {
                 Załóż konto lub zobacz zawody dostępne już teraz.
               </p>
               <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
+                <Link
+                  href="/login"
+                  className="rounded-xl border border-emerald-300/35 bg-emerald-300/10 px-7 py-3.5 text-sm font-black text-emerald-100 transition hover:bg-emerald-300/15"
+                >
+                  Logowanie
+                </Link>
                 <Link
                   href="/register"
                   className="rounded-xl bg-emerald-400 px-7 py-3.5 text-sm font-black text-[#05221d] transition hover:bg-emerald-300"

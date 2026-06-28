@@ -1045,6 +1045,7 @@ export default function JudgeDisciplinePage() {
   const [practicalShotgunInputs, setPracticalShotgunInputs] = useState<Record<number, PracticalShotgunInput>>({});
   const [practicalShotgunSavingId, setPracticalShotgunSavingId] = useState<number | null>(null);
   const [activeStageId, setActiveStageId] = useState<number | null>(null);
+  const [expandedDynamicShooterId, setExpandedDynamicShooterId] = useState<number | null>(null);
   const [stageScoreInputs, setStageScoreInputs] = useState<Record<number, Record<number, StageScoreInput>>>({});
   const [stageScoreSavingId, setStageScoreSavingId] = useState<number | null>(null);
 
@@ -1131,6 +1132,7 @@ export default function JudgeDisciplinePage() {
   const isDynamicStageDiscipline = Boolean(discipline && isDynamicStageDisciplineType(discipline.discipline_type));
   const dynamicStages = discipline?.stages || [];
   const activeStage = dynamicStages.find((stage) => stage.id === activeStageId) || dynamicStages[0] || null;
+  const activeStageScoreKey = activeStage ? String(activeStage.id) : "";
   const isPracticalShotgunDiscipline = discipline?.discipline_type === PRACTICAL_SHOTGUN_DISCIPLINE_TYPE && !isDynamicStageDiscipline;
   const practicalShotgunTargetsCount = Math.max(Number(discipline?.shots_count || 0), 0);
   const practicalShotgunTimeLimit = Math.max(Number(discipline?.trap_series_count || 0), 0);
@@ -1251,6 +1253,15 @@ export default function JudgeDisciplinePage() {
     });
 
     return visibleShooters.sort((firstShooter, secondShooter) => {
+      if (isDynamicStageDiscipline && activeStageScoreKey) {
+        const firstHasStageScore = Boolean(firstShooter.stage_scores?.[activeStageScoreKey]);
+        const secondHasStageScore = Boolean(secondShooter.stage_scores?.[activeStageScoreKey]);
+
+        if (firstHasStageScore !== secondHasStageScore) {
+          return firstHasStageScore ? 1 : -1;
+        }
+      }
+
       if (isPracticalShotgunDiscipline) {
         const firstHasResult = hasPracticalShotgunResult(firstShooter);
         const secondHasResult = hasPracticalShotgunResult(secondShooter);
@@ -1275,7 +1286,7 @@ export default function JudgeDisciplinePage() {
         ? sortResult
         : -sortResult;
     });
-  }, [isPracticalShotgunDiscipline, shooterFilter, shooters, sortDirection, sortField]);
+  }, [activeStageScoreKey, isDynamicStageDiscipline, isPracticalShotgunDiscipline, shooterFilter, shooters, sortDirection, sortField]);
 
   const resultsEnabled = competition?.status === "started";
 
@@ -1300,6 +1311,9 @@ export default function JudgeDisciplinePage() {
   function showScannedShooter(shooter: Shooter) {
     setHighlightedParticipantId(shooter.participant_id);
     setShooterFilter(getShooterName(shooter));
+    if (isDynamicStageDiscipline) {
+      setExpandedDynamicShooterId(shooter.participant_id);
+    }
     setMessage(`Znaleziono zawodnika: ${getShooterName(shooter)} ✅`);
 
     window.setTimeout(() => {
@@ -1636,6 +1650,7 @@ export default function JudgeDisciplinePage() {
           [stage.id]: emptyStageScoreInput(stage, data.score, shooter),
         },
       }));
+      setExpandedDynamicShooterId(null);
       setMessage("Wynik Stage zapisany ✅");
     } catch (error) {
       console.error(error);
@@ -2419,7 +2434,10 @@ export default function JudgeDisciplinePage() {
                       <button
                         key={stage.id}
                         type="button"
-                        onClick={() => setActiveStageId(stage.id)}
+                        onClick={() => {
+                          setActiveStageId(stage.id);
+                          setExpandedDynamicShooterId(null);
+                        }}
                         className={`shrink-0 rounded-xl px-3 py-3 text-sm font-black transition sm:px-4 ${
                           activeStage?.id === stage.id
                             ? "bg-green-600 text-white"
@@ -2459,6 +2477,8 @@ export default function JudgeDisciplinePage() {
                     || emptyStageScoreInput(activeStage, shooter.stage_scores?.[String(activeStage.id)] || null, shooter);
                   const preview = dynamicStagePreview(activeStage, input);
                   const savedScore = shooter.stage_scores?.[String(activeStage.id)];
+                  const hasSavedScore = Boolean(savedScore);
+                  const expanded = expandedDynamicShooterId === shooter.participant_id;
                   const counterFields: {
                     field: keyof Pick<StageScoreInput, "hits_a" | "hits_c" | "hits_d" | "paper_misses" | "steel_hits" | "steel_misses" | "no_shoots" | "procedurals" | "ftsa" | "extra_shots" | "extra_hits">;
                     label: string;
@@ -2475,6 +2495,50 @@ export default function JudgeDisciplinePage() {
                     { field: "extra_shots", label: "Extra Shot" },
                     { field: "extra_hits", label: "Extra Hit" },
                   ];
+
+                  if (!expanded) {
+                    return (
+                      <article
+                        id={`shooter-${shooter.participant_id}`}
+                        key={shooter.participant_id}
+                        className={`min-w-0 overflow-hidden rounded-2xl border p-2 sm:p-3 ${
+                          hasSavedScore
+                            ? "border-emerald-800 bg-emerald-950/20"
+                            : "border-zinc-800 bg-zinc-950"
+                        }`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setExpandedDynamicShooterId(shooter.participant_id)}
+                          className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 text-left"
+                        >
+                          <span className="min-w-0">
+                            <span className="block truncate text-base font-black text-white sm:text-lg">
+                              {getShooterName(shooter)}
+                            </span>
+                            <span className="block truncate text-xs font-semibold text-gray-400 sm:text-sm">
+                              Nr {shooter.participant_id} • Squad {shooter.squad_group_number || "brak"} • {input.division || "bez dywizji"} • {input.power_factor === "major" ? "Major" : "Minor"}
+                            </span>
+                          </span>
+
+                          <span className="flex shrink-0 items-center gap-2">
+                            {hasSavedScore && (
+                              <span className="hidden rounded-lg border border-emerald-700 bg-emerald-950 px-3 py-2 text-xs font-black text-emerald-200 min-[390px]:inline-flex">
+                                HF {savedScore?.hit_factor || "0"}
+                              </span>
+                            )}
+                            <span className={`rounded-xl px-3 py-2 text-sm font-black text-white ${
+                              hasSavedScore
+                                ? "bg-blue-700"
+                                : "bg-green-700"
+                            }`}>
+                              {hasSavedScore ? "Popraw wynik" : "Oceń"}
+                            </span>
+                          </span>
+                        </button>
+                      </article>
+                    );
+                  }
 
                   return (
                     <article
