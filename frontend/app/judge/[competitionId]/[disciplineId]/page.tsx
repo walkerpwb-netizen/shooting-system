@@ -2548,12 +2548,13 @@ export default function JudgeDisciplinePage() {
                     >
                       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div className="min-w-0">
-                          <Link
-                            href={`/profile/${shooter.participant_id}`}
-                            className="block break-words text-[clamp(1.45rem,7vw,1.75rem)] font-black leading-tight text-white transition hover:text-green-300 sm:text-2xl"
+                          <button
+                            type="button"
+                            onClick={() => setExpandedDynamicShooterId(null)}
+                            className="block break-words text-left text-[clamp(1.45rem,7vw,1.75rem)] font-black leading-tight text-white transition hover:text-green-300 sm:text-2xl"
                           >
                             {getShooterName(shooter)}
-                          </Link>
+                          </button>
                           <p className="mt-1 break-words text-sm leading-6 text-gray-400">
                             Nr startowy: {shooter.participant_id} • Squad: {shooter.squad_group_number || "brak"} • {shooter.club || "brak klubu"}
                           </p>
