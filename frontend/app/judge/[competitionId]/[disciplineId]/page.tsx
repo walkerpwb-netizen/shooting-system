@@ -1333,7 +1333,6 @@ export default function JudgeDisciplinePage() {
 
     if (!qrPayload.participantId && !qrPayload.licenseNumber && !qrPayload.licenseNumberDigits) {
       setMessage("Nie rozpoznano kodu QR zawodnika ❌");
-      window.alert("Nie rozpoznano kodu QR zawodnika.");
       return;
     }
 
@@ -1358,7 +1357,6 @@ export default function JudgeDisciplinePage() {
     if (!shooter) {
       setHighlightedParticipantId(null);
       setMessage("Brak zawodnika na liście tej dyscypliny ❌");
-      window.alert("Brak zawodnika na liście tej dyscypliny.");
       return;
     }
 
@@ -2078,8 +2076,38 @@ export default function JudgeDisciplinePage() {
     };
   });
 
+  const messageStyle = message.includes("❌")
+    ? "border-red-600 bg-red-950 text-red-50 shadow-red-950/40"
+    : message.includes("✅")
+    ? "border-green-600 bg-green-950 text-green-50 shadow-green-950/40"
+    : message.includes("⚠")
+    ? "border-yellow-500 bg-yellow-950 text-yellow-50 shadow-yellow-950/40"
+    : "border-zinc-700 bg-zinc-950 text-white shadow-black/40";
+
   return (
     <main className="min-h-screen overflow-x-hidden px-2 py-6 sm:px-6 lg:px-10">
+      {message && (
+        <div className="fixed inset-x-3 top-4 z-[70] flex justify-center sm:inset-x-auto sm:right-5 sm:top-5 sm:block">
+          <div
+            role="alert"
+            className={`w-full max-w-md rounded-2xl border px-4 py-3 shadow-2xl ${messageStyle}`}
+          >
+            <div className="flex items-start gap-3">
+              <p className="min-w-0 flex-1 break-words text-sm font-bold leading-6 sm:text-base">
+                {message}
+              </p>
+              <button
+                type="button"
+                onClick={() => setMessage("")}
+                className="shrink-0 rounded-lg border border-white/15 px-2 py-1 text-xs font-black text-white/80 transition hover:bg-white/10 hover:text-white"
+              >
+                Zamknij
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {activeSkeetGroup && activeSkeetTurn && (
         <div
           ref={skeetScreenRef}
@@ -2400,12 +2428,6 @@ export default function JudgeDisciplinePage() {
             </p>
           )}
         </div>
-
-        {message && (
-          <p className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 text-white mb-6">
-            {message}
-          </p>
-        )}
 
         {loading ? (
           <p className="text-gray-400">
