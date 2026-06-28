@@ -4215,14 +4215,104 @@ def practical_shotgun_result_details(result: DisciplineResult | None):
 
 def practical_shotgun_score_points(hit_factor: Decimal, max_hit_factor: Decimal):
     if hit_factor <= 0 or max_hit_factor <= 0:
-        return "0"
+        return Decimal("0")
 
-    return str(
-        ((hit_factor / max_hit_factor) * Decimal("100")).quantize(
+    return ((hit_factor / max_hit_factor) * Decimal("100")).quantize(
             Decimal("1"),
             rounding=ROUND_HALF_UP,
-        )
     )
+
+
+def practical_shotgun_score_points_text(hit_factor: Decimal, max_hit_factor: Decimal):
+    return format_points(
+        practical_shotgun_score_points(hit_factor, max_hit_factor)
+    )
+
+
+def practical_shotgun_hit_factor_value(result: DisciplineResult | None):
+    if not result:
+        return Decimal("0")
+
+    details = practical_shotgun_result_details(result)
+
+    if details.get("disqualified", False):
+        return Decimal("0")
+
+    return parse_points(details.get("factor", getattr(result, "points", "") or "0"))
+
+
+def practical_shotgun_points_by_result_id(
+    results: list[DisciplineResult],
+    disciplines_by_id: dict[int, Discipline],
+    db=None,
+):
+    hit_factors_by_discipline: dict[int, list[tuple[int, Decimal]]] = {}
+    requested_result_ids = {result.id for result in results}
+    practical_discipline_ids = {
+        result.discipline_id
+        for result in results
+        if (
+            result.discipline_id in disciplines_by_id
+            and normalize_discipline_type(
+                disciplines_by_id[result.discipline_id].discipline_type or ""
+            ) == PRACTICAL_SHOTGUN_DISCIPLINE_TYPE
+        )
+    }
+    source_results = results
+
+    if db and practical_discipline_ids:
+        source_results = (
+            db.query(DisciplineResult)
+            .filter(DisciplineResult.discipline_id.in_(practical_discipline_ids))
+            .all()
+        )
+
+    for result in source_results:
+        discipline = disciplines_by_id.get(result.discipline_id)
+
+        if (
+            not discipline
+            or normalize_discipline_type(discipline.discipline_type or "")
+            != PRACTICAL_SHOTGUN_DISCIPLINE_TYPE
+        ):
+            continue
+
+        hit_factors_by_discipline.setdefault(result.discipline_id, []).append(
+            (result.id, practical_shotgun_hit_factor_value(result))
+        )
+
+    points_by_result_id: dict[int, Decimal] = {}
+
+    for discipline_hit_factors in hit_factors_by_discipline.values():
+        max_hit_factor = max(
+            (hit_factor for _result_id, hit_factor in discipline_hit_factors),
+            default=Decimal("0"),
+        )
+
+        for result_id, hit_factor in discipline_hit_factors:
+            if result_id not in requested_result_ids:
+                continue
+
+            points_by_result_id[result_id] = practical_shotgun_score_points(
+                hit_factor,
+                max_hit_factor,
+            )
+
+    return points_by_result_id
+
+
+def result_statistics_points(
+    result: DisciplineResult,
+    discipline: Discipline,
+    practical_points_by_result_id: dict[int, Decimal] | None = None,
+):
+    if (
+        normalize_discipline_type(discipline.discipline_type or "")
+        == PRACTICAL_SHOTGUN_DISCIPLINE_TYPE
+    ):
+        return (practical_points_by_result_id or {}).get(result.id, Decimal("0"))
+
+    return parse_points(result.points)
 
 
 def format_average_points(total: Decimal, starts_count: int):
@@ -4415,6 +4505,12 @@ def user_competition_statistics(user: User, db):
         ):
             eligible_discipline_ids.add(discipline.id)
 
+    practical_points_by_result_id = practical_shotgun_points_by_result_id(
+        results,
+        disciplines_by_id,
+        db,
+    )
+
     for result in results:
         if result.discipline_id not in eligible_discipline_ids:
             continue
@@ -4424,7 +4520,11 @@ def user_competition_statistics(user: User, db):
         if not discipline:
             continue
 
-        points = parse_points(result.points)
+        points = result_statistics_points(
+            result,
+            discipline,
+            practical_points_by_result_id,
+        )
         firearm_type = discipline_firearm_type(discipline)
         discipline_type = normalize_discipline_type(discipline.discipline_type or "")
         total_points_sum += points
@@ -4542,6 +4642,11 @@ def user_start_history(user: User, db):
         )
     } if competition_ids else {}
     rows_by_competition = {}
+    practical_points_by_result_id = practical_shotgun_points_by_result_id(
+        results,
+        disciplines_by_id,
+        db,
+    )
 
     for result in results:
         competition = competitions_by_id.get(result.competition_id)
@@ -4566,7 +4671,11 @@ def user_start_history(user: User, db):
                 "results_path": f"/historical-results/{competition.id}",
             },
         )
-        points = parse_points(result.points)
+        points = result_statistics_points(
+            result,
+            discipline,
+            practical_points_by_result_id,
+        )
         row["total_points_value"] += points
         row["disciplines"].append({
             "discipline_id": discipline.id,
@@ -4819,8 +4928,8 @@ def rebuild_ranking_entries(db):
     rows = (
         db.query(
             User,
-            DisciplineResult.points,
-            Discipline.discipline_type,
+            DisciplineResult,
+            Discipline,
         )
         .join(
             CompetitionParticipant,
@@ -4842,15 +4951,28 @@ def rebuild_ranking_entries(db):
         )
         .all()
     )
+    results = [result for _user, result, _discipline in rows]
+    disciplines_by_id = {
+        discipline.id: discipline
+        for _user, _result, discipline in rows
+    }
+    practical_points_by_result_id = practical_shotgun_points_by_result_id(
+        results,
+        disciplines_by_id,
+    )
 
     user_rankings: dict[int, dict] = {}
 
-    for user, result_points, raw_discipline_type in rows:
+    for user, result, discipline in rows:
         if not is_profile_complete(user):
             continue
 
-        discipline_type = normalize_discipline_type(raw_discipline_type or "")
-        points = parse_points(result_points)
+        discipline_type = normalize_discipline_type(discipline.discipline_type or "")
+        points = result_statistics_points(
+            result,
+            discipline,
+            practical_points_by_result_id,
+        )
 
         if points <= 0:
             continue
@@ -5557,7 +5679,7 @@ def result_category_payload(competition: Competition, category_id: str, db, incl
             if not row.get("practical_shotgun"):
                 continue
 
-            row["score_points"] = practical_shotgun_score_points(
+            row["score_points"] = practical_shotgun_score_points_text(
                 parse_points(row.get("points", "0")),
                 max_hit_factor,
             )
