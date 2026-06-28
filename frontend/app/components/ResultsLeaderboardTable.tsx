@@ -17,7 +17,9 @@ export type ResultShooter = {
   time_seconds?: string;
   hits?: number | string;
   targets_count?: number | string;
+  hit_factor?: string;
   final_result?: string;
+  score_points?: number | string;
   disqualified?: boolean;
   disqualification_reason?: string;
 };
@@ -106,7 +108,8 @@ export default function ResultsLeaderboardTable({
                   <>
                     <th className="whitespace-nowrap px-4 py-3">Czas</th>
                     <th className="whitespace-nowrap px-4 py-3">Trafienia</th>
-                    <th className="whitespace-nowrap px-4 py-3">Wynik końcowy</th>
+                    <th className="whitespace-nowrap px-4 py-3">Hit Factor</th>
+                    <th className="whitespace-nowrap px-4 py-3">Wynik punktowy</th>
                   </>
                 ) : (
                   <>
@@ -159,12 +162,16 @@ export default function ResultsLeaderboardTable({
                           ? "text-red-600 dark:text-red-400"
                           : "text-zinc-950 dark:text-white"
                       }`}>
-                        {shooter.final_result || shooter.points || "0"}
+                        {shooter.hit_factor || shooter.final_result || shooter.points || "0.000"}
                         {shooter.disqualified && shooter.disqualification_reason ? (
                           <span className="ml-2 text-xs font-bold text-red-500">
                             {shooter.disqualification_reason}
                           </span>
                         ) : null}
+                      </td>
+
+                      <td className="whitespace-nowrap px-4 py-3 text-xl font-black text-zinc-950 dark:text-white">
+                        {shooter.score_points ?? "0"}
                       </td>
                     </>
                   ) : (

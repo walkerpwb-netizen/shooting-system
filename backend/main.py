@@ -4105,9 +4105,13 @@ def format_points(value: Decimal):
 
 def practical_shotgun_factor(hits: int, time_seconds: Decimal):
     return (Decimal(hits) * Decimal("10") / time_seconds).quantize(
-        Decimal("0.0001"),
+        Decimal("0.001"),
         rounding=ROUND_HALF_UP,
     )
+
+
+def format_hit_factor(value: Decimal):
+    return f"{value.quantize(Decimal('0.001'), rounding=ROUND_HALF_UP):.3f}"
 
 
 def format_time_seconds(value: Decimal):
@@ -4176,12 +4180,12 @@ def validate_practical_shotgun_result_data(discipline: Discipline, result_data: 
         "hits": hits,
         "targets_count": targets_count,
         "time_limit_seconds": time_limit,
-        "factor": format_points(factor),
+        "factor": format_hit_factor(factor),
         "disqualified": disqualified,
         "disqualification_reason": "Przekroczono limit czasu" if disqualified else "",
     }
 
-    return normalized_result, format_points(factor)
+    return normalized_result, format_hit_factor(factor)
 
 
 def practical_shotgun_result_details(result: DisciplineResult | None):
@@ -4201,10 +4205,24 @@ def practical_shotgun_result_details(result: DisciplineResult | None):
         "hits": parsed.get("hits", ""),
         "targets_count": parsed.get("targets_count", ""),
         "time_limit_seconds": parsed.get("time_limit_seconds", 0) or 0,
-        "factor": str(parsed.get("factor", getattr(result, "points", "") or "0")),
+        "factor": format_hit_factor(parse_points(
+            str(parsed.get("factor", getattr(result, "points", "") or "0"))
+        )),
         "disqualified": bool(parsed.get("disqualified")),
         "disqualification_reason": str(parsed.get("disqualification_reason", "")),
     }
+
+
+def practical_shotgun_score_points(hit_factor: Decimal, max_hit_factor: Decimal):
+    if hit_factor <= 0 or max_hit_factor <= 0:
+        return "0"
+
+    return str(
+        ((hit_factor / max_hit_factor) * Decimal("100")).quantize(
+            Decimal("1"),
+            rounding=ROUND_HALF_UP,
+        )
+    )
 
 
 def format_average_points(total: Decimal, starts_count: int):
@@ -5498,6 +5516,10 @@ def result_category_payload(competition: Competition, category_id: str, db, incl
         if practical_shotgun_discipline:
             result = results_by_participant.get(participant.id)
             details = practical_shotgun_result_details(result)
+            hit_factor = Decimal("0") if details.get("disqualified", False) else parse_points(
+                details.get("factor", "")
+            )
+            formatted_hit_factor = format_hit_factor(hit_factor)
             row["practical_shotgun"] = True
             row["time_seconds"] = details.get("time_seconds", "")
             row["hits"] = details.get("hits", "")
@@ -5511,12 +5533,34 @@ def result_category_payload(competition: Competition, category_id: str, db, incl
             )
             row["disqualified"] = bool(details.get("disqualified", False))
             row["disqualification_reason"] = details.get("disqualification_reason", "")
-            row["final_result"] = "DQ" if row["disqualified"] else row["points"]
+            row["points"] = formatted_hit_factor
+            row["hit_factor"] = "DQ" if row["disqualified"] else formatted_hit_factor
+            row["final_result"] = row["hit_factor"]
+            row["score_points"] = "0"
 
         if include_license:
             row["license_number"] = participant_data["license_number"]
 
         rows.append(row)
+
+    if practical_shotgun_discipline:
+        max_hit_factor = max(
+            (
+                parse_points(row.get("points", "0"))
+                for row in rows
+                if row.get("practical_shotgun") and not row.get("disqualified")
+            ),
+            default=Decimal("0"),
+        )
+
+        for row in rows:
+            if not row.get("practical_shotgun"):
+                continue
+
+            row["score_points"] = practical_shotgun_score_points(
+                parse_points(row.get("points", "0")),
+                max_hit_factor,
+            )
 
     rows.sort(
         key=lambda row: (

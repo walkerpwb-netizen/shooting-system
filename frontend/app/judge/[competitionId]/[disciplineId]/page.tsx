@@ -331,10 +331,10 @@ function parseScore(value: string) {
 
 function formatFactor(value: number) {
   if (!Number.isFinite(value)) {
-    return "0";
+    return "0.000";
   }
 
-  return value.toFixed(4).replace(/\.?0+$/, "");
+  return value.toFixed(3);
 }
 
 function parsePracticalShotgunResult(resultData: string) {
@@ -348,7 +348,9 @@ function parsePracticalShotgunResult(resultData: string) {
     return {
       time: String(parsed.time_seconds || ""),
       hits: String(parsed.hits ?? ""),
-      factor: String(parsed.factor || ""),
+      factor: parsed.factor !== undefined
+        ? formatFactor(Number(parsed.factor))
+        : "",
       disqualified: Boolean(parsed.disqualified),
       disqualificationReason: String(parsed.disqualification_reason || ""),
     };
@@ -1235,7 +1237,7 @@ export default function JudgeDisciplinePage() {
       disqualified,
       factor: validTime && validHits && !disqualified
         ? formatFactor((hits * 10) / time)
-        : "0",
+        : "0.000",
     };
   }
 
@@ -1302,7 +1304,7 @@ export default function JudgeDisciplinePage() {
             : currentShooter
         )
       );
-      setMessage(data.points === "0" && preview.disqualified
+      setMessage(Number(data.points) === 0 && preview.disqualified
         ? "Wynik zapisany jako DQ za przekroczenie limitu czasu ✅"
         : "Wynik zapisany ✅"
       );
@@ -2175,7 +2177,7 @@ export default function JudgeDisciplinePage() {
                           </p>
                         </div>
                         <div className="rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-center">
-                          <p className="text-xs font-bold uppercase text-gray-500">Wynik</p>
+                          <p className="text-xs font-bold uppercase text-gray-500">Hit Factor</p>
                           <p className={`text-3xl font-black ${preview.disqualified ? "text-red-400" : "text-green-300"}`}>
                             {finalResult}
                           </p>
