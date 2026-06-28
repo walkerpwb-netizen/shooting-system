@@ -9,8 +9,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiUrl } from "@/lib/api";
 import { getAccessToken, isOrganizer } from "@/lib/auth";
 import {
+  POWER_FACTOR_OPTIONS,
+  getDynamicDisciplineDivisions,
   getClayTargetsCount,
   isClayDisciplineType,
+  isDynamicStageDisciplineType,
 } from "@/lib/disciplines";
 
 type Competition = {
@@ -77,6 +80,8 @@ type ParticipantDisciplineAssignment = {
   id: number;
   name: string;
   ammo_type: string;
+  division: string;
+  power_factor: string;
   squad_group_number: number;
   squad_position: number;
 };
@@ -116,9 +121,11 @@ type ManualParticipantForm = {
 type ManualDisciplineSelection = {
   discipline_id: number;
   ammo_type: "" | "own" | "club";
+  division: string;
+  power_factor: "" | "minor" | "major";
 };
 
-type ManualFormErrors = Partial<Record<keyof ManualParticipantForm | "disciplines" | "ammo_type", string>>;
+type ManualFormErrors = Partial<Record<keyof ManualParticipantForm | "disciplines" | "ammo_type" | "division" | "power_factor", string>>;
 
 function parseFee(value: string) {
   const fee = Number((value || "0").replace(",", "."));
@@ -444,6 +451,8 @@ export default function OrganizerCompetitionPage() {
 
       delete updatedErrors.disciplines;
       delete updatedErrors.ammo_type;
+      delete updatedErrors.division;
+      delete updatedErrors.power_factor;
 
       return updatedErrors;
     });
@@ -461,6 +470,8 @@ export default function OrganizerCompetitionPage() {
         {
           discipline_id: disciplineId,
           ammo_type: "",
+          division: "",
+          power_factor: "",
         },
       ];
     });
@@ -485,6 +496,33 @@ export default function OrganizerCompetitionPage() {
           ? {
               ...item,
               ammo_type: ammoType,
+            }
+          : item
+      )
+    );
+  }
+
+  function updateManualDynamicField(
+    disciplineId: number,
+    field: "division" | "power_factor",
+    value: string
+  ) {
+    setManualFormErrors((current) => {
+      const updatedErrors = {
+        ...current,
+      };
+
+      delete updatedErrors.division;
+      delete updatedErrors.power_factor;
+
+      return updatedErrors;
+    });
+    setManualDisciplines((current) =>
+      current.map((item) =>
+        item.discipline_id === disciplineId
+          ? {
+              ...item,
+              [field]: value,
             }
           : item
       )
@@ -540,6 +578,20 @@ export default function OrganizerCompetitionPage() {
 
     if (manualDisciplines.some((discipline) => !discipline.ammo_type)) {
       errors.ammo_type = "Wybierz typ amunicji przy każdej wybranej konkurencji.";
+    }
+
+    const missingDynamicFields = manualDisciplines.some((selectedDiscipline) => {
+      const discipline = competition.disciplines.find((item) => item.id === selectedDiscipline.discipline_id);
+
+      return Boolean(
+        discipline
+        && isDynamicStageDisciplineType(discipline.discipline_type)
+        && (!selectedDiscipline.division || !selectedDiscipline.power_factor)
+      );
+    });
+
+    if (missingDynamicFields) {
+      errors.division = "Wybierz dywizję i Power Factor przy każdej konkurencji IPSC/dynamicznej.";
     }
 
     if (Object.keys(errors).length > 0) {
@@ -1763,9 +1815,9 @@ export default function OrganizerCompetitionPage() {
                           <p className="font-bold">
                             Konkurencje i amunicja
                           </p>
-                          {(manualFormErrors.disciplines || manualFormErrors.ammo_type) && (
+                          {(manualFormErrors.disciplines || manualFormErrors.ammo_type || manualFormErrors.division) && (
                             <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
-                              {manualFormErrors.disciplines || manualFormErrors.ammo_type}
+                              {manualFormErrors.disciplines || manualFormErrors.ammo_type || manualFormErrors.division}
                             </div>
                           )}
 
@@ -1773,9 +1825,12 @@ export default function OrganizerCompetitionPage() {
                             const selectedDiscipline = manualDisciplines.find(
                               (item) => item.discipline_id === discipline.id
                             );
+                            const dynamicDiscipline = isDynamicStageDisciplineType(discipline.discipline_type);
+                            const divisionOptions = getDynamicDisciplineDivisions(discipline.discipline_type);
                             const disciplineHasError =
                               Boolean(manualFormErrors.disciplines) ||
-                              Boolean(manualFormErrors.ammo_type && selectedDiscipline && !selectedDiscipline.ammo_type);
+                              Boolean(manualFormErrors.ammo_type && selectedDiscipline && !selectedDiscipline.ammo_type) ||
+                              Boolean(manualFormErrors.division && selectedDiscipline && dynamicDiscipline && (!selectedDiscipline.division || !selectedDiscipline.power_factor));
 
                             return (
                               <div
@@ -1796,34 +1851,80 @@ export default function OrganizerCompetitionPage() {
                                 </label>
 
                                 {selectedDiscipline && (
-                                  <div className="grid sm:grid-cols-2 gap-2 mt-3 text-sm">
-                                    <label className={`flex items-center gap-2 rounded-lg border px-3 py-2 ${
-                                      manualFormErrors.ammo_type && !selectedDiscipline.ammo_type
-                                        ? "border-red-300 bg-white"
-                                        : "border-gray-200"
-                                    }`}>
-                                      <input
-                                        type="radio"
-                                        name={`manual-ammo-${discipline.id}`}
-                                        checked={selectedDiscipline.ammo_type === "own"}
-                                        onChange={() => updateManualAmmoType(discipline.id, "own")}
-                                      />
-                                      Własna amunicja
-                                    </label>
+                                  <div className="mt-3 space-y-3 text-sm">
+                                    <div className="grid sm:grid-cols-2 gap-2">
+                                      <label className={`flex items-center gap-2 rounded-lg border px-3 py-2 ${
+                                        manualFormErrors.ammo_type && !selectedDiscipline.ammo_type
+                                          ? "border-red-300 bg-white"
+                                          : "border-gray-200"
+                                      }`}>
+                                        <input
+                                          type="radio"
+                                          name={`manual-ammo-${discipline.id}`}
+                                          checked={selectedDiscipline.ammo_type === "own"}
+                                          onChange={() => updateManualAmmoType(discipline.id, "own")}
+                                        />
+                                        Własna amunicja
+                                      </label>
 
-                                    <label className={`flex items-center gap-2 rounded-lg border px-3 py-2 ${
-                                      manualFormErrors.ammo_type && !selectedDiscipline.ammo_type
-                                        ? "border-red-300 bg-white"
-                                        : "border-gray-200"
-                                    }`}>
-                                      <input
-                                        type="radio"
-                                        name={`manual-ammo-${discipline.id}`}
-                                        checked={selectedDiscipline.ammo_type === "club"}
-                                        onChange={() => updateManualAmmoType(discipline.id, "club")}
-                                      />
-                                      Klubowa amunicja
-                                    </label>
+                                      <label className={`flex items-center gap-2 rounded-lg border px-3 py-2 ${
+                                        manualFormErrors.ammo_type && !selectedDiscipline.ammo_type
+                                          ? "border-red-300 bg-white"
+                                          : "border-gray-200"
+                                      }`}>
+                                        <input
+                                          type="radio"
+                                          name={`manual-ammo-${discipline.id}`}
+                                          checked={selectedDiscipline.ammo_type === "club"}
+                                          onChange={() => updateManualAmmoType(discipline.id, "club")}
+                                        />
+                                        Klubowa amunicja
+                                      </label>
+                                    </div>
+
+                                    {dynamicDiscipline && (
+                                      <div className="grid gap-2 sm:grid-cols-2">
+                                        <label className="block font-semibold text-gray-700">
+                                          <span className="mb-1 block">Dywizja</span>
+                                          <select
+                                            value={selectedDiscipline.division}
+                                            onChange={(event) => updateManualDynamicField(discipline.id, "division", event.target.value)}
+                                            className={`w-full rounded-lg border px-3 py-2 ${
+                                              manualFormErrors.division && !selectedDiscipline.division
+                                                ? "border-red-300 bg-white"
+                                                : "border-gray-200"
+                                            }`}
+                                          >
+                                            <option value="">Wybierz dywizję</option>
+                                            {divisionOptions.map((division) => (
+                                              <option key={division} value={division}>
+                                                {division}
+                                              </option>
+                                            ))}
+                                          </select>
+                                        </label>
+
+                                        <label className="block font-semibold text-gray-700">
+                                          <span className="mb-1 block">Power Factor</span>
+                                          <select
+                                            value={selectedDiscipline.power_factor}
+                                            onChange={(event) => updateManualDynamicField(discipline.id, "power_factor", event.target.value)}
+                                            className={`w-full rounded-lg border px-3 py-2 ${
+                                              manualFormErrors.division && !selectedDiscipline.power_factor
+                                                ? "border-red-300 bg-white"
+                                                : "border-gray-200"
+                                            }`}
+                                          >
+                                            <option value="">Wybierz PF</option>
+                                            {POWER_FACTOR_OPTIONS.map((powerFactor) => (
+                                              <option key={powerFactor} value={powerFactor}>
+                                                {powerFactor === "major" ? "Major" : "Minor"}
+                                              </option>
+                                            ))}
+                                          </select>
+                                        </label>
+                                      </div>
+                                    )}
                                   </div>
                                 )}
                               </div>

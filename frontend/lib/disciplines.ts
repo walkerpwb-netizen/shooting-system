@@ -14,6 +14,19 @@ export const DYNAMIC_STAGE_DISCIPLINE_TYPES = [
   "2gun",
   "3gun",
 ];
+export const DYNAMIC_DISCIPLINE_DIVISIONS: Record<string, string[]> = {
+  "ipsc-pistol": ["Open", "Standard", "Production", "Production Optics", "Classic", "Revolver"],
+  "action-air": ["Open", "Standard", "Production", "Production Optics", "Classic"],
+  "ipsc-rifle": ["Open", "Standard", "Manual Action Open", "Manual Action Standard"],
+  "practical-rifle": ["Open", "Standard", "Manual Action Open", "Manual Action Standard"],
+  "ipsc-shotgun": ["Open", "Modified", "Standard", "Standard Manual"],
+  "practical-shotgun": ["Open", "Modified", "Standard", "Standard Manual"],
+  pcc: ["PCC Optics", "PCC Iron"],
+  idpa: ["SSP", "ESP", "CDP", "CCP", "REV", "BUG", "PCC", "CO"],
+  "2gun": ["Open", "Tactical", "Limited", "PCC"],
+  "3gun": ["Open", "Tactical Optics", "Limited", "Heavy", "PCC"],
+};
+export const POWER_FACTOR_OPTIONS = ["minor", "major"];
 
 type ClayDiscipline = {
   discipline_type?: string;
@@ -49,4 +62,8 @@ export function isPracticalShotgunDisciplineType(disciplineType: string) {
 
 export function isDynamicStageDisciplineType(disciplineType: string) {
   return DYNAMIC_STAGE_DISCIPLINE_TYPES.includes(disciplineType);
+}
+
+export function getDynamicDisciplineDivisions(disciplineType: string) {
+  return DYNAMIC_DISCIPLINE_DIVISIONS[disciplineType] || [];
 }

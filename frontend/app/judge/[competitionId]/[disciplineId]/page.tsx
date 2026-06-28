@@ -117,6 +117,8 @@ type Shooter = {
   points: string;
   result_data: string;
   stage_scores?: Record<string, StageScorePayload>;
+  division: string;
+  power_factor: string;
   squad_group_number: number;
   squad_position: number;
 };
@@ -458,7 +460,11 @@ function hasPracticalShotgunResult(shooter: Shooter) {
   return Boolean(parsePracticalShotgunResult(shooter.result_data || "") || shooter.points);
 }
 
-function emptyStageScoreInput(stage?: CompetitionStage, score?: StageScorePayload | null): StageScoreInput {
+function emptyStageScoreInput(
+  stage?: CompetitionStage,
+  score?: StageScorePayload | null,
+  shooter?: Shooter
+): StageScoreInput {
   return {
     time_seconds: score?.time_seconds || "",
     hits_a: score?.hits_a || 0,
@@ -472,8 +478,8 @@ function emptyStageScoreInput(stage?: CompetitionStage, score?: StageScorePayloa
     ftsa: score?.ftsa || 0,
     extra_shots: score?.extra_shots || 0,
     extra_hits: score?.extra_hits || 0,
-    power_factor: score?.power_factor === "major" ? "major" : "minor",
-    division: score?.division || "",
+    power_factor: score?.power_factor === "major" || shooter?.power_factor === "major" ? "major" : "minor",
+    division: score?.division || shooter?.division || "",
     custom_penalties: Array.from({ length: 3 }, (_item, index) => ({
       name: score?.custom_penalties?.[index]?.name || stage?.custom_penalties?.[index]?.name || "",
       count: score?.custom_penalties?.[index]?.count || 0,
@@ -535,7 +541,8 @@ function stageScoreInputsFromShooters(shooters: Shooter[], stages: CompetitionSt
     stages.forEach((stage) => {
       inputs[shooter.participant_id][stage.id] = emptyStageScoreInput(
         stage,
-        shooter.stage_scores?.[String(stage.id)] || null
+        shooter.stage_scores?.[String(stage.id)] || null,
+        shooter
       );
     });
     return inputs;
@@ -1518,7 +1525,11 @@ export default function JudgeDisciplinePage() {
   ) {
     setStageScoreInputs((currentInputs) => {
       const currentStageInput = currentInputs[participantId]?.[stageId]
-        || emptyStageScoreInput(activeStage || undefined);
+        || emptyStageScoreInput(
+          activeStage || undefined,
+          null,
+          shooters.find((shooter) => shooter.participant_id === participantId)
+        );
 
       return {
         ...currentInputs,
@@ -1558,7 +1569,7 @@ export default function JudgeDisciplinePage() {
   }
 
   function clearStageScoreInput(shooter: Shooter, stage: CompetitionStage) {
-    updateStageScoreInput(shooter.participant_id, stage.id, () => emptyStageScoreInput(stage));
+    updateStageScoreInput(shooter.participant_id, stage.id, () => emptyStageScoreInput(stage, null, shooter));
   }
 
   async function saveDynamicStageScore(shooter: Shooter, stage: CompetitionStage) {
@@ -1566,7 +1577,7 @@ export default function JudgeDisciplinePage() {
       return;
     }
 
-    const input = stageScoreInputs[shooter.participant_id]?.[stage.id] || emptyStageScoreInput(stage);
+    const input = stageScoreInputs[shooter.participant_id]?.[stage.id] || emptyStageScoreInput(stage, null, shooter);
     const preview = dynamicStagePreview(stage, input);
 
     if (!preview.validTime) {
@@ -1622,7 +1633,7 @@ export default function JudgeDisciplinePage() {
         ...currentInputs,
         [shooter.participant_id]: {
           ...(currentInputs[shooter.participant_id] || {}),
-          [stage.id]: emptyStageScoreInput(stage, data.score),
+          [stage.id]: emptyStageScoreInput(stage, data.score, shooter),
         },
       }));
       setMessage("Wynik Stage zapisany ✅");
@@ -2445,7 +2456,7 @@ export default function JudgeDisciplinePage() {
 
                 {sortedShooters.map((shooter) => {
                   const input = stageScoreInputs[shooter.participant_id]?.[activeStage.id]
-                    || emptyStageScoreInput(activeStage, shooter.stage_scores?.[String(activeStage.id)] || null);
+                    || emptyStageScoreInput(activeStage, shooter.stage_scores?.[String(activeStage.id)] || null, shooter);
                   const preview = dynamicStagePreview(activeStage, input);
                   const savedScore = shooter.stage_scores?.[String(activeStage.id)];
                   const counterFields: {
@@ -2516,36 +2527,19 @@ export default function JudgeDisciplinePage() {
                           />
                         </label>
 
-                        <label className="block">
-                          <span className="mb-2 block font-black text-white">Power Factor</span>
-                          <select
-                            value={input.power_factor}
-                            onChange={(event) => setStageScoreField(
-                              shooter.participant_id,
-                              activeStage.id,
-                              "power_factor",
-                              event.target.value === "major" ? "major" : "minor"
-                            )}
-                            className="w-full rounded-2xl border border-zinc-700 bg-zinc-900 px-5 py-5 text-2xl font-black text-white"
-                          >
-                            <option value="minor">Minor</option>
-                            <option value="major">Major</option>
-                          </select>
-                        </label>
+                        <div className="rounded-2xl border border-zinc-700 bg-zinc-900 px-5 py-5">
+                          <p className="mb-2 font-black text-white">Power Factor</p>
+                          <p className="text-2xl font-black text-green-300">
+                            {input.power_factor === "major" ? "Major" : "Minor"}
+                          </p>
+                        </div>
 
-                        <label className="block">
-                          <span className="mb-2 block font-black text-white">Dywizja</span>
-                          <input
-                            value={input.division}
-                            onChange={(event) => setStageScoreField(
-                              shooter.participant_id,
-                              activeStage.id,
-                              "division",
-                              event.target.value
-                            )}
-                            className="w-full rounded-2xl border border-zinc-700 bg-zinc-900 px-5 py-5 text-xl font-black text-white"
-                          />
-                        </label>
+                        <div className="rounded-2xl border border-zinc-700 bg-zinc-900 px-5 py-5">
+                          <p className="mb-2 font-black text-white">Dywizja</p>
+                          <p className="text-xl font-black text-white">
+                            {input.division || "Brak w zgłoszeniu"}
+                          </p>
+                        </div>
                       </div>
 
                       <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

@@ -598,6 +598,16 @@ class ParticipantDiscipline(Base):
         nullable=False,
     )
 
+    division = Column(
+        String,
+        nullable=True,
+    )
+
+    power_factor = Column(
+        String,
+        nullable=True,
+    )
+
     squad_group_number = Column(
         Integer,
         nullable=True,

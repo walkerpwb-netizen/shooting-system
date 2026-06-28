@@ -6,7 +6,12 @@ import { useRouter } from "next/navigation";
 
 import { apiUrl } from "@/lib/api";
 import { getAccessToken } from "@/lib/auth";
-import { getClayTargetsCount } from "@/lib/disciplines";
+import {
+  POWER_FACTOR_OPTIONS,
+  getClayTargetsCount,
+  getDynamicDisciplineDivisions,
+  isDynamicStageDisciplineType,
+} from "@/lib/disciplines";
 
 const subscribeToUserEmail = () => () => {};
 const getUserEmailSnapshot = () => localStorage.getItem("email") || "";
@@ -37,6 +42,8 @@ type Discipline = {
 type SelectedDiscipline = {
   discipline_id: number;
   ammo_type: "" | "own" | "club";
+  division: string;
+  power_factor: "" | "minor" | "major";
 };
 
 type JoinCompetitionPanelProps = {
@@ -112,6 +119,8 @@ export default function JoinCompetitionPanel({
         {
           discipline_id: disciplineId,
           ammo_type: "",
+          division: "",
+          power_factor: "",
         },
       ]);
       return;
@@ -140,6 +149,23 @@ export default function JoinCompetitionPanel({
     );
   }
 
+  function updateDynamicField(
+    disciplineId: number,
+    field: "division" | "power_factor",
+    value: string
+  ) {
+    setSelectedDisciplines(
+      selectedDisciplines.map((discipline) =>
+        discipline.discipline_id === disciplineId
+          ? {
+              ...discipline,
+              [field]: value,
+            }
+          : discipline
+      )
+    );
+  }
+
   function isDisciplineSelected(disciplineId: number) {
     return selectedDisciplines.some(
       (discipline) => discipline.discipline_id === disciplineId
@@ -150,6 +176,12 @@ export default function JoinCompetitionPanel({
     return selectedDisciplines.find(
       (discipline) => discipline.discipline_id === disciplineId
     )?.ammo_type || "";
+  }
+
+  function getSelectedDiscipline(disciplineId: number) {
+    return selectedDisciplines.find(
+      (discipline) => discipline.discipline_id === disciplineId
+    );
   }
 
   function parsePrice(value: string) {
@@ -248,6 +280,21 @@ export default function JoinCompetitionPanel({
       selectedDisciplines.some((discipline) => !discipline.ammo_type)
     ) {
       showNotice("Wybierz typ amunicji przy każdej konkurencji");
+      return;
+    }
+
+    const missingDynamicFields = selectedDisciplines.some((selectedDiscipline) => {
+      const discipline = disciplines.find((item) => item.id === selectedDiscipline.discipline_id);
+
+      return Boolean(
+        discipline
+        && isDynamicStageDisciplineType(discipline.discipline_type)
+        && (!selectedDiscipline.division || !selectedDiscipline.power_factor)
+      );
+    });
+
+    if (missingDynamicFields) {
+      showNotice("Wybierz dywizję i Power Factor przy każdej konkurencji IPSC/dynamicznej");
       return;
     }
 
@@ -393,6 +440,9 @@ export default function JoinCompetitionPanel({
           <div className="space-y-4">
             {disciplines.map((discipline) => {
               const selected = isDisciplineSelected(discipline.id);
+              const selectedDiscipline = getSelectedDiscipline(discipline.id);
+              const dynamicDiscipline = isDynamicStageDisciplineType(discipline.discipline_type);
+              const divisionOptions = getDynamicDisciplineDivisions(discipline.discipline_type);
 
               return (
                 <div
@@ -441,6 +491,42 @@ export default function JoinCompetitionPanel({
                         <p className="text-sm font-semibold text-yellow-700 dark:text-yellow-200">
                           Wybierz z czyjej amunicji strzelasz.
                         </p>
+                      )}
+
+                      {dynamicDiscipline && selectedDiscipline && (
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <label className="block text-sm font-semibold text-zinc-700 dark:text-gray-300">
+                            <span className="mb-2 block">Dywizja</span>
+                            <select
+                              value={selectedDiscipline.division}
+                              onChange={(event) => updateDynamicField(discipline.id, "division", event.target.value)}
+                              className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-3 text-zinc-950 dark:border-zinc-700 dark:bg-zinc-950 dark:text-white"
+                            >
+                              <option value="">Wybierz dywizję</option>
+                              {divisionOptions.map((division) => (
+                                <option key={division} value={division}>
+                                  {division}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+
+                          <label className="block text-sm font-semibold text-zinc-700 dark:text-gray-300">
+                            <span className="mb-2 block">Power Factor</span>
+                            <select
+                              value={selectedDiscipline.power_factor}
+                              onChange={(event) => updateDynamicField(discipline.id, "power_factor", event.target.value)}
+                              className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-3 text-zinc-950 dark:border-zinc-700 dark:bg-zinc-950 dark:text-white"
+                            >
+                              <option value="">Wybierz PF</option>
+                              {POWER_FACTOR_OPTIONS.map((powerFactor) => (
+                                <option key={powerFactor} value={powerFactor}>
+                                  {powerFactor === "major" ? "Major" : "Minor"}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        </div>
                       )}
 
                       <p className="text-sm text-zinc-600 dark:text-gray-400">

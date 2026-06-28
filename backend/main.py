@@ -350,6 +350,8 @@ class RoleRequestData(BaseModel):
 class JoinDisciplineData(BaseModel):
     discipline_id: int
     ammo_type: str
+    division: str = ""
+    power_factor: str = ""
 
 
 class JoinCompetitionData(BaseModel):
@@ -737,6 +739,19 @@ DYNAMIC_STAGE_DISCIPLINE_TYPES = {
     "2gun",
     "3gun",
 }
+DYNAMIC_DISCIPLINE_DIVISIONS = {
+    "ipsc-pistol": ["Open", "Standard", "Production", "Production Optics", "Classic", "Revolver"],
+    "action-air": ["Open", "Standard", "Production", "Production Optics", "Classic"],
+    "ipsc-rifle": ["Open", "Standard", "Manual Action Open", "Manual Action Standard"],
+    "practical-rifle": ["Open", "Standard", "Manual Action Open", "Manual Action Standard"],
+    "ipsc-shotgun": ["Open", "Modified", "Standard", "Standard Manual"],
+    "practical-shotgun": ["Open", "Modified", "Standard", "Standard Manual"],
+    "pcc": ["PCC Optics", "PCC Iron"],
+    "idpa": ["SSP", "ESP", "CDP", "CCP", "REV", "BUG", "PCC", "CO"],
+    "2gun": ["Open", "Tactical", "Limited", "PCC"],
+    "3gun": ["Open", "Tactical Optics", "Limited", "Heavy", "PCC"],
+}
+POWER_FACTOR_VALUES = {"minor", "major"}
 CLAY_HIT_POINTS = 5
 TRAP_TARGETS_PER_SERIES = 25
 TRAP_SHOTS_PER_TARGET = 2
@@ -3145,6 +3160,8 @@ def participant_discipline_assignments(participant: CompetitionParticipant, db):
                 if participant_discipline.discipline_id in disciplines_by_id
                 else "",
             "ammo_type": participant_discipline.ammo_type,
+            "division": getattr(participant_discipline, "division", "") or "",
+            "power_factor": getattr(participant_discipline, "power_factor", "") or "",
             "squad_group_number": (
                 int(getattr(participant_discipline, "squad_group_number", 0) or 0)
                 if participant_confirmed
@@ -4240,6 +4257,47 @@ def current_timestamp():
 
 def is_dynamic_stage_discipline_type(discipline_type: str):
     return normalize_discipline_type(discipline_type or "") in DYNAMIC_STAGE_DISCIPLINE_TYPES
+
+
+def normalize_power_factor(value: str):
+    power_factor = normalize_search_text(value).strip()
+
+    if power_factor in POWER_FACTOR_VALUES:
+        return power_factor
+
+    return ""
+
+
+def normalize_participant_dynamic_fields(selected_discipline: JoinDisciplineData, discipline: Discipline):
+    discipline_type = normalize_discipline_type(discipline.discipline_type or "")
+
+    if discipline_type not in DYNAMIC_STAGE_DISCIPLINE_TYPES:
+        return "", ""
+
+    division = (selected_discipline.division or "").strip()
+    allowed_divisions = DYNAMIC_DISCIPLINE_DIVISIONS.get(discipline_type, [])
+
+    if not division:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Wybierz dywizję dla konkurencji {discipline.name}"
+        )
+
+    if allowed_divisions and division not in allowed_divisions:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Nieprawidłowa dywizja dla konkurencji {discipline.name}"
+        )
+
+    power_factor = normalize_power_factor(selected_discipline.power_factor)
+
+    if not power_factor:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Wybierz Power Factor dla konkurencji {discipline.name}"
+        )
+
+    return division, power_factor
 
 
 def parse_non_negative_int(value, field_label: str):
@@ -9890,6 +9948,11 @@ def organizer_add_manual_participant(
                 detail="Wybierz typ amunicji przy każdej konkurencji"
             )
 
+        normalize_participant_dynamic_fields(
+            selected_discipline,
+            disciplines_by_id[selected_discipline.discipline_id],
+        )
+
     if competition.participant_limit:
         current_shooter_count = (
             db.query(CompetitionParticipant)
@@ -9936,10 +9999,16 @@ def organizer_add_manual_participant(
     db.refresh(participant)
 
     for selected_discipline in data.disciplines:
+        division, power_factor = normalize_participant_dynamic_fields(
+            selected_discipline,
+            disciplines_by_id[selected_discipline.discipline_id],
+        )
         participant_discipline = ParticipantDiscipline(
             participant_id=participant.id,
             discipline_id=selected_discipline.discipline_id,
             ammo_type=selected_discipline.ammo_type,
+            division=division,
+            power_factor=power_factor,
         )
         assign_squad_group(participant_discipline, db)
 
@@ -11178,6 +11247,20 @@ def save_stage_score(
         .filter(User.email == participant.user_email)
         .first()
     )
+
+    assignment_division = getattr(participant_discipline, "division", "") or ""
+    assignment_power_factor = getattr(participant_discipline, "power_factor", "") or ""
+
+    if assignment_division:
+        data.division = assignment_division
+    elif not (data.division or "").strip():
+        data.division = ""
+
+    if normalize_power_factor(assignment_power_factor):
+        data.power_factor = assignment_power_factor
+    elif not normalize_power_factor(data.power_factor):
+        data.power_factor = "minor"
+
     calculated = calculate_stage_score(stage, data)
     score = (
         db.query(StageScore)
@@ -11418,6 +11501,8 @@ def get_judge_discipline_shooters(
             "points": result.points if result else "",
             "result_data": (getattr(result, "result_data", "") or "") if result else "",
             "stage_scores": stage_scores_by_participant.get(participant.id, {}),
+            "division": getattr(participant_discipline, "division", "") or "",
+            "power_factor": getattr(participant_discipline, "power_factor", "") or "",
             "squad_group_number": int(getattr(participant_discipline, "squad_group_number", 0) or 0),
             "squad_position": int(getattr(participant_discipline, "squad_position", 0) or 0),
             "sort_email": participant.user_email,
@@ -11932,6 +12017,11 @@ def join_competition(
                 detail="Nieprawidłowy typ amunicji"
             )
 
+        normalize_participant_dynamic_fields(
+            selected_discipline,
+            disciplines_by_id[selected_discipline.discipline_id],
+        )
+
     existing_participant = (
         db.query(CompetitionParticipant)
         .filter(
@@ -11998,10 +12088,16 @@ def join_competition(
         db.refresh(participant)
 
     for selected_discipline in data.disciplines:
+        division, power_factor = normalize_participant_dynamic_fields(
+            selected_discipline,
+            disciplines_by_id[selected_discipline.discipline_id],
+        )
         participant_discipline = ParticipantDiscipline(
             participant_id=participant.id,
             discipline_id=selected_discipline.discipline_id,
             ammo_type=selected_discipline.ammo_type,
+            division=division,
+            power_factor=power_factor,
         )
         assign_squad_group(participant_discipline, db)
 
