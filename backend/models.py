@@ -684,6 +684,92 @@ class DisciplineResult(Base):
     )
 
 
+class CompetitionStage(Base):
+    __tablename__ = "competition_stages"
+    __table_args__ = (
+        UniqueConstraint(
+            "discipline_id",
+            "stage_number",
+            name="uq_competition_stages_discipline_stage_number",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    competition_id = Column(Integer, ForeignKey("competitions.id"), nullable=False, index=True)
+    discipline_id = Column(Integer, ForeignKey("disciplines.id"), nullable=False, index=True)
+    stage_number = Column(Integer, nullable=False)
+    name = Column(String, nullable=False)
+    stage_type = Column(String, nullable=False, default="short", server_default="short")
+    briefing = Column(Text, nullable=True)
+    notes = Column(Text, nullable=True)
+    min_rounds = Column(Integer, nullable=False, default=0, server_default="0")
+    max_points = Column(Integer, nullable=False, default=0, server_default="0")
+    paper_targets = Column(Integer, nullable=False, default=0, server_default="0")
+    mini_paper_targets = Column(Integer, nullable=False, default=0, server_default="0")
+    classic_targets = Column(Integer, nullable=False, default=0, server_default="0")
+    paper_no_shoots = Column(Integer, nullable=False, default=0, server_default="0")
+    moving_targets = Column(Integer, nullable=False, default=0, server_default="0")
+    swingers = Column(Integer, nullable=False, default=0, server_default="0")
+    drop_turners = Column(Integer, nullable=False, default=0, server_default="0")
+    poppers = Column(Integer, nullable=False, default=0, server_default="0")
+    mini_poppers = Column(Integer, nullable=False, default=0, server_default="0")
+    plates = Column(Integer, nullable=False, default=0, server_default="0")
+    mini_plates = Column(Integer, nullable=False, default=0, server_default="0")
+    steel_no_shoots = Column(Integer, nullable=False, default=0, server_default="0")
+    penalty_miss = Column(String, nullable=False, default="-10", server_default="-10")
+    penalty_no_shoot = Column(String, nullable=False, default="-10", server_default="-10")
+    penalty_procedural = Column(String, nullable=False, default="-10", server_default="-10")
+    penalty_ftsa = Column(String, nullable=False, default="-10", server_default="-10")
+    penalty_extra_shot = Column(String, nullable=False, default="-10", server_default="-10")
+    penalty_extra_hit = Column(String, nullable=False, default="-10", server_default="-10")
+    custom_penalties_json = Column(Text, nullable=True)
+    created_at = Column(String, nullable=True)
+    updated_at = Column(String, nullable=True)
+
+
+class StageScore(Base):
+    __tablename__ = "stage_scores"
+    __table_args__ = (
+        UniqueConstraint(
+            "stage_id",
+            "competitor_id",
+            name="uq_stage_scores_stage_competitor",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    stage_id = Column(Integer, ForeignKey("competition_stages.id"), nullable=False, index=True)
+    competition_id = Column(Integer, ForeignKey("competitions.id"), nullable=False, index=True)
+    discipline_id = Column(Integer, ForeignKey("disciplines.id"), nullable=False, index=True)
+    competitor_id = Column(Integer, ForeignKey("competition_participants.id"), nullable=False, index=True)
+    shooter_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    squad_id = Column(Integer, nullable=True)
+    division = Column(String, nullable=True)
+    power_factor = Column(String, nullable=False, default="minor", server_default="minor")
+    time_seconds = Column(String, nullable=False)
+    hits_a = Column(Integer, nullable=False, default=0, server_default="0")
+    hits_c = Column(Integer, nullable=False, default=0, server_default="0")
+    hits_d = Column(Integer, nullable=False, default=0, server_default="0")
+    paper_misses = Column(Integer, nullable=False, default=0, server_default="0")
+    steel_hits = Column(Integer, nullable=False, default=0, server_default="0")
+    steel_misses = Column(Integer, nullable=False, default=0, server_default="0")
+    no_shoots = Column(Integer, nullable=False, default=0, server_default="0")
+    procedurals = Column(Integer, nullable=False, default=0, server_default="0")
+    ftsa = Column(Integer, nullable=False, default=0, server_default="0")
+    extra_shots = Column(Integer, nullable=False, default=0, server_default="0")
+    extra_hits = Column(Integer, nullable=False, default=0, server_default="0")
+    custom_penalties_json = Column(Text, nullable=True)
+    positive_points = Column(String, nullable=False, default="0", server_default="0")
+    penalty_points = Column(String, nullable=False, default="0", server_default="0")
+    final_points = Column(String, nullable=False, default="0", server_default="0")
+    hit_factor = Column(String, nullable=False, default="0", server_default="0")
+    stage_points = Column(String, nullable=False, default="0", server_default="0")
+    stage_percent = Column(String, nullable=False, default="0", server_default="0")
+    stage_place = Column(Integer, nullable=False, default=0, server_default="0")
+    created_at = Column(String, nullable=True)
+    updated_at = Column(String, nullable=True)
+
+
 class Achievement(Base):
     __tablename__ = "achievements"
     __table_args__ = (

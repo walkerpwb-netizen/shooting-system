@@ -30,6 +30,8 @@ from models import (
     ParticipantDiscipline,
     JudgeInvitation,
     DisciplineResult,
+    CompetitionStage,
+    StageScore,
     Achievement,
     RankingEntry,
 )
@@ -237,6 +239,72 @@ class DisciplineData(BaseModel):
     ammo_price: str
     clay_price: str = ""
     entry_fee: str = ""
+    stages: list["CompetitionStageData"] = []
+
+
+class CustomPenaltyData(BaseModel):
+    name: str = ""
+    value: str = "0"
+
+
+class CompetitionStageData(BaseModel):
+    id: Optional[int] = None
+    stage_number: int
+    name: str
+    stage_type: str = "short"
+    briefing: str = ""
+    notes: str = ""
+    min_rounds: int = 0
+    paper_targets: int = 0
+    mini_paper_targets: int = 0
+    classic_targets: int = 0
+    paper_no_shoots: int = 0
+    moving_targets: int = 0
+    swingers: int = 0
+    drop_turners: int = 0
+    poppers: int = 0
+    mini_poppers: int = 0
+    plates: int = 0
+    mini_plates: int = 0
+    steel_no_shoots: int = 0
+    penalty_miss: str = "-10"
+    penalty_no_shoot: str = "-10"
+    penalty_procedural: str = "-10"
+    penalty_ftsa: str = "-10"
+    penalty_extra_shot: str = "-10"
+    penalty_extra_hit: str = "-10"
+    custom_penalties: list[CustomPenaltyData] = []
+
+
+class StageScoreCustomPenaltyData(BaseModel):
+    name: str = ""
+    count: int = 0
+    value: str = "0"
+
+
+class StageScoreData(BaseModel):
+    competitor_id: int
+    division: str = ""
+    power_factor: str = "minor"
+    time_seconds: str
+    hits_a: int = 0
+    hits_c: int = 0
+    hits_d: int = 0
+    paper_misses: int = 0
+    steel_hits: int = 0
+    steel_misses: int = 0
+    no_shoots: int = 0
+    procedurals: int = 0
+    ftsa: int = 0
+    extra_shots: int = 0
+    extra_hits: int = 0
+    custom_penalties: list[StageScoreCustomPenaltyData] = []
+
+
+try:
+    DisciplineData.model_rebuild()
+except AttributeError:
+    DisciplineData.update_forward_refs(CompetitionStageData=CompetitionStageData)
 
 
 class ProfileData(BaseModel):
@@ -578,6 +646,7 @@ DISCIPLINE_TYPE_GROUPS = [
             ("moving-target", "Ruchoma tarcza (RT)"),
             ("long-range", "Strzelanie długodystansowe (Long Range)"),
             ("centerfire-rifle", "Karabin centralnego zapłonu (KCZ)"),
+            ("ipsc-rifle", "IPSC Rifle"),
             ("practical-rifle", "Karabin praktyczny (KPr)"),
             ("pcc", "PCC (Pistol Caliber Carbine)"),
             ("2gun", "2GUN"),
@@ -656,6 +725,18 @@ AD_EVENT_TYPES = ["impression", "click"]
 TRAP_DISCIPLINE_TYPE = "trap"
 SKEET_DISCIPLINE_TYPE = "skeet"
 PRACTICAL_SHOTGUN_DISCIPLINE_TYPE = "practical-shotgun"
+DYNAMIC_STAGE_DISCIPLINE_TYPES = {
+    "ipsc-pistol",
+    "ipsc-rifle",
+    "ipsc-shotgun",
+    "pcc",
+    "action-air",
+    "idpa",
+    "practical-rifle",
+    "practical-shotgun",
+    "2gun",
+    "3gun",
+}
 CLAY_HIT_POINTS = 5
 TRAP_TARGETS_PER_SERIES = 25
 TRAP_SHOTS_PER_TARGET = 2
@@ -2547,6 +2628,18 @@ def delete_competition_with_dependencies(competition: Competition, db):
         .delete(synchronize_session=False)
     )
 
+    (
+        db.query(StageScore)
+        .filter(StageScore.competition_id == competition.id)
+        .delete(synchronize_session=False)
+    )
+
+    (
+        db.query(CompetitionStage)
+        .filter(CompetitionStage.competition_id == competition.id)
+        .delete(synchronize_session=False)
+    )
+
     participant_ids = [
         participant.id
         for participant in (
@@ -3983,6 +4076,17 @@ def clay_configuration_from_data(data: DisciplineData, discipline_type: str):
 
 
 def normalize_discipline_payload(data: DisciplineData, discipline_type: str):
+    if discipline_type in DYNAMIC_STAGE_DISCIPLINE_TYPES and data.stages:
+        stage_payloads = normalize_stage_payloads(data.stages)
+        return {
+            "shots_count": sum(stage["min_rounds"] for stage in stage_payloads),
+            "trap_variant": "",
+            "trap_series_count": 0,
+            "clay_variant": "",
+            "clay_series_count": 0,
+            "clay_price": "",
+        }
+
     if discipline_type == PRACTICAL_SHOTGUN_DISCIPLINE_TYPE:
         return {
             "shots_count": data.shots_count,
@@ -4128,6 +4232,544 @@ def parse_decimal_field(value, field_label: str):
         raise HTTPException(status_code=400, detail=f"Nieprawidłowa wartość pola: {field_label}")
 
     return parsed
+
+
+def current_timestamp():
+    return datetime.now(APP_TIMEZONE).isoformat()
+
+
+def is_dynamic_stage_discipline_type(discipline_type: str):
+    return normalize_discipline_type(discipline_type or "") in DYNAMIC_STAGE_DISCIPLINE_TYPES
+
+
+def parse_non_negative_int(value, field_label: str):
+    try:
+        parsed = int(value or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail=f"Nieprawidłowa wartość pola: {field_label}")
+
+    if parsed < 0:
+        raise HTTPException(status_code=400, detail=f"{field_label} nie może być ujemne")
+
+    return parsed
+
+
+def normalize_penalty_value(value, field_label: str):
+    parsed = parse_decimal_field(value, field_label)
+
+    if parsed > 0:
+        parsed = -parsed
+
+    return format_points(parsed)
+
+
+def stage_paper_targets_count(stage):
+    return sum(
+        int(getattr(stage, field, 0) or 0)
+        for field in [
+            "paper_targets",
+            "mini_paper_targets",
+            "classic_targets",
+            "moving_targets",
+            "swingers",
+            "drop_turners",
+        ]
+    )
+
+
+def stage_steel_targets_count(stage):
+    return sum(
+        int(getattr(stage, field, 0) or 0)
+        for field in ["poppers", "mini_poppers", "plates", "mini_plates"]
+    )
+
+
+def stage_required_paper_hits(stage):
+    return stage_paper_targets_count(stage) * 2
+
+
+def stage_max_points_from_counts(paper_targets: int, steel_targets: int):
+    return paper_targets * 2 * 5 + steel_targets * 5
+
+
+def normalize_custom_penalties(custom_penalties):
+    normalized = []
+
+    for penalty in custom_penalties or []:
+        name = (penalty.name or "").strip()
+        value = normalize_penalty_value(penalty.value, "kara własna")
+
+        if not name and parse_points(value) == 0:
+            continue
+
+        if not name:
+            raise HTTPException(status_code=400, detail="Podaj nazwę kary własnej")
+
+        normalized.append({
+            "name": name,
+            "value": value,
+        })
+
+    return normalized
+
+
+def normalize_stage_payloads(stages: list[CompetitionStageData]):
+    if not stages:
+        raise HTTPException(status_code=400, detail="Dynamiczna konkurencja wymaga konfiguracji Stage")
+
+    seen_numbers = set()
+    payloads = []
+
+    for index, stage in enumerate(stages, start=1):
+        stage_number = int(stage.stage_number or index)
+
+        if stage_number <= 0:
+            raise HTTPException(status_code=400, detail="Numer Stage musi być większy od 0")
+
+        if stage_number in seen_numbers:
+            raise HTTPException(status_code=400, detail="Numery Stage nie mogą się powtarzać")
+
+        seen_numbers.add(stage_number)
+
+        name = (stage.name or "").strip()
+
+        if not name:
+            raise HTTPException(status_code=400, detail=f"Stage {stage_number} musi mieć nazwę")
+
+        count_fields = {
+            "paper_targets": "liczba pełnych tarcz IPSC",
+            "mini_paper_targets": "liczba mini tarcz IPSC",
+            "classic_targets": "liczba tarcz klasycznych",
+            "paper_no_shoots": "liczba No Shoot papierowych",
+            "moving_targets": "liczba celów ruchomych",
+            "swingers": "liczba swingerów",
+            "drop_turners": "liczba drop turnerów",
+            "poppers": "liczba popperów",
+            "mini_poppers": "liczba mini popperów",
+            "plates": "liczba plate",
+            "mini_plates": "liczba mini plate",
+            "steel_no_shoots": "liczba No Shoot metalowych",
+        }
+        counts = {
+            field: parse_non_negative_int(getattr(stage, field), label)
+            for field, label in count_fields.items()
+        }
+        paper_targets = (
+            counts["paper_targets"]
+            + counts["mini_paper_targets"]
+            + counts["classic_targets"]
+            + counts["moving_targets"]
+            + counts["swingers"]
+            + counts["drop_turners"]
+        )
+        steel_targets = (
+            counts["poppers"]
+            + counts["mini_poppers"]
+            + counts["plates"]
+            + counts["mini_plates"]
+        )
+
+        if paper_targets + steel_targets <= 0:
+            raise HTTPException(status_code=400, detail=f"Stage {stage_number} musi mieć przynajmniej jeden cel punktowany")
+
+        computed_min_rounds = paper_targets * 2 + steel_targets
+        min_rounds = parse_non_negative_int(stage.min_rounds, "minimalna liczba strzałów")
+
+        if min_rounds <= 0:
+            min_rounds = computed_min_rounds
+
+        payloads.append({
+            "stage_number": stage_number,
+            "name": name,
+            "stage_type": (stage.stage_type or "short").strip(),
+            "briefing": stage.briefing or "",
+            "notes": stage.notes or "",
+            "min_rounds": min_rounds,
+            "max_points": stage_max_points_from_counts(paper_targets, steel_targets),
+            **counts,
+            "penalty_miss": normalize_penalty_value(stage.penalty_miss, "Miss"),
+            "penalty_no_shoot": normalize_penalty_value(stage.penalty_no_shoot, "No Shoot"),
+            "penalty_procedural": normalize_penalty_value(stage.penalty_procedural, "Procedural"),
+            "penalty_ftsa": normalize_penalty_value(stage.penalty_ftsa, "FTSA"),
+            "penalty_extra_shot": normalize_penalty_value(stage.penalty_extra_shot, "Extra Shot"),
+            "penalty_extra_hit": normalize_penalty_value(stage.penalty_extra_hit, "Extra Hit"),
+            "custom_penalties_json": json.dumps(
+                normalize_custom_penalties(stage.custom_penalties),
+                ensure_ascii=False,
+            ),
+        })
+
+    return sorted(payloads, key=lambda item: item["stage_number"])
+
+
+def sync_competition_stages(competition_id: int, discipline_id: int, stages: list[CompetitionStageData], db):
+    payloads = normalize_stage_payloads(stages)
+    existing_stages = (
+        db.query(CompetitionStage)
+        .filter(CompetitionStage.discipline_id == discipline_id)
+        .all()
+    )
+    existing_by_number = {stage.stage_number: stage for stage in existing_stages}
+    keep_numbers = set()
+    now = current_timestamp()
+
+    for payload in payloads:
+        keep_numbers.add(payload["stage_number"])
+        stage = existing_by_number.get(payload["stage_number"])
+
+        if not stage:
+            stage = CompetitionStage(
+                competition_id=competition_id,
+                discipline_id=discipline_id,
+                created_at=now,
+            )
+            db.add(stage)
+
+        for key, value in payload.items():
+            setattr(stage, key, value)
+
+        stage.updated_at = now
+
+    for stage in existing_stages:
+        if stage.stage_number in keep_numbers:
+            continue
+
+        (
+            db.query(StageScore)
+            .filter(StageScore.stage_id == stage.id)
+            .delete(synchronize_session=False)
+        )
+        db.delete(stage)
+
+
+def custom_penalties_from_json(value: str):
+    try:
+        parsed = json.loads(value or "[]")
+    except (TypeError, ValueError):
+        return []
+
+    if not isinstance(parsed, list):
+        return []
+
+    return [
+        {
+            "name": str(item.get("name", "")),
+            "value": str(item.get("value", "0")),
+        }
+        for item in parsed
+        if isinstance(item, dict)
+    ]
+
+
+def competition_stage_payload(stage: CompetitionStage):
+    custom_penalties = custom_penalties_from_json(getattr(stage, "custom_penalties_json", "") or "")
+    return {
+        "id": stage.id,
+        "competition_id": stage.competition_id,
+        "discipline_id": stage.discipline_id,
+        "stage_number": stage.stage_number,
+        "name": stage.name,
+        "stage_type": stage.stage_type or "short",
+        "briefing": stage.briefing or "",
+        "notes": stage.notes or "",
+        "min_rounds": int(stage.min_rounds or 0),
+        "max_points": int(stage.max_points or 0),
+        "paper_targets": int(stage.paper_targets or 0),
+        "mini_paper_targets": int(stage.mini_paper_targets or 0),
+        "classic_targets": int(stage.classic_targets or 0),
+        "paper_no_shoots": int(stage.paper_no_shoots or 0),
+        "moving_targets": int(stage.moving_targets or 0),
+        "swingers": int(stage.swingers or 0),
+        "drop_turners": int(stage.drop_turners or 0),
+        "poppers": int(stage.poppers or 0),
+        "mini_poppers": int(stage.mini_poppers or 0),
+        "plates": int(stage.plates or 0),
+        "mini_plates": int(stage.mini_plates or 0),
+        "steel_no_shoots": int(stage.steel_no_shoots or 0),
+        "paper_required_hits": stage_required_paper_hits(stage),
+        "steel_targets": stage_steel_targets_count(stage),
+        "penalty_miss": stage.penalty_miss,
+        "penalty_no_shoot": stage.penalty_no_shoot,
+        "penalty_procedural": stage.penalty_procedural,
+        "penalty_ftsa": stage.penalty_ftsa,
+        "penalty_extra_shot": stage.penalty_extra_shot,
+        "penalty_extra_hit": stage.penalty_extra_hit,
+        "custom_penalties": custom_penalties,
+    }
+
+
+def stage_score_payload(score: StageScore | None):
+    if not score:
+        return None
+
+    return {
+        "id": score.id,
+        "stage_id": score.stage_id,
+        "competition_id": score.competition_id,
+        "discipline_id": score.discipline_id,
+        "competitor_id": score.competitor_id,
+        "squad_id": score.squad_id,
+        "division": score.division or "",
+        "power_factor": score.power_factor or "minor",
+        "time_seconds": score.time_seconds,
+        "hits_a": score.hits_a,
+        "hits_c": score.hits_c,
+        "hits_d": score.hits_d,
+        "paper_misses": score.paper_misses,
+        "steel_hits": score.steel_hits,
+        "steel_misses": score.steel_misses,
+        "no_shoots": score.no_shoots,
+        "procedurals": score.procedurals,
+        "ftsa": score.ftsa,
+        "extra_shots": score.extra_shots,
+        "extra_hits": score.extra_hits,
+        "custom_penalties": custom_penalties_from_json(score.custom_penalties_json or ""),
+        "positive_points": score.positive_points,
+        "penalty_points": score.penalty_points,
+        "final_points": score.final_points,
+        "hit_factor": score.hit_factor,
+        "stage_points": score.stage_points,
+        "stage_percent": score.stage_percent,
+        "stage_place": score.stage_place,
+    }
+
+
+def calculate_stage_score(stage: CompetitionStage, data: StageScoreData):
+    time_seconds = parse_decimal_field(data.time_seconds, "czas")
+
+    if time_seconds <= 0:
+        raise HTTPException(status_code=400, detail="Czas musi być większy od 0")
+
+    count_fields = [
+        ("hits_a", data.hits_a),
+        ("hits_c", data.hits_c),
+        ("hits_d", data.hits_d),
+        ("paper_misses", data.paper_misses),
+        ("steel_hits", data.steel_hits),
+        ("steel_misses", data.steel_misses),
+        ("no_shoots", data.no_shoots),
+        ("procedurals", data.procedurals),
+        ("ftsa", data.ftsa),
+        ("extra_shots", data.extra_shots),
+        ("extra_hits", data.extra_hits),
+    ]
+
+    counts = {
+        field: parse_non_negative_int(value, field)
+        for field, value in count_fields
+    }
+    power_factor = (data.power_factor or "minor").lower()
+
+    if power_factor not in ["minor", "major"]:
+        raise HTTPException(status_code=400, detail="Power Factor musi być Minor albo Major")
+
+    c_points = 4 if power_factor == "major" else 3
+    d_points = 2 if power_factor == "major" else 1
+    positive_points = (
+        Decimal(counts["hits_a"] * 5)
+        + Decimal(counts["hits_c"] * c_points)
+        + Decimal(counts["hits_d"] * d_points)
+        + Decimal(counts["steel_hits"] * 5)
+    )
+    penalty_points = (
+        Decimal(counts["paper_misses"] + counts["steel_misses"]) * parse_points(stage.penalty_miss)
+        + Decimal(counts["no_shoots"]) * parse_points(stage.penalty_no_shoot)
+        + Decimal(counts["procedurals"]) * parse_points(stage.penalty_procedural)
+        + Decimal(counts["ftsa"]) * parse_points(stage.penalty_ftsa)
+        + Decimal(counts["extra_shots"]) * parse_points(stage.penalty_extra_shot)
+        + Decimal(counts["extra_hits"]) * parse_points(stage.penalty_extra_hit)
+    )
+    normalized_custom_penalties = []
+
+    for penalty in data.custom_penalties or []:
+        name = (penalty.name or "").strip()
+        count = parse_non_negative_int(penalty.count, "liczba kar własnych")
+        value = normalize_penalty_value(penalty.value, "kara własna")
+
+        if count <= 0 and not name:
+            continue
+
+        if not name:
+            raise HTTPException(status_code=400, detail="Podaj nazwę kary własnej")
+
+        penalty_points += Decimal(count) * parse_points(value)
+        normalized_custom_penalties.append({
+            "name": name,
+            "count": count,
+            "value": value,
+        })
+
+    final_points = positive_points + penalty_points
+
+    if final_points < 0:
+        final_points = Decimal("0")
+
+    hit_factor = (final_points / time_seconds).quantize(
+        Decimal("0.0001"),
+        rounding=ROUND_HALF_UP,
+    )
+
+    return {
+        **counts,
+        "power_factor": power_factor,
+        "time_seconds": format_time_seconds(time_seconds),
+        "division": (data.division or "").strip(),
+        "custom_penalties_json": json.dumps(normalized_custom_penalties, ensure_ascii=False),
+        "positive_points": format_points(positive_points),
+        "penalty_points": format_points(penalty_points),
+        "final_points": format_points(final_points),
+        "hit_factor": format_points(hit_factor),
+    }
+
+
+def recalculate_stage_results(stage: CompetitionStage, db):
+    scores = (
+        db.query(StageScore)
+        .filter(StageScore.stage_id == stage.id)
+        .all()
+    )
+    max_hit_factor = max(
+        (parse_points(score.hit_factor) for score in scores),
+        default=Decimal("0"),
+    )
+    ordered_scores = sorted(
+        scores,
+        key=lambda score: (
+            -parse_points(score.hit_factor),
+            parse_points(score.time_seconds),
+            score.id,
+        ),
+    )
+
+    for place, score in enumerate(ordered_scores, start=1):
+        hit_factor = parse_points(score.hit_factor)
+        percent = (
+            (hit_factor / max_hit_factor) * Decimal("100")
+            if hit_factor > 0 and max_hit_factor > 0
+            else Decimal("0")
+        )
+        stage_points = (
+            Decimal(int(stage.max_points or 0)) * (percent / Decimal("100"))
+        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+        score.stage_percent = format_points(percent.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+        score.stage_points = format_points(stage_points)
+        score.stage_place = place if hit_factor > 0 else 0
+        score.updated_at = current_timestamp()
+
+
+def dynamic_final_classification(competition_id: int, discipline_id: int, db):
+    stages = (
+        db.query(CompetitionStage)
+        .filter(
+            CompetitionStage.competition_id == competition_id,
+            CompetitionStage.discipline_id == discipline_id,
+        )
+        .order_by(CompetitionStage.stage_number.asc())
+        .all()
+    )
+    scores = (
+        db.query(StageScore)
+        .filter(
+            StageScore.competition_id == competition_id,
+            StageScore.discipline_id == discipline_id,
+        )
+        .all()
+    )
+    scores_by_competitor: dict[int, list[StageScore]] = {}
+
+    for score in scores:
+        scores_by_competitor.setdefault(score.competitor_id, []).append(score)
+
+    competitor_ids = list(scores_by_competitor.keys())
+    participants = {
+        participant.id: participant
+        for participant in (
+            db.query(CompetitionParticipant)
+            .filter(CompetitionParticipant.id.in_(competitor_ids))
+            .all()
+            if competitor_ids
+            else []
+        )
+    }
+    rows = []
+
+    for competitor_id, competitor_scores in scores_by_competitor.items():
+        participant = participants.get(competitor_id)
+        total_stage_points = sum(parse_points(score.stage_points) for score in competitor_scores)
+        stage_wins = sum(1 for score in competitor_scores if int(score.stage_place or 0) == 1)
+        representative_score = competitor_scores[0]
+        rows.append({
+            "place": 0,
+            "competitor_id": competitor_id,
+            "participant_id": competitor_id,
+            "shooter": (
+                participant_result_display_name(public_participant(participant, db, include_private=True))
+                if participant
+                else ""
+            ),
+            "club": participant.club if participant else "",
+            "division": representative_score.division or "",
+            "power_factor": representative_score.power_factor or "minor",
+            "stage_points": format_points(total_stage_points.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)),
+            "percent": "0",
+            "stage_wins": stage_wins,
+            "scores_count": len(competitor_scores),
+            "stages_count": len(stages),
+        })
+
+    rows.sort(key=lambda row: (-parse_points(row["stage_points"]), row["shooter"].lower(), row["competitor_id"]))
+    winner_points = parse_points(rows[0]["stage_points"]) if rows else Decimal("0")
+
+    for place, row in enumerate(rows, start=1):
+        row["place"] = place
+        row["percent"] = format_points(
+            ((parse_points(row["stage_points"]) / winner_points) * Decimal("100")).quantize(
+                Decimal("0.01"),
+                rounding=ROUND_HALF_UP,
+            )
+            if winner_points > 0
+            else Decimal("0")
+        )
+
+    return rows
+
+
+def update_dynamic_discipline_results(competition_id: int, discipline_id: int, judge_email: str, db):
+    classification = dynamic_final_classification(competition_id, discipline_id, db)
+
+    for row in classification:
+        result = (
+            db.query(DisciplineResult)
+            .filter(
+                DisciplineResult.competition_id == competition_id,
+                DisciplineResult.discipline_id == discipline_id,
+                DisciplineResult.participant_id == row["competitor_id"],
+            )
+            .first()
+        )
+        result_data = json.dumps({
+            "discipline": "dynamic-stage",
+            "stage_points": row["stage_points"],
+            "percent": row["percent"],
+            "place": row["place"],
+            "stage_wins": row["stage_wins"],
+        }, ensure_ascii=False)
+
+        if not result:
+            result = DisciplineResult(
+                competition_id=competition_id,
+                discipline_id=discipline_id,
+                participant_id=row["competitor_id"],
+                judge_email=judge_email,
+                points=row["stage_points"],
+                result_data=result_data,
+            )
+            db.add(result)
+        else:
+            result.points = row["stage_points"]
+            result.judge_email = judge_email
+            result.result_data = result_data
 
 
 def validate_practical_shotgun_result_data(discipline: Discipline, result_data: str):
@@ -8772,6 +9414,18 @@ def organizer_competition_detail_row(competition: Competition, db):
         discipline.id: discipline.name
         for discipline in disciplines
     }
+    stages_by_discipline = {}
+
+    if disciplines:
+        for stage in (
+            db.query(CompetitionStage)
+            .filter(CompetitionStage.discipline_id.in_([discipline.id for discipline in disciplines]))
+            .order_by(CompetitionStage.stage_number.asc())
+            .all()
+        ):
+            stages_by_discipline.setdefault(stage.discipline_id, []).append(
+                competition_stage_payload(stage)
+            )
     judges_by_email = {
         judge.user_email: judge
         for judge in judges
@@ -8822,6 +9476,7 @@ def organizer_competition_detail_row(competition: Competition, db):
                 "clay_variant": discipline_clay_variant(discipline),
                 "clay_series_count": discipline_clay_series_count(discipline),
                 "squad_group_statuses": trap_squad_group_statuses(discipline, db),
+                "stages": stages_by_discipline.get(discipline.id, []),
                 "ammo_type": discipline.ammo_type or "",
                 "ammo_price": discipline.ammo_price or "",
                 "clay_price": getattr(discipline, "clay_price", "") or "",
@@ -10253,6 +10908,18 @@ def get_judge_competitions(
             .filter(Discipline.competition_id == competition.id)
             .all()
         )
+        stages_by_discipline = {}
+
+        if all_disciplines:
+            for stage in (
+                db.query(CompetitionStage)
+                .filter(CompetitionStage.discipline_id.in_([discipline.id for discipline in all_disciplines]))
+                .order_by(CompetitionStage.stage_number.asc())
+                .all()
+            ):
+                stages_by_discipline.setdefault(stage.discipline_id, []).append(
+                    competition_stage_payload(stage)
+                )
 
         if is_head_judge or has_whole_competition_assignment:
             visible_disciplines = all_disciplines
@@ -10293,6 +10960,7 @@ def get_judge_competitions(
                     "trap_series_count": getattr(discipline, "trap_series_count", 0) or 0,
                     "clay_variant": discipline_clay_variant(discipline),
                     "clay_series_count": discipline_clay_series_count(discipline),
+                    "stages": stages_by_discipline.get(discipline.id, []),
                     "ammo_type": discipline.ammo_type or "",
                     "ammo_price": discipline.ammo_price or "",
                     "clay_price": getattr(discipline, "clay_price", "") or "",
@@ -10315,6 +10983,324 @@ def get_judge_competitions(
             competition["id"],
         ),
     )
+
+
+def get_stage_discipline_or_404(competition_id: int, discipline_id: int, db):
+    competition = (
+        db.query(Competition)
+        .filter(Competition.id == competition_id)
+        .first()
+    )
+
+    if not competition:
+        raise HTTPException(status_code=404, detail="Zawody nie istnieją")
+
+    discipline = (
+        db.query(Discipline)
+        .filter(
+            Discipline.id == discipline_id,
+            Discipline.competition_id == competition_id,
+        )
+        .first()
+    )
+
+    if not discipline:
+        raise HTTPException(status_code=404, detail="Konkurencja nie istnieje")
+
+    if not is_dynamic_stage_discipline_type(discipline.discipline_type or ""):
+        raise HTTPException(status_code=400, detail="Konkurencja nie używa konfiguracji Stage")
+
+    return competition, discipline
+
+
+def ensure_stage_access(user: User, competition: Competition, discipline_id: int, db):
+    if competition.created_by == user.email or has_role(user, "admin"):
+        return
+
+    if judge_can_access_discipline(user, competition.id, discipline_id, db):
+        return
+
+    raise HTTPException(status_code=403, detail="Nie masz dostępu do tej konkurencji")
+
+
+def stage_scores_for_payload(stage_id: int, db):
+    scores = (
+        db.query(StageScore)
+        .filter(StageScore.stage_id == stage_id)
+        .all()
+    )
+
+    return {score.competitor_id: stage_score_payload(score) for score in scores}
+
+
+@app.get("/competitions/{competition_id}/disciplines/{discipline_id}/stages")
+def get_competition_stages(
+    competition_id: int,
+    discipline_id: int,
+    user: User = Depends(get_current_user),
+    db=Depends(get_db),
+):
+    competition, _discipline = get_stage_discipline_or_404(competition_id, discipline_id, db)
+    ensure_stage_access(user, competition, discipline_id, db)
+    stages = (
+        db.query(CompetitionStage)
+        .filter(
+            CompetitionStage.competition_id == competition_id,
+            CompetitionStage.discipline_id == discipline_id,
+        )
+        .order_by(CompetitionStage.stage_number.asc())
+        .all()
+    )
+
+    return [competition_stage_payload(stage) for stage in stages]
+
+
+@app.get("/competitions/{competition_id}/disciplines/{discipline_id}/stages/{stage_id}")
+def get_competition_stage(
+    competition_id: int,
+    discipline_id: int,
+    stage_id: int,
+    user: User = Depends(get_current_user),
+    db=Depends(get_db),
+):
+    competition, _discipline = get_stage_discipline_or_404(competition_id, discipline_id, db)
+    ensure_stage_access(user, competition, discipline_id, db)
+    stage = (
+        db.query(CompetitionStage)
+        .filter(
+            CompetitionStage.id == stage_id,
+            CompetitionStage.competition_id == competition_id,
+            CompetitionStage.discipline_id == discipline_id,
+        )
+        .first()
+    )
+
+    if not stage:
+        raise HTTPException(status_code=404, detail="Stage nie istnieje")
+
+    return competition_stage_payload(stage)
+
+
+@app.put("/competitions/{competition_id}/disciplines/{discipline_id}/stages")
+def update_competition_stages(
+    competition_id: int,
+    discipline_id: int,
+    data: list[CompetitionStageData],
+    user: User = Depends(get_current_organizer),
+    db=Depends(get_db),
+):
+    competition, discipline = get_stage_discipline_or_404(competition_id, discipline_id, db)
+
+    if competition.created_by != user.email and not has_role(user, "admin"):
+        raise HTTPException(status_code=403, detail="Brak dostępu")
+
+    if competition.status != "draft":
+        raise HTTPException(status_code=400, detail="Stage można edytować tylko przed publikacją zawodów")
+
+    sync_competition_stages(competition.id, discipline.id, data, db)
+    discipline.shots_count = sum(stage["min_rounds"] for stage in normalize_stage_payloads(data))
+    db.commit()
+
+    return {
+        "message": "Konfiguracja Stage zaktualizowana",
+        "stages": [
+            competition_stage_payload(stage)
+            for stage in (
+                db.query(CompetitionStage)
+                .filter(CompetitionStage.discipline_id == discipline.id)
+                .order_by(CompetitionStage.stage_number.asc())
+                .all()
+            )
+        ],
+    }
+
+
+@app.put("/judge/competitions/{competition_id}/disciplines/{discipline_id}/stages/{stage_id}/scores")
+def save_stage_score(
+    competition_id: int,
+    discipline_id: int,
+    stage_id: int,
+    data: StageScoreData,
+    user: User = Depends(get_current_user),
+    db=Depends(get_db),
+):
+    auto_complete_started_competitions(db)
+
+    if is_pzss_club_account(user):
+        raise HTTPException(status_code=403, detail="Konto klubu PZSS nie ma dostępu do panelu sędziego")
+
+    if not judge_can_access_discipline(user, competition_id, discipline_id, db):
+        raise HTTPException(status_code=403, detail="Nie masz dostępu do tej konkurencji")
+
+    competition, discipline = get_stage_discipline_or_404(competition_id, discipline_id, db)
+
+    if competition.status != "started":
+        raise HTTPException(status_code=400, detail="Wyniki można zapisywać po rozpoczęciu zawodów")
+
+    stage = (
+        db.query(CompetitionStage)
+        .filter(
+            CompetitionStage.id == stage_id,
+            CompetitionStage.competition_id == competition_id,
+            CompetitionStage.discipline_id == discipline_id,
+        )
+        .first()
+    )
+
+    if not stage:
+        raise HTTPException(status_code=404, detail="Stage nie istnieje")
+
+    participant = (
+        db.query(CompetitionParticipant)
+        .filter(
+            CompetitionParticipant.id == data.competitor_id,
+            CompetitionParticipant.competition_id == competition_id,
+            CompetitionParticipant.entry_type == "shooter",
+        )
+        .first()
+    )
+
+    if not participant:
+        raise HTTPException(status_code=404, detail="Zawodnik nie jest zapisany do tych zawodów")
+
+    participant_discipline = (
+        db.query(ParticipantDiscipline)
+        .filter(
+            ParticipantDiscipline.participant_id == participant.id,
+            ParticipantDiscipline.discipline_id == discipline_id,
+        )
+        .first()
+    )
+
+    if not participant_discipline:
+        raise HTTPException(status_code=400, detail="Zawodnik nie startuje w tej konkurencji")
+
+    shooter = (
+        db.query(User)
+        .filter(User.email == participant.user_email)
+        .first()
+    )
+    calculated = calculate_stage_score(stage, data)
+    score = (
+        db.query(StageScore)
+        .filter(
+            StageScore.stage_id == stage.id,
+            StageScore.competitor_id == participant.id,
+        )
+        .first()
+    )
+    now = current_timestamp()
+
+    if not score:
+        score = StageScore(
+            stage_id=stage.id,
+            competition_id=competition_id,
+            discipline_id=discipline_id,
+            competitor_id=participant.id,
+            shooter_id=shooter.id if shooter else None,
+            squad_id=participant_discipline.squad_group_number,
+            created_at=now,
+        )
+        db.add(score)
+
+    for key, value in calculated.items():
+        setattr(score, key, value)
+
+    score.squad_id = participant_discipline.squad_group_number
+    score.updated_at = now
+
+    db.flush()
+    recalculate_stage_results(stage, db)
+    update_dynamic_discipline_results(competition_id, discipline_id, user.email, db)
+    db.commit()
+    db.refresh(score)
+
+    return {
+        "message": "Wynik Stage zapisany",
+        "score": stage_score_payload(score),
+        "classification": dynamic_stage_classification_payload(stage, db),
+        "final_classification": dynamic_final_classification(competition_id, discipline_id, db),
+    }
+
+
+def dynamic_stage_classification_payload(stage: CompetitionStage, db):
+    scores = (
+        db.query(StageScore)
+        .filter(StageScore.stage_id == stage.id)
+        .all()
+    )
+    competitor_ids = [score.competitor_id for score in scores]
+    participants = {
+        participant.id: participant
+        for participant in (
+            db.query(CompetitionParticipant)
+            .filter(CompetitionParticipant.id.in_(competitor_ids))
+            .all()
+            if competitor_ids
+            else []
+        )
+    }
+    rows = []
+
+    for score in scores:
+        participant = participants.get(score.competitor_id)
+        rows.append({
+            **stage_score_payload(score),
+            "shooter": (
+                participant_result_display_name(public_participant(participant, db, include_private=True))
+                if participant
+                else ""
+            ),
+            "club": participant.club if participant else "",
+        })
+
+    return sorted(
+        rows,
+        key=lambda row: (
+            int(row["stage_place"] or 999999),
+            -parse_points(row["hit_factor"]),
+            row["shooter"].lower(),
+        ),
+    )
+
+
+@app.get("/competitions/{competition_id}/disciplines/{discipline_id}/stages/{stage_id}/classification")
+def get_stage_classification(
+    competition_id: int,
+    discipline_id: int,
+    stage_id: int,
+    user: User = Depends(get_current_user),
+    db=Depends(get_db),
+):
+    competition, _discipline = get_stage_discipline_or_404(competition_id, discipline_id, db)
+    ensure_stage_access(user, competition, discipline_id, db)
+    stage = (
+        db.query(CompetitionStage)
+        .filter(
+            CompetitionStage.id == stage_id,
+            CompetitionStage.competition_id == competition_id,
+            CompetitionStage.discipline_id == discipline_id,
+        )
+        .first()
+    )
+
+    if not stage:
+        raise HTTPException(status_code=404, detail="Stage nie istnieje")
+
+    return dynamic_stage_classification_payload(stage, db)
+
+
+@app.get("/competitions/{competition_id}/disciplines/{discipline_id}/classification")
+def get_dynamic_discipline_classification(
+    competition_id: int,
+    discipline_id: int,
+    user: User = Depends(get_current_user),
+    db=Depends(get_db),
+):
+    competition, _discipline = get_stage_discipline_or_404(competition_id, discipline_id, db)
+    ensure_stage_access(user, competition, discipline_id, db)
+
+    return dynamic_final_classification(competition_id, discipline_id, db)
 
 
 @app.get("/judge/competitions/{competition_id}/disciplines/{discipline_id}/shooters")
@@ -10374,6 +11360,22 @@ def get_judge_discipline_shooters(
 
     shooters = []
     include_private = can_view_participant_private_fields(user, competition)
+    stage_scores_by_participant = {}
+
+    if is_dynamic_stage_discipline_type(discipline.discipline_type or ""):
+        stage_scores = (
+            db.query(StageScore)
+            .filter(
+                StageScore.competition_id == competition_id,
+                StageScore.discipline_id == discipline_id,
+            )
+            .all()
+        )
+
+        for score in stage_scores:
+            stage_scores_by_participant.setdefault(score.competitor_id, {})[
+                score.stage_id
+            ] = stage_score_payload(score)
 
     for participant_discipline in participant_disciplines:
         participant = (
@@ -10417,6 +11419,7 @@ def get_judge_discipline_shooters(
             "club": participant.club or (shooter.club if shooter else "") or "",
             "points": result.points if result else "",
             "result_data": (getattr(result, "result_data", "") or "") if result else "",
+            "stage_scores": stage_scores_by_participant.get(participant.id, {}),
             "squad_group_number": int(getattr(participant_discipline, "squad_group_number", 0) or 0),
             "squad_position": int(getattr(participant_discipline, "squad_position", 0) or 0),
             "sort_email": participant.user_email,
@@ -10628,6 +11631,12 @@ def create_discipline(
             detail="Wybierz rodzaj konkurencji"
         )
 
+    if discipline_type in DYNAMIC_STAGE_DISCIPLINE_TYPES and not data.stages:
+        raise HTTPException(
+            status_code=400,
+            detail="Dynamiczna konkurencja wymaga konfiguracji Stage"
+        )
+
     discipline_payload = normalize_discipline_payload(data, discipline_type)
 
     if discipline_payload["shots_count"] <= 0:
@@ -10658,6 +11667,10 @@ def create_discipline(
     db.commit()
 
     db.refresh(discipline)
+
+    if discipline_type in DYNAMIC_STAGE_DISCIPLINE_TYPES and data.stages:
+        sync_competition_stages(competition.id, discipline.id, data.stages, db)
+        db.commit()
 
     return {
         "message": "Konkurencja dodana",
@@ -10720,6 +11733,12 @@ def update_discipline(
             detail="Wybierz rodzaj konkurencji"
         )
 
+    if discipline_type in DYNAMIC_STAGE_DISCIPLINE_TYPES and not data.stages:
+        raise HTTPException(
+            status_code=400,
+            detail="Dynamiczna konkurencja wymaga konfiguracji Stage"
+        )
+
     discipline_payload = normalize_discipline_payload(data, discipline_type)
 
     if discipline_payload["shots_count"] <= 0:
@@ -10741,6 +11760,9 @@ def update_discipline(
     discipline.ammo_price = data.ammo_price
     discipline.clay_price = discipline_payload["clay_price"]
     discipline.entry_fee = data.entry_fee
+
+    if discipline_type in DYNAMIC_STAGE_DISCIPLINE_TYPES and data.stages:
+        sync_competition_stages(competition.id, discipline.id, data.stages, db)
 
     db.commit()
 
@@ -10796,6 +11818,16 @@ def delete_discipline(
             detail="Konkurencja nie istnieje"
         )
 
+    (
+        db.query(StageScore)
+        .filter(StageScore.discipline_id == discipline.id)
+        .delete(synchronize_session=False)
+    )
+    (
+        db.query(CompetitionStage)
+        .filter(CompetitionStage.discipline_id == discipline.id)
+        .delete(synchronize_session=False)
+    )
     (
         db.query(DisciplineResult)
         .filter(DisciplineResult.discipline_id == discipline.id)

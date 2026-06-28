@@ -14,6 +14,7 @@ import {
   isHuntingTrapDiscipline,
   isClayDisciplineType,
   isPracticalShotgunDisciplineType,
+  isDynamicStageDisciplineType,
 } from "@/lib/disciplines";
 
 type Competition = {
@@ -49,6 +50,7 @@ type Competition = {
     ammo_price: string;
     clay_price: string;
     entry_fee: string;
+    stages?: DynamicStage[];
   }[];
   participants?: {
     id: number;
@@ -82,6 +84,41 @@ type Discipline = {
   ammo_price: string;
   clay_price: string;
   entry_fee: string;
+  stages: DynamicStage[];
+};
+
+type CustomPenalty = {
+  name: string;
+  value: string;
+};
+
+type DynamicStage = {
+  id?: number;
+  stage_number: number;
+  name: string;
+  stage_type: string;
+  briefing: string;
+  notes: string;
+  min_rounds: number;
+  paper_targets: number;
+  mini_paper_targets: number;
+  classic_targets: number;
+  paper_no_shoots: number;
+  moving_targets: number;
+  swingers: number;
+  drop_turners: number;
+  poppers: number;
+  mini_poppers: number;
+  plates: number;
+  mini_plates: number;
+  steel_no_shoots: number;
+  penalty_miss: string;
+  penalty_no_shoot: string;
+  penalty_procedural: string;
+  penalty_ftsa: string;
+  penalty_extra_shot: string;
+  penalty_extra_hit: string;
+  custom_penalties: CustomPenalty[];
 };
 
 type OrganizerTab = "current" | "history";
@@ -113,6 +150,7 @@ const disciplineTypeGroups = [
       { value: "moving-target", label: "Ruchoma tarcza (RT)" },
       { value: "long-range", label: "Strzelanie długodystansowe (Long Range)" },
       { value: "centerfire-rifle", label: "Karabin centralnego zapłonu (KCZ)" },
+      { value: "ipsc-rifle", label: "IPSC Rifle" },
       { value: "practical-rifle", label: "Karabin praktyczny (KPr)" },
       { value: "pcc", label: "PCC (Pistol Caliber Carbine)" },
       { value: "2gun", label: "2GUN" },
@@ -144,14 +182,6 @@ const disciplineTypeGroups = [
 ];
 
 const temporarilyUnsupportedDisciplineTypes = new Set([
-  "ipsc-pistol",
-  "action-air",
-  "idpa",
-  "practical-rifle",
-  "pcc",
-  "2gun",
-  "3gun",
-  "ipsc-shotgun",
   "double-trap",
   "trap-mix",
   "skeet-mix",
@@ -253,6 +283,91 @@ function isClayDiscipline(discipline: Discipline) {
 function isPracticalShotgunDiscipline(discipline: Discipline) {
   return isPracticalShotgunDisciplineType(discipline.discipline_type);
 }
+
+function isDynamicStageDiscipline(discipline: Discipline) {
+  return isDynamicStageDisciplineType(discipline.discipline_type);
+}
+
+function createBlankStage(stageNumber: number, source?: DynamicStage): DynamicStage {
+  return {
+    id: undefined,
+    stage_number: stageNumber,
+    name: source?.name || `Stage ${stageNumber}`,
+    stage_type: source?.stage_type || "short",
+    briefing: source?.briefing || "",
+    notes: source?.notes || "",
+    min_rounds: source?.min_rounds || 0,
+    paper_targets: source?.paper_targets || 0,
+    mini_paper_targets: source?.mini_paper_targets || 0,
+    classic_targets: source?.classic_targets || 0,
+    paper_no_shoots: source?.paper_no_shoots || 0,
+    moving_targets: source?.moving_targets || 0,
+    swingers: source?.swingers || 0,
+    drop_turners: source?.drop_turners || 0,
+    poppers: source?.poppers || 0,
+    mini_poppers: source?.mini_poppers || 0,
+    plates: source?.plates || 0,
+    mini_plates: source?.mini_plates || 0,
+    steel_no_shoots: source?.steel_no_shoots || 0,
+    penalty_miss: source?.penalty_miss || "-10",
+    penalty_no_shoot: source?.penalty_no_shoot || "-10",
+    penalty_procedural: source?.penalty_procedural || "-10",
+    penalty_ftsa: source?.penalty_ftsa || "-10",
+    penalty_extra_shot: source?.penalty_extra_shot || "-10",
+    penalty_extra_hit: source?.penalty_extra_hit || "-10",
+    custom_penalties: source?.custom_penalties?.length
+      ? source.custom_penalties.map((penalty) => ({ ...penalty }))
+      : [{ name: "", value: "-10" }],
+  };
+}
+
+function stagePaperTargets(stage: DynamicStage) {
+  return (
+    Number(stage.paper_targets || 0)
+    + Number(stage.mini_paper_targets || 0)
+    + Number(stage.classic_targets || 0)
+    + Number(stage.moving_targets || 0)
+    + Number(stage.swingers || 0)
+    + Number(stage.drop_turners || 0)
+  );
+}
+
+function stageSteelTargets(stage: DynamicStage) {
+  return (
+    Number(stage.poppers || 0)
+    + Number(stage.mini_poppers || 0)
+    + Number(stage.plates || 0)
+    + Number(stage.mini_plates || 0)
+  );
+}
+
+function stageRequiredPaperHits(stage: DynamicStage) {
+  return stagePaperTargets(stage) * 2;
+}
+
+function stageComputedMinRounds(stage: DynamicStage) {
+  return stageRequiredPaperHits(stage) + stageSteelTargets(stage);
+}
+
+function stageMaxPoints(stage: DynamicStage) {
+  return stageRequiredPaperHits(stage) * 5 + stageSteelTargets(stage) * 5;
+}
+
+function stageTargetsCount(stage: DynamicStage) {
+  return stagePaperTargets(stage) + stageSteelTargets(stage);
+}
+
+function stageHasScoredTarget(stage: DynamicStage) {
+  return stageTargetsCount(stage) > 0;
+}
+
+const stageTypeOptions = [
+  { value: "short", label: "Short Course", title: "Krótki tor, zwykle niższa liczba strzałów i prostszy plan." },
+  { value: "medium", label: "Medium Course", title: "Średni tor z większą liczbą celów i wariantów rozwiązania." },
+  { value: "long", label: "Long Course", title: "Długi tor, zwykle najbardziej rozbudowany przebieg Stage." },
+  { value: "classifier", label: "Classifier", title: "Tor klasyfikacyjny używany do porównywania umiejętności." },
+  { value: "other", label: "Inny", title: "Niestandardowy tor opisany przez organizatora." },
+];
 
 function getClayVariantOptions(discipline: Discipline) {
   return discipline.discipline_type === "skeet" ? skeetVariantOptions : trapVariantOptions;
@@ -455,6 +570,7 @@ export default function OrganizerPage() {
       ammo_price: "",
       clay_price: "",
       entry_fee: "",
+      stages: [],
     };
   }
 
@@ -770,6 +886,7 @@ export default function OrganizerPage() {
           ammo_price: discipline.ammo_price || "",
           clay_price: discipline.clay_price || "",
           entry_fee: discipline.entry_fee || "",
+          stages: (discipline.stages || []).map((stage, stageIndex) => createBlankStage(stage.stage_number || stageIndex + 1, stage)),
         }))
       );
       setMessage("");
@@ -871,6 +988,141 @@ export default function OrganizerPage() {
     }
   }
 
+  function updateStageField<Field extends keyof DynamicStage>(
+    disciplineIndex: number,
+    stageIndex: number,
+    field: Field,
+    value: DynamicStage[Field]
+  ) {
+    setDisciplines((currentDisciplines) =>
+      currentDisciplines.map((discipline, currentDisciplineIndex) => {
+        if (currentDisciplineIndex !== disciplineIndex) {
+          return discipline;
+        }
+
+        return {
+          ...discipline,
+          stages: discipline.stages.map((stage, currentStageIndex) =>
+            currentStageIndex === stageIndex
+              ? { ...stage, [field]: value }
+              : stage
+          ),
+        };
+      })
+    );
+  }
+
+  function updateStageCount(disciplineIndex: number, value: string) {
+    const nextCount = Math.max(Number(value || 0), 0);
+
+    setDisciplines((currentDisciplines) =>
+      currentDisciplines.map((discipline, currentDisciplineIndex) => {
+        if (currentDisciplineIndex !== disciplineIndex) {
+          return discipline;
+        }
+
+        if (nextCount < discipline.stages.length) {
+          const confirmed = window.confirm(
+            "Zmniejszenie liczby Stage usunie końcowe tory z formularza. Kontynuować?"
+          );
+
+          if (!confirmed) {
+            return discipline;
+          }
+        }
+
+        const stages = discipline.stages.slice(0, nextCount);
+
+        while (stages.length < nextCount) {
+          stages.push(createBlankStage(stages.length + 1, stages[stages.length - 1]));
+        }
+
+        return {
+          ...discipline,
+          stages: stages.map((stage, stageIndex) => ({
+            ...stage,
+            stage_number: stageIndex + 1,
+            name: stage.name || `Stage ${stageIndex + 1}`,
+          })),
+        };
+      })
+    );
+  }
+
+  function copyPreviousStage(disciplineIndex: number, stageIndex: number) {
+    if (stageIndex <= 0) {
+      return;
+    }
+
+    setDisciplines((currentDisciplines) =>
+      currentDisciplines.map((discipline, currentDisciplineIndex) => {
+        if (currentDisciplineIndex !== disciplineIndex) {
+          return discipline;
+        }
+
+        return {
+          ...discipline,
+          stages: discipline.stages.map((stage, currentStageIndex) =>
+            currentStageIndex === stageIndex
+              ? createBlankStage(stageIndex + 1, discipline.stages[stageIndex - 1])
+              : stage
+          ),
+        };
+      })
+    );
+  }
+
+  function duplicateStage(disciplineIndex: number, stageIndex: number) {
+    setDisciplines((currentDisciplines) =>
+      currentDisciplines.map((discipline, currentDisciplineIndex) => {
+        if (currentDisciplineIndex !== disciplineIndex) {
+          return discipline;
+        }
+
+        const stages = [...discipline.stages];
+        stages.splice(stageIndex + 1, 0, createBlankStage(stageIndex + 2, discipline.stages[stageIndex]));
+
+        return {
+          ...discipline,
+          stages: stages.map((stage, currentStageIndex) => ({
+            ...stage,
+            id: currentStageIndex === stageIndex + 1 ? undefined : stage.id,
+            stage_number: currentStageIndex + 1,
+            name: currentStageIndex === stageIndex + 1
+              ? `${stage.name} kopia`
+              : stage.name,
+          })),
+        };
+      })
+    );
+  }
+
+  function removeStage(disciplineIndex: number, stageIndex: number) {
+    const confirmed = window.confirm("Usunąć ten Stage z konfiguracji?");
+
+    if (!confirmed) {
+      return;
+    }
+
+    setDisciplines((currentDisciplines) =>
+      currentDisciplines.map((discipline, currentDisciplineIndex) => {
+        if (currentDisciplineIndex !== disciplineIndex) {
+          return discipline;
+        }
+
+        return {
+          ...discipline,
+          stages: discipline.stages
+            .filter((_stage, currentStageIndex) => currentStageIndex !== stageIndex)
+            .map((stage, currentStageIndex) => ({
+              ...stage,
+              stage_number: currentStageIndex + 1,
+            })),
+        };
+      })
+    );
+  }
+
   function getFirstInvalidFieldId() {
     if (!hasText(name)) {
       return "competition-name";
@@ -899,6 +1151,7 @@ export default function OrganizerPage() {
     for (let index = 0; index < disciplines.length; index += 1) {
       const discipline = disciplines[index];
       const clayDiscipline = isClayDiscipline(discipline);
+      const dynamicStageDiscipline = isDynamicStageDiscipline(discipline);
       const practicalShotgunDiscipline = isPracticalShotgunDiscipline(discipline);
 
       if (!hasText(discipline.name)) {
@@ -933,12 +1186,29 @@ export default function OrganizerPage() {
         return `discipline-${index}-clay-price`;
       }
 
-      if (practicalShotgunDiscipline && !isPositiveNumber(discipline.shots_count)) {
+      if (dynamicStageDiscipline && discipline.stages.length <= 0) {
+        return `discipline-${index}-stage-count`;
+      }
+
+      for (let stageIndex = 0; stageIndex < discipline.stages.length; stageIndex += 1) {
+        const stage = discipline.stages[stageIndex];
+
+        if (!hasText(stage.name)) {
+          return `discipline-${index}-stage-${stageIndex}-name`;
+        }
+
+        if (!stageHasScoredTarget(stage)) {
+          return `discipline-${index}-stage-${stageIndex}-paper-targets`;
+        }
+      }
+
+      if (!dynamicStageDiscipline && practicalShotgunDiscipline && !isPositiveNumber(discipline.shots_count)) {
         return `discipline-${index}-targets`;
       }
 
       if (
-        practicalShotgunDiscipline
+        !dynamicStageDiscipline
+        && practicalShotgunDiscipline
         && !isNonNegativeWholeNumber(discipline.trap_series_count)
       ) {
         return `discipline-${index}-time-limit`;
@@ -948,7 +1218,7 @@ export default function OrganizerPage() {
         return `discipline-${index}-entry-fee`;
       }
 
-      if (!clayDiscipline && !practicalShotgunDiscipline && !isPositiveNumber(discipline.shots_count)) {
+      if (!clayDiscipline && !dynamicStageDiscipline && !practicalShotgunDiscipline && !isPositiveNumber(discipline.shots_count)) {
         return `discipline-${index}-shots`;
       }
     }
@@ -1043,8 +1313,12 @@ export default function OrganizerPage() {
             ? "PUT"
             : "POST";
           const trapDiscipline = isClayDiscipline(discipline);
+          const dynamicStageDiscipline = isDynamicStageDiscipline(discipline);
           const practicalShotgunDiscipline = isPracticalShotgunDiscipline(discipline);
           const trapShotsCount = getTrapShotsCount(discipline);
+          const dynamicShotsCount = dynamicStageDiscipline
+            ? discipline.stages.reduce((sum, stage) => sum + (stage.min_rounds || stageComputedMinRounds(stage)), 0)
+            : 0;
 
           const disciplineResponse = await authFetch(
             disciplineEndpoint,
@@ -1061,12 +1335,15 @@ export default function OrganizerPage() {
                 discipline_type: discipline.discipline_type,
                 shots_count: trapDiscipline
                   ? trapShotsCount
+                  : dynamicStageDiscipline
+                  ? dynamicShotsCount
                   : discipline.shots_count,
                 trap_variant: trapDiscipline
                   && discipline.discipline_type === "trap"
                   ? discipline.trap_variant
                   : "",
                 trap_series_count: practicalShotgunDiscipline
+                  && !dynamicStageDiscipline
                   ? Math.max(Number(discipline.trap_series_count || 0), 0)
                   : trapDiscipline
                   && discipline.discipline_type === "trap"
@@ -1082,6 +1359,13 @@ export default function OrganizerPage() {
                 entry_fee: entryFee
                   ? ""
                   : discipline.entry_fee,
+                stages: dynamicStageDiscipline
+                  ? discipline.stages.map((stage, stageIndex) => ({
+                      ...stage,
+                      stage_number: stageIndex + 1,
+                      min_rounds: stage.min_rounds || stageComputedMinRounds(stage),
+                    }))
+                  : [],
               }),
             }
           );
@@ -1408,6 +1692,7 @@ export default function OrganizerPage() {
 
                 {disciplines.map((discipline, index) => {
                   const trapDiscipline = isClayDiscipline(discipline);
+                  const dynamicStageDiscipline = isDynamicStageDiscipline(discipline);
                   const practicalShotgunDiscipline = isPracticalShotgunDiscipline(discipline);
                   const trapTargetsCount = getTrapTargetsCount(discipline);
                   const trapShotsCount = getTrapShotsCount(discipline);
@@ -1496,6 +1781,11 @@ export default function OrganizerPage() {
                           } else {
                             updated[index].shots_count = 0;
                           }
+                          updated[index].stages = isDynamicStageDisciplineType(selectedDisciplineType)
+                            ? updated[index].stages.length
+                              ? updated[index].stages
+                              : [createBlankStage(1)]
+                            : [];
 
                           setDisciplines(updated);
 
@@ -1636,7 +1926,7 @@ export default function OrganizerPage() {
                       </div>
                     )}
 
-                    {practicalShotgunDiscipline && (
+                    {practicalShotgunDiscipline && !dynamicStageDiscipline && (
                       <div className="grid gap-4 rounded-xl border border-emerald-700/60 bg-emerald-950/25 p-4 md:grid-cols-2">
                         <div className="md:col-span-2 text-sm text-emerald-100">
                           <p className="font-black">Strzelba praktyczna</p>
@@ -1698,6 +1988,322 @@ export default function OrganizerPage() {
                           />
                         </div>
                       </div>
+                    )}
+
+                    {dynamicStageDiscipline && (
+                      <section className="space-y-4 rounded-xl border border-emerald-700/60 bg-emerald-950/20 p-4">
+                        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+                          <div>
+                            <h3 className="text-xl font-black text-white">
+                              Konfiguracja torów / Stage
+                            </h3>
+                            <p className="mt-1 text-sm text-emerald-100">
+                              Punktacja: Hit Factor. Maksymalne punkty i minimalne strzały liczą się automatycznie.
+                            </p>
+                          </div>
+
+                          <label className="block md:w-52">
+                            <span className="mb-2 block font-semibold text-white">
+                              Liczba Stage
+                            </span>
+                            <input
+                              id={`discipline-${index}-stage-count`}
+                              type="number"
+                              min="1"
+                              step="1"
+                              value={discipline.stages.length || ""}
+                              onChange={(event) => updateStageCount(index, event.target.value)}
+                              className={requiredFieldClass(discipline.stages.length > 0)}
+                            />
+                          </label>
+                        </div>
+
+                        <div className="grid gap-3 md:grid-cols-3">
+                          <div className={requiredContainerClass(true)}>
+                            <p className="text-sm font-bold text-emerald-100">Power Factor</p>
+                            <p className="mt-1 font-black">Według zawodnika</p>
+                          </div>
+                          <div className={requiredContainerClass(true)}>
+                            <p className="text-sm font-bold text-emerald-100">Metoda punktacji</p>
+                            <p className="mt-1 font-black">Hit Factor</p>
+                          </div>
+                          <div className={requiredContainerClass(true)}>
+                            <p className="text-sm font-bold text-emerald-100">Domyślne kary</p>
+                            <p className="mt-1 font-black">Miss/NS/Procedural: -10</p>
+                          </div>
+                        </div>
+
+                        <div className="space-y-3">
+                          {discipline.stages.map((stage, stageIndex) => {
+                            const minRounds = stage.min_rounds || stageComputedMinRounds(stage);
+                            const maxPoints = stageMaxPoints(stage);
+                            const targetCount = stageTargetsCount(stage);
+                            const stageValid = hasText(stage.name) && stageHasScoredTarget(stage);
+
+                            return (
+                              <details
+                                key={`${stage.id || "new"}-${stageIndex}`}
+                                open={stageIndex === 0 || !stageValid}
+                                className={`rounded-xl border bg-zinc-950 ${
+                                  stageValid ? "border-emerald-600" : "border-red-500"
+                                }`}
+                              >
+                                <summary className="cursor-pointer list-none p-4">
+                                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                                    <div>
+                                      <p className="text-lg font-black text-white">
+                                        Stage {stageIndex + 1}: {stage.name || "bez nazwy"}
+                                      </p>
+                                      <p className="mt-1 text-sm text-gray-300">
+                                        Cele: {targetCount} • Min. strzały: {minRounds} • Max pkt: {maxPoints}
+                                      </p>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.preventDefault();
+                                          copyPreviousStage(index, stageIndex);
+                                        }}
+                                        disabled={stageIndex === 0}
+                                        className="rounded-lg bg-zinc-800 px-3 py-2 text-sm font-bold text-white disabled:opacity-40"
+                                      >
+                                        Kopiuj z poprzedniego
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.preventDefault();
+                                          duplicateStage(index, stageIndex);
+                                        }}
+                                        className="rounded-lg bg-blue-700 px-3 py-2 text-sm font-bold text-white"
+                                      >
+                                        Duplikuj Stage
+                                      </button>
+                                      {discipline.stages.length > 1 && (
+                                        <button
+                                          type="button"
+                                          onClick={(event) => {
+                                            event.preventDefault();
+                                            removeStage(index, stageIndex);
+                                          }}
+                                          className="rounded-lg bg-red-700 px-3 py-2 text-sm font-bold text-white"
+                                        >
+                                          Usuń Stage
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                </summary>
+
+                                <div className="space-y-5 border-t border-zinc-800 p-4">
+                                  <div className="grid gap-4 md:grid-cols-2">
+                                    <label>
+                                      <span className="mb-2 block font-semibold text-white">Nazwa Stage</span>
+                                      <input
+                                        id={`discipline-${index}-stage-${stageIndex}-name`}
+                                        value={stage.name}
+                                        onChange={(event) => updateStageField(index, stageIndex, "name", event.target.value)}
+                                        className={requiredFieldClass(hasText(stage.name))}
+                                      />
+                                    </label>
+
+                                    <label>
+                                      <span className="mb-2 block font-semibold text-white">Numer Stage</span>
+                                      <input
+                                        type="number"
+                                        min="1"
+                                        value={stage.stage_number}
+                                        onChange={(event) => updateStageField(index, stageIndex, "stage_number", Number(event.target.value))}
+                                        className={requiredFieldClass(Number(stage.stage_number) > 0)}
+                                      />
+                                    </label>
+                                  </div>
+
+                                  <div>
+                                    <p className="mb-2 font-semibold text-white">Typ Stage</p>
+                                    <div className="grid gap-2 md:grid-cols-5">
+                                      {stageTypeOptions.map((option) => (
+                                        <label
+                                          key={option.value}
+                                          title={option.title}
+                                          className={`rounded-lg border px-3 py-3 text-sm font-bold ${
+                                            stage.stage_type === option.value
+                                              ? "border-emerald-500 bg-emerald-900/50 text-white"
+                                              : "border-zinc-700 bg-zinc-900 text-gray-300"
+                                          }`}
+                                        >
+                                          <input
+                                            type="radio"
+                                            className="sr-only"
+                                            checked={stage.stage_type === option.value}
+                                            onChange={() => updateStageField(index, stageIndex, "stage_type", option.value)}
+                                          />
+                                          {option.label}
+                                        </label>
+                                      ))}
+                                    </div>
+                                  </div>
+
+                                  <div className="grid gap-4 md:grid-cols-2">
+                                    <textarea
+                                      value={stage.briefing}
+                                      onChange={(event) => updateStageField(index, stageIndex, "briefing", event.target.value)}
+                                      placeholder="Opis przebiegu toru / briefing"
+                                      className="min-h-28 rounded-xl border border-zinc-700 bg-zinc-900 p-4 text-white"
+                                    />
+                                    <textarea
+                                      value={stage.notes}
+                                      onChange={(event) => updateStageField(index, stageIndex, "notes", event.target.value)}
+                                      placeholder="Uwagi dla zawodników"
+                                      className="min-h-28 rounded-xl border border-zinc-700 bg-zinc-900 p-4 text-white"
+                                    />
+                                  </div>
+
+                                  <div className="grid gap-4 md:grid-cols-2">
+                                    {[
+                                      ["paper_targets", "Pełne tarcze IPSC"],
+                                      ["mini_paper_targets", "Mini tarcze IPSC"],
+                                      ["classic_targets", "Tarcze klasyczne / inne"],
+                                      ["paper_no_shoots", "No Shoot papierowe"],
+                                      ["moving_targets", "Cele ruchome"],
+                                      ["swingers", "Swingery"],
+                                      ["drop_turners", "Drop turnery"],
+                                    ].map(([field, label]) => (
+                                      <label key={field}>
+                                        <span className="mb-2 block text-sm font-semibold text-white">{label}</span>
+                                        <input
+                                          id={field === "paper_targets" ? `discipline-${index}-stage-${stageIndex}-paper-targets` : undefined}
+                                          type="number"
+                                          min="0"
+                                          value={String(stage[field as keyof DynamicStage] || "")}
+                                          onChange={(event) => updateStageField(
+                                            index,
+                                            stageIndex,
+                                            field as keyof DynamicStage,
+                                            Number(event.target.value) as never
+                                          )}
+                                          className={requiredFieldClass(stageHasScoredTarget(stage))}
+                                        />
+                                      </label>
+                                    ))}
+                                  </div>
+
+                                  <div className="grid gap-4 md:grid-cols-2">
+                                    {[
+                                      ["poppers", "Poppery"],
+                                      ["mini_poppers", "Mini poppery"],
+                                      ["plates", "Plate"],
+                                      ["mini_plates", "Mini plate"],
+                                      ["steel_no_shoots", "No Shoot metalowe"],
+                                    ].map(([field, label]) => (
+                                      <label key={field}>
+                                        <span className="mb-2 block text-sm font-semibold text-white">{label}</span>
+                                        <input
+                                          type="number"
+                                          min="0"
+                                          value={String(stage[field as keyof DynamicStage] || "")}
+                                          onChange={(event) => updateStageField(
+                                            index,
+                                            stageIndex,
+                                            field as keyof DynamicStage,
+                                            Number(event.target.value) as never
+                                          )}
+                                          className={requiredFieldClass(stageHasScoredTarget(stage))}
+                                        />
+                                      </label>
+                                    ))}
+                                  </div>
+
+                                  <div className="grid gap-4 md:grid-cols-3">
+                                    <label>
+                                      <span className="mb-2 block text-sm font-semibold text-white">Minimalna liczba strzałów</span>
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        value={stage.min_rounds || ""}
+                                        placeholder={String(stageComputedMinRounds(stage))}
+                                        onChange={(event) => updateStageField(index, stageIndex, "min_rounds", Number(event.target.value))}
+                                        className="w-full rounded-xl border border-zinc-700 bg-zinc-900 p-4 text-white"
+                                      />
+                                    </label>
+                                    <div className={requiredContainerClass(true)}>
+                                      <p className="text-sm font-bold text-emerald-100">Trafienia papierowe</p>
+                                      <p className="mt-1 text-2xl font-black">{stageRequiredPaperHits(stage)}</p>
+                                    </div>
+                                    <div className={requiredContainerClass(true)}>
+                                      <p className="text-sm font-bold text-emerald-100">Maks. punkty Stage</p>
+                                      <p className="mt-1 text-2xl font-black">{maxPoints}</p>
+                                    </div>
+                                  </div>
+
+                                  <div className="grid gap-4 md:grid-cols-3">
+                                    {[
+                                      ["penalty_miss", "Miss"],
+                                      ["penalty_no_shoot", "No Shoot"],
+                                      ["penalty_procedural", "Procedural"],
+                                      ["penalty_ftsa", "FTSA"],
+                                      ["penalty_extra_shot", "Extra Shot"],
+                                      ["penalty_extra_hit", "Extra Hit"],
+                                    ].map(([field, label]) => (
+                                      <label key={field}>
+                                        <span className="mb-2 block text-sm font-semibold text-white">{label}</span>
+                                        <input
+                                          type="number"
+                                          step="0.01"
+                                          value={String(stage[field as keyof DynamicStage] || "")}
+                                          onChange={(event) => updateStageField(
+                                            index,
+                                            stageIndex,
+                                            field as keyof DynamicStage,
+                                            event.target.value as never
+                                          )}
+                                          className={requiredFieldClass(hasText(String(stage[field as keyof DynamicStage] || "")))}
+                                        />
+                                      </label>
+                                    ))}
+                                  </div>
+
+                                  <div className="grid gap-4 md:grid-cols-2">
+                                    <label>
+                                      <span className="mb-2 block text-sm font-semibold text-white">Kara własna - nazwa</span>
+                                      <input
+                                        value={stage.custom_penalties[0]?.name || ""}
+                                        onChange={(event) => {
+                                          const customPenalties = [...stage.custom_penalties];
+                                          customPenalties[0] = {
+                                            name: event.target.value,
+                                            value: customPenalties[0]?.value || "-10",
+                                          };
+                                          updateStageField(index, stageIndex, "custom_penalties", customPenalties);
+                                        }}
+                                        className="w-full rounded-xl border border-zinc-700 bg-zinc-900 p-4 text-white"
+                                      />
+                                    </label>
+                                    <label>
+                                      <span className="mb-2 block text-sm font-semibold text-white">Kara własna - wartość</span>
+                                      <input
+                                        type="number"
+                                        step="0.01"
+                                        value={stage.custom_penalties[0]?.value || "-10"}
+                                        onChange={(event) => {
+                                          const customPenalties = [...stage.custom_penalties];
+                                          customPenalties[0] = {
+                                            name: customPenalties[0]?.name || "",
+                                            value: event.target.value,
+                                          };
+                                          updateStageField(index, stageIndex, "custom_penalties", customPenalties);
+                                        }}
+                                        className="w-full rounded-xl border border-zinc-700 bg-zinc-900 p-4 text-white"
+                                      />
+                                    </label>
+                                  </div>
+                                </div>
+                              </details>
+                            );
+                          })}
+                        </div>
+                      </section>
                     )}
 
                     <div className={`grid gap-4 ${trapDiscipline ? "md:grid-cols-3" : "md:grid-cols-2"}`}>
@@ -1822,7 +2428,7 @@ export default function OrganizerPage() {
                         </div>
                       )}
 
-                      {!trapDiscipline && !practicalShotgunDiscipline && (
+                      {!trapDiscipline && !dynamicStageDiscipline && !practicalShotgunDiscipline && (
                         <>
                           <p className="text-white font-semibold mb-3">
                             Liczba wszystkich strzałów: ocenianych i próbnych

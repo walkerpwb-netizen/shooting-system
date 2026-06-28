@@ -12,6 +12,7 @@ import {
   HUNTING_TRAP_TARGETS_COUNT,
   PRACTICAL_SHOTGUN_DISCIPLINE_TYPE,
   isHuntingTrapDiscipline,
+  isDynamicStageDisciplineType,
 } from "@/lib/disciplines";
 
 type JudgeCompetition = {
@@ -39,6 +40,71 @@ type JudgeDiscipline = {
   ammo_price: string;
   entry_fee: string;
   shooters_count: number;
+  stages?: CompetitionStage[];
+};
+
+type CustomPenalty = {
+  name: string;
+  value: string;
+};
+
+type CompetitionStage = {
+  id: number;
+  stage_number: number;
+  name: string;
+  stage_type: string;
+  briefing: string;
+  notes: string;
+  min_rounds: number;
+  max_points: number;
+  paper_targets: number;
+  mini_paper_targets: number;
+  classic_targets: number;
+  paper_no_shoots: number;
+  moving_targets: number;
+  swingers: number;
+  drop_turners: number;
+  poppers: number;
+  mini_poppers: number;
+  plates: number;
+  mini_plates: number;
+  steel_no_shoots: number;
+  paper_required_hits: number;
+  steel_targets: number;
+  penalty_miss: string;
+  penalty_no_shoot: string;
+  penalty_procedural: string;
+  penalty_ftsa: string;
+  penalty_extra_shot: string;
+  penalty_extra_hit: string;
+  custom_penalties: CustomPenalty[];
+};
+
+type StageScorePayload = {
+  stage_id: number;
+  competitor_id: number;
+  division: string;
+  power_factor: string;
+  time_seconds: string;
+  hits_a: number;
+  hits_c: number;
+  hits_d: number;
+  paper_misses: number;
+  steel_hits: number;
+  steel_misses: number;
+  no_shoots: number;
+  procedurals: number;
+  ftsa: number;
+  extra_shots: number;
+  extra_hits: number;
+  custom_penalties?: { name: string; count: number; value: string }[];
+  positive_points: string;
+  penalty_points: string;
+  final_points: string;
+  hit_factor: string;
+  stage_points: string;
+  stage_percent: string;
+  stage_place: number;
 };
 
 type Shooter = {
@@ -50,6 +116,7 @@ type Shooter = {
   club: string;
   points: string;
   result_data: string;
+  stage_scores?: Record<string, StageScorePayload>;
   squad_group_number: number;
   squad_position: number;
 };
@@ -61,6 +128,23 @@ const clayHitPoints = 5;
 type PracticalShotgunInput = {
   time: string;
   hits: string;
+};
+type StageScoreInput = {
+  time_seconds: string;
+  hits_a: number;
+  hits_c: number;
+  hits_d: number;
+  paper_misses: number;
+  steel_hits: number;
+  steel_misses: number;
+  no_shoots: number;
+  procedurals: number;
+  ftsa: number;
+  extra_shots: number;
+  extra_hits: number;
+  power_factor: "minor" | "major";
+  division: string;
+  custom_penalties: { name: string; count: number; value: string }[];
 };
 
 type TrapHistoryEntry = {
@@ -363,7 +447,7 @@ function practicalShotgunInputsFromShooters(shooters: Shooter[]) {
   return shooters.reduce<Record<number, PracticalShotgunInput>>((inputs, shooter) => {
     const parsedResult = parsePracticalShotgunResult(shooter.result_data || "");
     inputs[shooter.participant_id] = {
-      time: parsedResult?.time || "0",
+      time: parsedResult?.time || "",
       hits: parsedResult?.hits || "",
     };
     return inputs;
@@ -372,6 +456,90 @@ function practicalShotgunInputsFromShooters(shooters: Shooter[]) {
 
 function hasPracticalShotgunResult(shooter: Shooter) {
   return Boolean(parsePracticalShotgunResult(shooter.result_data || "") || shooter.points);
+}
+
+function emptyStageScoreInput(stage?: CompetitionStage, score?: StageScorePayload | null): StageScoreInput {
+  return {
+    time_seconds: score?.time_seconds || "",
+    hits_a: score?.hits_a || 0,
+    hits_c: score?.hits_c || 0,
+    hits_d: score?.hits_d || 0,
+    paper_misses: score?.paper_misses || 0,
+    steel_hits: score?.steel_hits || 0,
+    steel_misses: score?.steel_misses || 0,
+    no_shoots: score?.no_shoots || 0,
+    procedurals: score?.procedurals || 0,
+    ftsa: score?.ftsa || 0,
+    extra_shots: score?.extra_shots || 0,
+    extra_hits: score?.extra_hits || 0,
+    power_factor: score?.power_factor === "major" ? "major" : "minor",
+    division: score?.division || "",
+    custom_penalties: Array.from({ length: 3 }, (_item, index) => ({
+      name: score?.custom_penalties?.[index]?.name || stage?.custom_penalties?.[index]?.name || "",
+      count: score?.custom_penalties?.[index]?.count || 0,
+      value: score?.custom_penalties?.[index]?.value || stage?.custom_penalties?.[index]?.value || "-10",
+    })),
+  };
+}
+
+function numericPenalty(value: string) {
+  const parsed = Number(String(value || "0").replace(",", "."));
+
+  if (!Number.isFinite(parsed)) {
+    return 0;
+  }
+
+  return parsed > 0 ? -parsed : parsed;
+}
+
+function dynamicStagePreview(stage: CompetitionStage, input: StageScoreInput) {
+  const time = Number(String(input.time_seconds || "").replace(",", "."));
+  const cPoints = input.power_factor === "major" ? 4 : 3;
+  const dPoints = input.power_factor === "major" ? 2 : 1;
+  const positivePoints = input.hits_a * 5
+    + input.hits_c * cPoints
+    + input.hits_d * dPoints
+    + input.steel_hits * 5;
+  const penaltyPoints =
+    (input.paper_misses + input.steel_misses) * numericPenalty(stage.penalty_miss)
+    + input.no_shoots * numericPenalty(stage.penalty_no_shoot)
+    + input.procedurals * numericPenalty(stage.penalty_procedural)
+    + input.ftsa * numericPenalty(stage.penalty_ftsa)
+    + input.extra_shots * numericPenalty(stage.penalty_extra_shot)
+    + input.extra_hits * numericPenalty(stage.penalty_extra_hit)
+    + input.custom_penalties.reduce((sum, penalty) => sum + penalty.count * numericPenalty(penalty.value), 0);
+  const finalPoints = Math.max(positivePoints + penaltyPoints, 0);
+  const hitFactor = time > 0 ? finalPoints / time : 0;
+  const paperEntries = input.hits_a + input.hits_c + input.hits_d + input.paper_misses;
+  const steelEntries = input.steel_hits + input.steel_misses;
+
+  return {
+    time,
+    validTime: Number.isFinite(time) && time > 0,
+    positivePoints,
+    penaltyPoints,
+    finalPoints,
+    hitFactor,
+    paperEntries,
+    steelEntries,
+    paperWarning: paperEntries !== stage.paper_required_hits,
+    steelWarning: steelEntries !== stage.steel_targets,
+    paperOverflow: paperEntries > stage.paper_required_hits,
+    steelOverflow: steelEntries > stage.steel_targets,
+  };
+}
+
+function stageScoreInputsFromShooters(shooters: Shooter[], stages: CompetitionStage[]) {
+  return shooters.reduce<Record<number, Record<number, StageScoreInput>>>((inputs, shooter) => {
+    inputs[shooter.participant_id] = {};
+    stages.forEach((stage) => {
+      inputs[shooter.participant_id][stage.id] = emptyStageScoreInput(
+        stage,
+        shooter.stage_scores?.[String(stage.id)] || null
+      );
+    });
+    return inputs;
+  }, {});
 }
 
 function sortTrapShooters(groupShooters: Shooter[]) {
@@ -869,6 +1037,9 @@ export default function JudgeDisciplinePage() {
   const keyboardActionPendingRef = useRef(false);
   const [practicalShotgunInputs, setPracticalShotgunInputs] = useState<Record<number, PracticalShotgunInput>>({});
   const [practicalShotgunSavingId, setPracticalShotgunSavingId] = useState<number | null>(null);
+  const [activeStageId, setActiveStageId] = useState<number | null>(null);
+  const [stageScoreInputs, setStageScoreInputs] = useState<Record<number, Record<number, StageScoreInput>>>({});
+  const [stageScoreSavingId, setStageScoreSavingId] = useState<number | null>(null);
 
   useEffect(() => {
     const token = getAccessToken();
@@ -920,6 +1091,14 @@ export default function JudgeDisciplinePage() {
 
         setShooters(shootersData.shooters);
         setPracticalShotgunInputs(practicalShotgunInputsFromShooters(shootersData.shooters));
+        const loadedCompetition = competitionsData.find((item: JudgeCompetition) => item.id === competitionId);
+        const loadedDiscipline = loadedCompetition?.disciplines.find((item: JudgeDiscipline) => item.id === disciplineId);
+        const loadedStages = loadedDiscipline?.stages || [];
+
+        if (loadedStages.length > 0) {
+          setActiveStageId((currentStageId) => currentStageId || loadedStages[0].id);
+          setStageScoreInputs(stageScoreInputsFromShooters(shootersData.shooters, loadedStages));
+        }
       } catch (error) {
         console.error(error);
         setMessage("Błąd połączenia z serwerem ❌");
@@ -942,7 +1121,10 @@ export default function JudgeDisciplinePage() {
   const isHuntingTrap = Boolean(discipline && isHuntingTrapDiscipline(discipline));
   const isTrapDiscipline = discipline?.discipline_type === "trap";
   const isSkeetDiscipline = discipline?.discipline_type === "skeet";
-  const isPracticalShotgunDiscipline = discipline?.discipline_type === PRACTICAL_SHOTGUN_DISCIPLINE_TYPE;
+  const isDynamicStageDiscipline = Boolean(discipline && isDynamicStageDisciplineType(discipline.discipline_type));
+  const dynamicStages = discipline?.stages || [];
+  const activeStage = dynamicStages.find((stage) => stage.id === activeStageId) || dynamicStages[0] || null;
+  const isPracticalShotgunDiscipline = discipline?.discipline_type === PRACTICAL_SHOTGUN_DISCIPLINE_TYPE && !isDynamicStageDiscipline;
   const practicalShotgunTargetsCount = Math.max(Number(discipline?.shots_count || 0), 0);
   const practicalShotgunTimeLimit = Math.max(Number(discipline?.trap_series_count || 0), 0);
   const trapSeriesCount = isTrapDiscipline
@@ -1227,7 +1409,7 @@ export default function JudgeDisciplinePage() {
     setPracticalShotgunInputs((currentInputs) => ({
       ...currentInputs,
       [participantId]: {
-        time: currentInputs[participantId]?.time || "0",
+        time: currentInputs[participantId]?.time || "",
         hits: currentInputs[participantId]?.hits || "",
         [field]: value,
       },
@@ -1272,7 +1454,7 @@ export default function JudgeDisciplinePage() {
       return;
     }
 
-    const safeInput = input || { time: "0", hits: "" };
+    const safeInput = input || { time: "", hits: "" };
     const token = getAccessToken();
     const resultData = JSON.stringify({
       discipline: PRACTICAL_SHOTGUN_DISCIPLINE_TYPE,
@@ -1326,6 +1508,129 @@ export default function JudgeDisciplinePage() {
       setMessage("Błąd połączenia z serwerem ❌");
     } finally {
       setPracticalShotgunSavingId(null);
+    }
+  }
+
+  function updateStageScoreInput(
+    participantId: number,
+    stageId: number,
+    updater: (input: StageScoreInput) => StageScoreInput
+  ) {
+    setStageScoreInputs((currentInputs) => {
+      const currentStageInput = currentInputs[participantId]?.[stageId]
+        || emptyStageScoreInput(activeStage || undefined);
+
+      return {
+        ...currentInputs,
+        [participantId]: {
+          ...(currentInputs[participantId] || {}),
+          [stageId]: updater(currentStageInput),
+        },
+      };
+    });
+  }
+
+  function setStageScoreField<Field extends keyof StageScoreInput>(
+    participantId: number,
+    stageId: number,
+    field: Field,
+    value: StageScoreInput[Field]
+  ) {
+    updateStageScoreInput(participantId, stageId, (input) => ({
+      ...input,
+      [field]: value,
+    }));
+  }
+
+  function adjustStageScoreCounter(
+    participantId: number,
+    stageId: number,
+    field: keyof Pick<
+      StageScoreInput,
+      "hits_a" | "hits_c" | "hits_d" | "paper_misses" | "steel_hits" | "steel_misses" | "no_shoots" | "procedurals" | "ftsa" | "extra_shots" | "extra_hits"
+    >,
+    delta: number
+  ) {
+    updateStageScoreInput(participantId, stageId, (input) => ({
+      ...input,
+      [field]: Math.max(Number(input[field] || 0) + delta, 0),
+    }));
+  }
+
+  function clearStageScoreInput(shooter: Shooter, stage: CompetitionStage) {
+    updateStageScoreInput(shooter.participant_id, stage.id, () => emptyStageScoreInput(stage));
+  }
+
+  async function saveDynamicStageScore(shooter: Shooter, stage: CompetitionStage) {
+    if (!resultsEnabled || stageScoreSavingId !== null) {
+      return;
+    }
+
+    const input = stageScoreInputs[shooter.participant_id]?.[stage.id] || emptyStageScoreInput(stage);
+    const preview = dynamicStagePreview(stage, input);
+
+    if (!preview.validTime) {
+      setMessage("Czas musi być większy od 0 ❌");
+      return;
+    }
+
+    const token = getAccessToken();
+
+    try {
+      setMessage("");
+      setStageScoreSavingId(shooter.participant_id);
+
+      const response = await fetch(
+        apiUrl(`/judge/competitions/${competitionId}/disciplines/${disciplineId}/stages/${stage.id}/scores`),
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            competitor_id: shooter.participant_id,
+            ...input,
+            custom_penalties: input.custom_penalties.filter((penalty) => penalty.name || penalty.count > 0),
+          }),
+        }
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.detail || "Nie udało się zapisać wyniku Stage ❌");
+        return;
+      }
+
+      setShooters((currentShooters) =>
+        currentShooters.map((currentShooter) =>
+          currentShooter.participant_id === shooter.participant_id
+            ? {
+                ...currentShooter,
+                points: data.final_classification?.find(
+                  (row: { competitor_id: number }) => row.competitor_id === shooter.participant_id
+                )?.stage_points || currentShooter.points,
+                stage_scores: {
+                  ...(currentShooter.stage_scores || {}),
+                  [String(stage.id)]: data.score,
+                },
+              }
+            : currentShooter
+        )
+      );
+      setStageScoreInputs((currentInputs) => ({
+        ...currentInputs,
+        [shooter.participant_id]: {
+          ...(currentInputs[shooter.participant_id] || {}),
+          [stage.id]: emptyStageScoreInput(stage, data.score),
+        },
+      }));
+      setMessage("Wynik Stage zapisany ✅");
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    } finally {
+      setStageScoreSavingId(null);
     }
   }
 
@@ -2084,6 +2389,306 @@ export default function JudgeDisciplinePage() {
           <p className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 text-gray-300">
             Nie masz dostępu do tej konkurencji albo zawody nie są już opublikowane.
           </p>
+        ) : isDynamicStageDiscipline ? (
+          <section className="rounded-xl border border-zinc-800 bg-zinc-900">
+            <div className="border-b border-zinc-800 px-4 py-4 sm:px-5">
+              <div className="flex flex-col gap-4">
+                <div>
+                  <h2 className="text-2xl font-bold text-white">
+                    {discipline.name}
+                  </h2>
+                  <p className="text-sm text-gray-400 sm:text-base">
+                    Karta IPSC / dynamiczna: czas, trafienia, kary i Hit Factor liczą się na bieżąco.
+                  </p>
+                </div>
+
+                {dynamicStages.length > 0 ? (
+                  <div className="flex gap-2 overflow-x-auto pb-1">
+                    {dynamicStages.map((stage) => (
+                      <button
+                        key={stage.id}
+                        type="button"
+                        onClick={() => setActiveStageId(stage.id)}
+                        className={`shrink-0 rounded-xl px-4 py-3 text-sm font-black transition ${
+                          activeStage?.id === stage.id
+                            ? "bg-green-600 text-white"
+                            : "bg-zinc-800 text-gray-300 hover:bg-zinc-700"
+                        }`}
+                      >
+                        Stage {stage.stage_number}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="rounded-xl border border-red-700 bg-red-950/40 p-4 font-bold text-red-100">
+                    Brak konfiguracji Stage. Organizator musi uzupełnić tory przed sędziowaniem.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {!activeStage ? (
+              <p className="px-4 py-5 text-gray-400">Brak Stage do punktowania.</p>
+            ) : shootersLoading ? (
+              <p className="px-4 py-5 text-gray-400">Ładowanie zawodników...</p>
+            ) : (
+              <div className="grid gap-4 p-4">
+                <div className="rounded-xl border border-zinc-700 bg-zinc-950 p-4 text-white">
+                  <p className="text-sm font-bold uppercase text-green-300">
+                    Stage {activeStage.stage_number}
+                  </p>
+                  <h3 className="mt-1 text-2xl font-black">{activeStage.name}</h3>
+                  <p className="mt-2 text-sm text-gray-300">
+                    Papier: {activeStage.paper_required_hits} trafień • Stal: {activeStage.steel_targets} • Min. strzały: {activeStage.min_rounds} • Max pkt: {activeStage.max_points}
+                  </p>
+                </div>
+
+                {sortedShooters.map((shooter) => {
+                  const input = stageScoreInputs[shooter.participant_id]?.[activeStage.id]
+                    || emptyStageScoreInput(activeStage, shooter.stage_scores?.[String(activeStage.id)] || null);
+                  const preview = dynamicStagePreview(activeStage, input);
+                  const savedScore = shooter.stage_scores?.[String(activeStage.id)];
+                  const counterFields: {
+                    field: keyof Pick<StageScoreInput, "hits_a" | "hits_c" | "hits_d" | "paper_misses" | "steel_hits" | "steel_misses" | "no_shoots" | "procedurals" | "ftsa" | "extra_shots" | "extra_hits">;
+                    label: string;
+                  }[] = [
+                    { field: "hits_a", label: "A" },
+                    { field: "hits_c", label: "C" },
+                    { field: "hits_d", label: "D" },
+                    { field: "paper_misses", label: "Miss papier" },
+                    { field: "steel_hits", label: "Stal hit" },
+                    { field: "steel_misses", label: "Stal miss" },
+                    { field: "no_shoots", label: "No Shoot" },
+                    { field: "procedurals", label: "Procedural" },
+                    { field: "ftsa", label: "FTSA" },
+                    { field: "extra_shots", label: "Extra Shot" },
+                    { field: "extra_hits", label: "Extra Hit" },
+                  ];
+
+                  return (
+                    <article
+                      id={`shooter-${shooter.participant_id}`}
+                      key={shooter.participant_id}
+                      className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4 sm:p-5"
+                    >
+                      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <Link
+                            href={`/profile/${shooter.participant_id}`}
+                            className="text-2xl font-black text-white transition hover:text-green-300"
+                          >
+                            {getShooterName(shooter)}
+                          </Link>
+                          <p className="mt-1 text-sm text-gray-400">
+                            Nr startowy: {shooter.participant_id} • Squad: {shooter.squad_group_number || "brak"} • {shooter.club || "brak klubu"}
+                          </p>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-center sm:w-72">
+                          <div className="rounded-xl border border-zinc-700 bg-zinc-900 p-3">
+                            <p className="text-xs font-bold uppercase text-gray-500">HF</p>
+                            <p className="text-2xl font-black text-green-300">{preview.hitFactor.toFixed(4)}</p>
+                          </div>
+                          <div className="rounded-xl border border-zinc-700 bg-zinc-900 p-3">
+                            <p className="text-xs font-bold uppercase text-gray-500">Stage pkt</p>
+                            <p className="text-2xl font-black text-white">{savedScore?.stage_points || "-"}</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid gap-3 md:grid-cols-3">
+                        <label className="block">
+                          <span className="mb-2 block font-black text-white">Czas [s]</span>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            inputMode="decimal"
+                            value={input.time_seconds}
+                            onChange={(event) => setStageScoreField(
+                              shooter.participant_id,
+                              activeStage.id,
+                              "time_seconds",
+                              event.target.value
+                            )}
+                            className={`w-full rounded-2xl border bg-zinc-900 px-5 py-5 text-3xl font-black text-white outline-none ${
+                              preview.validTime ? "border-green-600" : "border-red-600"
+                            }`}
+                          />
+                        </label>
+
+                        <label className="block">
+                          <span className="mb-2 block font-black text-white">Power Factor</span>
+                          <select
+                            value={input.power_factor}
+                            onChange={(event) => setStageScoreField(
+                              shooter.participant_id,
+                              activeStage.id,
+                              "power_factor",
+                              event.target.value === "major" ? "major" : "minor"
+                            )}
+                            className="w-full rounded-2xl border border-zinc-700 bg-zinc-900 px-5 py-5 text-2xl font-black text-white"
+                          >
+                            <option value="minor">Minor</option>
+                            <option value="major">Major</option>
+                          </select>
+                        </label>
+
+                        <label className="block">
+                          <span className="mb-2 block font-black text-white">Dywizja</span>
+                          <input
+                            value={input.division}
+                            onChange={(event) => setStageScoreField(
+                              shooter.participant_id,
+                              activeStage.id,
+                              "division",
+                              event.target.value
+                            )}
+                            className="w-full rounded-2xl border border-zinc-700 bg-zinc-900 px-5 py-5 text-xl font-black text-white"
+                          />
+                        </label>
+                      </div>
+
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                        {counterFields.map((counter) => (
+                          <div
+                            key={counter.field}
+                            className="grid grid-cols-[58px_1fr_58px] overflow-hidden rounded-2xl border border-zinc-700 bg-zinc-900"
+                          >
+                            <button
+                              type="button"
+                              onClick={() => adjustStageScoreCounter(shooter.participant_id, activeStage.id, counter.field, -1)}
+                              className="bg-zinc-800 text-3xl font-black text-white"
+                            >
+                              -
+                            </button>
+                            <label className="block">
+                              <span className="block px-2 pt-2 text-center text-xs font-black uppercase text-gray-500">
+                                {counter.label}
+                              </span>
+                              <input
+                                type="number"
+                                min="0"
+                                inputMode="numeric"
+                                value={input[counter.field]}
+                                onChange={(event) => setStageScoreField(
+                                  shooter.participant_id,
+                                  activeStage.id,
+                                  counter.field,
+                                  Math.max(Number(event.target.value || 0), 0) as never
+                                )}
+                                className="w-full bg-transparent px-2 pb-3 text-center text-3xl font-black text-white outline-none"
+                              />
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => adjustStageScoreCounter(shooter.participant_id, activeStage.id, counter.field, 1)}
+                              className="bg-green-700 text-3xl font-black text-white"
+                            >
+                              +
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                        {input.custom_penalties.map((penalty, penaltyIndex) => (
+                          <div key={penaltyIndex} className="rounded-2xl border border-zinc-700 bg-zinc-900 p-3">
+                            <input
+                              value={penalty.name}
+                              placeholder={`Kara własna ${penaltyIndex + 1}`}
+                              onChange={(event) => {
+                                const customPenalties = [...input.custom_penalties];
+                                customPenalties[penaltyIndex] = { ...penalty, name: event.target.value };
+                                setStageScoreField(shooter.participant_id, activeStage.id, "custom_penalties", customPenalties);
+                              }}
+                              className="mb-2 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 font-bold text-white"
+                            />
+                            <div className="grid grid-cols-[1fr_92px] gap-2">
+                              <input
+                                type="number"
+                                min="0"
+                                value={penalty.count}
+                                onChange={(event) => {
+                                  const customPenalties = [...input.custom_penalties];
+                                  customPenalties[penaltyIndex] = { ...penalty, count: Math.max(Number(event.target.value || 0), 0) };
+                                  setStageScoreField(shooter.participant_id, activeStage.id, "custom_penalties", customPenalties);
+                                }}
+                                className="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-xl font-black text-white"
+                              />
+                              <input
+                                type="number"
+                                step="0.01"
+                                value={penalty.value}
+                                onChange={(event) => {
+                                  const customPenalties = [...input.custom_penalties];
+                                  customPenalties[penaltyIndex] = { ...penalty, value: event.target.value };
+                                  setStageScoreField(shooter.participant_id, activeStage.id, "custom_penalties", customPenalties);
+                                }}
+                                className="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-xl font-black text-white"
+                              />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_auto] lg:items-center">
+                        <div className="grid gap-2 sm:grid-cols-4">
+                          <div className="rounded-xl bg-zinc-900 p-3">
+                            <p className="text-xs font-bold uppercase text-gray-500">Plus</p>
+                            <p className="text-xl font-black text-white">{preview.positivePoints.toFixed(2)}</p>
+                          </div>
+                          <div className="rounded-xl bg-zinc-900 p-3">
+                            <p className="text-xs font-bold uppercase text-gray-500">Kary</p>
+                            <p className="text-xl font-black text-red-300">{preview.penaltyPoints.toFixed(2)}</p>
+                          </div>
+                          <div className="rounded-xl bg-zinc-900 p-3">
+                            <p className="text-xs font-bold uppercase text-gray-500">Punkty</p>
+                            <p className="text-xl font-black text-white">{preview.finalPoints.toFixed(2)}</p>
+                          </div>
+                          <div className="rounded-xl bg-zinc-900 p-3">
+                            <p className="text-xs font-bold uppercase text-gray-500">HF</p>
+                            <p className="text-xl font-black text-green-300">{preview.hitFactor.toFixed(4)}</p>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col gap-2 sm:flex-row lg:flex-col">
+                          <button
+                            type="button"
+                            onClick={() => saveDynamicStageScore(shooter, activeStage)}
+                            disabled={!resultsEnabled || stageScoreSavingId === shooter.participant_id}
+                            className="rounded-2xl bg-green-700 px-5 py-4 text-lg font-black text-white disabled:bg-zinc-700"
+                          >
+                            {stageScoreSavingId === shooter.participant_id ? "Zapisuję..." : "Zapisz wynik"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => clearStageScoreInput(shooter, activeStage)}
+                            className="rounded-2xl bg-zinc-800 px-5 py-4 text-lg font-black text-white"
+                          >
+                            Wyczyść
+                          </button>
+                        </div>
+                      </div>
+
+                      {(preview.paperWarning || preview.steelWarning || !preview.validTime) && (
+                        <p className={`mt-4 rounded-xl border px-4 py-3 font-bold ${
+                          preview.paperOverflow || preview.steelOverflow || !preview.validTime
+                            ? "border-red-700 bg-red-950/50 text-red-100"
+                            : "border-yellow-700 bg-yellow-950/50 text-yellow-100"
+                        }`}>
+                          {!preview.validTime
+                            ? "Czas jest wymagany i musi być większy od 0."
+                            : preview.paperWarning
+                            ? `Suma papieru: ${preview.paperEntries}/${activeStage.paper_required_hits}. Sprawdź, czy zgadza się z konfiguracją Stage.`
+                            : `Suma stali: ${preview.steelEntries}/${activeStage.steel_targets}. Sprawdź, czy zgadza się z konfiguracją Stage.`}
+                        </p>
+                      )}
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </section>
         ) : isPracticalShotgunDiscipline ? (
           <section className="rounded-xl border border-zinc-800 bg-zinc-900">
             <div className="border-b border-zinc-800 px-4 py-4 sm:px-5">
@@ -2156,7 +2761,7 @@ export default function JudgeDisciplinePage() {
               <div className="grid gap-4 p-4">
                 {sortedShooters.map((shooter) => {
                   const highlighted = highlightedParticipantId === shooter.participant_id;
-                  const input = practicalShotgunInputs[shooter.participant_id] || { time: "0", hits: "" };
+                  const input = practicalShotgunInputs[shooter.participant_id] || { time: "", hits: "" };
                   const preview = practicalShotgunPreview(input);
                   const existingResult = parsePracticalShotgunResult(shooter.result_data || "");
                   const finalResult = preview.disqualified
