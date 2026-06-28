@@ -2064,7 +2064,7 @@ export default function JudgeDisciplinePage() {
   });
 
   return (
-    <main className="min-h-screen px-4 py-6 sm:px-6 lg:px-10">
+    <main className="min-h-screen overflow-x-hidden px-2 py-6 sm:px-6 lg:px-10">
       {activeSkeetGroup && activeSkeetTurn && (
         <div
           ref={skeetScreenRef}
@@ -2366,8 +2366,8 @@ export default function JudgeDisciplinePage() {
         </div>
       )}
 
-      <div className="mx-auto w-full max-w-5xl">
-        <div className="mb-6">
+      <div className="mx-auto w-full max-w-5xl min-w-0">
+        <div className="mb-6 min-w-0">
           <Link
             href={`/judge/${competitionId}`}
             className="mb-5 inline-flex bg-red-700 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-red-950/30 transition hover:bg-red-600 sm:px-5 sm:text-base"
@@ -2375,12 +2375,12 @@ export default function JudgeDisciplinePage() {
             Wróć do konkurencji
           </Link>
 
-          <h1 className="mb-2 text-3xl font-bold text-white sm:text-5xl">
+          <h1 className="mb-2 break-words text-3xl font-bold text-white sm:text-5xl">
             {discipline?.name || "Lista zawodników"}
           </h1>
 
           {competition && (
-            <p className="text-gray-400">
+            <p className="break-words text-gray-400">
               {competition.name} • {competition.date} • {competition.location}
             </p>
           )}
@@ -2401,26 +2401,26 @@ export default function JudgeDisciplinePage() {
             Nie masz dostępu do tej konkurencji albo zawody nie są już opublikowane.
           </p>
         ) : isDynamicStageDiscipline ? (
-          <section className="rounded-xl border border-zinc-800 bg-zinc-900">
-            <div className="border-b border-zinc-800 px-4 py-4 sm:px-5">
+          <section className="min-w-0 overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900">
+            <div className="border-b border-zinc-800 px-3 py-4 sm:px-5">
               <div className="flex flex-col gap-4">
-                <div>
-                  <h2 className="text-2xl font-bold text-white">
+                <div className="min-w-0">
+                  <h2 className="break-words text-2xl font-bold text-white">
                     {discipline.name}
                   </h2>
-                  <p className="text-sm text-gray-400 sm:text-base">
+                  <p className="break-words text-sm text-gray-400 sm:text-base">
                     Karta IPSC / dynamiczna: czas, trafienia, kary i Hit Factor liczą się na bieżąco.
                   </p>
                 </div>
 
                 {dynamicStages.length > 0 ? (
-                  <div className="flex gap-2 overflow-x-auto pb-1">
+                  <div className="flex max-w-full gap-2 overflow-x-auto pb-1">
                     {dynamicStages.map((stage) => (
                       <button
                         key={stage.id}
                         type="button"
                         onClick={() => setActiveStageId(stage.id)}
-                        className={`shrink-0 rounded-xl px-4 py-3 text-sm font-black transition ${
+                        className={`shrink-0 rounded-xl px-3 py-3 text-sm font-black transition sm:px-4 ${
                           activeStage?.id === stage.id
                             ? "bg-green-600 text-white"
                             : "bg-zinc-800 text-gray-300 hover:bg-zinc-700"
@@ -2443,13 +2443,13 @@ export default function JudgeDisciplinePage() {
             ) : shootersLoading ? (
               <p className="px-4 py-5 text-gray-400">Ładowanie zawodników...</p>
             ) : (
-              <div className="grid gap-4 p-4">
-                <div className="rounded-xl border border-zinc-700 bg-zinc-950 p-4 text-white">
+              <div className="grid min-w-0 gap-3 p-2 sm:gap-4 sm:p-4">
+                <div className="min-w-0 rounded-xl border border-zinc-700 bg-zinc-950 p-3 text-white sm:p-4">
                   <p className="text-sm font-bold uppercase text-green-300">
                     Stage {activeStage.stage_number}
                   </p>
-                  <h3 className="mt-1 text-2xl font-black">{activeStage.name}</h3>
-                  <p className="mt-2 text-sm text-gray-300">
+                  <h3 className="mt-1 break-words text-2xl font-black">{activeStage.name}</h3>
+                  <p className="mt-2 break-words text-sm leading-6 text-gray-300">
                     Papier: {activeStage.paper_required_hits} trafień • Stal: {activeStage.steel_targets} • Min. strzały: {activeStage.min_rounds} • Max pkt: {activeStage.max_points}
                   </p>
                 </div>
@@ -2480,34 +2480,34 @@ export default function JudgeDisciplinePage() {
                     <article
                       id={`shooter-${shooter.participant_id}`}
                       key={shooter.participant_id}
-                      className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4 sm:p-5"
+                      className="min-w-0 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 p-3 sm:p-5"
                     >
                       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                        <div>
+                        <div className="min-w-0">
                           <Link
                             href={`/profile/${shooter.participant_id}`}
-                            className="text-2xl font-black text-white transition hover:text-green-300"
+                            className="block break-words text-[clamp(1.45rem,7vw,1.75rem)] font-black leading-tight text-white transition hover:text-green-300 sm:text-2xl"
                           >
                             {getShooterName(shooter)}
                           </Link>
-                          <p className="mt-1 text-sm text-gray-400">
+                          <p className="mt-1 break-words text-sm leading-6 text-gray-400">
                             Nr startowy: {shooter.participant_id} • Squad: {shooter.squad_group_number || "brak"} • {shooter.club || "brak klubu"}
                           </p>
                         </div>
-                        <div className="grid grid-cols-2 gap-2 text-center sm:w-72">
+                        <div className="grid min-w-0 grid-cols-1 gap-2 text-center min-[380px]:grid-cols-2 sm:w-72">
                           <div className="rounded-xl border border-zinc-700 bg-zinc-900 p-3">
                             <p className="text-xs font-bold uppercase text-gray-500">HF</p>
-                            <p className="text-2xl font-black text-green-300">{preview.hitFactor.toFixed(4)}</p>
+                            <p className="break-words text-2xl font-black text-green-300">{preview.hitFactor.toFixed(4)}</p>
                           </div>
                           <div className="rounded-xl border border-zinc-700 bg-zinc-900 p-3">
                             <p className="text-xs font-bold uppercase text-gray-500">Stage pkt</p>
-                            <p className="text-2xl font-black text-white">{savedScore?.stage_points || "-"}</p>
+                            <p className="break-words text-2xl font-black text-white">{savedScore?.stage_points || "-"}</p>
                           </div>
                         </div>
                       </div>
 
-                      <div className="grid gap-3 md:grid-cols-3">
-                        <label className="block">
+                      <div className="grid min-w-0 gap-3 md:grid-cols-3">
+                        <label className="block min-w-0">
                           <span className="mb-2 block font-black text-white">Czas [s]</span>
                           <input
                             type="number"
@@ -2521,32 +2521,32 @@ export default function JudgeDisciplinePage() {
                               "time_seconds",
                               event.target.value
                             )}
-                            className={`w-full rounded-2xl border bg-zinc-900 px-5 py-5 text-3xl font-black text-white outline-none ${
+                            className={`w-full min-w-0 rounded-2xl border bg-zinc-900 px-4 py-5 text-2xl font-black text-white outline-none sm:px-5 sm:text-3xl ${
                               preview.validTime ? "border-green-600" : "border-red-600"
                             }`}
                           />
                         </label>
 
-                        <div className="rounded-2xl border border-zinc-700 bg-zinc-900 px-5 py-5">
+                        <div className="min-w-0 rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-5 sm:px-5">
                           <p className="mb-2 font-black text-white">Power Factor</p>
-                          <p className="text-2xl font-black text-green-300">
+                          <p className="break-words text-2xl font-black text-green-300">
                             {input.power_factor === "major" ? "Major" : "Minor"}
                           </p>
                         </div>
 
-                        <div className="rounded-2xl border border-zinc-700 bg-zinc-900 px-5 py-5">
+                        <div className="min-w-0 rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-5 sm:px-5">
                           <p className="mb-2 font-black text-white">Dywizja</p>
-                          <p className="text-xl font-black text-white">
+                          <p className="break-words text-xl font-black text-white">
                             {input.division || "Brak w zgłoszeniu"}
                           </p>
                         </div>
                       </div>
 
-                      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                      <div className="mt-4 grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                         {counterFields.map((counter) => (
                           <div
                             key={counter.field}
-                            className="grid grid-cols-[58px_1fr_58px] overflow-hidden rounded-2xl border border-zinc-700 bg-zinc-900"
+                            className="grid min-w-0 grid-cols-[48px_minmax(0,1fr)_48px] overflow-hidden rounded-2xl border border-zinc-700 bg-zinc-900 sm:grid-cols-[58px_minmax(0,1fr)_58px]"
                           >
                             <button
                               type="button"
@@ -2555,7 +2555,7 @@ export default function JudgeDisciplinePage() {
                             >
                               -
                             </button>
-                            <label className="block">
+                            <label className="block min-w-0">
                               <span className="block px-2 pt-2 text-center text-xs font-black uppercase text-gray-500">
                                 {counter.label}
                               </span>
@@ -2570,7 +2570,7 @@ export default function JudgeDisciplinePage() {
                                   counter.field,
                                   Math.max(Number(event.target.value || 0), 0) as never
                                 )}
-                                className="w-full bg-transparent px-2 pb-3 text-center text-3xl font-black text-white outline-none"
+                                className="w-full min-w-0 bg-transparent px-2 pb-3 text-center text-2xl font-black text-white outline-none sm:text-3xl"
                               />
                             </label>
                             <button
@@ -2584,9 +2584,9 @@ export default function JudgeDisciplinePage() {
                         ))}
                       </div>
 
-                      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                      <div className="mt-4 grid min-w-0 gap-3 sm:grid-cols-3">
                         {input.custom_penalties.map((penalty, penaltyIndex) => (
-                          <div key={penaltyIndex} className="rounded-2xl border border-zinc-700 bg-zinc-900 p-3">
+                          <div key={penaltyIndex} className="min-w-0 rounded-2xl border border-zinc-700 bg-zinc-900 p-3">
                             <input
                               value={penalty.name}
                               placeholder={`Kara własna ${penaltyIndex + 1}`}
@@ -2595,9 +2595,9 @@ export default function JudgeDisciplinePage() {
                                 customPenalties[penaltyIndex] = { ...penalty, name: event.target.value };
                                 setStageScoreField(shooter.participant_id, activeStage.id, "custom_penalties", customPenalties);
                               }}
-                              className="mb-2 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 font-bold text-white"
+                              className="mb-2 w-full min-w-0 rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 font-bold text-white"
                             />
-                            <div className="grid grid-cols-[1fr_92px] gap-2">
+                            <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_78px] gap-2 sm:grid-cols-[minmax(0,1fr)_92px]">
                               <input
                                 type="number"
                                 min="0"
@@ -2607,7 +2607,7 @@ export default function JudgeDisciplinePage() {
                                   customPenalties[penaltyIndex] = { ...penalty, count: Math.max(Number(event.target.value || 0), 0) };
                                   setStageScoreField(shooter.participant_id, activeStage.id, "custom_penalties", customPenalties);
                                 }}
-                                className="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-xl font-black text-white"
+                                className="min-w-0 rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-xl font-black text-white"
                               />
                               <input
                                 type="number"
@@ -2618,46 +2618,46 @@ export default function JudgeDisciplinePage() {
                                   customPenalties[penaltyIndex] = { ...penalty, value: event.target.value };
                                   setStageScoreField(shooter.participant_id, activeStage.id, "custom_penalties", customPenalties);
                                 }}
-                                className="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-xl font-black text-white"
+                                className="min-w-0 rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-xl font-black text-white"
                               />
                             </div>
                           </div>
                         ))}
                       </div>
 
-                      <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_auto] lg:items-center">
-                        <div className="grid gap-2 sm:grid-cols-4">
+                      <div className="mt-4 grid min-w-0 gap-3 lg:grid-cols-[1fr_auto] lg:items-center">
+                        <div className="grid min-w-0 gap-2 min-[420px]:grid-cols-2 sm:grid-cols-4">
                           <div className="rounded-xl bg-zinc-900 p-3">
                             <p className="text-xs font-bold uppercase text-gray-500">Plus</p>
-                            <p className="text-xl font-black text-white">{preview.positivePoints.toFixed(2)}</p>
+                            <p className="break-words text-xl font-black text-white">{preview.positivePoints.toFixed(2)}</p>
                           </div>
                           <div className="rounded-xl bg-zinc-900 p-3">
                             <p className="text-xs font-bold uppercase text-gray-500">Kary</p>
-                            <p className="text-xl font-black text-red-300">{preview.penaltyPoints.toFixed(2)}</p>
+                            <p className="break-words text-xl font-black text-red-300">{preview.penaltyPoints.toFixed(2)}</p>
                           </div>
                           <div className="rounded-xl bg-zinc-900 p-3">
                             <p className="text-xs font-bold uppercase text-gray-500">Punkty</p>
-                            <p className="text-xl font-black text-white">{preview.finalPoints.toFixed(2)}</p>
+                            <p className="break-words text-xl font-black text-white">{preview.finalPoints.toFixed(2)}</p>
                           </div>
                           <div className="rounded-xl bg-zinc-900 p-3">
                             <p className="text-xs font-bold uppercase text-gray-500">HF</p>
-                            <p className="text-xl font-black text-green-300">{preview.hitFactor.toFixed(4)}</p>
+                            <p className="break-words text-xl font-black text-green-300">{preview.hitFactor.toFixed(4)}</p>
                           </div>
                         </div>
 
-                        <div className="flex flex-col gap-2 sm:flex-row lg:flex-col">
+                        <div className="flex min-w-0 flex-col gap-2 sm:flex-row lg:flex-col">
                           <button
                             type="button"
                             onClick={() => saveDynamicStageScore(shooter, activeStage)}
                             disabled={!resultsEnabled || stageScoreSavingId === shooter.participant_id}
-                            className="rounded-2xl bg-green-700 px-5 py-4 text-lg font-black text-white disabled:bg-zinc-700"
+                            className="rounded-2xl bg-green-700 px-4 py-4 text-base font-black text-white disabled:bg-zinc-700 sm:px-5 sm:text-lg"
                           >
                             {stageScoreSavingId === shooter.participant_id ? "Zapisuję..." : "Zapisz wynik"}
                           </button>
                           <button
                             type="button"
                             onClick={() => clearStageScoreInput(shooter, activeStage)}
-                            className="rounded-2xl bg-zinc-800 px-5 py-4 text-lg font-black text-white"
+                            className="rounded-2xl bg-zinc-800 px-4 py-4 text-base font-black text-white sm:px-5 sm:text-lg"
                           >
                             Wyczyść
                           </button>
@@ -2665,7 +2665,7 @@ export default function JudgeDisciplinePage() {
                       </div>
 
                       {(preview.paperWarning || preview.steelWarning || !preview.validTime) && (
-                        <p className={`mt-4 rounded-xl border px-4 py-3 font-bold ${
+                        <p className={`mt-4 break-words rounded-xl border px-4 py-3 font-bold ${
                           preview.paperOverflow || preview.steelOverflow || !preview.validTime
                             ? "border-red-700 bg-red-950/50 text-red-100"
                             : "border-yellow-700 bg-yellow-950/50 text-yellow-100"
