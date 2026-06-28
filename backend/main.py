@@ -4297,13 +4297,11 @@ def normalize_custom_penalties(custom_penalties):
 
     for penalty in custom_penalties or []:
         name = (penalty.name or "").strip()
-        value = normalize_penalty_value(penalty.value, "kara własna")
-
-        if not name and parse_points(value) == 0:
-            continue
 
         if not name:
-            raise HTTPException(status_code=400, detail="Podaj nazwę kary własnej")
+            continue
+
+        value = normalize_penalty_value(penalty.value, "kara własna")
 
         normalized.append({
             "name": name,

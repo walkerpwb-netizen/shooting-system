@@ -1364,6 +1364,9 @@ export default function OrganizerPage() {
                       ...stage,
                       stage_number: stageIndex + 1,
                       min_rounds: stage.min_rounds || stageComputedMinRounds(stage),
+                      custom_penalties: stage.custom_penalties.filter((penalty) =>
+                        hasText(penalty.name)
+                      ),
                     }))
                   : [],
               }),
@@ -1371,7 +1374,12 @@ export default function OrganizerPage() {
           );
 
           if (!disciplineResponse.ok) {
-            setMessage("Zawody zapisane, ale nie udało się zapisać konkurencji ❌");
+            const disciplineData = await disciplineResponse.json().catch(() => null);
+            setMessage(
+              disciplineData?.detail
+                ? `Zawody zapisane, ale nie udało się zapisać konkurencji: ${disciplineData.detail} ❌`
+                : "Zawody zapisane, ale nie udało się zapisać konkurencji ❌"
+            );
             return;
           }
         }
