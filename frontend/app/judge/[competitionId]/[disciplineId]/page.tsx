@@ -363,11 +363,15 @@ function practicalShotgunInputsFromShooters(shooters: Shooter[]) {
   return shooters.reduce<Record<number, PracticalShotgunInput>>((inputs, shooter) => {
     const parsedResult = parsePracticalShotgunResult(shooter.result_data || "");
     inputs[shooter.participant_id] = {
-      time: parsedResult?.time || "",
+      time: parsedResult?.time || "0",
       hits: parsedResult?.hits || "",
     };
     return inputs;
   }, {});
+}
+
+function hasPracticalShotgunResult(shooter: Shooter) {
+  return Boolean(parsePracticalShotgunResult(shooter.result_data || "") || shooter.points);
 }
 
 function sortTrapShooters(groupShooters: Shooter[]) {
@@ -1058,6 +1062,15 @@ export default function JudgeDisciplinePage() {
     });
 
     return visibleShooters.sort((firstShooter, secondShooter) => {
+      if (isPracticalShotgunDiscipline) {
+        const firstHasResult = hasPracticalShotgunResult(firstShooter);
+        const secondHasResult = hasPracticalShotgunResult(secondShooter);
+
+        if (firstHasResult !== secondHasResult) {
+          return firstHasResult ? 1 : -1;
+        }
+      }
+
       const firstValue = getSortValue(firstShooter, sortField);
       const secondValue = getSortValue(secondShooter, sortField);
       const sortResult = firstValue.localeCompare(
@@ -1073,7 +1086,7 @@ export default function JudgeDisciplinePage() {
         ? sortResult
         : -sortResult;
     });
-  }, [shooterFilter, shooters, sortDirection, sortField]);
+  }, [isPracticalShotgunDiscipline, shooterFilter, shooters, sortDirection, sortField]);
 
   const resultsEnabled = competition?.status === "started";
 
@@ -1214,7 +1227,7 @@ export default function JudgeDisciplinePage() {
     setPracticalShotgunInputs((currentInputs) => ({
       ...currentInputs,
       [participantId]: {
-        time: currentInputs[participantId]?.time || "",
+        time: currentInputs[participantId]?.time || "0",
         hits: currentInputs[participantId]?.hits || "",
         [field]: value,
       },
@@ -1259,7 +1272,7 @@ export default function JudgeDisciplinePage() {
       return;
     }
 
-    const safeInput = input || { time: "", hits: "" };
+    const safeInput = input || { time: "0", hits: "" };
     const token = getAccessToken();
     const resultData = JSON.stringify({
       discipline: PRACTICAL_SHOTGUN_DISCIPLINE_TYPE,
@@ -2143,7 +2156,7 @@ export default function JudgeDisciplinePage() {
               <div className="grid gap-4 p-4">
                 {sortedShooters.map((shooter) => {
                   const highlighted = highlightedParticipantId === shooter.participant_id;
-                  const input = practicalShotgunInputs[shooter.participant_id] || { time: "", hits: "" };
+                  const input = practicalShotgunInputs[shooter.participant_id] || { time: "0", hits: "" };
                   const preview = practicalShotgunPreview(input);
                   const existingResult = parsePracticalShotgunResult(shooter.result_data || "");
                   const finalResult = preview.disqualified
@@ -2191,10 +2204,10 @@ export default function JudgeDisciplinePage() {
                           </span>
                           <input
                             type="number"
-                            min="0.01"
+                            min="0"
                             step="0.01"
                             inputMode="decimal"
-                            placeholder="18.42"
+                            placeholder="0"
                             value={input.time}
                             onChange={(event) =>
                               updatePracticalShotgunInput(shooter.participant_id, "time", event.target.value)
