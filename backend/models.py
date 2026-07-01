@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Index, Integer, String, ForeignKey, Text, UniqueConstraint
+from sqlalchemy import Column, Float, Index, Integer, String, ForeignKey, Text, UniqueConstraint
 
 from database import Base
 
@@ -346,6 +346,16 @@ class Competition(Base):
     location = Column(
         String,
         nullable=False,
+    )
+
+    latitude = Column(
+        Float,
+        nullable=True,
+    )
+
+    longitude = Column(
+        Float,
+        nullable=True,
     )
 
     entry_fee = Column(

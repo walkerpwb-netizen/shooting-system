@@ -9,6 +9,8 @@ type Competition = {
   name: string;
   date: string;
   location: string;
+  latitude: number | null;
+  longitude: number | null;
   organizer_full_name: string;
   organizer_logo: string;
   sponsors: string;
@@ -139,6 +141,7 @@ export default async function CompetitionsPage({
           competitions={visibleCompetitions}
           emptyMessage={activeTab.empty}
           dateSortDirection={activeTab.key === "finished" ? "desc" : "asc"}
+          mapHref={`/competitions/map?status=${activeTab.key}`}
         />
       </div>
     </main>

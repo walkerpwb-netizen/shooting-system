@@ -215,6 +215,8 @@ class CompetitionData(BaseModel):
     name: str
     date: str
     location: str
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
     entry_fee: str = ""
     organizer_full_name: str = ""
     organizer_logo: str = ""
@@ -223,6 +225,29 @@ class CompetitionData(BaseModel):
     participant_limit: Optional[int] = None
     pzss_license_calendar: bool = False
     requires_licensed_judge: Optional[bool] = None
+
+
+def validate_competition_coordinates(data: CompetitionData) -> None:
+    has_latitude = data.latitude is not None
+    has_longitude = data.longitude is not None
+
+    if has_latitude != has_longitude:
+        raise HTTPException(
+            status_code=400,
+            detail="Podaj pełną lokalizację mapy albo usuń zaznaczenie"
+        )
+
+    if data.latitude is not None and not -90 <= data.latitude <= 90:
+        raise HTTPException(
+            status_code=400,
+            detail="Szerokość geograficzna musi być w zakresie od -90 do 90"
+        )
+
+    if data.longitude is not None and not -180 <= data.longitude <= 180:
+        raise HTTPException(
+            status_code=400,
+            detail="Długość geograficzna musi być w zakresie od -180 do 180"
+        )
 
 
 class DisciplineData(BaseModel):
@@ -6126,6 +6151,8 @@ def competition_list_row(
         "name": competition.name,
         "date": competition.date,
         "location": competition.location,
+        "latitude": competition.latitude,
+        "longitude": competition.longitude,
         "entry_fee": competition.entry_fee or "",
         "organizer_full_name": competition.organizer_full_name or "",
         "organizer_logo": "",
@@ -7418,6 +7445,8 @@ def get_competition(
         "name": competition.name,
         "date": competition.date,
         "location": competition.location,
+        "latitude": competition.latitude,
+        "longitude": competition.longitude,
         "entry_fee": competition.entry_fee or "",
         "organizer_full_name": competition.organizer_full_name or "",
         "organizer_logo": competition.organizer_logo or "",
@@ -9351,6 +9380,8 @@ def create_competition(
     user: User = Depends(get_current_organizer),
     db=Depends(get_db),
 ):
+    validate_competition_coordinates(data)
+
     if data.participant_limit is not None and data.participant_limit <= 0:
         raise HTTPException(
             status_code=400,
@@ -9385,6 +9416,8 @@ def create_competition(
         name=data.name,
         date=data.date,
         location=data.location,
+        latitude=data.latitude,
+        longitude=data.longitude,
         entry_fee=data.entry_fee,
         organizer_full_name=organizer_display_name(user),
         organizer_logo=data.organizer_logo,
@@ -9502,6 +9535,8 @@ def organizer_competition_detail_row(competition: Competition, db):
         "name": competition.name,
         "date": competition.date,
         "location": competition.location,
+        "latitude": competition.latitude,
+        "longitude": competition.longitude,
         "entry_fee": competition.entry_fee or "",
         "organizer_full_name": competition.organizer_full_name or "",
         "organizer_logo": competition.organizer_logo or "",
@@ -13009,6 +13044,7 @@ def update_competition(
     db=Depends(get_db),
 ):
     auto_complete_started_competitions(db)
+    validate_competition_coordinates(data)
 
     competition = (
         db.query(Competition)
@@ -13055,6 +13091,8 @@ def update_competition(
     competition.name = data.name
     competition.date = data.date
     competition.location = data.location
+    competition.latitude = data.latitude
+    competition.longitude = data.longitude
     competition.entry_fee = data.entry_fee
     if normalize_text(user.organizer_name or ""):
         competition.organizer_full_name = organizer_display_name(user)

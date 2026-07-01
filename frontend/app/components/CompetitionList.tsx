@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 
 import CompetitionCard from "./CompetitionCard";
 import { apiUrl } from "@/lib/api";
@@ -11,6 +12,8 @@ export type CompetitionListItem = {
   name: string;
   date: string;
   location: string;
+  latitude: number | null;
+  longitude: number | null;
   organizer_full_name: string;
   organizer_logo: string;
   sponsors: string;
@@ -28,6 +31,7 @@ type CompetitionListProps = {
   competitions: CompetitionListItem[];
   emptyMessage: string;
   dateSortDirection?: DateSortDirection;
+  mapHref?: string;
 };
 
 function parseCompetitionTime(dateValue: string) {
@@ -63,6 +67,7 @@ export default function CompetitionList({
   competitions,
   emptyMessage,
   dateSortDirection = "asc",
+  mapHref = "/competitions/map",
 }: CompetitionListProps) {
   const [nameFilter, setNameFilter] = useState("");
   const [entryTypes, setEntryTypes] = useState<Record<string, string>>({});
@@ -122,12 +127,35 @@ export default function CompetitionList({
   return (
     <section className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
       <div className="flex flex-col gap-3 border-b border-zinc-200 p-4 dark:border-zinc-800 md:flex-row md:items-center md:justify-between">
-        <input
-          value={nameFilter}
-          onChange={(event) => setNameFilter(event.target.value)}
-          placeholder="Filtruj po nazwie zawodów"
-          className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 placeholder:text-zinc-500 focus:border-green-700 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder:text-gray-500 md:w-80"
-        />
+        <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center md:w-auto">
+          <input
+            value={nameFilter}
+            onChange={(event) => setNameFilter(event.target.value)}
+            placeholder="Filtruj po nazwie zawodów"
+            className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 placeholder:text-zinc-500 focus:border-green-700 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder:text-gray-500 sm:w-80"
+          />
+
+          <Link
+            href={mapHref}
+            className="ui-button inline-flex w-full items-center justify-center gap-2 rounded-lg bg-green-800 px-4 py-2 text-sm font-bold text-white transition hover:bg-green-700 sm:w-auto"
+          >
+            <svg
+              aria-hidden="true"
+              className="h-4 w-4 shrink-0"
+              fill="none"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+              viewBox="0 0 24 24"
+            >
+              <path d="M9 18l-6 3V6l6-3 6 3 6-3v15l-6 3-6-3z" />
+              <path d="M9 3v15" />
+              <path d="M15 6v15" />
+            </svg>
+            Szukaj zawodów na mapie
+          </Link>
+        </div>
 
         <span className="ui-button w-full rounded-lg bg-zinc-100 px-4 py-2 text-sm font-bold text-zinc-800 dark:bg-zinc-800 dark:text-gray-200 md:w-auto">
           Data {dateSortDirection === "asc" ? "↑" : "↓"}
