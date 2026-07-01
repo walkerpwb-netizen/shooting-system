@@ -20,6 +20,11 @@ type CompetitionSearchMapProps = {
 };
 
 const defaultCenter: [number, number] = [52.0692, 19.4803];
+const polandBounds: L.LatLngBoundsExpression = [
+  [48.5, 13.5],
+  [55.2, 24.6],
+];
+const minPolandZoom = 6;
 
 function hasCoordinates(competition: CompetitionMapItem) {
   return (
@@ -55,7 +60,7 @@ function FitCompetitionBounds({
 
   useEffect(() => {
     if (competitions.length === 0) {
-      map.setView(defaultCenter, 6);
+      map.setView(defaultCenter, minPolandZoom);
       return;
     }
 
@@ -102,7 +107,10 @@ export default function CompetitionSearchMap({
     <div className="relative h-[70vh] min-h-[520px] overflow-hidden rounded-xl border border-zinc-200 bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900">
       <MapContainer
         center={defaultCenter}
-        zoom={6}
+        zoom={minPolandZoom}
+        minZoom={minPolandZoom}
+        maxBounds={polandBounds}
+        maxBoundsViscosity={1}
         scrollWheelZoom
         className="h-full w-full"
       >

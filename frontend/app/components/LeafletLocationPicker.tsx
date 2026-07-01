@@ -16,6 +16,11 @@ type LeafletLocationPickerProps = {
 };
 
 const defaultCenter: [number, number] = [52.0692, 19.4803];
+const polandBounds: L.LatLngBoundsExpression = [
+  [48.5, 13.5],
+  [55.2, 24.6],
+];
+const minPolandZoom = 6;
 
 function createPinIcon() {
   return L.divIcon({
@@ -85,7 +90,10 @@ export default function LeafletLocationPicker({
   return (
     <MapContainer
       center={hasLocation ? [latitude, longitude] : defaultCenter}
-      zoom={hasLocation ? 13 : 6}
+      zoom={hasLocation ? 13 : minPolandZoom}
+      minZoom={minPolandZoom}
+      maxBounds={polandBounds}
+      maxBoundsViscosity={1}
       scrollWheelZoom
       className="h-full w-full"
     >
