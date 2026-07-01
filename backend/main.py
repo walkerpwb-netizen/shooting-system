@@ -293,6 +293,10 @@ class CompetitionStageData(BaseModel):
     plates: int = 0
     mini_plates: int = 0
     steel_no_shoots: int = 0
+    popper_points: int = 5
+    mini_popper_points: int = 5
+    plate_points: int = 5
+    mini_plate_points: int = 5
     penalty_miss: str = "-10"
     penalty_no_shoot: str = "-10"
     penalty_procedural: str = "-10"
@@ -319,6 +323,14 @@ class StageScoreData(BaseModel):
     paper_misses: int = 0
     steel_hits: int = 0
     steel_misses: int = 0
+    popper_hits: int = 0
+    popper_misses: int = 0
+    mini_popper_hits: int = 0
+    mini_popper_misses: int = 0
+    plate_hits: int = 0
+    plate_misses: int = 0
+    mini_plate_hits: int = 0
+    mini_plate_misses: int = 0
     no_shoots: int = 0
     procedurals: int = 0
     ftsa: int = 0
@@ -4386,6 +4398,19 @@ def stage_max_points_from_counts(paper_targets: int, steel_targets: int):
     return paper_targets * 2 * 5 + steel_targets * 5
 
 
+def stage_steel_points_from_counts(stage):
+    return (
+        int(getattr(stage, "poppers", 0) or 0) * int(getattr(stage, "popper_points", 5) or 0)
+        + int(getattr(stage, "mini_poppers", 0) or 0) * int(getattr(stage, "mini_popper_points", 5) or 0)
+        + int(getattr(stage, "plates", 0) or 0) * int(getattr(stage, "plate_points", 5) or 0)
+        + int(getattr(stage, "mini_plates", 0) or 0) * int(getattr(stage, "mini_plate_points", 5) or 0)
+    )
+
+
+def stage_max_points_from_values(paper_targets: int, steel_points: int):
+    return paper_targets * 2 * 5 + steel_points
+
+
 def normalize_custom_penalties(custom_penalties):
     normalized = []
 
@@ -4446,6 +4471,16 @@ def normalize_stage_payloads(stages: list[CompetitionStageData]):
             field: parse_non_negative_int(getattr(stage, field), label)
             for field, label in count_fields.items()
         }
+        point_fields = {
+            "popper_points": "punkty za popper",
+            "mini_popper_points": "punkty za mini popper",
+            "plate_points": "punkty za plate",
+            "mini_plate_points": "punkty za mini plate",
+        }
+        steel_points = {
+            field: parse_non_negative_int(getattr(stage, field), label)
+            for field, label in point_fields.items()
+        }
         paper_targets = (
             counts["paper_targets"]
             + counts["mini_paper_targets"]
@@ -4465,6 +4500,12 @@ def normalize_stage_payloads(stages: list[CompetitionStageData]):
             raise HTTPException(status_code=400, detail=f"Stage {stage_number} musi mieć przynajmniej jeden cel punktowany")
 
         computed_min_rounds = paper_targets * 2 + steel_targets
+        computed_steel_points = (
+            counts["poppers"] * steel_points["popper_points"]
+            + counts["mini_poppers"] * steel_points["mini_popper_points"]
+            + counts["plates"] * steel_points["plate_points"]
+            + counts["mini_plates"] * steel_points["mini_plate_points"]
+        )
         min_rounds = parse_non_negative_int(stage.min_rounds, "minimalna liczba strzałów")
 
         if min_rounds <= 0:
@@ -4477,8 +4518,9 @@ def normalize_stage_payloads(stages: list[CompetitionStageData]):
             "briefing": stage.briefing or "",
             "notes": stage.notes or "",
             "min_rounds": min_rounds,
-            "max_points": stage_max_points_from_counts(paper_targets, steel_targets),
+            "max_points": stage_max_points_from_values(paper_targets, computed_steel_points),
             **counts,
+            **steel_points,
             "penalty_miss": normalize_penalty_value(stage.penalty_miss, "Miss"),
             "penalty_no_shoot": normalize_penalty_value(stage.penalty_no_shoot, "No Shoot"),
             "penalty_procedural": normalize_penalty_value(stage.penalty_procedural, "Procedural"),
@@ -4578,8 +4620,13 @@ def competition_stage_payload(stage: CompetitionStage):
         "plates": int(stage.plates or 0),
         "mini_plates": int(stage.mini_plates or 0),
         "steel_no_shoots": int(stage.steel_no_shoots or 0),
+        "popper_points": int(getattr(stage, "popper_points", 5) or 0),
+        "mini_popper_points": int(getattr(stage, "mini_popper_points", 5) or 0),
+        "plate_points": int(getattr(stage, "plate_points", 5) or 0),
+        "mini_plate_points": int(getattr(stage, "mini_plate_points", 5) or 0),
         "paper_required_hits": stage_required_paper_hits(stage),
         "steel_targets": stage_steel_targets_count(stage),
+        "steel_points": stage_steel_points_from_counts(stage),
         "penalty_miss": stage.penalty_miss,
         "penalty_no_shoot": stage.penalty_no_shoot,
         "penalty_procedural": stage.penalty_procedural,
@@ -4610,6 +4657,14 @@ def stage_score_payload(score: StageScore | None):
         "paper_misses": score.paper_misses,
         "steel_hits": score.steel_hits,
         "steel_misses": score.steel_misses,
+        "popper_hits": getattr(score, "popper_hits", 0) or 0,
+        "popper_misses": getattr(score, "popper_misses", 0) or 0,
+        "mini_popper_hits": getattr(score, "mini_popper_hits", 0) or 0,
+        "mini_popper_misses": getattr(score, "mini_popper_misses", 0) or 0,
+        "plate_hits": getattr(score, "plate_hits", 0) or 0,
+        "plate_misses": getattr(score, "plate_misses", 0) or 0,
+        "mini_plate_hits": getattr(score, "mini_plate_hits", 0) or 0,
+        "mini_plate_misses": getattr(score, "mini_plate_misses", 0) or 0,
         "no_shoots": score.no_shoots,
         "procedurals": score.procedurals,
         "ftsa": score.ftsa,
@@ -4639,6 +4694,14 @@ def calculate_stage_score(stage: CompetitionStage, data: StageScoreData):
         ("paper_misses", data.paper_misses),
         ("steel_hits", data.steel_hits),
         ("steel_misses", data.steel_misses),
+        ("popper_hits", data.popper_hits),
+        ("popper_misses", data.popper_misses),
+        ("mini_popper_hits", data.mini_popper_hits),
+        ("mini_popper_misses", data.mini_popper_misses),
+        ("plate_hits", data.plate_hits),
+        ("plate_misses", data.plate_misses),
+        ("mini_plate_hits", data.mini_plate_hits),
+        ("mini_plate_misses", data.mini_plate_misses),
         ("no_shoots", data.no_shoots),
         ("procedurals", data.procedurals),
         ("ftsa", data.ftsa),
@@ -4657,14 +4720,37 @@ def calculate_stage_score(stage: CompetitionStage, data: StageScoreData):
 
     c_points = 4 if power_factor == "major" else 3
     d_points = 2 if power_factor == "major" else 1
+    typed_steel_hits = (
+        counts["popper_hits"]
+        + counts["mini_popper_hits"]
+        + counts["plate_hits"]
+        + counts["mini_plate_hits"]
+    )
+    typed_steel_misses = (
+        counts["popper_misses"]
+        + counts["mini_popper_misses"]
+        + counts["plate_misses"]
+        + counts["mini_plate_misses"]
+    )
+    use_typed_steel = typed_steel_hits + typed_steel_misses > 0
+    steel_hits = typed_steel_hits if use_typed_steel else counts["steel_hits"]
+    steel_misses = typed_steel_misses if use_typed_steel else counts["steel_misses"]
+    steel_positive_points = (
+        Decimal(counts["popper_hits"] * int(getattr(stage, "popper_points", 5) or 0))
+        + Decimal(counts["mini_popper_hits"] * int(getattr(stage, "mini_popper_points", 5) or 0))
+        + Decimal(counts["plate_hits"] * int(getattr(stage, "plate_points", 5) or 0))
+        + Decimal(counts["mini_plate_hits"] * int(getattr(stage, "mini_plate_points", 5) or 0))
+        if use_typed_steel
+        else Decimal(counts["steel_hits"] * 5)
+    )
     positive_points = (
         Decimal(counts["hits_a"] * 5)
         + Decimal(counts["hits_c"] * c_points)
         + Decimal(counts["hits_d"] * d_points)
-        + Decimal(counts["steel_hits"] * 5)
+        + steel_positive_points
     )
     penalty_points = (
-        Decimal(counts["paper_misses"] + counts["steel_misses"]) * parse_points(stage.penalty_miss)
+        Decimal(counts["paper_misses"] + steel_misses) * parse_points(stage.penalty_miss)
         + Decimal(counts["no_shoots"]) * parse_points(stage.penalty_no_shoot)
         + Decimal(counts["procedurals"]) * parse_points(stage.penalty_procedural)
         + Decimal(counts["ftsa"]) * parse_points(stage.penalty_ftsa)
@@ -4703,6 +4789,8 @@ def calculate_stage_score(stage: CompetitionStage, data: StageScoreData):
 
     return {
         **counts,
+        "steel_hits": steel_hits,
+        "steel_misses": steel_misses,
         "power_factor": power_factor,
         "time_seconds": format_time_seconds(time_seconds),
         "division": (data.division or "").strip(),

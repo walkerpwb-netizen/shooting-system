@@ -118,6 +118,10 @@ type DynamicStage = {
   plates: number;
   mini_plates: number;
   steel_no_shoots: number;
+  popper_points: number;
+  mini_popper_points: number;
+  plate_points: number;
+  mini_plate_points: number;
   penalty_miss: string;
   penalty_no_shoot: string;
   penalty_procedural: string;
@@ -327,6 +331,10 @@ function createBlankStage(stageNumber: number, source?: DynamicStage): DynamicSt
     plates: source?.plates || 0,
     mini_plates: source?.mini_plates || 0,
     steel_no_shoots: source?.steel_no_shoots || 0,
+    popper_points: source?.popper_points ?? 5,
+    mini_popper_points: source?.mini_popper_points ?? 5,
+    plate_points: source?.plate_points ?? 5,
+    mini_plate_points: source?.mini_plate_points ?? 5,
     penalty_miss: source?.penalty_miss || "-10",
     penalty_no_shoot: source?.penalty_no_shoot || "-10",
     penalty_procedural: source?.penalty_procedural || "-10",
@@ -368,7 +376,13 @@ function stageComputedMinRounds(stage: DynamicStage) {
 }
 
 function stageMaxPoints(stage: DynamicStage) {
-  return stageRequiredPaperHits(stage) * 5 + stageSteelTargets(stage) * 5;
+  return (
+    stageRequiredPaperHits(stage) * 5
+    + Number(stage.poppers || 0) * Number(stage.popper_points ?? 5)
+    + Number(stage.mini_poppers || 0) * Number(stage.mini_popper_points ?? 5)
+    + Number(stage.plates || 0) * Number(stage.plate_points ?? 5)
+    + Number(stage.mini_plates || 0) * Number(stage.mini_plate_points ?? 5)
+  );
 }
 
 function stageTargetsCount(stage: DynamicStage) {
@@ -2317,6 +2331,31 @@ export default function OrganizerPage() {
                                             Number(event.target.value) as never
                                           )}
                                           className={requiredFieldClass(stageHasScoredTarget(stage))}
+                                        />
+                                      </label>
+                                    ))}
+                                  </div>
+
+                                  <div className="grid gap-4 md:grid-cols-4">
+                                    {[
+                                      ["popper_points", "Pkt popper"],
+                                      ["mini_popper_points", "Pkt mini popper"],
+                                      ["plate_points", "Pkt plate"],
+                                      ["mini_plate_points", "Pkt mini plate"],
+                                    ].map(([field, label]) => (
+                                      <label key={field}>
+                                        <span className="mb-2 block text-sm font-semibold text-white">{label}</span>
+                                        <input
+                                          type="number"
+                                          min="0"
+                                          value={String(stage[field as keyof DynamicStage] ?? 5)}
+                                          onChange={(event) => updateStageField(
+                                            index,
+                                            stageIndex,
+                                            field as keyof DynamicStage,
+                                            Number(event.target.value) as never
+                                          )}
+                                          className="w-full rounded-xl border border-zinc-700 bg-zinc-900 p-4 text-white"
                                         />
                                       </label>
                                     ))}

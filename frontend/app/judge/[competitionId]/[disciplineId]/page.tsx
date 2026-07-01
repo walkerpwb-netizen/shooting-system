@@ -69,8 +69,13 @@ type CompetitionStage = {
   plates: number;
   mini_plates: number;
   steel_no_shoots: number;
+  popper_points: number;
+  mini_popper_points: number;
+  plate_points: number;
+  mini_plate_points: number;
   paper_required_hits: number;
   steel_targets: number;
+  steel_points: number;
   penalty_miss: string;
   penalty_no_shoot: string;
   penalty_procedural: string;
@@ -92,6 +97,14 @@ type StageScorePayload = {
   paper_misses: number;
   steel_hits: number;
   steel_misses: number;
+  popper_hits: number;
+  popper_misses: number;
+  mini_popper_hits: number;
+  mini_popper_misses: number;
+  plate_hits: number;
+  plate_misses: number;
+  mini_plate_hits: number;
+  mini_plate_misses: number;
   no_shoots: number;
   procedurals: number;
   ftsa: number;
@@ -139,6 +152,14 @@ type StageScoreInput = {
   paper_misses: number;
   steel_hits: number;
   steel_misses: number;
+  popper_hits: number;
+  popper_misses: number;
+  mini_popper_hits: number;
+  mini_popper_misses: number;
+  plate_hits: number;
+  plate_misses: number;
+  mini_plate_hits: number;
+  mini_plate_misses: number;
   no_shoots: number;
   procedurals: number;
   ftsa: number;
@@ -148,6 +169,28 @@ type StageScoreInput = {
   division: string;
   custom_penalties: { name: string; count: number; value: string }[];
 };
+type StageScoreCounterField = keyof Pick<
+  StageScoreInput,
+  | "hits_a"
+  | "hits_c"
+  | "hits_d"
+  | "paper_misses"
+  | "popper_hits"
+  | "popper_misses"
+  | "mini_popper_hits"
+  | "mini_popper_misses"
+  | "plate_hits"
+  | "plate_misses"
+  | "mini_plate_hits"
+  | "mini_plate_misses"
+  | "steel_hits"
+  | "steel_misses"
+  | "no_shoots"
+  | "procedurals"
+  | "ftsa"
+  | "extra_shots"
+  | "extra_hits"
+>;
 
 type TrapHistoryEntry = {
   participantId: number;
@@ -473,6 +516,14 @@ function emptyStageScoreInput(
     paper_misses: score?.paper_misses || 0,
     steel_hits: score?.steel_hits || 0,
     steel_misses: score?.steel_misses || 0,
+    popper_hits: score?.popper_hits || 0,
+    popper_misses: score?.popper_misses || 0,
+    mini_popper_hits: score?.mini_popper_hits || 0,
+    mini_popper_misses: score?.mini_popper_misses || 0,
+    plate_hits: score?.plate_hits || 0,
+    plate_misses: score?.plate_misses || 0,
+    mini_plate_hits: score?.mini_plate_hits || 0,
+    mini_plate_misses: score?.mini_plate_misses || 0,
     no_shoots: score?.no_shoots || 0,
     procedurals: score?.procedurals || 0,
     ftsa: score?.ftsa || 0,
@@ -502,12 +553,29 @@ function dynamicStagePreview(stage: CompetitionStage, input: StageScoreInput) {
   const time = Number(String(input.time_seconds || "").replace(",", "."));
   const cPoints = input.power_factor === "major" ? 4 : 3;
   const dPoints = input.power_factor === "major" ? 2 : 1;
+  const typedSteelHits = input.popper_hits
+    + input.mini_popper_hits
+    + input.plate_hits
+    + input.mini_plate_hits;
+  const typedSteelMisses = input.popper_misses
+    + input.mini_popper_misses
+    + input.plate_misses
+    + input.mini_plate_misses;
+  const useTypedSteel = typedSteelHits + typedSteelMisses > 0;
+  const steelHits = useTypedSteel ? typedSteelHits : input.steel_hits;
+  const steelMisses = useTypedSteel ? typedSteelMisses : input.steel_misses;
+  const steelPositivePoints = useTypedSteel
+    ? input.popper_hits * (stage.popper_points ?? 5)
+      + input.mini_popper_hits * (stage.mini_popper_points ?? 5)
+      + input.plate_hits * (stage.plate_points ?? 5)
+      + input.mini_plate_hits * (stage.mini_plate_points ?? 5)
+    : input.steel_hits * 5;
   const positivePoints = input.hits_a * 5
     + input.hits_c * cPoints
     + input.hits_d * dPoints
-    + input.steel_hits * 5;
+    + steelPositivePoints;
   const penaltyPoints =
-    (input.paper_misses + input.steel_misses) * numericPenalty(stage.penalty_miss)
+    (input.paper_misses + steelMisses) * numericPenalty(stage.penalty_miss)
     + input.no_shoots * numericPenalty(stage.penalty_no_shoot)
     + input.procedurals * numericPenalty(stage.penalty_procedural)
     + input.ftsa * numericPenalty(stage.penalty_ftsa)
@@ -517,7 +585,7 @@ function dynamicStagePreview(stage: CompetitionStage, input: StageScoreInput) {
   const finalPoints = Math.max(positivePoints + penaltyPoints, 0);
   const hitFactor = time > 0 ? finalPoints / time : 0;
   const paperEntries = input.hits_a + input.hits_c + input.hits_d + input.paper_misses;
-  const steelEntries = input.steel_hits + input.steel_misses;
+  const steelEntries = steelHits + steelMisses;
 
   return {
     time,
@@ -1568,10 +1636,7 @@ export default function JudgeDisciplinePage() {
   function adjustStageScoreCounter(
     participantId: number,
     stageId: number,
-    field: keyof Pick<
-      StageScoreInput,
-      "hits_a" | "hits_c" | "hits_d" | "paper_misses" | "steel_hits" | "steel_misses" | "no_shoots" | "procedurals" | "ftsa" | "extra_shots" | "extra_hits"
-    >,
+    field: StageScoreCounterField,
     delta: number
   ) {
     updateStageScoreInput(participantId, stageId, (input) => ({
@@ -2566,15 +2631,37 @@ export default function JudgeDisciplinePage() {
                   const hasSavedScore = Boolean(savedScore);
                   const expanded = expandedDynamicShooterId === shooter.participant_id;
                   const counterFields: {
-                    field: keyof Pick<StageScoreInput, "hits_a" | "hits_c" | "hits_d" | "paper_misses" | "steel_hits" | "steel_misses" | "no_shoots" | "procedurals" | "ftsa" | "extra_shots" | "extra_hits">;
+                    field: StageScoreCounterField;
                     label: string;
                   }[] = [
                     { field: "hits_a", label: "A" },
                     { field: "hits_c", label: "C" },
                     { field: "hits_d", label: "D" },
                     { field: "paper_misses", label: "Miss papier" },
-                    { field: "steel_hits", label: "Stal hit" },
-                    { field: "steel_misses", label: "Stal miss" },
+                    ...(activeStage.poppers > 0
+                      ? [
+                          { field: "popper_hits" as StageScoreCounterField, label: "Popper hit" },
+                          { field: "popper_misses" as StageScoreCounterField, label: "Popper miss" },
+                        ]
+                      : []),
+                    ...(activeStage.mini_poppers > 0
+                      ? [
+                          { field: "mini_popper_hits" as StageScoreCounterField, label: "Mini popper hit" },
+                          { field: "mini_popper_misses" as StageScoreCounterField, label: "Mini popper miss" },
+                        ]
+                      : []),
+                    ...(activeStage.plates > 0
+                      ? [
+                          { field: "plate_hits" as StageScoreCounterField, label: "Plate hit" },
+                          { field: "plate_misses" as StageScoreCounterField, label: "Plate miss" },
+                        ]
+                      : []),
+                    ...(activeStage.mini_plates > 0
+                      ? [
+                          { field: "mini_plate_hits" as StageScoreCounterField, label: "Mini plate hit" },
+                          { field: "mini_plate_misses" as StageScoreCounterField, label: "Mini plate miss" },
+                        ]
+                      : []),
                     { field: "no_shoots", label: "No Shoot" },
                     { field: "procedurals", label: "Procedural" },
                     { field: "ftsa", label: "FTSA" },
