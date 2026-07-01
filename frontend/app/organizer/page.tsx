@@ -496,6 +496,8 @@ export default function OrganizerPage() {
   const [location, setLocation] = useState("");
   const [latitude, setLatitude] = useState<number | null>(null);
   const [longitude, setLongitude] = useState<number | null>(null);
+  const [locatingMapPosition, setLocatingMapPosition] = useState(false);
+  const [mapLocationMessage, setMapLocationMessage] = useState("");
   const [entryFee, setEntryFee] = useState("");
   const [organizerLogo, setOrganizerLogo] = useState("");
   const [sponsors, setSponsors] = useState("");
@@ -578,6 +580,8 @@ export default function OrganizerPage() {
     setLocation("");
     setLatitude(null);
     setLongitude(null);
+    setLocatingMapPosition(false);
+    setMapLocationMessage("");
     setEntryFee("");
     setOrganizerLogo("");
     setSponsors("");
@@ -592,6 +596,34 @@ export default function OrganizerPage() {
     setDeletingDisciplineId(null);
     setShowDisciplineContact(false);
     setMessage("");
+  }
+
+  function handleLocateMapPosition() {
+    if (!navigator.geolocation) {
+      setMapLocationMessage("Lokalizacja nie jest dostępna w tej przeglądarce.");
+      return;
+    }
+
+    setLocatingMapPosition(true);
+    setMapLocationMessage("");
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setLatitude(Number(position.coords.latitude.toFixed(6)));
+        setLongitude(Number(position.coords.longitude.toFixed(6)));
+        setMapLocationMessage("Ustawiono lokalizację z przeglądarki.");
+        setLocatingMapPosition(false);
+      },
+      () => {
+        setMapLocationMessage("Nie udało się pobrać lokalizacji.");
+        setLocatingMapPosition(false);
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 60000,
+        timeout: 10000,
+      }
+    );
   }
 
   function createBlankDiscipline(): Discipline {
@@ -1568,18 +1600,30 @@ export default function OrganizerPage() {
                     </p>
                   </div>
 
-                  {latitude !== null && longitude !== null && (
+                  <div className="flex flex-wrap gap-2 md:ml-auto md:justify-end">
                     <button
                       type="button"
-                      onClick={() => {
-                        setLatitude(null);
-                        setLongitude(null);
-                      }}
-                      className="ui-button rounded-lg border border-zinc-600 px-4 py-2 text-sm font-bold text-gray-200 transition hover:border-red-500 hover:text-red-200"
+                      onClick={handleLocateMapPosition}
+                      disabled={locatingMapPosition}
+                      className="ui-button rounded-lg bg-white px-4 py-2 text-sm font-bold text-zinc-900 transition hover:bg-zinc-100 disabled:cursor-wait disabled:opacity-70"
                     >
-                      Usuń lokalizację
+                      {locatingMapPosition ? "Lokalizuję..." : "Zlokalizuj mnie"}
                     </button>
-                  )}
+
+                    {latitude !== null && longitude !== null && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLatitude(null);
+                          setLongitude(null);
+                          setMapLocationMessage("");
+                        }}
+                        className="ui-button rounded-lg border border-zinc-600 px-4 py-2 text-sm font-bold text-gray-200 transition hover:border-red-500 hover:text-red-200"
+                      >
+                        Usuń lokalizację
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <div className="h-80 overflow-hidden rounded-xl border border-zinc-700">
@@ -1596,8 +1640,8 @@ export default function OrganizerPage() {
                 <div className="mt-3 flex flex-col gap-1 text-sm text-gray-400 md:flex-row md:items-center md:justify-between">
                   <span>
                     {latitude !== null && longitude !== null
-                      ? "Lokalizacja mapowa ustawiona."
-                      : "Brak zaznaczonej lokalizacji mapowej."}
+                      ? mapLocationMessage || "Lokalizacja mapowa ustawiona."
+                      : mapLocationMessage || "Brak zaznaczonej lokalizacji mapowej."}
                   </span>
                   {latitude !== null && longitude !== null && (
                     <span className="font-semibold text-gray-300">

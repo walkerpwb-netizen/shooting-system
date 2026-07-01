@@ -1,6 +1,5 @@
 "use client";
 
-import type { MouseEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
 import L from "leaflet";
 import { MapContainer, Marker, TileLayer, useMap, useMapEvents } from "react-leaflet";
@@ -95,70 +94,6 @@ function SelectedLocation({
   );
 }
 
-function LocateMeControl({
-  onChange,
-}: {
-  onChange: (location: LocationValue) => void;
-}) {
-  const map = useMap();
-  const [status, setStatus] = useState("");
-  const [locating, setLocating] = useState(false);
-
-  function handleLocate(event: MouseEvent<HTMLButtonElement>) {
-    event.preventDefault();
-    event.stopPropagation();
-
-    if (!navigator.geolocation) {
-      setStatus("Lokalizacja nie jest dostępna w tej przeglądarce.");
-      return;
-    }
-
-    setLocating(true);
-    setStatus("");
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const nextLocation = {
-          latitude: Number(position.coords.latitude.toFixed(6)),
-          longitude: Number(position.coords.longitude.toFixed(6)),
-        };
-
-        onChange(nextLocation);
-        map.setView([nextLocation.latitude, nextLocation.longitude], 14);
-        setLocating(false);
-      },
-      () => {
-        setStatus("Nie udało się pobrać lokalizacji.");
-        setLocating(false);
-      },
-      {
-        enableHighAccuracy: true,
-        maximumAge: 60000,
-        timeout: 10000,
-      }
-    );
-  }
-
-  return (
-    <div className="pointer-events-auto absolute left-3 top-3 z-[1000] max-w-64">
-      <button
-        type="button"
-        onClick={handleLocate}
-        disabled={locating}
-        className="rounded-lg bg-white px-4 py-2 text-sm font-bold text-zinc-900 shadow-lg transition hover:bg-zinc-100 disabled:cursor-wait disabled:opacity-70"
-      >
-        {locating ? "Lokalizuję..." : "Zlokalizuj mnie"}
-      </button>
-
-      {status && (
-        <p className="mt-2 rounded-lg bg-white px-3 py-2 text-xs font-semibold text-zinc-700 shadow-lg">
-          {status}
-        </p>
-      )}
-    </div>
-  );
-}
-
 export default function LeafletLocationPicker({
   latitude,
   longitude,
@@ -204,7 +139,6 @@ export default function LeafletLocationPicker({
         ))}
       </div>
       <MapClickHandler onChange={onChange} />
-      <LocateMeControl onChange={onChange} />
       <SelectedLocation
         icon={icon}
         latitude={latitude}
