@@ -3,6 +3,7 @@ import LogoPreviewLink from "./LogoPreviewLink";
 
 import { apiUrl } from "@/lib/api";
 import { getClayTargetsCount } from "@/lib/disciplines";
+import { getDirectionsHref, hasMapCoordinates } from "@/lib/maps";
 
 type CompetitionPageProps = {
   params: Promise<{
@@ -68,6 +69,11 @@ export default async function CompetitionPage({
     );
   }
 
+  const hasDirections = hasMapCoordinates(competition.latitude, competition.longitude);
+  const directionsHref = hasDirections
+    ? getDirectionsHref(competition.latitude, competition.longitude)
+    : "";
+
   return (
     <main className="min-h-screen bg-white p-6 text-zinc-950 dark:bg-black dark:text-white sm:p-10">
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -83,9 +89,21 @@ export default async function CompetitionPage({
               Data: {competition.date}
             </p>
 
-            <p className="text-zinc-700 dark:text-gray-300">
-              Lokalizacja: {competition.location}
-            </p>
+            {hasDirections ? (
+              <a
+                href={directionsHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex text-left text-zinc-700 underline decoration-green-700/60 underline-offset-4 transition hover:text-green-700 dark:text-gray-300 dark:hover:text-green-400"
+                title="Nawiguj do miejsca zawodów"
+              >
+                Lokalizacja: {competition.location}
+              </a>
+            ) : (
+              <p className="text-zinc-700 dark:text-gray-300">
+                Lokalizacja: {competition.location}
+              </p>
+            )}
 
             {competition.entry_fee ? (
               <p className="text-zinc-700 dark:text-gray-300">

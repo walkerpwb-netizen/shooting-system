@@ -15,12 +15,15 @@ import {
   isClayDisciplineType,
   isDynamicStageDisciplineType,
 } from "@/lib/disciplines";
+import { getDirectionsHref, hasMapCoordinates } from "@/lib/maps";
 
 type Competition = {
   id: number;
   name: string;
   date: string;
   location: string;
+  latitude: number | null;
+  longitude: number | null;
   entry_fee: string;
   organizer_full_name: string;
   organizer_logo: string;
@@ -1066,6 +1069,13 @@ export default function OrganizerCompetitionPage() {
     }
   }
 
+  const hasDirections = competition
+    ? hasMapCoordinates(competition.latitude, competition.longitude)
+    : false;
+  const directionsHref = hasDirections && competition
+    ? getDirectionsHref(competition.latitude as number, competition.longitude as number)
+    : "";
+
   return (
     <main className="min-h-screen px-6 py-10">
       <div className="max-w-7xl mx-auto">
@@ -1083,7 +1093,21 @@ export default function OrganizerCompetitionPage() {
 
           {competition && (
             <p className="text-gray-400">
-              {competition.date} • {competition.location} • {getCompetitionStatusLabel(competition.status)}
+              {competition.date} •{" "}
+              {hasDirections ? (
+                <a
+                  href={directionsHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline decoration-green-500/70 underline-offset-4 transition hover:text-green-300"
+                  title="Nawiguj do miejsca zawodów"
+                >
+                  {competition.location}
+                </a>
+              ) : (
+                competition.location
+              )}{" "}
+              • {getCompetitionStatusLabel(competition.status)}
             </p>
           )}
         </div>
@@ -1147,7 +1171,19 @@ export default function OrganizerCompetitionPage() {
 
               <div className="space-y-2 text-gray-700 text-lg">
                 <p>📅 {competition.date}</p>
-                <p>📍 {competition.location}</p>
+                {hasDirections ? (
+                  <a
+                    href={directionsHref}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex text-left underline decoration-green-700/60 underline-offset-4 transition hover:text-green-700"
+                    title="Nawiguj do miejsca zawodów"
+                  >
+                    📍 {competition.location}
+                  </a>
+                ) : (
+                  <p>📍 {competition.location}</p>
+                )}
                 {competition.organizer_full_name && (
                   <p>🏢 {competition.organizer_full_name}</p>
                 )}
