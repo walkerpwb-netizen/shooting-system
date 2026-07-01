@@ -48,6 +48,7 @@ type Competition = {
     ammo_price: string;
     clay_price?: string;
     entry_fee: string;
+    fixed_power_factor?: string;
   }[];
   participants: {
     id: number;
@@ -586,12 +587,15 @@ export default function OrganizerCompetitionPage() {
       return Boolean(
         discipline
         && isDynamicStageDisciplineType(discipline.discipline_type)
-        && (!selectedDiscipline.division || !selectedDiscipline.power_factor)
+        && (
+          !selectedDiscipline.division
+          || (!discipline.fixed_power_factor && !selectedDiscipline.power_factor)
+        )
       );
     });
 
     if (missingDynamicFields) {
-      errors.division = "Wybierz dywizję i Power Factor przy każdej konkurencji IPSC/dynamicznej.";
+      errors.division = "Wybierz dywizję i Power Factor przy każdej konkurencji IPSC/dynamicznej, która tego wymaga.";
     }
 
     if (Object.keys(errors).length > 0) {
@@ -1904,25 +1908,34 @@ export default function OrganizerCompetitionPage() {
                                           </select>
                                         </label>
 
-                                        <label className="block font-semibold text-gray-700">
-                                          <span className="mb-1 block">Power Factor</span>
-                                          <select
-                                            value={selectedDiscipline.power_factor}
-                                            onChange={(event) => updateManualDynamicField(discipline.id, "power_factor", event.target.value)}
-                                            className={`w-full rounded-lg border px-3 py-2 ${
-                                              manualFormErrors.division && !selectedDiscipline.power_factor
-                                                ? "border-red-300 bg-white"
-                                                : "border-gray-200"
-                                            }`}
-                                          >
-                                            <option value="">Wybierz PF</option>
-                                            {POWER_FACTOR_OPTIONS.map((powerFactor) => (
-                                              <option key={powerFactor} value={powerFactor}>
-                                                {powerFactor === "major" ? "Major" : "Minor"}
-                                              </option>
-                                            ))}
-                                          </select>
-                                        </label>
+                                        {discipline.fixed_power_factor ? (
+                                          <div className="rounded-lg border border-gray-200 px-3 py-2 font-semibold text-gray-700">
+                                            <span className="mb-1 block">Power Factor</span>
+                                            <span className="text-base font-black text-gray-950">
+                                              Stały {discipline.fixed_power_factor === "major" ? "Major" : "Minor"}
+                                            </span>
+                                          </div>
+                                        ) : (
+                                          <label className="block font-semibold text-gray-700">
+                                            <span className="mb-1 block">Power Factor</span>
+                                            <select
+                                              value={selectedDiscipline.power_factor}
+                                              onChange={(event) => updateManualDynamicField(discipline.id, "power_factor", event.target.value)}
+                                              className={`w-full rounded-lg border px-3 py-2 ${
+                                                manualFormErrors.division && !selectedDiscipline.power_factor
+                                                  ? "border-red-300 bg-white"
+                                                  : "border-gray-200"
+                                              }`}
+                                            >
+                                              <option value="">Wybierz PF</option>
+                                              {POWER_FACTOR_OPTIONS.map((powerFactor) => (
+                                                <option key={powerFactor} value={powerFactor}>
+                                                  {powerFactor === "major" ? "Major" : "Minor"}
+                                                </option>
+                                              ))}
+                                            </select>
+                                          </label>
+                                        )}
                                       </div>
                                     )}
                                   </div>

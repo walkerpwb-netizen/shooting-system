@@ -12,6 +12,7 @@ import {
   HUNTING_TRAP_SHOTS_COUNT,
   HUNTING_TRAP_TARGETS_COUNT,
   HUNTING_TRAP_VARIANT,
+  POWER_FACTOR_OPTIONS,
   isHuntingTrapDiscipline,
   isClayDisciplineType,
   isPracticalShotgunDisciplineType,
@@ -53,6 +54,7 @@ type Competition = {
     ammo_price: string;
     clay_price: string;
     entry_fee: string;
+    fixed_power_factor: string;
     stages?: DynamicStage[];
   }[];
   participants?: {
@@ -87,6 +89,7 @@ type Discipline = {
   ammo_price: string;
   clay_price: string;
   entry_fee: string;
+  fixed_power_factor: string;
   stages: DynamicStage[];
 };
 
@@ -589,6 +592,7 @@ export default function OrganizerPage() {
       ammo_price: "",
       clay_price: "",
       entry_fee: "",
+      fixed_power_factor: "",
       stages: [],
     };
   }
@@ -907,6 +911,7 @@ export default function OrganizerPage() {
           ammo_price: discipline.ammo_price || "",
           clay_price: discipline.clay_price || "",
           entry_fee: discipline.entry_fee || "",
+          fixed_power_factor: discipline.fixed_power_factor || "",
           stages: (discipline.stages || []).map((stage, stageIndex) => createBlankStage(stage.stage_number || stageIndex + 1, stage)),
         }))
       );
@@ -1382,6 +1387,9 @@ export default function OrganizerPage() {
                 entry_fee: entryFee
                   ? ""
                   : discipline.entry_fee,
+                fixed_power_factor: dynamicStageDiscipline
+                  ? discipline.fixed_power_factor
+                  : "",
                 stages: dynamicStageDiscipline
                   ? discipline.stages.map((stage, stageIndex) => ({
                       ...stage,
@@ -1862,6 +1870,9 @@ export default function OrganizerPage() {
                           } else {
                             updated[index].shots_count = 0;
                           }
+                          if (!isDynamicStageDisciplineType(selectedDisciplineType)) {
+                            updated[index].fixed_power_factor = "";
+                          }
                           updated[index].stages = isDynamicStageDisciplineType(selectedDisciplineType)
                             ? updated[index].stages.length
                               ? updated[index].stages
@@ -2100,10 +2111,25 @@ export default function OrganizerPage() {
                         </div>
 
                         <div className="grid gap-3 md:grid-cols-3">
-                          <div className={requiredContainerClass(true)}>
-                            <p className="text-sm font-bold text-emerald-100">Power Factor</p>
-                            <p className="mt-1 font-black">Według zawodnika</p>
-                          </div>
+                          <label className={requiredContainerClass(true)}>
+                            <span className="text-sm font-bold text-emerald-100">Power Factor</span>
+                            <select
+                              value={discipline.fixed_power_factor}
+                              onChange={(event) => {
+                                const updated = [...disciplines];
+                                updated[index].fixed_power_factor = event.target.value;
+                                setDisciplines(updated);
+                              }}
+                              className="mt-2 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 font-black text-white"
+                            >
+                              <option value="">Według zawodnika</option>
+                              {POWER_FACTOR_OPTIONS.map((powerFactor) => (
+                                <option key={powerFactor} value={powerFactor}>
+                                  Stały {powerFactor === "major" ? "Major" : "Minor"}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
                           <div className={requiredContainerClass(true)}>
                             <p className="text-sm font-bold text-emerald-100">Metoda punktacji</p>
                             <p className="mt-1 font-black">Hit Factor</p>

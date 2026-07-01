@@ -500,6 +500,11 @@ class Discipline(Base):
         nullable=True,
     )
 
+    fixed_power_factor = Column(
+        String,
+        nullable=True,
+    )
+
 
 class CompetitionParticipant(Base):
     __tablename__ = "competition_participants"

@@ -264,6 +264,7 @@ class DisciplineData(BaseModel):
     ammo_price: str
     clay_price: str = ""
     entry_fee: str = ""
+    fixed_power_factor: str = ""
     stages: list["CompetitionStageData"] = []
 
 
@@ -4293,6 +4294,13 @@ def normalize_power_factor(value: str):
     return ""
 
 
+def normalize_fixed_power_factor(value: str, discipline_type: str):
+    if normalize_discipline_type(discipline_type or "") not in DYNAMIC_STAGE_DISCIPLINE_TYPES:
+        return ""
+
+    return normalize_power_factor(value)
+
+
 def normalize_participant_dynamic_fields(selected_discipline: JoinDisciplineData, discipline: Discipline):
     discipline_type = normalize_discipline_type(discipline.discipline_type or "")
 
@@ -4314,7 +4322,10 @@ def normalize_participant_dynamic_fields(selected_discipline: JoinDisciplineData
             detail=f"Nieprawidłowa dywizja dla konkurencji {discipline.name}"
         )
 
-    power_factor = normalize_power_factor(selected_discipline.power_factor)
+    fixed_power_factor = normalize_power_factor(
+        getattr(discipline, "fixed_power_factor", "") or ""
+    )
+    power_factor = fixed_power_factor or normalize_power_factor(selected_discipline.power_factor)
 
     if not power_factor:
         raise HTTPException(
@@ -8578,6 +8589,7 @@ def admin_get_competitions(
                     "ammo_price": discipline.ammo_price or "",
                     "clay_price": getattr(discipline, "clay_price", "") or "",
                     "entry_fee": discipline.entry_fee or "",
+                    "fixed_power_factor": getattr(discipline, "fixed_power_factor", "") or "",
                 }
                 for discipline in disciplines
             ],
@@ -9572,6 +9584,7 @@ def organizer_competition_detail_row(competition: Competition, db):
                 "ammo_price": discipline.ammo_price or "",
                 "clay_price": getattr(discipline, "clay_price", "") or "",
                 "entry_fee": discipline.entry_fee or "",
+                "fixed_power_factor": getattr(discipline, "fixed_power_factor", "") or "",
             }
             for discipline in disciplines
         ],
@@ -11067,6 +11080,7 @@ def get_judge_competitions(
                     "ammo_price": discipline.ammo_price or "",
                     "clay_price": getattr(discipline, "clay_price", "") or "",
                     "entry_fee": discipline.entry_fee or "",
+                    "fixed_power_factor": getattr(discipline, "fixed_power_factor", "") or "",
                     "shooters_count": discipline_shooters_count(
                         competition.id,
                         discipline.id,
@@ -11778,6 +11792,10 @@ def create_discipline(
         ammo_price=data.ammo_price,
         clay_price=discipline_payload["clay_price"],
         entry_fee=data.entry_fee,
+        fixed_power_factor=normalize_fixed_power_factor(
+            data.fixed_power_factor,
+            discipline_type,
+        ),
     )
 
     db.add(discipline)
@@ -11878,6 +11896,10 @@ def update_discipline(
     discipline.ammo_price = data.ammo_price
     discipline.clay_price = discipline_payload["clay_price"]
     discipline.entry_fee = data.entry_fee
+    discipline.fixed_power_factor = normalize_fixed_power_factor(
+        data.fixed_power_factor,
+        discipline_type,
+    )
 
     if discipline_type in DYNAMIC_STAGE_DISCIPLINE_TYPES and data.stages:
         sync_competition_stages(competition.id, discipline.id, data.stages, db)

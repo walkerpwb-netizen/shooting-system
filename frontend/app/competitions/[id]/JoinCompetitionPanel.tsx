@@ -37,6 +37,7 @@ type Discipline = {
   ammo_price: string;
   clay_price?: string;
   entry_fee: string;
+  fixed_power_factor?: string;
 };
 
 type SelectedDiscipline = {
@@ -289,12 +290,15 @@ export default function JoinCompetitionPanel({
       return Boolean(
         discipline
         && isDynamicStageDisciplineType(discipline.discipline_type)
-        && (!selectedDiscipline.division || !selectedDiscipline.power_factor)
+        && (
+          !selectedDiscipline.division
+          || (!discipline.fixed_power_factor && !selectedDiscipline.power_factor)
+        )
       );
     });
 
     if (missingDynamicFields) {
-      showNotice("Wybierz dywizję i Power Factor przy każdej konkurencji IPSC/dynamicznej");
+      showNotice("Wybierz dywizję i Power Factor przy każdej konkurencji IPSC/dynamicznej, która tego wymaga");
       return;
     }
 
@@ -511,21 +515,30 @@ export default function JoinCompetitionPanel({
                             </select>
                           </label>
 
-                          <label className="block text-sm font-semibold text-zinc-700 dark:text-gray-300">
-                            <span className="mb-2 block">Power Factor</span>
-                            <select
-                              value={selectedDiscipline.power_factor}
-                              onChange={(event) => updateDynamicField(discipline.id, "power_factor", event.target.value)}
-                              className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-3 text-zinc-950 dark:border-zinc-700 dark:bg-zinc-950 dark:text-white"
-                            >
-                              <option value="">Wybierz PF</option>
-                              {POWER_FACTOR_OPTIONS.map((powerFactor) => (
-                                <option key={powerFactor} value={powerFactor}>
-                                  {powerFactor === "major" ? "Major" : "Minor"}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
+                          {discipline.fixed_power_factor ? (
+                            <div className="rounded-xl border border-zinc-300 bg-zinc-50 px-3 py-3 text-sm font-semibold text-zinc-700 dark:border-zinc-700 dark:bg-zinc-950 dark:text-gray-300">
+                              <span className="mb-2 block">Power Factor</span>
+                              <span className="text-base font-bold text-zinc-950 dark:text-white">
+                                Stały {discipline.fixed_power_factor === "major" ? "Major" : "Minor"}
+                              </span>
+                            </div>
+                          ) : (
+                            <label className="block text-sm font-semibold text-zinc-700 dark:text-gray-300">
+                              <span className="mb-2 block">Power Factor</span>
+                              <select
+                                value={selectedDiscipline.power_factor}
+                                onChange={(event) => updateDynamicField(discipline.id, "power_factor", event.target.value)}
+                                className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-3 text-zinc-950 dark:border-zinc-700 dark:bg-zinc-950 dark:text-white"
+                              >
+                                <option value="">Wybierz PF</option>
+                                {POWER_FACTOR_OPTIONS.map((powerFactor) => (
+                                  <option key={powerFactor} value={powerFactor}>
+                                    {powerFactor === "major" ? "Major" : "Minor"}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          )}
                         </div>
                       )}
 
