@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 
@@ -22,6 +23,8 @@ type Competition = {
   name: string;
   date: string;
   location: string;
+  latitude: number | null;
+  longitude: number | null;
   entry_fee: string;
   organizer_full_name: string;
   organizer_logo: string;
@@ -122,6 +125,18 @@ type DynamicStage = {
 };
 
 type OrganizerTab = "current" | "history";
+
+const LeafletLocationPicker = dynamic(
+  () => import("../components/LeafletLocationPicker"),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-full items-center justify-center bg-zinc-800 text-sm font-semibold text-gray-300">
+        Ładowanie mapy...
+      </div>
+    ),
+  }
+);
 
 const disciplineTypeGroups = [
   {
@@ -462,6 +477,8 @@ export default function OrganizerPage() {
   const [name, setName] = useState("");
   const [date, setDate] = useState("");
   const [location, setLocation] = useState("");
+  const [latitude, setLatitude] = useState<number | null>(null);
+  const [longitude, setLongitude] = useState<number | null>(null);
   const [entryFee, setEntryFee] = useState("");
   const [organizerLogo, setOrganizerLogo] = useState("");
   const [sponsors, setSponsors] = useState("");
@@ -542,6 +559,8 @@ export default function OrganizerPage() {
     setName("");
     setDate("");
     setLocation("");
+    setLatitude(null);
+    setLongitude(null);
     setEntryFee("");
     setOrganizerLogo("");
     setSponsors("");
@@ -860,6 +879,8 @@ export default function OrganizerPage() {
       setName(competitionDetails.name);
       setDate(competitionDetails.date);
       setLocation(competitionDetails.location);
+      setLatitude(competitionDetails.latitude ?? null);
+      setLongitude(competitionDetails.longitude ?? null);
       setEntryFee(competitionDetails.entry_fee || "");
       setOrganizerLogo(competitionDetails.organizer_logo || "");
       setSponsors(competitionDetails.sponsors || "");
@@ -1280,6 +1301,8 @@ export default function OrganizerPage() {
             name,
             date,
             location,
+            latitude,
+            longitude,
             entry_fee: entryFee,
             organizer_logo: organizerLogo,
             sponsors,
@@ -1511,6 +1534,56 @@ export default function OrganizerPage() {
                 required
                 className={requiredFieldClass(hasText(location))}
               />
+
+              <section className="rounded-xl border border-zinc-700 bg-zinc-950/40 p-4 text-white">
+                <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <h3 className="text-lg font-bold">
+                      Dokładna lokalizacja wydarzenia
+                    </h3>
+                    <p className="mt-1 text-sm text-gray-400">
+                      Podanie dokładnej lokalizacji wydarzenia może zwiększyć liczbę zainteresowanych strzelców.
+                    </p>
+                  </div>
+
+                  {latitude !== null && longitude !== null && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLatitude(null);
+                        setLongitude(null);
+                      }}
+                      className="ui-button rounded-lg border border-zinc-600 px-4 py-2 text-sm font-bold text-gray-200 transition hover:border-red-500 hover:text-red-200"
+                    >
+                      Usuń lokalizację
+                    </button>
+                  )}
+                </div>
+
+                <div className="h-80 overflow-hidden rounded-xl border border-zinc-700">
+                  <LeafletLocationPicker
+                    latitude={latitude}
+                    longitude={longitude}
+                    onChange={(nextLocation) => {
+                      setLatitude(nextLocation.latitude);
+                      setLongitude(nextLocation.longitude);
+                    }}
+                  />
+                </div>
+
+                <div className="mt-3 flex flex-col gap-1 text-sm text-gray-400 md:flex-row md:items-center md:justify-between">
+                  <span>
+                    {latitude !== null && longitude !== null
+                      ? "Lokalizacja mapowa ustawiona."
+                      : "Brak zaznaczonej lokalizacji mapowej."}
+                  </span>
+                  {latitude !== null && longitude !== null && (
+                    <span className="font-semibold text-gray-300">
+                      {latitude.toFixed(6)}, {longitude.toFixed(6)}
+                    </span>
+                  )}
+                </div>
+              </section>
 
               {!canMarkPzssLicenseCalendar && (
                 <fieldset className={requiredContainerClass(requiresLicensedJudge !== null)}>
