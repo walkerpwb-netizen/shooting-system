@@ -16,12 +16,27 @@ type LeafletLocationPickerProps = {
   onChange: (location: LocationValue) => void;
 };
 
+type MapLayerMode = "street" | "satellite";
+
 const defaultCenter: [number, number] = [52.0692, 19.4803];
 const polandBounds: L.LatLngBoundsExpression = [
   [48.5, 13.5],
   [55.2, 24.6],
 ];
 const minPolandZoom = 6;
+const mapLayers: Record<MapLayerMode, {
+  attribution: string;
+  url: string;
+}> = {
+  street: {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+  },
+  satellite: {
+    attribution: "Tiles &copy; Esri",
+    url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+  },
+};
 
 function createPinIcon() {
   return L.divIcon({
@@ -151,6 +166,8 @@ export default function LeafletLocationPicker({
 }: LeafletLocationPickerProps) {
   const icon = useMemo(() => createPinIcon(), []);
   const hasLocation = latitude !== null && longitude !== null;
+  const [layerMode, setLayerMode] = useState<MapLayerMode>("street");
+  const activeLayer = mapLayers[layerMode];
 
   return (
     <MapContainer
@@ -163,9 +180,29 @@ export default function LeafletLocationPicker({
       className="h-full w-full"
     >
       <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        key={layerMode}
+        attribution={activeLayer.attribution}
+        url={activeLayer.url}
       />
+      <div className="pointer-events-auto absolute right-3 top-3 z-[1000] overflow-hidden rounded-lg bg-white shadow-lg">
+        {([
+          ["street", "Mapa"],
+          ["satellite", "Satelita"],
+        ] as [MapLayerMode, string][]).map(([mode, label]) => (
+          <button
+            key={mode}
+            type="button"
+            onClick={() => setLayerMode(mode)}
+            className={`px-3 py-2 text-sm font-bold transition ${
+              layerMode === mode
+                ? "bg-green-800 text-white"
+                : "bg-white text-zinc-900 hover:bg-zinc-100"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
       <MapClickHandler onChange={onChange} />
       <LocateMeControl onChange={onChange} />
       <SelectedLocation

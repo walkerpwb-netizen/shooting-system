@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import L from "leaflet";
 import { MapContainer, Marker, Popup, TileLayer, useMap } from "react-leaflet";
@@ -19,12 +19,27 @@ type CompetitionSearchMapProps = {
   competitions: CompetitionMapItem[];
 };
 
+type MapLayerMode = "street" | "satellite";
+
 const defaultCenter: [number, number] = [52.0692, 19.4803];
 const polandBounds: L.LatLngBoundsExpression = [
   [48.5, 13.5],
   [55.2, 24.6],
 ];
 const minPolandZoom = 6;
+const mapLayers: Record<MapLayerMode, {
+  attribution: string;
+  url: string;
+}> = {
+  street: {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+  },
+  satellite: {
+    attribution: "Tiles &copy; Esri",
+    url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+  },
+};
 
 function hasCoordinates(competition: CompetitionMapItem) {
   return (
@@ -89,10 +104,12 @@ function FitCompetitionBounds({
 export default function CompetitionSearchMap({
   competitions,
 }: CompetitionSearchMapProps) {
+  const [layerMode, setLayerMode] = useState<MapLayerMode>("street");
   const mappedCompetitions = useMemo(
     () => competitions.filter(hasCoordinates),
     [competitions]
   );
+  const activeLayer = mapLayers[layerMode];
   const iconByCompetitionId = useMemo(() => {
     const icons = new Map<number, L.DivIcon>();
 
@@ -115,9 +132,29 @@ export default function CompetitionSearchMap({
         className="h-full w-full"
       >
         <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          key={layerMode}
+          attribution={activeLayer.attribution}
+          url={activeLayer.url}
         />
+        <div className="pointer-events-auto absolute right-3 top-3 z-[1000] overflow-hidden rounded-lg bg-white shadow-lg">
+          {([
+            ["street", "Mapa"],
+            ["satellite", "Satelita"],
+          ] as [MapLayerMode, string][]).map(([mode, label]) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => setLayerMode(mode)}
+              className={`px-3 py-2 text-sm font-bold transition ${
+                layerMode === mode
+                  ? "bg-green-800 text-white"
+                  : "bg-white text-zinc-900 hover:bg-zinc-100"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
         <FitCompetitionBounds competitions={mappedCompetitions} />
 
         {mappedCompetitions.map((competition) => (
