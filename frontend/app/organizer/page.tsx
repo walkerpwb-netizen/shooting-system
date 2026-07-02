@@ -154,6 +154,8 @@ const disciplineTypeGroups = [
       { value: "pistol-rapid-fire-25m", label: "Pistolet szybkostrzelny 25 m (Psz)" },
       { value: "pistol-free-50m", label: "Pistolet dowolny 50 m (Pdw)" },
       { value: "pistol-center-fire-25m", label: "Pistolet centralnego zapłonu 25 m (Pcz)" },
+      { value: "pistol-rimfire-25m", label: "Pistolet bocznego zapłonu 25 m" },
+      { value: "pistol-rimfire-10m", label: "Pistolet bocznego zapłonu 10 m" },
       { value: "pistol-standard-25m", label: "Pistolet standardowy 25 m (Pst)" },
       { value: "ipsc-pistol", label: "IPSC Pistolet" },
       { value: "idpa", label: "IDPA" },

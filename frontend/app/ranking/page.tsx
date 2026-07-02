@@ -56,6 +56,8 @@ const metricGroups: Array<{
       { id: "pistol-rapid-fire-25m", label: "Pistolet szybkostrzelny 25 m (Psz)" },
       { id: "pistol-free-50m", label: "Pistolet dowolny 50 m (Pdw)" },
       { id: "pistol-center-fire-25m", label: "Pistolet centralnego zapłonu 25 m (Pcz)" },
+      { id: "pistol-rimfire-25m", label: "Pistolet bocznego zapłonu 25 m" },
+      { id: "pistol-rimfire-10m", label: "Pistolet bocznego zapłonu 10 m" },
       { id: "pistol-standard-25m", label: "Pistolet standardowy 25 m (Pst)" },
       { id: "ipsc-pistol", label: "IPSC Pistolet" },
       { id: "idpa", label: "IDPA" },

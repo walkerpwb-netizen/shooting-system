@@ -19,7 +19,7 @@ type CompetitionSearchMapProps = {
   competitions: CompetitionMapItem[];
 };
 
-type MapLayerMode = "street" | "satellite";
+type MapLayerMode = "street" | "hybrid";
 
 const defaultCenter: [number, number] = [52.0692, 19.4803];
 const polandBounds: L.LatLngBoundsExpression = [
@@ -35,11 +35,15 @@ const mapLayers: Record<MapLayerMode, {
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
     url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
   },
-  satellite: {
+  hybrid: {
     attribution: "Tiles &copy; Esri",
     url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
   },
 };
+const hybridReferenceLayers = [
+  "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}",
+  "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
+];
 
 function hasCoordinates(competition: CompetitionMapItem) {
   return (
@@ -136,10 +140,17 @@ export default function CompetitionSearchMap({
           attribution={activeLayer.attribution}
           url={activeLayer.url}
         />
+        {layerMode === "hybrid" && hybridReferenceLayers.map((url, index) => (
+          <TileLayer
+            key={url}
+            url={url}
+            zIndex={401 + index}
+          />
+        ))}
         <div className="pointer-events-auto absolute right-3 top-3 z-[1000] overflow-hidden rounded-lg bg-white shadow-lg">
           {([
             ["street", "Mapa"],
-            ["satellite", "Satelita"],
+            ["hybrid", "Hybryda"],
           ] as [MapLayerMode, string][]).map(([mode, label]) => (
             <button
               key={mode}

@@ -668,6 +668,8 @@ DISCIPLINE_TYPE_GROUPS = [
             ("pistol-rapid-fire-25m", "Pistolet szybkostrzelny 25 m (Psz)"),
             ("pistol-free-50m", "Pistolet dowolny 50 m (Pdw)"),
             ("pistol-center-fire-25m", "Pistolet centralnego zapłonu 25 m (Pcz)"),
+            ("pistol-rimfire-25m", "Pistolet bocznego zapłonu 25 m"),
+            ("pistol-rimfire-10m", "Pistolet bocznego zapłonu 10 m"),
             ("pistol-standard-25m", "Pistolet standardowy 25 m (Pst)"),
             ("ipsc-pistol", "IPSC Pistolet"),
             ("idpa", "IDPA"),
