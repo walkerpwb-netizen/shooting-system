@@ -57,6 +57,7 @@ type Competition = {
     entry_fee: string;
     fixed_power_factor: string;
     fixed_division: string;
+    display_order?: number;
     stages?: DynamicStage[];
   }[];
   participants?: {
@@ -93,6 +94,7 @@ type Discipline = {
   entry_fee: string;
   fixed_power_factor: string;
   fixed_division: string;
+  display_order?: number;
   stages: DynamicStage[];
 };
 
@@ -645,6 +647,7 @@ export default function OrganizerPage() {
       entry_fee: "",
       fixed_power_factor: "",
       fixed_division: "",
+      display_order: 0,
       stages: [],
     };
   }
@@ -659,6 +662,30 @@ export default function OrganizerPage() {
       ...currentDisciplines,
       createBlankDiscipline(),
     ]);
+  }
+
+  function moveDiscipline(index: number, direction: -1 | 1) {
+    if (!canManageDisciplines) {
+      setMessage("Kolejność konkurencji można zmieniać tylko przed publikacją zawodów ❌");
+      return;
+    }
+
+    setDisciplines((currentDisciplines) => {
+      const nextIndex = index + direction;
+
+      if (nextIndex < 0 || nextIndex >= currentDisciplines.length) {
+        return currentDisciplines;
+      }
+
+      const updatedDisciplines = [...currentDisciplines];
+      const [movedDiscipline] = updatedDisciplines.splice(index, 1);
+      updatedDisciplines.splice(nextIndex, 0, movedDiscipline);
+
+      return updatedDisciplines.map((discipline, displayIndex) => ({
+        ...discipline,
+        display_order: displayIndex,
+      }));
+    });
   }
 
   async function fetchOrganizerCompetitions() {
@@ -951,7 +978,13 @@ export default function OrganizerPage() {
       );
       setEditingCompetitionStatus(competitionDetails.status);
       setDisciplines(
-        (competitionDetails.disciplines || []).map((discipline) => ({
+        (competitionDetails.disciplines || [])
+        .slice()
+        .sort((firstDiscipline, secondDiscipline) =>
+          (firstDiscipline.display_order ?? firstDiscipline.id ?? 0)
+          - (secondDiscipline.display_order ?? secondDiscipline.id ?? 0)
+        )
+        .map((discipline, disciplineIndex) => ({
           id: discipline.id,
           name: discipline.name,
           description: discipline.description || "",
@@ -965,6 +998,7 @@ export default function OrganizerPage() {
           entry_fee: discipline.entry_fee || "",
           fixed_power_factor: discipline.fixed_power_factor || "",
           fixed_division: discipline.fixed_division || "",
+          display_order: discipline.display_order ?? disciplineIndex,
           stages: (discipline.stages || []).map((stage, stageIndex) => createBlankStage(stage.stage_number || stageIndex + 1, stage)),
         }))
       );
@@ -1386,7 +1420,7 @@ export default function OrganizerPage() {
       const competitionId = data.competition_id;
 
       if (disciplines.length > 0) {
-        for (const discipline of disciplines) {
+        for (const [disciplineIndex, discipline] of disciplines.entries()) {
           const disciplineEndpoint = discipline.id
             ? apiUrl(`/competitions/${competitionId}/disciplines/${discipline.id}`)
             : apiUrl(`/competitions/${competitionId}/disciplines`);
@@ -1446,6 +1480,7 @@ export default function OrganizerPage() {
                 fixed_division: dynamicStageDiscipline
                   ? discipline.fixed_division
                   : "",
+                display_order: disciplineIndex,
                 stages: dynamicStageDiscipline
                   ? discipline.stages.map((stage, stageIndex) => ({
                       ...stage,
@@ -1869,16 +1904,34 @@ export default function OrganizerPage() {
                         : `Nowa konkurencja ${index - existingDisciplineCount + 1}`}
                     </h2>
 
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteDiscipline(discipline, index)}
-                      disabled={deletingDisciplineId === discipline.id}
-                      className="bg-red-700 hover:bg-red-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-4 py-2 rounded-xl font-bold transition"
-                    >
-                      {deletingDisciplineId === discipline.id
-                        ? "Usuwanie..."
-                        : "Usuń konkurencję"}
-                    </button>
+                    <div className="flex flex-wrap gap-2 sm:justify-end">
+                      <button
+                        type="button"
+                        onClick={() => moveDiscipline(index, -1)}
+                        disabled={index === 0}
+                        className="rounded-xl border border-zinc-600 px-4 py-2 font-bold text-gray-100 transition hover:border-emerald-500 hover:text-emerald-200 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        W górę
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveDiscipline(index, 1)}
+                        disabled={index === disciplines.length - 1}
+                        className="rounded-xl border border-zinc-600 px-4 py-2 font-bold text-gray-100 transition hover:border-emerald-500 hover:text-emerald-200 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        W dół
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteDiscipline(discipline, index)}
+                        disabled={deletingDisciplineId === discipline.id}
+                        className="bg-red-700 hover:bg-red-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-4 py-2 rounded-xl font-bold transition"
+                      >
+                        {deletingDisciplineId === discipline.id
+                          ? "Usuwanie..."
+                          : "Usuń konkurencję"}
+                      </button>
+                    </div>
                   </div>
 
                   <div className="space-y-5">

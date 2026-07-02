@@ -266,6 +266,7 @@ class DisciplineData(BaseModel):
     entry_fee: str = ""
     fixed_power_factor: str = ""
     fixed_division: str = ""
+    display_order: Optional[int] = None
     stages: list["CompetitionStageData"] = []
 
 
@@ -1569,7 +1570,7 @@ def competition_discipline_categories(competition: Competition, db):
     disciplines = (
         db.query(Discipline)
         .filter(Discipline.competition_id == competition.id)
-        .order_by(Discipline.id.asc())
+        .order_by(*discipline_order_columns())
         .all()
     )
     return [
@@ -2909,6 +2910,7 @@ def generate_test_results_for_competition(
         for discipline in (
             db.query(Discipline)
             .filter(Discipline.competition_id == competition.id)
+            .order_by(*discipline_order_columns())
             .all()
         )
     }
@@ -3594,6 +3596,7 @@ def validate_trap_squad_groups_before_start(competition: Competition, db):
         for discipline in (
             db.query(Discipline)
             .filter(Discipline.competition_id == competition.id)
+            .order_by(*discipline_order_columns())
             .all()
         )
         if is_clay_squad_discipline(discipline)
@@ -3989,6 +3992,7 @@ def calculate_participant_total_fee(participant: CompetitionParticipant, db):
         for discipline in (
             db.query(Discipline)
             .filter(Discipline.competition_id == competition.id)
+            .order_by(*discipline_order_columns())
             .all()
         )
     }
@@ -4298,6 +4302,29 @@ def current_timestamp():
 
 def is_dynamic_stage_discipline_type(discipline_type: str):
     return normalize_discipline_type(discipline_type or "") in DYNAMIC_STAGE_DISCIPLINE_TYPES
+
+
+def discipline_order_columns():
+    return Discipline.display_order.asc(), Discipline.id.asc()
+
+
+def normalize_display_order(value: Optional[int]):
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+
+    return max(parsed, 0)
+
+
+def next_discipline_display_order(competition_id: int, db):
+    current_max = (
+        db.query(func.max(Discipline.display_order))
+        .filter(Discipline.competition_id == competition_id)
+        .scalar()
+    )
+
+    return int(current_max or 0) + 1
 
 
 def normalize_power_factor(value: str):
@@ -6226,7 +6253,7 @@ def missing_judge_disciplines_by_competition(db, competition_ids: list[int]):
     disciplines = (
         db.query(Discipline)
         .filter(Discipline.competition_id.in_(competition_ids))
-        .order_by(Discipline.id.asc())
+        .order_by(*discipline_order_columns())
         .all()
     )
     assigned_discipline_ids = {
@@ -6348,6 +6375,7 @@ def result_competition_details(competition: Competition, db):
     disciplines = (
         db.query(Discipline)
         .filter(Discipline.competition_id == competition.id)
+        .order_by(*discipline_order_columns())
         .all()
     )
 
@@ -6367,6 +6395,7 @@ def result_category_payload(competition: Competition, category_id: str, db, incl
     disciplines = (
         db.query(Discipline)
         .filter(Discipline.competition_id == competition.id)
+        .order_by(*discipline_order_columns())
         .all()
     )
     categories = live_result_categories(disciplines)
@@ -7562,6 +7591,7 @@ def get_competition(
     disciplines = (
         db.query(Discipline)
         .filter(Discipline.competition_id == competition.id)
+        .order_by(*discipline_order_columns())
         .all()
     )
 
@@ -8646,6 +8676,7 @@ def admin_get_competitions(
         disciplines = (
             db.query(Discipline)
             .filter(Discipline.competition_id == competition.id)
+            .order_by(*discipline_order_columns())
             .all()
         )
 
@@ -8708,6 +8739,7 @@ def admin_get_competitions(
                     "entry_fee": discipline.entry_fee or "",
                     "fixed_power_factor": getattr(discipline, "fixed_power_factor", "") or "",
                     "fixed_division": getattr(discipline, "fixed_division", "") or "",
+                    "display_order": int(getattr(discipline, "display_order", 0) or 0),
                 }
                 for discipline in disciplines
             ],
@@ -8900,6 +8932,7 @@ def admin_generate_test_participants(
     disciplines = (
         db.query(Discipline)
         .filter(Discipline.competition_id == competition.id)
+        .order_by(*discipline_order_columns())
         .all()
     )
 
@@ -9606,6 +9639,7 @@ def organizer_competition_detail_row(competition: Competition, db):
     disciplines = (
         db.query(Discipline)
         .filter(Discipline.competition_id == competition.id)
+        .order_by(*discipline_order_columns())
         .all()
     )
     participants = (
@@ -9704,6 +9738,7 @@ def organizer_competition_detail_row(competition: Competition, db):
                 "entry_fee": discipline.entry_fee or "",
                 "fixed_power_factor": getattr(discipline, "fixed_power_factor", "") or "",
                 "fixed_division": getattr(discipline, "fixed_division", "") or "",
+                "display_order": int(getattr(discipline, "display_order", 0) or 0),
             }
             for discipline in disciplines
         ],
@@ -10094,6 +10129,7 @@ def organizer_add_manual_participant(
     competition_disciplines = (
         db.query(Discipline)
         .filter(Discipline.competition_id == competition.id)
+        .order_by(*discipline_order_columns())
         .all()
     )
     disciplines_by_id = {
@@ -10825,6 +10861,7 @@ def invite_judge(
     competition_disciplines = (
         db.query(Discipline)
         .filter(Discipline.competition_id == competition.id)
+        .order_by(*discipline_order_columns())
         .all()
     )
     allowed_discipline_ids = {
@@ -11140,6 +11177,7 @@ def get_judge_competitions(
         all_disciplines = (
             db.query(Discipline)
             .filter(Discipline.competition_id == competition.id)
+            .order_by(*discipline_order_columns())
             .all()
         )
         stages_by_discipline = {}
@@ -11201,6 +11239,7 @@ def get_judge_competitions(
                     "entry_fee": discipline.entry_fee or "",
                     "fixed_power_factor": getattr(discipline, "fixed_power_factor", "") or "",
                     "fixed_division": getattr(discipline, "fixed_division", "") or "",
+                    "display_order": int(getattr(discipline, "display_order", 0) or 0),
                     "shooters_count": discipline_shooters_count(
                         competition.id,
                         discipline.id,
@@ -11920,6 +11959,11 @@ def create_discipline(
             data.fixed_division,
             discipline_type,
         ),
+        display_order=(
+            normalize_display_order(data.display_order)
+            if data.display_order is not None
+            else next_discipline_display_order(competition.id, db)
+        ),
     )
 
     db.add(discipline)
@@ -12028,6 +12072,8 @@ def update_discipline(
         data.fixed_division,
         discipline_type,
     )
+    if data.display_order is not None:
+        discipline.display_order = normalize_display_order(data.display_order) or 0
 
     if discipline_type in DYNAMIC_STAGE_DISCIPLINE_TYPES and data.stages:
         sync_competition_stages(competition.id, discipline.id, data.stages, db)
@@ -12181,6 +12227,7 @@ def join_competition(
     competition_disciplines = (
         db.query(Discipline)
         .filter(Discipline.competition_id == competition.id)
+        .order_by(*discipline_order_columns())
         .all()
     )
     disciplines_by_id = {

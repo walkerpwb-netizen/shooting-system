@@ -510,6 +510,13 @@ class Discipline(Base):
         nullable=True,
     )
 
+    display_order = Column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+
 
 class CompetitionParticipant(Base):
     __tablename__ = "competition_participants"
