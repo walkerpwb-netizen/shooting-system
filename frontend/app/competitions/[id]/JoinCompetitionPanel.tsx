@@ -555,14 +555,17 @@ export default function JoinCompetitionPanel({
 
                       <p className="text-sm text-zinc-600 dark:text-gray-400">
                         Opłata startowa: {competitionEntryFee || discipline.entry_fee || "0"} zł
-                        {getAmmoType(discipline.id) === "club" && (
-                          <>
-                            {" "}+ amunicja i rzutki: {
-                              parsePrice(discipline.ammo_price) * discipline.shots_count
-                              + parsePrice(discipline.clay_price || "") * getClayTargetsCount(discipline)
-                            } zł
-                          </>
-                        )}
+                        {getAmmoType(discipline.id) === "club" && (() => {
+                          const clayTargetsCount = getClayTargetsCount(discipline);
+                          const ammoAndClayFee = parsePrice(discipline.ammo_price) * discipline.shots_count
+                            + parsePrice(discipline.clay_price || "") * clayTargetsCount;
+
+                          return (
+                            <>
+                              {" "}+ {clayTargetsCount > 0 ? "amunicja i rzutki" : "amunicja"}: {ammoAndClayFee} zł
+                            </>
+                          );
+                        })()}
                       </p>
                     </>
                   )}

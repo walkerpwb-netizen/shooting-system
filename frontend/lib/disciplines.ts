@@ -46,6 +46,10 @@ export function isHuntingTrapDiscipline(discipline: ClayDiscipline) {
 }
 
 export function getClayTargetsCount(discipline: ClayDiscipline) {
+  if (!isClayDisciplineType(discipline.discipline_type || "")) {
+    return 0;
+  }
+
   if (isHuntingTrapDiscipline(discipline)) {
     return HUNTING_TRAP_TARGETS_COUNT;
   }

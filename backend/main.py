@@ -3964,7 +3964,12 @@ def calculate_total_fee_from_selection(
             continue
 
         ammo_fee += parse_price(discipline.ammo_price) * Decimal(discipline.shots_count or 0)
-        ammo_fee += parse_price(getattr(discipline, "clay_price", "") or "") * Decimal(trap_targets_count(discipline))
+
+        if is_clay_squad_discipline(discipline):
+            ammo_fee += (
+                parse_price(getattr(discipline, "clay_price", "") or "")
+                * Decimal(trap_targets_count(discipline))
+            )
 
     return format_money(competition_fee + disciplines_fee + ammo_fee)
 
