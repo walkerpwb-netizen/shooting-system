@@ -4737,6 +4737,63 @@ def stage_score_payload(score: StageScore | None):
     }
 
 
+def validate_stage_score_counts(stage: CompetitionStage, counts: dict[str, int]):
+    paper_entries = (
+        counts["hits_a"]
+        + counts["hits_c"]
+        + counts["hits_d"]
+        + counts["paper_misses"]
+    )
+    required_paper_hits = stage_required_paper_hits(stage)
+
+    if paper_entries > required_paper_hits:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Suma trafień i miss papieru nie może przekroczyć {required_paper_hits}",
+        )
+
+    steel_miss_penalty_enabled = parse_points(stage.penalty_miss) != Decimal("0")
+    typed_target_limits = [
+        ("popperów", "popper_hits", "popper_misses", int(stage.poppers or 0)),
+        ("mini popperów", "mini_popper_hits", "mini_popper_misses", int(stage.mini_poppers or 0)),
+        ("plate", "plate_hits", "plate_misses", int(stage.plates or 0)),
+        ("mini plate", "mini_plate_hits", "mini_plate_misses", int(stage.mini_plates or 0)),
+    ]
+
+    for label, hit_field, miss_field, target_limit in typed_target_limits:
+        hit_count = counts[hit_field]
+        miss_count = counts[miss_field]
+
+        if not steel_miss_penalty_enabled and miss_count > 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Pole miss dla stali jest wyłączone, ponieważ kara za miss wynosi 0",
+            )
+
+        if hit_count + miss_count > target_limit:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Suma trafień i miss dla {label} nie może przekroczyć {target_limit}",
+            )
+
+    legacy_steel_entries = counts["steel_hits"] + counts["steel_misses"]
+    steel_targets = stage_steel_targets_count(stage)
+
+    if legacy_steel_entries > 0 and legacy_steel_entries > steel_targets:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Suma stali nie może przekroczyć {steel_targets}",
+        )
+
+    no_shoot_limit = int(stage.paper_no_shoots or 0) + int(stage.steel_no_shoots or 0)
+
+    if counts["no_shoots"] > no_shoot_limit:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Liczba No Shoot nie może przekroczyć {no_shoot_limit}",
+        )
+
+
 def calculate_stage_score(stage: CompetitionStage, data: StageScoreData):
     time_seconds = parse_decimal_field(data.time_seconds, "czas")
 
@@ -4769,6 +4826,7 @@ def calculate_stage_score(stage: CompetitionStage, data: StageScoreData):
         field: parse_non_negative_int(value, field)
         for field, value in count_fields
     }
+    validate_stage_score_counts(stage, counts)
     power_factor = (data.power_factor or "minor").lower()
 
     if power_factor not in ["minor", "major"]:

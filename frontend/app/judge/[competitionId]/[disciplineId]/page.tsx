@@ -555,6 +555,22 @@ function numericPenalty(value: string) {
   return parsed > 0 ? -parsed : parsed;
 }
 
+function clampCounterValue(value: number, maxValue: number | null = null) {
+  const parsedValue = Number(value || 0);
+  const normalizedValue = Number.isFinite(parsedValue) ? Math.floor(parsedValue) : 0;
+  const nonNegativeValue = Math.max(normalizedValue, 0);
+
+  if (maxValue === null) {
+    return nonNegativeValue;
+  }
+
+  return Math.min(nonNegativeValue, Math.max(maxValue, 0));
+}
+
+function stageSteelMissFieldsEnabled(stage: CompetitionStage) {
+  return numericPenalty(stage.penalty_miss) !== 0;
+}
+
 function stageHasPaperScoring(stage: CompetitionStage) {
   return Number(stage.paper_required_hits || 0) > 0;
 }
@@ -572,24 +588,25 @@ function visibleCustomPenalties(stage: CompetitionStage, input: StageScoreInput)
 function sanitizeStageScoreInput(stage: CompetitionStage, input: StageScoreInput) {
   const hasPaper = stageHasPaperScoring(stage);
   const hasNoShoots = stageHasNoShootScoring(stage);
+  const clampedInput = clampStageScoreCounters(stage, input);
 
   return {
-    ...input,
-    hits_a: hasPaper ? input.hits_a : 0,
-    hits_c: hasPaper ? input.hits_c : 0,
-    hits_d: hasPaper ? input.hits_d : 0,
-    paper_misses: hasPaper ? input.paper_misses : 0,
+    ...clampedInput,
+    hits_a: hasPaper ? clampedInput.hits_a : 0,
+    hits_c: hasPaper ? clampedInput.hits_c : 0,
+    hits_d: hasPaper ? clampedInput.hits_d : 0,
+    paper_misses: hasPaper ? clampedInput.paper_misses : 0,
     steel_hits: 0,
     steel_misses: 0,
-    popper_hits: activeTargetCount(stage.poppers) ? input.popper_hits : 0,
-    popper_misses: activeTargetCount(stage.poppers) ? input.popper_misses : 0,
-    mini_popper_hits: activeTargetCount(stage.mini_poppers) ? input.mini_popper_hits : 0,
-    mini_popper_misses: activeTargetCount(stage.mini_poppers) ? input.mini_popper_misses : 0,
-    plate_hits: activeTargetCount(stage.plates) ? input.plate_hits : 0,
-    plate_misses: activeTargetCount(stage.plates) ? input.plate_misses : 0,
-    mini_plate_hits: activeTargetCount(stage.mini_plates) ? input.mini_plate_hits : 0,
-    mini_plate_misses: activeTargetCount(stage.mini_plates) ? input.mini_plate_misses : 0,
-    no_shoots: hasNoShoots ? input.no_shoots : 0,
+    popper_hits: activeTargetCount(stage.poppers) ? clampedInput.popper_hits : 0,
+    popper_misses: activeTargetCount(stage.poppers) ? clampedInput.popper_misses : 0,
+    mini_popper_hits: activeTargetCount(stage.mini_poppers) ? clampedInput.mini_popper_hits : 0,
+    mini_popper_misses: activeTargetCount(stage.mini_poppers) ? clampedInput.mini_popper_misses : 0,
+    plate_hits: activeTargetCount(stage.plates) ? clampedInput.plate_hits : 0,
+    plate_misses: activeTargetCount(stage.plates) ? clampedInput.plate_misses : 0,
+    mini_plate_hits: activeTargetCount(stage.mini_plates) ? clampedInput.mini_plate_hits : 0,
+    mini_plate_misses: activeTargetCount(stage.mini_plates) ? clampedInput.mini_plate_misses : 0,
+    no_shoots: hasNoShoots ? clampedInput.no_shoots : 0,
     procedurals: 0,
     ftsa: 0,
     extra_shots: 0,
@@ -600,6 +617,86 @@ function sanitizeStageScoreInput(stage: CompetitionStage, input: StageScoreInput
 
 function activeTargetCount(value: number) {
   return Number(value || 0) > 0;
+}
+
+function stageScoreCounterMax(
+  stage: CompetitionStage,
+  input: StageScoreInput,
+  field: StageScoreCounterField
+) {
+  const missFieldsEnabled = stageSteelMissFieldsEnabled(stage);
+
+  switch (field) {
+    case "popper_hits":
+      return Math.max(Number(stage.poppers || 0) - (missFieldsEnabled ? Number(input.popper_misses || 0) : 0), 0);
+    case "popper_misses":
+      return missFieldsEnabled ? Math.max(Number(stage.poppers || 0) - Number(input.popper_hits || 0), 0) : 0;
+    case "mini_popper_hits":
+      return Math.max(Number(stage.mini_poppers || 0) - (missFieldsEnabled ? Number(input.mini_popper_misses || 0) : 0), 0);
+    case "mini_popper_misses":
+      return missFieldsEnabled ? Math.max(Number(stage.mini_poppers || 0) - Number(input.mini_popper_hits || 0), 0) : 0;
+    case "plate_hits":
+      return Math.max(Number(stage.plates || 0) - (missFieldsEnabled ? Number(input.plate_misses || 0) : 0), 0);
+    case "plate_misses":
+      return missFieldsEnabled ? Math.max(Number(stage.plates || 0) - Number(input.plate_hits || 0), 0) : 0;
+    case "mini_plate_hits":
+      return Math.max(Number(stage.mini_plates || 0) - (missFieldsEnabled ? Number(input.mini_plate_misses || 0) : 0), 0);
+    case "mini_plate_misses":
+      return missFieldsEnabled ? Math.max(Number(stage.mini_plates || 0) - Number(input.mini_plate_hits || 0), 0) : 0;
+    case "no_shoots":
+      return Math.max(Number(stage.paper_no_shoots || 0) + Number(stage.steel_no_shoots || 0), 0);
+    default:
+      return null;
+  }
+}
+
+function clampStageScoreCounters(stage: CompetitionStage, input: StageScoreInput) {
+  const hasPaper = stageHasPaperScoring(stage);
+  const hasNoShoots = stageHasNoShootScoring(stage);
+  const missFieldsEnabled = stageSteelMissFieldsEnabled(stage);
+  const paperLimit = Number(stage.paper_required_hits || 0);
+  const popperLimit = Number(stage.poppers || 0);
+  const miniPopperLimit = Number(stage.mini_poppers || 0);
+  const plateLimit = Number(stage.plates || 0);
+  const miniPlateLimit = Number(stage.mini_plates || 0);
+  const noShootLimit = Number(stage.paper_no_shoots || 0) + Number(stage.steel_no_shoots || 0);
+  const next = { ...input };
+
+  if (hasPaper) {
+    next.hits_a = clampCounterValue(next.hits_a, paperLimit);
+    next.hits_c = clampCounterValue(next.hits_c, paperLimit - next.hits_a);
+    next.hits_d = clampCounterValue(next.hits_d, paperLimit - next.hits_a - next.hits_c);
+    next.paper_misses = clampCounterValue(next.paper_misses, paperLimit - next.hits_a - next.hits_c - next.hits_d);
+  } else {
+    next.hits_a = 0;
+    next.hits_c = 0;
+    next.hits_d = 0;
+    next.paper_misses = 0;
+  }
+
+  next.popper_hits = clampCounterValue(next.popper_hits, popperLimit);
+  next.popper_misses = missFieldsEnabled
+    ? clampCounterValue(next.popper_misses, popperLimit - next.popper_hits)
+    : 0;
+  next.mini_popper_hits = clampCounterValue(next.mini_popper_hits, miniPopperLimit);
+  next.mini_popper_misses = missFieldsEnabled
+    ? clampCounterValue(next.mini_popper_misses, miniPopperLimit - next.mini_popper_hits)
+    : 0;
+  next.plate_hits = clampCounterValue(next.plate_hits, plateLimit);
+  next.plate_misses = missFieldsEnabled
+    ? clampCounterValue(next.plate_misses, plateLimit - next.plate_hits)
+    : 0;
+  next.mini_plate_hits = clampCounterValue(next.mini_plate_hits, miniPlateLimit);
+  next.mini_plate_misses = missFieldsEnabled
+    ? clampCounterValue(next.mini_plate_misses, miniPlateLimit - next.mini_plate_hits)
+    : 0;
+  next.no_shoots = hasNoShoots ? clampCounterValue(next.no_shoots, noShootLimit) : 0;
+  next.procedurals = 0;
+  next.ftsa = 0;
+  next.extra_shots = 0;
+  next.extra_hits = 0;
+
+  return next;
 }
 
 function dynamicStageSummaryItems(stage: CompetitionStage) {
@@ -1692,15 +1789,30 @@ export default function JudgeDisciplinePage() {
     }));
   }
 
+  function setStageScoreCounter(
+    participantId: number,
+    stage: CompetitionStage,
+    field: StageScoreCounterField,
+    value: number
+  ) {
+    updateStageScoreInput(participantId, stage.id, (input) => ({
+      ...input,
+      [field]: clampCounterValue(value, stageScoreCounterMax(stage, input, field)),
+    }));
+  }
+
   function adjustStageScoreCounter(
     participantId: number,
-    stageId: number,
+    stage: CompetitionStage,
     field: StageScoreCounterField,
     delta: number
   ) {
-    updateStageScoreInput(participantId, stageId, (input) => ({
+    updateStageScoreInput(participantId, stage.id, (input) => ({
       ...input,
-      [field]: Math.max(Number(input[field] || 0) + delta, 0),
+      [field]: clampCounterValue(
+        Number(input[field] || 0) + delta,
+        stageScoreCounterMax(stage, input, field)
+      ),
     }));
   }
 
@@ -2686,10 +2798,12 @@ export default function JudgeDisciplinePage() {
                 {sortedShooters.map((shooter) => {
                   const input = stageScoreInputs[shooter.participant_id]?.[activeStage.id]
                     || emptyStageScoreInput(activeStage, shooter.stage_scores?.[String(activeStage.id)] || null, shooter);
-                  const preview = dynamicStagePreview(activeStage, input);
+                  const displayInput = sanitizeStageScoreInput(activeStage, input);
+                  const preview = dynamicStagePreview(activeStage, displayInput);
                   const savedScore = shooter.stage_scores?.[String(activeStage.id)];
                   const hasSavedScore = Boolean(savedScore);
                   const expanded = expandedDynamicShooterId === shooter.participant_id;
+                  const steelMissFieldsEnabled = stageSteelMissFieldsEnabled(activeStage);
                   const counterFields: {
                     field: StageScoreCounterField;
                     label: string;
@@ -2705,25 +2819,33 @@ export default function JudgeDisciplinePage() {
                     ...(activeStage.poppers > 0
                       ? [
                           { field: "popper_hits" as StageScoreCounterField, label: "Popper hit" },
-                          { field: "popper_misses" as StageScoreCounterField, label: "Popper miss" },
+                          ...(steelMissFieldsEnabled
+                            ? [{ field: "popper_misses" as StageScoreCounterField, label: "Popper miss" }]
+                            : []),
                         ]
                       : []),
                     ...(activeStage.mini_poppers > 0
                       ? [
                           { field: "mini_popper_hits" as StageScoreCounterField, label: "Mini popper hit" },
-                          { field: "mini_popper_misses" as StageScoreCounterField, label: "Mini popper miss" },
+                          ...(steelMissFieldsEnabled
+                            ? [{ field: "mini_popper_misses" as StageScoreCounterField, label: "Mini popper miss" }]
+                            : []),
                         ]
                       : []),
                     ...(activeStage.plates > 0
                       ? [
                           { field: "plate_hits" as StageScoreCounterField, label: "Plate hit" },
-                          { field: "plate_misses" as StageScoreCounterField, label: "Plate miss" },
+                          ...(steelMissFieldsEnabled
+                            ? [{ field: "plate_misses" as StageScoreCounterField, label: "Plate miss" }]
+                            : []),
                         ]
                       : []),
                     ...(activeStage.mini_plates > 0
                       ? [
                           { field: "mini_plate_hits" as StageScoreCounterField, label: "Mini plate hit" },
-                          { field: "mini_plate_misses" as StageScoreCounterField, label: "Mini plate miss" },
+                          ...(steelMissFieldsEnabled
+                            ? [{ field: "mini_plate_misses" as StageScoreCounterField, label: "Mini plate miss" }]
+                            : []),
                         ]
                       : []),
                     ...(stageHasNoShootScoring(activeStage)
@@ -2843,45 +2965,53 @@ export default function JudgeDisciplinePage() {
                       </div>
 
                       <div className="mt-4 grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                        {counterFields.map((counter) => (
-                          <div
-                            key={counter.field}
-                            className="grid min-w-0 grid-cols-[48px_minmax(0,1fr)_48px] overflow-hidden rounded-2xl border border-zinc-700 bg-zinc-900 sm:grid-cols-[58px_minmax(0,1fr)_58px]"
-                          >
-                            <button
-                              type="button"
-                              onClick={() => adjustStageScoreCounter(shooter.participant_id, activeStage.id, counter.field, -1)}
-                              className="bg-zinc-800 text-3xl font-black text-white"
+                        {counterFields.map((counter) => {
+                          const counterMax = stageScoreCounterMax(activeStage, displayInput, counter.field);
+                          const counterValue = displayInput[counter.field];
+
+                          return (
+                            <div
+                              key={counter.field}
+                              className="grid min-w-0 grid-cols-[48px_minmax(0,1fr)_48px] overflow-hidden rounded-2xl border border-zinc-700 bg-zinc-900 sm:grid-cols-[58px_minmax(0,1fr)_58px]"
                             >
-                              -
-                            </button>
-                            <label className="block min-w-0">
-                              <span className="block px-2 pt-2 text-center text-xs font-black uppercase text-gray-500">
-                                {counter.label}
-                              </span>
-                              <input
-                                type="number"
-                                min="0"
-                                inputMode="numeric"
-                                value={input[counter.field]}
-                                onChange={(event) => setStageScoreField(
-                                  shooter.participant_id,
-                                  activeStage.id,
-                                  counter.field,
-                                  Math.max(Number(event.target.value || 0), 0) as never
-                                )}
-                                className="w-full min-w-0 bg-transparent px-2 pb-3 text-center text-2xl font-black text-white outline-none sm:text-3xl"
-                              />
-                            </label>
-                            <button
-                              type="button"
-                              onClick={() => adjustStageScoreCounter(shooter.participant_id, activeStage.id, counter.field, 1)}
-                              className="bg-green-700 text-3xl font-black text-white"
-                            >
-                              +
-                            </button>
-                          </div>
-                        ))}
+                              <button
+                                type="button"
+                                onClick={() => adjustStageScoreCounter(shooter.participant_id, activeStage, counter.field, -1)}
+                                disabled={counterValue <= 0}
+                                className="bg-zinc-800 text-3xl font-black text-white disabled:text-zinc-600"
+                              >
+                                -
+                              </button>
+                              <label className="block min-w-0">
+                                <span className="block px-2 pt-2 text-center text-xs font-black uppercase text-gray-500">
+                                  {counter.label}
+                                </span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max={counterMax ?? undefined}
+                                  inputMode="numeric"
+                                  value={counterValue}
+                                  onChange={(event) => setStageScoreCounter(
+                                    shooter.participant_id,
+                                    activeStage,
+                                    counter.field,
+                                    Number(event.target.value || 0)
+                                  )}
+                                  className="w-full min-w-0 bg-transparent px-2 pb-3 text-center text-2xl font-black text-white outline-none sm:text-3xl"
+                                />
+                              </label>
+                              <button
+                                type="button"
+                                onClick={() => adjustStageScoreCounter(shooter.participant_id, activeStage, counter.field, 1)}
+                                disabled={counterMax !== null && counterValue >= counterMax}
+                                className="bg-green-700 text-3xl font-black text-white disabled:bg-zinc-700 disabled:text-zinc-500"
+                              >
+                                +
+                              </button>
+                            </div>
+                          );
+                        })}
                       </div>
 
                       {activeStage.custom_penalties.some((penalty) => penalty.name.trim()) && (
