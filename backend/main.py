@@ -2860,6 +2860,7 @@ def create_test_participant(
             competition,
             selected_disciplines,
             disciplines_by_id,
+            person["club"],
         ),
         checked_in=1 if checked_in else 0,
         checked_in_at=timestamp if checked_in else None,
@@ -3934,10 +3935,39 @@ def format_money(value: Decimal):
     return str(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
+SPECIAL_PORONIN_COMPETITION_NAME = "II PUCHAR STRZELNICY PORONIN"
+SPECIAL_PORONIN_DISCOUNT_CLUB = "KŻR Warka"
+SPECIAL_PORONIN_DISCIPLINE_DISCOUNT = Decimal("10")
+
+
+def poronin_club_discount_applies(competition: Competition, shooter_club: str):
+    return (
+        normalize_search_text(getattr(competition, "name", "")).strip()
+        == normalize_search_text(SPECIAL_PORONIN_COMPETITION_NAME).strip()
+        and normalize_search_text(shooter_club).strip()
+        == normalize_search_text(SPECIAL_PORONIN_DISCOUNT_CLUB).strip()
+    )
+
+
+def poronin_club_discipline_discount(
+    competition: Competition,
+    shooter_club: str,
+    selected_disciplines,
+    base_fee: Decimal,
+):
+    if not poronin_club_discount_applies(competition, shooter_club):
+        return Decimal("0")
+
+    discount = SPECIAL_PORONIN_DISCIPLINE_DISCOUNT * Decimal(len(selected_disciplines or []))
+
+    return min(discount, base_fee)
+
+
 def calculate_total_fee_from_selection(
     competition: Competition,
     selected_disciplines,
     disciplines_by_id,
+    shooter_club: str = "",
 ):
     if not selected_disciplines:
         return "0.00"
@@ -3952,6 +3982,13 @@ def calculate_total_fee_from_selection(
             if discipline:
                 disciplines_fee += parse_price(discipline.entry_fee)
 
+    base_fee = competition_fee + disciplines_fee
+    discount = poronin_club_discipline_discount(
+        competition,
+        shooter_club,
+        selected_disciplines,
+        base_fee,
+    )
     ammo_fee = Decimal("0")
 
     for selected_discipline in selected_disciplines:
@@ -3971,7 +4008,7 @@ def calculate_total_fee_from_selection(
                 * Decimal(trap_targets_count(discipline))
             )
 
-    return format_money(competition_fee + disciplines_fee + ammo_fee)
+    return format_money(base_fee - discount + ammo_fee)
 
 
 def calculate_participant_total_fee(participant: CompetitionParticipant, db):
@@ -4002,10 +4039,18 @@ def calculate_participant_total_fee(participant: CompetitionParticipant, db):
         )
     }
 
+    participant_user = (
+        db.query(User)
+        .filter(User.email == participant.user_email)
+        .first()
+    )
+    participant_club = participant.club or (participant_user.club if participant_user else "") or ""
+
     return calculate_total_fee_from_selection(
         competition,
         participant_disciplines,
         disciplines_by_id,
+        participant_club,
     )
 
 
@@ -10253,6 +10298,7 @@ def organizer_add_manual_participant(
             competition,
             data.disciplines,
             disciplines_by_id,
+            club,
         ),
         checked_in=1,
         checked_in_at=now,
@@ -12358,6 +12404,7 @@ def join_competition(
             competition,
             data.disciplines,
             disciplines_by_id,
+            user.club or "",
         )
 
         (
@@ -12375,6 +12422,7 @@ def join_competition(
                 competition,
                 data.disciplines,
                 disciplines_by_id,
+                user.club or "",
             ),
         )
 

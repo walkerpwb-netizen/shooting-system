@@ -5,13 +5,17 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { apiUrl } from "@/lib/api";
-import { getAccessToken } from "@/lib/auth";
+import { authFetch, getAccessToken } from "@/lib/auth";
 import {
   POWER_FACTOR_OPTIONS,
   getClayTargetsCount,
   getDynamicDisciplineDivisions,
   isDynamicStageDisciplineType,
 } from "@/lib/disciplines";
+
+const SPECIAL_PORONIN_COMPETITION_NAME = "II PUCHAR STRZELNICY PORONIN";
+const SPECIAL_PORONIN_DISCOUNT_CLUB = "KŻR Warka";
+const SPECIAL_PORONIN_DISCIPLINE_DISCOUNT = 10;
 
 const subscribeToUserEmail = () => () => {};
 const getUserEmailSnapshot = () => localStorage.getItem("email") || "";
@@ -53,6 +57,7 @@ type JoinCompetitionPanelProps = {
   competitionEntryFee: string;
   participantLimit: number | null;
   competitionStatus: string;
+  competitionName: string;
   initialParticipants: Participant[];
   disciplines: Discipline[];
 };
@@ -62,6 +67,7 @@ export default function JoinCompetitionPanel({
   competitionEntryFee,
   participantLimit,
   competitionStatus,
+  competitionName,
   initialParticipants,
   disciplines,
 }: JoinCompetitionPanelProps) {
@@ -72,6 +78,7 @@ export default function JoinCompetitionPanel({
   const [noticeMessage, setNoticeMessage] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [currentEntryType, setCurrentEntryType] = useState("");
+  const [currentUserClub, setCurrentUserClub] = useState("");
   const [selectedDisciplines, setSelectedDisciplines] = useState<SelectedDiscipline[]>([]);
   const currentUserEmail = useSyncExternalStore(
     subscribeToUserEmail,
@@ -110,6 +117,30 @@ export default function JoinCompetitionPanel({
 
     loadMyEntry();
   }, [competitionId]);
+
+  useEffect(() => {
+    if (!currentUserEmail) {
+      setCurrentUserClub("");
+      return;
+    }
+
+    async function loadMyProfile() {
+      try {
+        const response = await authFetch(apiUrl("/me"));
+
+        if (!response.ok) {
+          return;
+        }
+
+        const data = await response.json();
+        setCurrentUserClub(data.club || "");
+      } catch (error) {
+        console.error(error);
+      }
+    }
+
+    loadMyProfile();
+  }, [currentUserEmail]);
 
   function updateDisciplineSelection(
     disciplineId: number,
@@ -194,6 +225,15 @@ export default function JoinCompetitionPanel({
       : 0;
   }
 
+  function normalizeDiscountText(value: string) {
+    return value.trim().toLowerCase();
+  }
+
+  function poroninClubDiscountApplies() {
+    return normalizeDiscountText(competitionName) === normalizeDiscountText(SPECIAL_PORONIN_COMPETITION_NAME)
+      && normalizeDiscountText(currentUserClub) === normalizeDiscountText(SPECIAL_PORONIN_DISCOUNT_CLUB);
+  }
+
   function getSelectedDisciplineDetails() {
     return selectedDisciplines
       .map((selectedDiscipline) => {
@@ -240,6 +280,13 @@ export default function JoinCompetitionPanel({
         (sum, discipline) => sum + parsePrice(discipline.entry_fee),
         0
       );
+  const baseEntryFee = competitionFee + disciplinesFee;
+  const poroninClubDiscount = poroninClubDiscountApplies()
+    ? Math.min(
+        baseEntryFee,
+        selectedDisciplineDetails.length * SPECIAL_PORONIN_DISCIPLINE_DISCOUNT
+      )
+    : 0;
   const ammoFee = selectedDisciplineDetails.reduce(
     (sum, discipline) => {
       if (discipline.selectedAmmoType !== "club") {
@@ -254,7 +301,7 @@ export default function JoinCompetitionPanel({
     },
     0
   );
-  const totalFee = competitionFee + disciplinesFee + ammoFee;
+  const totalFee = baseEntryFee - poroninClubDiscount + ammoFee;
   const registrationOpen = ["published", "started"].includes(competitionStatus);
 
   function showNotice(message: string) {
@@ -567,6 +614,12 @@ export default function JoinCompetitionPanel({
                           );
                         })()}
                       </p>
+
+                      {poroninClubDiscountApplies() && (
+                        <p className="text-sm font-semibold text-green-700 dark:text-green-300">
+                          Rabat klubowy KŻR Warka: -{SPECIAL_PORONIN_DISCIPLINE_DISCOUNT} zł za tę konkurencję.
+                        </p>
+                      )}
                     </>
                   )}
                 </div>
@@ -582,6 +635,12 @@ export default function JoinCompetitionPanel({
             <p className="text-5xl font-black text-red-800 dark:text-red-500">
               {totalFee.toFixed(2)} zł
             </p>
+
+            {poroninClubDiscount > 0 && (
+              <p className="mt-2 font-semibold text-green-700 dark:text-green-300">
+                Uwzględniono rabat KŻR Warka: -{poroninClubDiscount.toFixed(2)} zł.
+              </p>
+            )}
 
             <p className="mt-3 text-red-700 dark:text-red-300">
               Opłatę uiszczasz w dniu zawodów organizatorowi.

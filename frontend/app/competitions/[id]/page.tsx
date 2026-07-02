@@ -232,6 +232,7 @@ export default async function CompetitionPage({
 
         <JoinCompetitionPanel
           competitionId={competition.id}
+          competitionName={competition.name}
           competitionEntryFee={competition.entry_fee || ""}
           participantLimit={competition.participant_limit || null}
           competitionStatus={competition.status}
