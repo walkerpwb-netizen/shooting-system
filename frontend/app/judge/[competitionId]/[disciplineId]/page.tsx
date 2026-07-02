@@ -508,6 +508,12 @@ function emptyStageScoreInput(
   score?: StageScorePayload | null,
   shooter?: Shooter
 ): StageScoreInput {
+  const customPenaltiesCount = Math.max(
+    stage?.custom_penalties?.length || 0,
+    score?.custom_penalties?.length || 0,
+    3
+  );
+
   return {
     time_seconds: score?.time_seconds || "",
     hits_a: score?.hits_a || 0,
@@ -531,7 +537,7 @@ function emptyStageScoreInput(
     extra_hits: score?.extra_hits || 0,
     power_factor: score?.power_factor === "major" || shooter?.power_factor === "major" ? "major" : "minor",
     division: score?.division || shooter?.division || "",
-    custom_penalties: Array.from({ length: 3 }, (_item, index) => ({
+    custom_penalties: Array.from({ length: customPenaltiesCount }, (_item, index) => ({
       name: score?.custom_penalties?.[index]?.name || stage?.custom_penalties?.[index]?.name || "",
       count: score?.custom_penalties?.[index]?.count || 0,
       value: score?.custom_penalties?.[index]?.value || stage?.custom_penalties?.[index]?.value || "-10",
@@ -549,42 +555,95 @@ function numericPenalty(value: string) {
   return parsed > 0 ? -parsed : parsed;
 }
 
+function stageHasPaperScoring(stage: CompetitionStage) {
+  return Number(stage.paper_required_hits || 0) > 0;
+}
+
+function stageHasNoShootScoring(stage: CompetitionStage) {
+  return Number(stage.paper_no_shoots || 0) + Number(stage.steel_no_shoots || 0) > 0;
+}
+
+function visibleCustomPenalties(stage: CompetitionStage, input: StageScoreInput) {
+  return input.custom_penalties.filter((penalty, index) =>
+    Boolean((stage.custom_penalties[index]?.name || "").trim())
+  );
+}
+
+function sanitizeStageScoreInput(stage: CompetitionStage, input: StageScoreInput) {
+  const hasPaper = stageHasPaperScoring(stage);
+  const hasNoShoots = stageHasNoShootScoring(stage);
+
+  return {
+    ...input,
+    hits_a: hasPaper ? input.hits_a : 0,
+    hits_c: hasPaper ? input.hits_c : 0,
+    hits_d: hasPaper ? input.hits_d : 0,
+    paper_misses: hasPaper ? input.paper_misses : 0,
+    steel_hits: 0,
+    steel_misses: 0,
+    popper_hits: activeTargetCount(stage.poppers) ? input.popper_hits : 0,
+    popper_misses: activeTargetCount(stage.poppers) ? input.popper_misses : 0,
+    mini_popper_hits: activeTargetCount(stage.mini_poppers) ? input.mini_popper_hits : 0,
+    mini_popper_misses: activeTargetCount(stage.mini_poppers) ? input.mini_popper_misses : 0,
+    plate_hits: activeTargetCount(stage.plates) ? input.plate_hits : 0,
+    plate_misses: activeTargetCount(stage.plates) ? input.plate_misses : 0,
+    mini_plate_hits: activeTargetCount(stage.mini_plates) ? input.mini_plate_hits : 0,
+    mini_plate_misses: activeTargetCount(stage.mini_plates) ? input.mini_plate_misses : 0,
+    no_shoots: hasNoShoots ? input.no_shoots : 0,
+    procedurals: 0,
+    ftsa: 0,
+    extra_shots: 0,
+    extra_hits: 0,
+    custom_penalties: visibleCustomPenalties(stage, input),
+  };
+}
+
+function activeTargetCount(value: number) {
+  return Number(value || 0) > 0;
+}
+
+function dynamicStageSummaryItems(stage: CompetitionStage) {
+  return [
+    ...(stageHasPaperScoring(stage) ? [`Papier: ${stage.paper_required_hits} trafień`] : []),
+    ...(stage.steel_targets > 0 ? [`Stal: ${stage.steel_targets}`] : []),
+    `Min. strzały: ${stage.min_rounds}`,
+    `Max pkt: ${stage.max_points}`,
+  ];
+}
+
 function dynamicStagePreview(stage: CompetitionStage, input: StageScoreInput) {
+  const sanitizedInput = sanitizeStageScoreInput(stage, input);
   const time = Number(String(input.time_seconds || "").replace(",", "."));
-  const cPoints = input.power_factor === "major" ? 4 : 3;
-  const dPoints = input.power_factor === "major" ? 2 : 1;
-  const typedSteelHits = input.popper_hits
-    + input.mini_popper_hits
-    + input.plate_hits
-    + input.mini_plate_hits;
-  const typedSteelMisses = input.popper_misses
-    + input.mini_popper_misses
-    + input.plate_misses
-    + input.mini_plate_misses;
+  const cPoints = sanitizedInput.power_factor === "major" ? 4 : 3;
+  const dPoints = sanitizedInput.power_factor === "major" ? 2 : 1;
+  const typedSteelHits = sanitizedInput.popper_hits
+    + sanitizedInput.mini_popper_hits
+    + sanitizedInput.plate_hits
+    + sanitizedInput.mini_plate_hits;
+  const typedSteelMisses = sanitizedInput.popper_misses
+    + sanitizedInput.mini_popper_misses
+    + sanitizedInput.plate_misses
+    + sanitizedInput.mini_plate_misses;
   const useTypedSteel = typedSteelHits + typedSteelMisses > 0;
-  const steelHits = useTypedSteel ? typedSteelHits : input.steel_hits;
-  const steelMisses = useTypedSteel ? typedSteelMisses : input.steel_misses;
+  const steelHits = useTypedSteel ? typedSteelHits : sanitizedInput.steel_hits;
+  const steelMisses = useTypedSteel ? typedSteelMisses : sanitizedInput.steel_misses;
   const steelPositivePoints = useTypedSteel
-    ? input.popper_hits * (stage.popper_points ?? 5)
-      + input.mini_popper_hits * (stage.mini_popper_points ?? 5)
-      + input.plate_hits * (stage.plate_points ?? 5)
-      + input.mini_plate_hits * (stage.mini_plate_points ?? 5)
-    : input.steel_hits * 5;
-  const positivePoints = input.hits_a * 5
-    + input.hits_c * cPoints
-    + input.hits_d * dPoints
+    ? sanitizedInput.popper_hits * (stage.popper_points ?? 5)
+      + sanitizedInput.mini_popper_hits * (stage.mini_popper_points ?? 5)
+      + sanitizedInput.plate_hits * (stage.plate_points ?? 5)
+      + sanitizedInput.mini_plate_hits * (stage.mini_plate_points ?? 5)
+    : sanitizedInput.steel_hits * 5;
+  const positivePoints = sanitizedInput.hits_a * 5
+    + sanitizedInput.hits_c * cPoints
+    + sanitizedInput.hits_d * dPoints
     + steelPositivePoints;
   const penaltyPoints =
-    (input.paper_misses + steelMisses) * numericPenalty(stage.penalty_miss)
-    + input.no_shoots * numericPenalty(stage.penalty_no_shoot)
-    + input.procedurals * numericPenalty(stage.penalty_procedural)
-    + input.ftsa * numericPenalty(stage.penalty_ftsa)
-    + input.extra_shots * numericPenalty(stage.penalty_extra_shot)
-    + input.extra_hits * numericPenalty(stage.penalty_extra_hit)
-    + input.custom_penalties.reduce((sum, penalty) => sum + penalty.count * numericPenalty(penalty.value), 0);
+    (sanitizedInput.paper_misses + steelMisses) * numericPenalty(stage.penalty_miss)
+    + sanitizedInput.no_shoots * numericPenalty(stage.penalty_no_shoot)
+    + sanitizedInput.custom_penalties.reduce((sum, penalty) => sum + penalty.count * numericPenalty(penalty.value), 0);
   const finalPoints = Math.max(positivePoints + penaltyPoints, 0);
   const hitFactor = time > 0 ? finalPoints / time : 0;
-  const paperEntries = input.hits_a + input.hits_c + input.hits_d + input.paper_misses;
+  const paperEntries = sanitizedInput.hits_a + sanitizedInput.hits_c + sanitizedInput.hits_d + sanitizedInput.paper_misses;
   const steelEntries = steelHits + steelMisses;
 
   return {
@@ -596,8 +655,8 @@ function dynamicStagePreview(stage: CompetitionStage, input: StageScoreInput) {
     hitFactor,
     paperEntries,
     steelEntries,
-    paperWarning: paperEntries !== stage.paper_required_hits,
-    steelWarning: steelEntries !== stage.steel_targets,
+    paperWarning: stageHasPaperScoring(stage) && paperEntries !== stage.paper_required_hits,
+    steelWarning: stage.steel_targets > 0 && steelEntries !== stage.steel_targets,
     paperOverflow: paperEntries > stage.paper_required_hits,
     steelOverflow: steelEntries > stage.steel_targets,
   };
@@ -1655,6 +1714,7 @@ export default function JudgeDisciplinePage() {
     }
 
     const input = stageScoreInputs[shooter.participant_id]?.[stage.id] || emptyStageScoreInput(stage, null, shooter);
+    const sanitizedInput = sanitizeStageScoreInput(stage, input);
     const preview = dynamicStagePreview(stage, input);
 
     if (!preview.validTime) {
@@ -1678,8 +1738,8 @@ export default function JudgeDisciplinePage() {
           },
           body: JSON.stringify({
             competitor_id: shooter.participant_id,
-            ...input,
-            custom_penalties: input.custom_penalties.filter((penalty) => penalty.name || penalty.count > 0),
+            ...sanitizedInput,
+            custom_penalties: sanitizedInput.custom_penalties.filter((penalty) => penalty.name || penalty.count > 0),
           }),
         }
       );
@@ -2619,7 +2679,7 @@ export default function JudgeDisciplinePage() {
                   </p>
                   <h3 className="mt-1 break-words text-2xl font-black">{activeStage.name}</h3>
                   <p className="mt-2 break-words text-sm leading-6 text-gray-300">
-                    Papier: {activeStage.paper_required_hits} trafień • Stal: {activeStage.steel_targets} • Min. strzały: {activeStage.min_rounds} • Max pkt: {activeStage.max_points}
+                    {dynamicStageSummaryItems(activeStage).join(" • ")}
                   </p>
                 </div>
 
@@ -2634,10 +2694,14 @@ export default function JudgeDisciplinePage() {
                     field: StageScoreCounterField;
                     label: string;
                   }[] = [
-                    { field: "hits_a", label: "A" },
-                    { field: "hits_c", label: "C" },
-                    { field: "hits_d", label: "D" },
-                    { field: "paper_misses", label: "Miss papier" },
+                    ...(stageHasPaperScoring(activeStage)
+                      ? [
+                          { field: "hits_a" as StageScoreCounterField, label: "A" },
+                          { field: "hits_c" as StageScoreCounterField, label: "C" },
+                          { field: "hits_d" as StageScoreCounterField, label: "D" },
+                          { field: "paper_misses" as StageScoreCounterField, label: "Miss papier" },
+                        ]
+                      : []),
                     ...(activeStage.poppers > 0
                       ? [
                           { field: "popper_hits" as StageScoreCounterField, label: "Popper hit" },
@@ -2662,11 +2726,9 @@ export default function JudgeDisciplinePage() {
                           { field: "mini_plate_misses" as StageScoreCounterField, label: "Mini plate miss" },
                         ]
                       : []),
-                    { field: "no_shoots", label: "No Shoot" },
-                    { field: "procedurals", label: "Procedural" },
-                    { field: "ftsa", label: "FTSA" },
-                    { field: "extra_shots", label: "Extra Shot" },
-                    { field: "extra_hits", label: "Extra Hit" },
+                    ...(stageHasNoShootScoring(activeStage)
+                      ? [{ field: "no_shoots" as StageScoreCounterField, label: "No Shoot" }]
+                      : []),
                   ];
 
                   if (!expanded) {
@@ -2822,46 +2884,57 @@ export default function JudgeDisciplinePage() {
                         ))}
                       </div>
 
-                      <div className="mt-4 grid min-w-0 gap-3 sm:grid-cols-3">
-                        {input.custom_penalties.map((penalty, penaltyIndex) => (
-                          <div key={penaltyIndex} className="min-w-0 rounded-2xl border border-zinc-700 bg-zinc-900 p-3">
-                            <input
-                              value={penalty.name}
-                              placeholder={`Kara własna ${penaltyIndex + 1}`}
-                              onChange={(event) => {
-                                const customPenalties = [...input.custom_penalties];
-                                customPenalties[penaltyIndex] = { ...penalty, name: event.target.value };
-                                setStageScoreField(shooter.participant_id, activeStage.id, "custom_penalties", customPenalties);
-                              }}
-                              className="mb-2 w-full min-w-0 rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 font-bold text-white"
-                            />
-                            <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_78px] gap-2 sm:grid-cols-[minmax(0,1fr)_92px]">
-                              <input
-                                type="number"
-                                min="0"
-                                value={penalty.count}
-                                onChange={(event) => {
-                                  const customPenalties = [...input.custom_penalties];
-                                  customPenalties[penaltyIndex] = { ...penalty, count: Math.max(Number(event.target.value || 0), 0) };
-                                  setStageScoreField(shooter.participant_id, activeStage.id, "custom_penalties", customPenalties);
-                                }}
-                                className="min-w-0 rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-xl font-black text-white"
-                              />
-                              <input
-                                type="number"
-                                step="0.01"
-                                value={penalty.value}
-                                onChange={(event) => {
-                                  const customPenalties = [...input.custom_penalties];
-                                  customPenalties[penaltyIndex] = { ...penalty, value: event.target.value };
-                                  setStageScoreField(shooter.participant_id, activeStage.id, "custom_penalties", customPenalties);
-                                }}
-                                className="min-w-0 rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-xl font-black text-white"
-                              />
-                            </div>
-                          </div>
-                        ))}
-                      </div>
+                      {activeStage.custom_penalties.some((penalty) => penalty.name.trim()) && (
+                        <div className="mt-4 grid min-w-0 gap-3 sm:grid-cols-3">
+                          {input.custom_penalties.map((penalty, penaltyIndex) => {
+                            const configuredPenaltyName = activeStage.custom_penalties[penaltyIndex]?.name || "";
+
+                            if (!configuredPenaltyName.trim()) {
+                              return null;
+                            }
+
+                            return (
+                              <div key={penaltyIndex} className="min-w-0 rounded-2xl border border-zinc-700 bg-zinc-900 p-3">
+                                <p className="mb-2 min-h-10 break-words rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 font-bold text-white">
+                                  {configuredPenaltyName}
+                                </p>
+                                <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_78px] gap-2 sm:grid-cols-[minmax(0,1fr)_92px]">
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    value={penalty.count}
+                                    onChange={(event) => {
+                                      const customPenalties = [...input.custom_penalties];
+                                      customPenalties[penaltyIndex] = {
+                                        ...penalty,
+                                        count: Math.max(Number(event.target.value || 0), 0),
+                                        name: configuredPenaltyName,
+                                      };
+                                      setStageScoreField(shooter.participant_id, activeStage.id, "custom_penalties", customPenalties);
+                                    }}
+                                    className="min-w-0 rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-xl font-black text-white"
+                                  />
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    value={penalty.value}
+                                    onChange={(event) => {
+                                      const customPenalties = [...input.custom_penalties];
+                                      customPenalties[penaltyIndex] = {
+                                        ...penalty,
+                                        name: configuredPenaltyName,
+                                        value: event.target.value,
+                                      };
+                                      setStageScoreField(shooter.participant_id, activeStage.id, "custom_penalties", customPenalties);
+                                    }}
+                                    className="min-w-0 rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-xl font-black text-white"
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
 
                       <div className="mt-4 grid min-w-0 gap-3 lg:grid-cols-[1fr_auto] lg:items-center">
                         <div className="grid min-w-0 gap-2 min-[420px]:grid-cols-2 sm:grid-cols-4">
