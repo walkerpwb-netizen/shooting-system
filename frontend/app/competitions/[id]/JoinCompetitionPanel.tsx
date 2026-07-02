@@ -86,7 +86,10 @@ export default function JoinCompetitionPanel({
   const [noticeMessage, setNoticeMessage] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [currentEntryType, setCurrentEntryType] = useState("");
-  const [currentUserClub, setCurrentUserClub] = useState("");
+  const [currentUserProfile, setCurrentUserProfile] = useState({
+    email: "",
+    club: "",
+  });
   const [selectedDisciplines, setSelectedDisciplines] = useState<SelectedDiscipline[]>([]);
   const currentUserEmail = useSyncExternalStore(
     subscribeToUserEmail,
@@ -128,7 +131,6 @@ export default function JoinCompetitionPanel({
 
   useEffect(() => {
     if (!currentUserEmail) {
-      setCurrentUserClub("");
       return;
     }
 
@@ -141,7 +143,10 @@ export default function JoinCompetitionPanel({
         }
 
         const data = await response.json();
-        setCurrentUserClub(data.club || "");
+        setCurrentUserProfile({
+          email: data.email || currentUserEmail,
+          club: data.club || "",
+        });
       } catch (error) {
         console.error(error);
       }
@@ -237,15 +242,21 @@ export default function JoinCompetitionPanel({
     return value.trim().toLowerCase();
   }
 
+  function currentProfileClub() {
+    return currentUserProfile.email === currentUserEmail
+      ? currentUserProfile.club
+      : "";
+  }
+
   function poroninClubDiscountApplies() {
     return normalizeDiscountText(competitionName) === normalizeDiscountText(SPECIAL_PORONIN_COMPETITION_NAME)
-      && normalizeDiscountText(currentUserClub) === normalizeDiscountText(SPECIAL_PORONIN_DISCOUNT_CLUB);
+      && normalizeDiscountText(currentProfileClub()) === normalizeDiscountText(SPECIAL_PORONIN_DISCOUNT_CLUB);
   }
 
   function configuredClubDiscountApplies() {
     return clubDiscountEnabled
       && Boolean(competitionOrganizerName.trim())
-      && normalizeDiscountText(currentUserClub) === normalizeDiscountText(competitionOrganizerName);
+      && normalizeDiscountText(currentProfileClub()) === normalizeDiscountText(competitionOrganizerName);
   }
 
   function getSelectedDisciplineDetails() {
