@@ -52,6 +52,7 @@ type Competition = {
     clay_price?: string;
     entry_fee: string;
     fixed_power_factor?: string;
+    fixed_division?: string;
   }[];
   participants: {
     id: number;
@@ -592,6 +593,7 @@ export default function OrganizerCompetitionPage() {
         && isDynamicStageDisciplineType(discipline.discipline_type)
         && (
           !selectedDiscipline.division
+          && !discipline.fixed_division
           || (!discipline.fixed_power_factor && !selectedDiscipline.power_factor)
         )
       );
@@ -1870,7 +1872,7 @@ export default function OrganizerCompetitionPage() {
                             const disciplineHasError =
                               Boolean(manualFormErrors.disciplines) ||
                               Boolean(manualFormErrors.ammo_type && selectedDiscipline && !selectedDiscipline.ammo_type) ||
-                              Boolean(manualFormErrors.division && selectedDiscipline && dynamicDiscipline && (!selectedDiscipline.division || !selectedDiscipline.power_factor));
+                              Boolean(manualFormErrors.division && selectedDiscipline && dynamicDiscipline && ((!selectedDiscipline.division && !discipline.fixed_division) || (!selectedDiscipline.power_factor && !discipline.fixed_power_factor)));
 
                             return (
                               <div
@@ -1924,25 +1926,34 @@ export default function OrganizerCompetitionPage() {
 
                                     {dynamicDiscipline && (
                                       <div className="grid gap-2 sm:grid-cols-2">
-                                        <label className="block font-semibold text-gray-700">
-                                          <span className="mb-1 block">Dywizja</span>
-                                          <select
-                                            value={selectedDiscipline.division}
-                                            onChange={(event) => updateManualDynamicField(discipline.id, "division", event.target.value)}
-                                            className={`w-full rounded-lg border px-3 py-2 ${
-                                              manualFormErrors.division && !selectedDiscipline.division
-                                                ? "border-red-300 bg-white"
-                                                : "border-gray-200"
-                                            }`}
-                                          >
-                                            <option value="">Wybierz dywizję</option>
-                                            {divisionOptions.map((division) => (
-                                              <option key={division} value={division}>
-                                                {division}
-                                              </option>
-                                            ))}
-                                          </select>
-                                        </label>
+                                        {discipline.fixed_division ? (
+                                          <div className="rounded-lg border border-gray-200 px-3 py-2 font-semibold text-gray-700">
+                                            <span className="mb-1 block">Dywizja</span>
+                                            <span className="text-base font-black text-gray-950">
+                                              Stała {discipline.fixed_division}
+                                            </span>
+                                          </div>
+                                        ) : (
+                                          <label className="block font-semibold text-gray-700">
+                                            <span className="mb-1 block">Dywizja</span>
+                                            <select
+                                              value={selectedDiscipline.division}
+                                              onChange={(event) => updateManualDynamicField(discipline.id, "division", event.target.value)}
+                                              className={`w-full rounded-lg border px-3 py-2 ${
+                                                manualFormErrors.division && !selectedDiscipline.division
+                                                  ? "border-red-300 bg-white"
+                                                  : "border-gray-200"
+                                              }`}
+                                            >
+                                              <option value="">Wybierz dywizję</option>
+                                              {divisionOptions.map((division) => (
+                                                <option key={division} value={division}>
+                                                  {division}
+                                                </option>
+                                              ))}
+                                            </select>
+                                          </label>
+                                        )}
 
                                         {discipline.fixed_power_factor ? (
                                           <div className="rounded-lg border border-gray-200 px-3 py-2 font-semibold text-gray-700">

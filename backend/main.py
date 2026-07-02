@@ -265,6 +265,7 @@ class DisciplineData(BaseModel):
     clay_price: str = ""
     entry_fee: str = ""
     fixed_power_factor: str = ""
+    fixed_division: str = ""
     stages: list["CompetitionStageData"] = []
 
 
@@ -4315,13 +4316,39 @@ def normalize_fixed_power_factor(value: str, discipline_type: str):
     return normalize_power_factor(value)
 
 
+def normalize_fixed_division(value: str, discipline_type: str):
+    normalized_discipline_type = normalize_discipline_type(discipline_type or "")
+
+    if normalized_discipline_type not in DYNAMIC_STAGE_DISCIPLINE_TYPES:
+        return ""
+
+    fixed_division = (value or "").strip()
+
+    if not fixed_division:
+        return ""
+
+    allowed_divisions = DYNAMIC_DISCIPLINE_DIVISIONS.get(normalized_discipline_type, [])
+
+    if allowed_divisions and fixed_division not in allowed_divisions:
+        raise HTTPException(
+            status_code=400,
+            detail="Nieprawidłowa stała dywizja dla konkurencji dynamicznej"
+        )
+
+    return fixed_division
+
+
 def normalize_participant_dynamic_fields(selected_discipline: JoinDisciplineData, discipline: Discipline):
     discipline_type = normalize_discipline_type(discipline.discipline_type or "")
 
     if discipline_type not in DYNAMIC_STAGE_DISCIPLINE_TYPES:
         return "", ""
 
-    division = (selected_discipline.division or "").strip()
+    fixed_division = normalize_fixed_division(
+        getattr(discipline, "fixed_division", "") or "",
+        discipline_type,
+    )
+    division = fixed_division or (selected_discipline.division or "").strip()
     allowed_divisions = DYNAMIC_DISCIPLINE_DIVISIONS.get(discipline_type, [])
 
     if not division:
@@ -8680,6 +8707,7 @@ def admin_get_competitions(
                     "clay_price": getattr(discipline, "clay_price", "") or "",
                     "entry_fee": discipline.entry_fee or "",
                     "fixed_power_factor": getattr(discipline, "fixed_power_factor", "") or "",
+                    "fixed_division": getattr(discipline, "fixed_division", "") or "",
                 }
                 for discipline in disciplines
             ],
@@ -9675,6 +9703,7 @@ def organizer_competition_detail_row(competition: Competition, db):
                 "clay_price": getattr(discipline, "clay_price", "") or "",
                 "entry_fee": discipline.entry_fee or "",
                 "fixed_power_factor": getattr(discipline, "fixed_power_factor", "") or "",
+                "fixed_division": getattr(discipline, "fixed_division", "") or "",
             }
             for discipline in disciplines
         ],
@@ -11171,6 +11200,7 @@ def get_judge_competitions(
                     "clay_price": getattr(discipline, "clay_price", "") or "",
                     "entry_fee": discipline.entry_fee or "",
                     "fixed_power_factor": getattr(discipline, "fixed_power_factor", "") or "",
+                    "fixed_division": getattr(discipline, "fixed_division", "") or "",
                     "shooters_count": discipline_shooters_count(
                         competition.id,
                         discipline.id,
@@ -11886,6 +11916,10 @@ def create_discipline(
             data.fixed_power_factor,
             discipline_type,
         ),
+        fixed_division=normalize_fixed_division(
+            data.fixed_division,
+            discipline_type,
+        ),
     )
 
     db.add(discipline)
@@ -11988,6 +12022,10 @@ def update_discipline(
     discipline.entry_fee = data.entry_fee
     discipline.fixed_power_factor = normalize_fixed_power_factor(
         data.fixed_power_factor,
+        discipline_type,
+    )
+    discipline.fixed_division = normalize_fixed_division(
+        data.fixed_division,
         discipline_type,
     )
 

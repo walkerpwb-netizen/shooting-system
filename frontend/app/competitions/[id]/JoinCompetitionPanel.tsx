@@ -38,6 +38,7 @@ type Discipline = {
   clay_price?: string;
   entry_fee: string;
   fixed_power_factor?: string;
+  fixed_division?: string;
 };
 
 type SelectedDiscipline = {
@@ -292,6 +293,7 @@ export default function JoinCompetitionPanel({
         && isDynamicStageDisciplineType(discipline.discipline_type)
         && (
           !selectedDiscipline.division
+          && !discipline.fixed_division
           || (!discipline.fixed_power_factor && !selectedDiscipline.power_factor)
         )
       );
@@ -499,21 +501,30 @@ export default function JoinCompetitionPanel({
 
                       {dynamicDiscipline && selectedDiscipline && (
                         <div className="grid gap-3 sm:grid-cols-2">
-                          <label className="block text-sm font-semibold text-zinc-700 dark:text-gray-300">
-                            <span className="mb-2 block">Dywizja</span>
-                            <select
-                              value={selectedDiscipline.division}
-                              onChange={(event) => updateDynamicField(discipline.id, "division", event.target.value)}
-                              className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-3 text-zinc-950 dark:border-zinc-700 dark:bg-zinc-950 dark:text-white"
-                            >
-                              <option value="">Wybierz dywizję</option>
-                              {divisionOptions.map((division) => (
-                                <option key={division} value={division}>
-                                  {division}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
+                          {discipline.fixed_division ? (
+                            <div className="rounded-xl border border-zinc-300 bg-zinc-50 px-3 py-3 text-sm font-semibold text-zinc-700 dark:border-zinc-700 dark:bg-zinc-950 dark:text-gray-300">
+                              <span className="mb-2 block">Dywizja</span>
+                              <span className="text-base font-bold text-zinc-950 dark:text-white">
+                                Stała {discipline.fixed_division}
+                              </span>
+                            </div>
+                          ) : (
+                            <label className="block text-sm font-semibold text-zinc-700 dark:text-gray-300">
+                              <span className="mb-2 block">Dywizja</span>
+                              <select
+                                value={selectedDiscipline.division}
+                                onChange={(event) => updateDynamicField(discipline.id, "division", event.target.value)}
+                                className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-3 text-zinc-950 dark:border-zinc-700 dark:bg-zinc-950 dark:text-white"
+                              >
+                                <option value="">Wybierz dywizję</option>
+                                {divisionOptions.map((division) => (
+                                  <option key={division} value={division}>
+                                    {division}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          )}
 
                           {discipline.fixed_power_factor ? (
                             <div className="rounded-xl border border-zinc-300 bg-zinc-50 px-3 py-3 text-sm font-semibold text-zinc-700 dark:border-zinc-700 dark:bg-zinc-950 dark:text-gray-300">

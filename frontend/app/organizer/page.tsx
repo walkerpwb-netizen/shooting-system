@@ -13,6 +13,7 @@ import {
   HUNTING_TRAP_TARGETS_COUNT,
   HUNTING_TRAP_VARIANT,
   POWER_FACTOR_OPTIONS,
+  getDynamicDisciplineDivisions,
   isHuntingTrapDiscipline,
   isClayDisciplineType,
   isPracticalShotgunDisciplineType,
@@ -55,6 +56,7 @@ type Competition = {
     clay_price: string;
     entry_fee: string;
     fixed_power_factor: string;
+    fixed_division: string;
     stages?: DynamicStage[];
   }[];
   participants?: {
@@ -90,6 +92,7 @@ type Discipline = {
   clay_price: string;
   entry_fee: string;
   fixed_power_factor: string;
+  fixed_division: string;
   stages: DynamicStage[];
 };
 
@@ -641,6 +644,7 @@ export default function OrganizerPage() {
       clay_price: "",
       entry_fee: "",
       fixed_power_factor: "",
+      fixed_division: "",
       stages: [],
     };
   }
@@ -960,6 +964,7 @@ export default function OrganizerPage() {
           clay_price: discipline.clay_price || "",
           entry_fee: discipline.entry_fee || "",
           fixed_power_factor: discipline.fixed_power_factor || "",
+          fixed_division: discipline.fixed_division || "",
           stages: (discipline.stages || []).map((stage, stageIndex) => createBlankStage(stage.stage_number || stageIndex + 1, stage)),
         }))
       );
@@ -1438,6 +1443,9 @@ export default function OrganizerPage() {
                 fixed_power_factor: dynamicStageDiscipline
                   ? discipline.fixed_power_factor
                   : "",
+                fixed_division: dynamicStageDiscipline
+                  ? discipline.fixed_division
+                  : "",
                 stages: dynamicStageDiscipline
                   ? discipline.stages.map((stage, stageIndex) => ({
                       ...stage,
@@ -1843,6 +1851,7 @@ export default function OrganizerPage() {
                   const trapDiscipline = isClayDiscipline(discipline);
                   const dynamicStageDiscipline = isDynamicStageDiscipline(discipline);
                   const practicalShotgunDiscipline = isPracticalShotgunDiscipline(discipline);
+                  const dynamicDivisionOptions = getDynamicDisciplineDivisions(discipline.discipline_type);
                   const trapTargetsCount = getTrapTargetsCount(discipline);
                   const trapShotsCount = getTrapShotsCount(discipline);
 
@@ -1932,6 +1941,7 @@ export default function OrganizerPage() {
                           }
                           if (!isDynamicStageDisciplineType(selectedDisciplineType)) {
                             updated[index].fixed_power_factor = "";
+                            updated[index].fixed_division = "";
                           }
                           updated[index].stages = isDynamicStageDisciplineType(selectedDisciplineType)
                             ? updated[index].stages.length
@@ -2170,7 +2180,26 @@ export default function OrganizerPage() {
                           </label>
                         </div>
 
-                        <div className="grid gap-3 md:grid-cols-3">
+                        <div className="grid gap-3 md:grid-cols-4">
+                          <label className={requiredContainerClass(true)}>
+                            <span className="text-sm font-bold text-emerald-100">Dywizja</span>
+                            <select
+                              value={discipline.fixed_division}
+                              onChange={(event) => {
+                                const updated = [...disciplines];
+                                updated[index].fixed_division = event.target.value;
+                                setDisciplines(updated);
+                              }}
+                              className="mt-2 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 font-black text-white"
+                            >
+                              <option value="">Według zawodnika</option>
+                              {dynamicDivisionOptions.map((division) => (
+                                <option key={division} value={division}>
+                                  Stała {division}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
                           <label className={requiredContainerClass(true)}>
                             <span className="text-sm font-bold text-emerald-100">Power Factor</span>
                             <select
