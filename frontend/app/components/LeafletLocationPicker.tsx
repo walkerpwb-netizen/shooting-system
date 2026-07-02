@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
 import { MapContainer, Marker, TileLayer, useMap, useMapEvents } from "react-leaflet";
 
@@ -106,7 +106,17 @@ export default function LeafletLocationPicker({
   const icon = useMemo(() => createPinIcon(), []);
   const hasLocation = latitude !== null && longitude !== null;
   const [layerMode, setLayerMode] = useState<MapLayerMode>("street");
+  const layerControlRef = useRef<HTMLDivElement>(null);
   const activeLayer = mapLayers[layerMode];
+
+  useEffect(() => {
+    if (!layerControlRef.current) {
+      return;
+    }
+
+    L.DomEvent.disableClickPropagation(layerControlRef.current);
+    L.DomEvent.disableScrollPropagation(layerControlRef.current);
+  }, []);
 
   return (
     <MapContainer
@@ -130,7 +140,10 @@ export default function LeafletLocationPicker({
           zIndex={401 + index}
         />
       ))}
-      <div className="pointer-events-auto absolute right-3 top-3 z-[1000] overflow-hidden rounded-lg bg-white shadow-lg">
+      <div
+        ref={layerControlRef}
+        className="pointer-events-auto absolute right-3 top-3 z-[1000] overflow-hidden rounded-lg bg-white shadow-lg"
+      >
         {([
           ["street", "Mapa"],
           ["hybrid", "Hybryda"],

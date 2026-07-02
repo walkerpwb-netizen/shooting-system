@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import L from "leaflet";
 import { MapContainer, Marker, Popup, TileLayer, useMap } from "react-leaflet";
@@ -109,6 +109,7 @@ export default function CompetitionSearchMap({
   competitions,
 }: CompetitionSearchMapProps) {
   const [layerMode, setLayerMode] = useState<MapLayerMode>("street");
+  const layerControlRef = useRef<HTMLDivElement>(null);
   const mappedCompetitions = useMemo(
     () => competitions.filter(hasCoordinates),
     [competitions]
@@ -123,6 +124,15 @@ export default function CompetitionSearchMap({
 
     return icons;
   }, [mappedCompetitions]);
+
+  useEffect(() => {
+    if (!layerControlRef.current) {
+      return;
+    }
+
+    L.DomEvent.disableClickPropagation(layerControlRef.current);
+    L.DomEvent.disableScrollPropagation(layerControlRef.current);
+  }, []);
 
   return (
     <div className="relative h-[70vh] min-h-[520px] overflow-hidden rounded-xl border border-zinc-200 bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900">
@@ -147,7 +157,10 @@ export default function CompetitionSearchMap({
             zIndex={401 + index}
           />
         ))}
-        <div className="pointer-events-auto absolute right-3 top-3 z-[1000] overflow-hidden rounded-lg bg-white shadow-lg">
+        <div
+          ref={layerControlRef}
+          className="pointer-events-auto absolute right-3 top-3 z-[1000] overflow-hidden rounded-lg bg-white shadow-lg"
+        >
           {([
             ["street", "Mapa"],
             ["hybrid", "Hybryda"],
