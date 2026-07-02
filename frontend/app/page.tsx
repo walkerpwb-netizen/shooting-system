@@ -369,7 +369,9 @@ export default function Home() {
     getAuthSnapshot,
     () => ""
   );
-  const roles = authSnapshot.split("|")[2]?.split(",").filter(Boolean) || [];
+  const authParts = authSnapshot.split("|");
+  const roles = authParts[2]?.split(",").filter(Boolean) || [];
+  const isLoggedIn = Boolean(authParts[3]);
   const canAddPost = roles.includes("admin");
 
   useEffect(() => {
@@ -719,18 +721,29 @@ export default function Home() {
               </p>
 
               <div className="mt-9 flex w-full max-w-md flex-col justify-center gap-3 sm:w-auto sm:max-w-none sm:flex-row">
-                <Link
-                  href="/login"
-                  className="rounded-xl border border-emerald-300/35 bg-emerald-300/10 px-7 py-3.5 text-sm font-black text-emerald-100 transition hover:-translate-y-0.5 hover:border-emerald-300/70 hover:bg-emerald-300/15"
-                >
-                  Logowanie
-                </Link>
-                <Link
-                  href="/register"
-                  className="rounded-xl bg-emerald-400 px-7 py-3.5 text-sm font-black text-[#05221d] shadow-[0_12px_35px_rgba(52,211,153,0.2)] transition hover:-translate-y-0.5 hover:bg-emerald-300"
-                >
-                  Załóż konto
-                </Link>
+                {isLoggedIn ? (
+                  <Link
+                    href="/competitions/map"
+                    className="rounded-xl bg-emerald-400 px-7 py-3.5 text-sm font-black text-[#05221d] shadow-[0_12px_35px_rgba(52,211,153,0.2)] transition hover:-translate-y-0.5 hover:bg-emerald-300"
+                  >
+                    Mapa Zawodów
+                  </Link>
+                ) : (
+                  <>
+                    <Link
+                      href="/login"
+                      className="rounded-xl border border-emerald-300/35 bg-emerald-300/10 px-7 py-3.5 text-sm font-black text-emerald-100 transition hover:-translate-y-0.5 hover:border-emerald-300/70 hover:bg-emerald-300/15"
+                    >
+                      Logowanie
+                    </Link>
+                    <Link
+                      href="/register"
+                      className="rounded-xl bg-emerald-400 px-7 py-3.5 text-sm font-black text-[#05221d] shadow-[0_12px_35px_rgba(52,211,153,0.2)] transition hover:-translate-y-0.5 hover:bg-emerald-300"
+                    >
+                      Załóż konto
+                    </Link>
+                  </>
+                )}
                 <Link
                   href="/competitions"
                   className="rounded-xl border border-white/15 bg-white/5 px-7 py-3.5 text-sm font-black text-white transition hover:-translate-y-0.5 hover:border-emerald-300/50 hover:bg-white/10"
@@ -962,21 +975,34 @@ export default function Home() {
                 Organizuj zawody sprawniej
               </h2>
               <p className="mx-auto mt-4 max-w-xl text-zinc-300">
-                Załóż konto lub zobacz zawody dostępne już teraz.
+                {isLoggedIn
+                  ? "Zobacz zawody na mapie albo przejdź do listy dostępnych startów."
+                  : "Załóż konto lub zobacz zawody dostępne już teraz."}
               </p>
               <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
-                <Link
-                  href="/login"
-                  className="rounded-xl border border-emerald-300/35 bg-emerald-300/10 px-7 py-3.5 text-sm font-black text-emerald-100 transition hover:bg-emerald-300/15"
-                >
-                  Logowanie
-                </Link>
-                <Link
-                  href="/register"
-                  className="rounded-xl bg-emerald-400 px-7 py-3.5 text-sm font-black text-[#05221d] transition hover:bg-emerald-300"
-                >
-                  Załóż konto
-                </Link>
+                {isLoggedIn ? (
+                  <Link
+                    href="/competitions/map"
+                    className="rounded-xl bg-emerald-400 px-7 py-3.5 text-sm font-black text-[#05221d] transition hover:bg-emerald-300"
+                  >
+                    Mapa Zawodów
+                  </Link>
+                ) : (
+                  <>
+                    <Link
+                      href="/login"
+                      className="rounded-xl border border-emerald-300/35 bg-emerald-300/10 px-7 py-3.5 text-sm font-black text-emerald-100 transition hover:bg-emerald-300/15"
+                    >
+                      Logowanie
+                    </Link>
+                    <Link
+                      href="/register"
+                      className="rounded-xl bg-emerald-400 px-7 py-3.5 text-sm font-black text-[#05221d] transition hover:bg-emerald-300"
+                    >
+                      Załóż konto
+                    </Link>
+                  </>
+                )}
                 <Link
                   href="/competitions"
                   className="rounded-xl border border-white/15 px-7 py-3.5 text-sm font-black text-white transition hover:bg-white/10"
