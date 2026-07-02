@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import L from "leaflet";
 import { MapContainer, Marker, Popup, TileLayer, useMap } from "react-leaflet";
@@ -109,7 +109,6 @@ export default function CompetitionSearchMap({
   competitions,
 }: CompetitionSearchMapProps) {
   const [layerMode, setLayerMode] = useState<MapLayerMode>("street");
-  const layerControlRef = useRef<HTMLDivElement>(null);
   const mappedCompetitions = useMemo(
     () => competitions.filter(hasCoordinates),
     [competitions]
@@ -125,42 +124,10 @@ export default function CompetitionSearchMap({
     return icons;
   }, [mappedCompetitions]);
 
-  useEffect(() => {
-    if (!layerControlRef.current) {
-      return;
-    }
-
-    L.DomEvent.disableClickPropagation(layerControlRef.current);
-    L.DomEvent.disableScrollPropagation(layerControlRef.current);
-  }, []);
-
   return (
-    <div className="relative h-[70vh] min-h-[520px] overflow-hidden rounded-xl border border-zinc-200 bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900">
-      <MapContainer
-        center={defaultCenter}
-        zoom={minPolandZoom}
-        minZoom={minPolandZoom}
-        maxBounds={polandBounds}
-        maxBoundsViscosity={1}
-        scrollWheelZoom
-        className="h-full w-full"
-      >
-        <TileLayer
-          key={layerMode}
-          attribution={activeLayer.attribution}
-          url={activeLayer.url}
-        />
-        {layerMode === "hybrid" && hybridReferenceLayers.map((url, index) => (
-          <TileLayer
-            key={url}
-            url={url}
-            zIndex={401 + index}
-          />
-        ))}
-        <div
-          ref={layerControlRef}
-          className="pointer-events-auto absolute right-3 top-3 z-[1000] overflow-hidden rounded-lg bg-white shadow-lg"
-        >
+    <div className="relative flex h-[70vh] min-h-[520px] flex-col overflow-hidden rounded-xl border border-zinc-200 bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="flex justify-end border-b border-zinc-200 bg-white p-2 dark:border-zinc-800 dark:bg-zinc-950">
+        <div className="overflow-hidden rounded-lg bg-white shadow-lg">
           {([
             ["street", "Mapa"],
             ["hybrid", "Hybryda"],
@@ -179,6 +146,29 @@ export default function CompetitionSearchMap({
             </button>
           ))}
         </div>
+      </div>
+
+      <MapContainer
+        center={defaultCenter}
+        zoom={minPolandZoom}
+        minZoom={minPolandZoom}
+        maxBounds={polandBounds}
+        maxBoundsViscosity={1}
+        scrollWheelZoom
+        className="min-h-0 w-full flex-1"
+      >
+        <TileLayer
+          key={layerMode}
+          attribution={activeLayer.attribution}
+          url={activeLayer.url}
+        />
+        {layerMode === "hybrid" && hybridReferenceLayers.map((url, index) => (
+          <TileLayer
+            key={url}
+            url={url}
+            zIndex={401 + index}
+          />
+        ))}
         <FitCompetitionBounds competitions={mappedCompetitions} />
 
         {mappedCompetitions.map((competition) => (

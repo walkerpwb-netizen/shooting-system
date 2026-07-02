@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import L from "leaflet";
 import { MapContainer, Marker, TileLayer, useMap, useMapEvents } from "react-leaflet";
 
@@ -106,68 +106,60 @@ export default function LeafletLocationPicker({
   const icon = useMemo(() => createPinIcon(), []);
   const hasLocation = latitude !== null && longitude !== null;
   const [layerMode, setLayerMode] = useState<MapLayerMode>("street");
-  const layerControlRef = useRef<HTMLDivElement>(null);
   const activeLayer = mapLayers[layerMode];
 
-  useEffect(() => {
-    if (!layerControlRef.current) {
-      return;
-    }
-
-    L.DomEvent.disableClickPropagation(layerControlRef.current);
-    L.DomEvent.disableScrollPropagation(layerControlRef.current);
-  }, []);
-
   return (
-    <MapContainer
-      center={hasLocation ? [latitude, longitude] : defaultCenter}
-      zoom={hasLocation ? 13 : minPolandZoom}
-      minZoom={minPolandZoom}
-      maxBounds={polandBounds}
-      maxBoundsViscosity={1}
-      scrollWheelZoom
-      className="h-full w-full"
-    >
-      <TileLayer
-        key={layerMode}
-        attribution={activeLayer.attribution}
-        url={activeLayer.url}
-      />
-      {layerMode === "hybrid" && hybridReferenceLayers.map((url, index) => (
-        <TileLayer
-          key={url}
-          url={url}
-          zIndex={401 + index}
-        />
-      ))}
-      <div
-        ref={layerControlRef}
-        className="pointer-events-auto absolute right-3 top-3 z-[1000] overflow-hidden rounded-lg bg-white shadow-lg"
-      >
-        {([
-          ["street", "Mapa"],
-          ["hybrid", "Hybryda"],
-        ] as [MapLayerMode, string][]).map(([mode, label]) => (
-          <button
-            key={mode}
-            type="button"
-            onClick={() => setLayerMode(mode)}
-            className={`px-3 py-2 text-sm font-bold transition ${
-              layerMode === mode
-                ? "bg-green-800 text-white"
-                : "bg-white text-zinc-900 hover:bg-zinc-100"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
+    <div className="flex h-full min-h-0 flex-col bg-zinc-950">
+      <div className="flex justify-end border-b border-zinc-700 bg-zinc-950 p-2">
+        <div className="overflow-hidden rounded-lg bg-white shadow-lg">
+          {([
+            ["street", "Mapa"],
+            ["hybrid", "Hybryda"],
+          ] as [MapLayerMode, string][]).map(([mode, label]) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => setLayerMode(mode)}
+              className={`px-3 py-2 text-sm font-bold transition ${
+                layerMode === mode
+                  ? "bg-green-800 text-white"
+                  : "bg-white text-zinc-900 hover:bg-zinc-100"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
-      <MapClickHandler onChange={onChange} />
-      <SelectedLocation
-        icon={icon}
-        latitude={latitude}
-        longitude={longitude}
-      />
-    </MapContainer>
+
+      <MapContainer
+        center={hasLocation ? [latitude, longitude] : defaultCenter}
+        zoom={hasLocation ? 13 : minPolandZoom}
+        minZoom={minPolandZoom}
+        maxBounds={polandBounds}
+        maxBoundsViscosity={1}
+        scrollWheelZoom
+        className="min-h-0 w-full flex-1"
+      >
+        <TileLayer
+          key={layerMode}
+          attribution={activeLayer.attribution}
+          url={activeLayer.url}
+        />
+        {layerMode === "hybrid" && hybridReferenceLayers.map((url, index) => (
+          <TileLayer
+            key={url}
+            url={url}
+            zIndex={401 + index}
+          />
+        ))}
+        <MapClickHandler onChange={onChange} />
+        <SelectedLocation
+          icon={icon}
+          latitude={latitude}
+          longitude={longitude}
+        />
+      </MapContainer>
+    </div>
   );
 }
