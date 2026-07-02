@@ -225,6 +225,9 @@ class CompetitionData(BaseModel):
     participant_limit: Optional[int] = None
     pzss_license_calendar: bool = False
     requires_licensed_judge: Optional[bool] = None
+    club_discount_enabled: bool = False
+    club_discount_scope: str = "competition"
+    club_discount_amount: str = ""
 
 
 def validate_competition_coordinates(data: CompetitionData) -> None:
@@ -3938,6 +3941,54 @@ def format_money(value: Decimal):
 SPECIAL_PORONIN_COMPETITION_NAME = "II PUCHAR STRZELNICY PORONIN"
 SPECIAL_PORONIN_DISCOUNT_CLUB = "KŻR Warka"
 SPECIAL_PORONIN_DISCIPLINE_DISCOUNT = Decimal("10")
+CLUB_DISCOUNT_SCOPE_COMPETITION = "competition"
+CLUB_DISCOUNT_SCOPE_DISCIPLINE = "discipline"
+CLUB_DISCOUNT_SCOPES = {
+    CLUB_DISCOUNT_SCOPE_COMPETITION,
+    CLUB_DISCOUNT_SCOPE_DISCIPLINE,
+}
+
+
+def normalize_club_discount_scope(value: str):
+    scope = normalize_search_text(value or "").strip()
+
+    if scope in CLUB_DISCOUNT_SCOPES:
+        return scope
+
+    return CLUB_DISCOUNT_SCOPE_COMPETITION
+
+
+def normalize_competition_club_discount(data: CompetitionData):
+    if not data.club_discount_enabled:
+        return {
+            "club_discount_enabled": 0,
+            "club_discount_scope": CLUB_DISCOUNT_SCOPE_COMPETITION,
+            "club_discount_amount": "",
+        }
+
+    amount = parse_price(data.club_discount_amount)
+
+    if amount <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Podaj kwotę zniżki klubowej większą od 0"
+        )
+
+    return {
+        "club_discount_enabled": 1,
+        "club_discount_scope": normalize_club_discount_scope(data.club_discount_scope),
+        "club_discount_amount": format_money(amount),
+    }
+
+
+def competition_club_discount_payload(competition: Competition):
+    return {
+        "club_discount_enabled": bool(getattr(competition, "club_discount_enabled", 0)),
+        "club_discount_scope": normalize_club_discount_scope(
+            getattr(competition, "club_discount_scope", "") or ""
+        ),
+        "club_discount_amount": getattr(competition, "club_discount_amount", "") or "",
+    }
 
 
 def poronin_club_discount_applies(competition: Competition, shooter_club: str):
@@ -3963,6 +4014,68 @@ def poronin_club_discipline_discount(
     return min(discount, base_fee)
 
 
+def configured_club_discount_applies(competition: Competition, shooter_club: str):
+    if not getattr(competition, "club_discount_enabled", 0):
+        return False
+
+    organizer_name = getattr(competition, "organizer_full_name", "") or ""
+
+    return (
+        bool(organizer_name.strip())
+        and normalize_search_text(shooter_club).strip()
+        == normalize_search_text(organizer_name).strip()
+    )
+
+
+def configured_club_discount(
+    competition: Competition,
+    shooter_club: str,
+    selected_disciplines,
+    base_fee: Decimal,
+):
+    if not configured_club_discount_applies(competition, shooter_club):
+        return Decimal("0")
+
+    amount = parse_price(getattr(competition, "club_discount_amount", "") or "")
+
+    if amount <= 0:
+        return Decimal("0")
+
+    scope = normalize_club_discount_scope(getattr(competition, "club_discount_scope", "") or "")
+    multiplier = (
+        len(selected_disciplines or [])
+        if scope == CLUB_DISCOUNT_SCOPE_DISCIPLINE
+        else 1 if selected_disciplines else 0
+    )
+    discount = amount * Decimal(multiplier)
+
+    return min(discount, base_fee)
+
+
+def competition_club_discount(
+    competition: Competition,
+    shooter_club: str,
+    selected_disciplines,
+    base_fee: Decimal,
+):
+    configured_discount = configured_club_discount(
+        competition,
+        shooter_club,
+        selected_disciplines,
+        base_fee,
+    )
+
+    if configured_discount > 0:
+        return configured_discount
+
+    return poronin_club_discipline_discount(
+        competition,
+        shooter_club,
+        selected_disciplines,
+        base_fee,
+    )
+
+
 def calculate_total_fee_from_selection(
     competition: Competition,
     selected_disciplines,
@@ -3983,7 +4096,7 @@ def calculate_total_fee_from_selection(
                 disciplines_fee += parse_price(discipline.entry_fee)
 
     base_fee = competition_fee + disciplines_fee
-    discount = poronin_club_discipline_discount(
+    discount = competition_club_discount(
         competition,
         shooter_club,
         selected_disciplines,
@@ -6426,6 +6539,7 @@ def competition_list_row(
         "participant_limit": competition.participant_limit,
         "pzss_license_calendar": bool(getattr(competition, "pzss_license_calendar", 0)),
         "requires_licensed_judge": bool(getattr(competition, "requires_licensed_judge", 1)),
+        **competition_club_discount_payload(competition),
         "shooters_count": shooters_count,
         "judges_count": judges_count,
         "missing_judge_disciplines": missing_judge_disciplines or [],
@@ -7721,6 +7835,7 @@ def get_competition(
         "participant_limit": competition.participant_limit,
         "pzss_license_calendar": bool(getattr(competition, "pzss_license_calendar", 0)),
         "requires_licensed_judge": bool(getattr(competition, "requires_licensed_judge", 1)),
+        **competition_club_discount_payload(competition),
         "status": competition.status,
         "disciplines": disciplines,
         "participants": [
@@ -8816,6 +8931,7 @@ def admin_get_competitions(
             "participant_limit": competition.participant_limit,
             "pzss_license_calendar": bool(getattr(competition, "pzss_license_calendar", 0)),
             "requires_licensed_judge": bool(getattr(competition, "requires_licensed_judge", 1)),
+            **competition_club_discount_payload(competition),
             "participants_count": participants_count,
             "status": competition.status,
             "created_by": competition.created_by,
@@ -9682,6 +9798,7 @@ def create_competition(
         if is_approved_pzss_club(user)
         else bool(data.requires_licensed_judge)
     )
+    club_discount = normalize_competition_club_discount(data)
 
     competition = Competition(
         name=data.name,
@@ -9697,6 +9814,7 @@ def create_competition(
         participant_limit=data.participant_limit,
         pzss_license_calendar=1 if data.pzss_license_calendar else 0,
         requires_licensed_judge=1 if requires_licensed_judge else 0,
+        **club_discount,
         status="draft",
         created_by=user.email,
     )
@@ -9817,6 +9935,7 @@ def organizer_competition_detail_row(competition: Competition, db):
         "participant_limit": competition.participant_limit,
         "pzss_license_calendar": bool(getattr(competition, "pzss_license_calendar", 0)),
         "requires_licensed_judge": bool(getattr(competition, "requires_licensed_judge", 1)),
+        **competition_club_discount_payload(competition),
         "shooters_count": len(participants),
         "judges_count": len(judges),
         "status": competition.status,
@@ -13415,6 +13534,10 @@ def update_competition(
         if is_approved_pzss_club(user) or data.requires_licensed_judge
         else 0
     )
+    club_discount = normalize_competition_club_discount(data)
+    competition.club_discount_enabled = club_discount["club_discount_enabled"]
+    competition.club_discount_scope = club_discount["club_discount_scope"]
+    competition.club_discount_amount = club_discount["club_discount_amount"]
 
     db.commit()
 

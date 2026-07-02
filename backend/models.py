@@ -402,6 +402,25 @@ class Competition(Base):
         server_default="1",
     )
 
+    club_discount_enabled = Column(
+        Integer,
+        default=0,
+        nullable=False,
+        server_default="0",
+    )
+
+    club_discount_scope = Column(
+        String,
+        default="competition",
+        nullable=False,
+        server_default="competition",
+    )
+
+    club_discount_amount = Column(
+        String,
+        nullable=True,
+    )
+
     status = Column(
         String,
         default="draft",

@@ -38,6 +38,27 @@ type Participant = {
   display_name: string;
 };
 
+type Competition = {
+  id: number;
+  name: string;
+  date: string;
+  location: string;
+  latitude: number | null;
+  longitude: number | null;
+  entry_fee?: string;
+  participant_limit?: number | null;
+  status: string;
+  organizer_full_name?: string;
+  organizer_logo?: string;
+  sponsors?: string;
+  sponsor_logo?: string;
+  club_discount_enabled?: boolean;
+  club_discount_scope?: "competition" | "discipline";
+  club_discount_amount?: string;
+  participants: Participant[];
+  disciplines: Discipline[];
+};
+
 async function getCompetition(id: string) {
   const response = await fetch(
     apiUrl(`/competitions/${id}`),
@@ -50,7 +71,7 @@ async function getCompetition(id: string) {
     return null;
   }
 
-  return response.json();
+  return response.json() as Promise<Competition>;
 }
 
 export default async function CompetitionPage({
@@ -70,8 +91,10 @@ export default async function CompetitionPage({
   }
 
   const hasDirections = hasMapCoordinates(competition.latitude, competition.longitude);
+  const directionsLatitude = hasDirections ? competition.latitude as number : null;
+  const directionsLongitude = hasDirections ? competition.longitude as number : null;
   const directionsHref = hasDirections
-    ? getDirectionsHref(competition.latitude, competition.longitude)
+    ? getDirectionsHref(directionsLatitude as number, directionsLongitude as number)
     : "";
 
   return (
@@ -233,6 +256,10 @@ export default async function CompetitionPage({
         <JoinCompetitionPanel
           competitionId={competition.id}
           competitionName={competition.name}
+          competitionOrganizerName={competition.organizer_full_name || ""}
+          clubDiscountEnabled={Boolean(competition.club_discount_enabled)}
+          clubDiscountScope={competition.club_discount_scope === "discipline" ? "discipline" : "competition"}
+          clubDiscountAmount={competition.club_discount_amount || ""}
           competitionEntryFee={competition.entry_fee || ""}
           participantLimit={competition.participant_limit || null}
           competitionStatus={competition.status}
