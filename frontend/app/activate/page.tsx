@@ -2,6 +2,7 @@ import ActivateClient from "./ActivateClient";
 
 type ActivatePageProps = {
   searchParams: Promise<{
+    next?: string;
     token?: string;
   }>;
 };
@@ -9,9 +10,12 @@ type ActivatePageProps = {
 export default async function ActivatePage({
   searchParams,
 }: ActivatePageProps) {
-  const { token = "" } = await searchParams;
+  const { next = "", token = "" } = await searchParams;
 
   return (
-    <ActivateClient token={token} />
+    <ActivateClient
+      token={token}
+      redirectPath={next}
+    />
   );
 }

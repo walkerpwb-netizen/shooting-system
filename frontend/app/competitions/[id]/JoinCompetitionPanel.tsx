@@ -5,7 +5,14 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { apiUrl } from "@/lib/api";
-import { authFetch, getAccessToken } from "@/lib/auth";
+import {
+  authFetch,
+  getAccessToken,
+  getAuthSnapshot,
+  restoreSession,
+  subscribeToAuthChange,
+} from "@/lib/auth";
+import { buildAuthPath, storeAuthRedirectPath } from "@/lib/authRedirect";
 import {
   POWER_FACTOR_OPTIONS,
   getClayTargetsCount,
@@ -17,9 +24,6 @@ const SPECIAL_PORONIN_COMPETITION_NAME = "II PUCHAR STRZELNICY PORONIN";
 const SPECIAL_PORONIN_DISCOUNT_CLUB = "KŻR Warka";
 const SPECIAL_PORONIN_DISCIPLINE_DISCOUNT = 10;
 
-const subscribeToUserEmail = () => () => {};
-const getUserEmailSnapshot = () => localStorage.getItem("email") || "";
-const getServerUserEmailSnapshot = () => "";
 type Participant = {
   id: number;
   user_email: string;
@@ -50,6 +54,21 @@ type SelectedDiscipline = {
   ammo_type: "" | "own" | "club";
   division: string;
   power_factor: "" | "minor" | "major";
+};
+
+type EntryState = {
+  authSnapshot: string;
+  entryType: string;
+  loaded: boolean;
+};
+
+type ProfileState = {
+  authSnapshot: string;
+  profile: {
+    email: string;
+    club: string;
+  };
+  loaded: boolean;
 };
 
 type JoinCompetitionPanelProps = {
@@ -85,56 +104,115 @@ export default function JoinCompetitionPanel({
   const [loading, setLoading] = useState(false);
   const [noticeMessage, setNoticeMessage] = useState("");
   const [showForm, setShowForm] = useState(false);
-  const [currentEntryType, setCurrentEntryType] = useState("");
-  const [currentUserProfile, setCurrentUserProfile] = useState({
-    email: "",
-    club: "",
+  const [entryState, setEntryState] = useState<EntryState>({
+    authSnapshot: "",
+    entryType: "",
+    loaded: false,
   });
+  const [profileState, setProfileState] = useState<ProfileState>({
+    authSnapshot: "",
+    profile: {
+      email: "",
+      club: "",
+    },
+    loaded: false,
+  });
+  const [sessionChecked, setSessionChecked] = useState(false);
   const [selectedDisciplines, setSelectedDisciplines] = useState<SelectedDiscipline[]>([]);
-  const currentUserEmail = useSyncExternalStore(
-    subscribeToUserEmail,
-    getUserEmailSnapshot,
-    getServerUserEmailSnapshot
+  const authSnapshot = useSyncExternalStore(
+    subscribeToAuthChange,
+    getAuthSnapshot,
+    () => ""
   );
+  const [authToken, , , storedUserEmail] = authSnapshot.split("|");
+  const hasStoredSession = Boolean(authToken && storedUserEmail);
+  const competitionPath = `/competitions/${competitionId}`;
+  const currentEntryType = entryState.authSnapshot === authSnapshot
+    ? entryState.entryType
+    : "";
+  const entryLoaded = !hasStoredSession
+    || (entryState.authSnapshot === authSnapshot && entryState.loaded);
+  const currentUserProfile = profileState.authSnapshot === authSnapshot
+    ? profileState.profile
+    : {
+        email: "",
+        club: "",
+      };
+  const profileLoaded = !hasStoredSession
+    || (profileState.authSnapshot === authSnapshot && profileState.loaded);
 
   useEffect(() => {
-    const token = getAccessToken();
+    let active = true;
 
-    if (!token) {
+    async function verifySession() {
+      try {
+        await restoreSession();
+      } finally {
+        if (active) {
+          setSessionChecked(true);
+        }
+      }
+    }
+
+    void verifySession();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hasStoredSession || !sessionChecked) {
       return;
     }
 
+    let active = true;
+
     async function loadMyEntry() {
+      let entryType = "";
+
       try {
-        const response = await fetch(
-          apiUrl(`/competitions/${competitionId}/my-entry`),
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }
-        );
+        const response = await authFetch(apiUrl(`/competitions/${competitionId}/my-entry`));
 
         if (!response.ok) {
           return;
         }
 
         const data = await response.json();
-        setCurrentEntryType(data.entry_type || "");
+        entryType = data.entry_type || "";
       } catch (error) {
         console.error(error);
+      } finally {
+        if (active) {
+          setEntryState({
+            authSnapshot,
+            entryType,
+            loaded: true,
+          });
+        }
       }
     }
 
-    loadMyEntry();
-  }, [competitionId]);
+    void loadMyEntry();
+
+    return () => {
+      active = false;
+    };
+  }, [authSnapshot, competitionId, hasStoredSession, sessionChecked]);
 
   useEffect(() => {
-    if (!currentUserEmail) {
+    if (!hasStoredSession || !sessionChecked) {
       return;
     }
 
+    let active = true;
+
     async function loadMyProfile() {
+      const profile = {
+        email: "",
+        club: "",
+      };
+
       try {
         const response = await authFetch(apiUrl("/me"));
 
@@ -143,17 +221,27 @@ export default function JoinCompetitionPanel({
         }
 
         const data = await response.json();
-        setCurrentUserProfile({
-          email: data.email || currentUserEmail,
-          club: data.club || "",
-        });
+        profile.email = data.email || storedUserEmail;
+        profile.club = data.club || "";
       } catch (error) {
         console.error(error);
+      } finally {
+        if (active) {
+          setProfileState({
+            authSnapshot,
+            profile,
+            loaded: true,
+          });
+        }
       }
     }
 
-    loadMyProfile();
-  }, [currentUserEmail]);
+    void loadMyProfile();
+
+    return () => {
+      active = false;
+    };
+  }, [authSnapshot, hasStoredSession, sessionChecked, storedUserEmail]);
 
   function updateDisciplineSelection(
     disciplineId: number,
@@ -243,7 +331,7 @@ export default function JoinCompetitionPanel({
   }
 
   function currentProfileClub() {
-    return currentUserProfile.email === currentUserEmail
+    return currentUserProfile.email
       ? currentUserProfile.club
       : "";
   }
@@ -279,11 +367,17 @@ export default function JoinCompetitionPanel({
   }
 
   const selectedDisciplineDetails = getSelectedDisciplineDetails();
+  const authStatePending = Boolean(
+    hasStoredSession
+    && (!sessionChecked || !entryLoaded || !profileLoaded)
+  );
   const currentUserParticipant = participants.find(
-    (participant) => participant.user_email === currentUserEmail
+    (participant) => participant.user_email === currentUserProfile.email
   );
   const userIsJoined = Boolean(
-    currentUserParticipant || currentEntryType === "shooter"
+    !authStatePending
+    && currentUserProfile.email
+    && (currentUserParticipant || currentEntryType === "shooter")
   );
   const assignedAsJudge = currentEntryType === "judge" && !userIsJoined;
   const waitingForOrganizerApproval = Boolean(
@@ -354,7 +448,8 @@ export default function JoinCompetitionPanel({
     const token = getAccessToken();
 
     if (!token) {
-      router.push("/login");
+      storeAuthRedirectPath(competitionPath);
+      router.push(buildAuthPath("/login", competitionPath));
       return;
     }
 
@@ -422,7 +517,11 @@ export default function JoinCompetitionPanel({
 
       setParticipants(data.participants);
       setShowForm(false);
-      setCurrentEntryType("shooter");
+      setEntryState({
+        authSnapshot,
+        entryType: "shooter",
+        loaded: true,
+      });
       showNotice(
         competitionStatus === "started"
           ? "Zgłoszenie przyjęte. Pojawisz się na liście po potwierdzeniu udziału i opłaty przez organizatora."
@@ -440,7 +539,8 @@ export default function JoinCompetitionPanel({
     const token = getAccessToken();
 
     if (!token) {
-      router.push("/login");
+      storeAuthRedirectPath(competitionPath);
+      router.push(buildAuthPath("/login", competitionPath));
       return;
     }
 
@@ -475,7 +575,11 @@ export default function JoinCompetitionPanel({
 
       setParticipants(data.participants);
       setSelectedDisciplines([]);
-      setCurrentEntryType("");
+      setEntryState({
+        authSnapshot,
+        entryType: "",
+        loaded: true,
+      });
       setShowForm(false);
       showNotice("Wypisano z zawodów.");
     } catch (error) {
@@ -484,6 +588,18 @@ export default function JoinCompetitionPanel({
     } finally {
       setLoading(false);
     }
+  }
+
+  function openJoinForm() {
+    closeNotice();
+
+    if (!hasStoredSession) {
+      storeAuthRedirectPath(competitionPath);
+      router.push(buildAuthPath("/login", competitionPath));
+      return;
+    }
+
+    setShowForm(true);
   }
 
   return (
@@ -730,6 +846,14 @@ export default function JoinCompetitionPanel({
             <div className="rounded-xl border border-yellow-200 bg-yellow-50 p-4 text-yellow-800 dark:border-yellow-700 dark:bg-yellow-950/30 dark:text-yellow-100">
               Zgłoszenie przyjęte. Pojawisz się na liście zawodników po potwierdzeniu udziału i opłaty przez organizatora.
             </div>
+          ) : authStatePending ? (
+            <button
+              type="button"
+              disabled
+              className="w-full cursor-wait rounded-xl bg-zinc-600 py-4 font-semibold text-white opacity-80"
+            >
+              Sprawdzanie zapisu...
+            </button>
           ) : userIsJoined ? (
             <button
               type="button"
@@ -744,10 +868,7 @@ export default function JoinCompetitionPanel({
           ) : (
             <button
               type="button"
-              onClick={() => {
-                closeNotice();
-                setShowForm(true);
-              }}
+              onClick={openJoinForm}
               disabled={participantLimitReached}
               className="w-full bg-green-800 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition text-white py-4 rounded-xl font-semibold"
             >

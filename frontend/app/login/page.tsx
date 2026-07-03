@@ -1,10 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useState } from "react";
 
 import { apiUrl } from "@/lib/api";
 import { setSessionAuth } from "@/lib/auth";
+import {
+  buildAuthPath,
+  consumeAuthRedirectPath,
+  getStoredAuthRedirectPath,
+  safeAuthRedirectPath,
+} from "@/lib/authRedirect";
 
 type LoginKind = "user" | "club";
 
@@ -12,7 +19,10 @@ function validateEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
-export default function LoginPage() {
+function LoginForm() {
+  const searchParams = useSearchParams();
+  const redirectPath = safeAuthRedirectPath(searchParams.get("next"))
+    || getStoredAuthRedirectPath();
   const [loginKind, setLoginKind] = useState<LoginKind>("user");
   const [userEmail, setUserEmail] = useState("");
   const [userPassword, setUserPassword] = useState("");
@@ -101,7 +111,11 @@ export default function LoginPage() {
       setMessage("Logowanie poprawne");
 
       setTimeout(() => {
-        window.location.href = "/";
+        const destination = safeAuthRedirectPath(searchParams.get("next"))
+          || consumeAuthRedirectPath()
+          || "/";
+
+        window.location.href = destination;
       }, 700);
     } catch (error) {
       console.error(error);
@@ -225,7 +239,10 @@ export default function LoginPage() {
             {isClubLogin ? "Klub nie ma konta?" : "Nie masz konta?"}
           </p>
           <Link
-            href={isClubLogin ? "/register?type=pzss-club" : "/register"}
+            href={buildAuthPath(
+              isClubLogin ? "/register?type=pzss-club" : "/register",
+              redirectPath
+            )}
             className="text-green-900 font-semibold"
           >
             {isClubLogin ? "Rejestracja klubu PZSS" : "Rejestracja"}
@@ -233,5 +250,13 @@ export default function LoginPage() {
         </div>
       </section>
     </main>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginForm />
+    </Suspense>
   );
 }

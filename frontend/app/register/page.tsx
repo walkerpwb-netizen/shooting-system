@@ -5,6 +5,12 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 
 import { apiUrl } from "@/lib/api";
+import {
+  buildAuthPath,
+  getStoredAuthRedirectPath,
+  safeAuthRedirectPath,
+  storeAuthRedirectPath,
+} from "@/lib/authRedirect";
 
 type RegisterType = "user" | "pzss-club";
 
@@ -51,6 +57,8 @@ function RegisterForm() {
   const initialType: RegisterType = searchParams.get("type") === "pzss-club"
     ? "pzss-club"
     : "user";
+  const redirectPath = safeAuthRedirectPath(searchParams.get("next"))
+    || getStoredAuthRedirectPath();
   const [registerType, setRegisterType] = useState<RegisterType>(initialType);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -143,6 +151,7 @@ function RegisterForm() {
                 terms_accepted: consents.termsAccepted,
                 privacy_policy_accepted: consents.privacyAccepted,
                 results_publication_accepted: consents.resultsPublicationAccepted,
+                redirect_path: redirectPath,
               }
             : {
                 email,
@@ -150,6 +159,7 @@ function RegisterForm() {
                 terms_accepted: consents.termsAccepted,
                 privacy_policy_accepted: consents.privacyAccepted,
                 results_publication_accepted: consents.resultsPublicationAccepted,
+                redirect_path: redirectPath,
               }
           ),
         }
@@ -183,8 +193,11 @@ function RegisterForm() {
         resultsPublicationAccepted: false,
       });
       setShowConsentErrors(false);
+      if (redirectPath) {
+        storeAuthRedirectPath(redirectPath);
+      }
       window.alert(successMessage);
-      router.push("/login");
+      router.push(buildAuthPath("/login", redirectPath));
     } catch (error) {
       console.error(error);
       setMessage("Błąd połączenia z serwerem");
@@ -372,7 +385,10 @@ function RegisterForm() {
 
         <div className="mt-6 text-center">
           <p className="text-black">Masz już konto?</p>
-          <Link href="/login" className="text-green-900 font-semibold">
+          <Link
+            href={buildAuthPath("/login", redirectPath)}
+            className="text-green-900 font-semibold"
+          >
             Logowanie
           </Link>
         </div>

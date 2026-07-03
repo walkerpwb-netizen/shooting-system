@@ -55,6 +55,7 @@ import secrets
 import shutil
 import subprocess
 import unicodedata
+from urllib.parse import urlencode
 from pathlib import Path
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -158,6 +159,7 @@ class RegisterData(BaseModel):
     terms_accepted: bool = False
     privacy_policy_accepted: bool = False
     results_publication_accepted: bool = False
+    redirect_path: str = ""
 
 
 class PzssClubRegisterData(BaseModel):
@@ -169,6 +171,7 @@ class PzssClubRegisterData(BaseModel):
     terms_accepted: bool = False
     privacy_policy_accepted: bool = False
     results_publication_accepted: bool = False
+    redirect_path: str = ""
 
 
 class PzssClubApprovalData(BaseModel):
@@ -228,6 +231,32 @@ class CompetitionData(BaseModel):
     club_discount_enabled: bool = False
     club_discount_scope: str = "competition"
     club_discount_amount: str = ""
+
+
+def safe_auth_redirect_path(value: str) -> str:
+    redirect_path = normalize_text(value)
+
+    if (
+        not redirect_path
+        or not redirect_path.startswith("/")
+        or redirect_path.startswith("//")
+        or "\\" in redirect_path
+    ):
+        return ""
+
+    return redirect_path
+
+
+def activation_link_for_token(token: str, redirect_path: str = "") -> str:
+    query_params = {
+        "token": token,
+    }
+    safe_redirect_path = safe_auth_redirect_path(redirect_path)
+
+    if safe_redirect_path:
+        query_params["next"] = safe_redirect_path
+
+    return f"{settings.frontend_url}/activate?{urlencode(query_params)}"
 
 
 def validate_competition_coordinates(data: CompetitionData) -> None:
@@ -9354,7 +9383,10 @@ def register(
 
     db.add(new_user)
 
-    activation_link = f"{settings.frontend_url}/activate?token={activation_token}"
+    activation_link = activation_link_for_token(
+        activation_token,
+        data.redirect_path,
+    )
 
     try:
         db.flush()
@@ -9447,7 +9479,10 @@ def register_pzss_club(
     )
 
     db.add(new_user)
-    activation_link = f"{settings.frontend_url}/activate?token={activation_token}"
+    activation_link = activation_link_for_token(
+        activation_token,
+        data.redirect_path,
+    )
 
     try:
         db.flush()
