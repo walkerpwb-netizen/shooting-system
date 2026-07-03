@@ -700,6 +700,12 @@ export default function Navbar() {
           </Link>
         )}
 
+        {isAdmin && (
+          <Link href="/shooting-ranges/map">
+            Mapa strzelnic
+          </Link>
+        )}
+
       </div>
 
       <div className="flex w-full min-w-0 items-center justify-between gap-5 border-t border-green-800 pt-3 lg:w-auto lg:border-t-0 lg:pt-0">
@@ -941,6 +947,14 @@ export default function Navbar() {
                     className="py-3"
                   >
                     Panel Administratora
+                  </Link>
+
+                  <Link
+                    href="/shooting-ranges/map"
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="py-3"
+                  >
+                    Mapa strzelnic
                   </Link>
 
                   <div className="my-2 border-t border-green-800 pt-2 text-base text-green-100">

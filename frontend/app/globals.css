@@ -164,6 +164,43 @@ body {
   background: #52525b;
 }
 
+.shooting-range-map-marker {
+  background: transparent;
+  border: 0;
+}
+
+.shooting-range-map-marker span {
+  background: #047857;
+  border: 3px solid #ffffff;
+  border-radius: 999px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.34);
+  display: block;
+  height: 34px;
+  position: relative;
+  width: 34px;
+}
+
+.shooting-range-map-marker span::before,
+.shooting-range-map-marker span::after {
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 999px;
+  content: "";
+  display: block;
+  left: 8px;
+  position: absolute;
+  width: 12px;
+}
+
+.shooting-range-map-marker span::before {
+  height: 4px;
+  top: 10px;
+}
+
+.shooting-range-map-marker span::after {
+  height: 10px;
+  top: 18px;
+}
+
 .trap-score-screen {
   height: 100dvh;
   width: 100dvw;
