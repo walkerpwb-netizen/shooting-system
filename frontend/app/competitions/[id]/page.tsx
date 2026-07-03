@@ -1,3 +1,5 @@
+import type { Metadata } from "next";
+
 import JoinCompetitionPanel from "./JoinCompetitionPanel";
 import LogoPreviewLink from "./LogoPreviewLink";
 
@@ -59,6 +61,22 @@ type Competition = {
   disciplines: Discipline[];
 };
 
+function truncateDescription(value: string) {
+  return value.length > 158
+    ? `${value.slice(0, 155).trim()}...`
+    : value;
+}
+
+function metadataImageUrl(value: string | undefined) {
+  if (!value) {
+    return undefined;
+  }
+
+  return value.startsWith("/") || value.startsWith("http://") || value.startsWith("https://")
+    ? value
+    : undefined;
+}
+
 async function getCompetition(id: string) {
   const response = await fetch(
     apiUrl(`/competitions/${id}`),
@@ -72,6 +90,66 @@ async function getCompetition(id: string) {
   }
 
   return response.json() as Promise<Competition>;
+}
+
+export async function generateMetadata({
+  params,
+}: CompetitionPageProps): Promise<Metadata> {
+  const { id } = await params;
+  const competition = await getCompetition(id);
+
+  if (!competition) {
+    return {
+      title: "Nie znaleziono zawodów | System Strzelecki",
+      robots: {
+        index: false,
+        follow: false,
+      },
+    };
+  }
+
+  const organizer = competition.organizer_full_name
+    ? ` Organizator: ${competition.organizer_full_name}.`
+    : "";
+  const disciplinesCount = competition.disciplines.length
+    ? ` Liczba konkurencji: ${competition.disciplines.length}.`
+    : "";
+  const description = truncateDescription(
+    `Zawody strzeleckie ${competition.name}. Data: ${competition.date}. Miejsce: ${competition.location}.${organizer}${disciplinesCount}`
+  );
+  const title = `${competition.name} | Zawody strzeleckie`;
+  const imageUrl = metadataImageUrl(competition.organizer_logo);
+
+  return {
+    title,
+    description,
+    openGraph: {
+      title,
+      description,
+      url: `/competitions/${competition.id}`,
+      siteName: "System Strzelecki",
+      type: "article",
+      images: imageUrl
+        ? [
+            {
+              url: imageUrl,
+              alt: `Logo organizatora zawodów ${competition.name}`,
+            },
+          ]
+        : undefined,
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description,
+      images: imageUrl
+        ? [imageUrl]
+        : undefined,
+    },
+    alternates: {
+      canonical: `/competitions/${competition.id}`,
+    },
+  };
 }
 
 export default async function CompetitionPage({

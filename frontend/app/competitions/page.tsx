@@ -1,7 +1,26 @@
+import type { Metadata } from "next";
+
 import CompetitionList from "../components/CompetitionList";
 import CompetitionParticipationFilterButton from "../components/CompetitionParticipationFilterButton";
 
 import { apiUrl } from "@/lib/api";
+
+export const metadata: Metadata = {
+  title: "Zawody strzeleckie | System Strzelecki",
+  description:
+    "Przeglądaj opublikowane zawody strzeleckie: nadchodzące, trwające i zakończone wydarzenia z datą, lokalizacją oraz szczegółami organizatora.",
+  openGraph: {
+    title: "Zawody strzeleckie | System Strzelecki",
+    description:
+      "Lista opublikowanych zawodów strzeleckich z datami, lokalizacjami i szczegółami wydarzeń.",
+    url: "/competitions",
+    siteName: "System Strzelecki",
+    type: "website",
+  },
+  alternates: {
+    canonical: "/competitions",
+  },
+};
 
 type CompetitionStatusTab = "upcoming" | "live" | "finished" | "joined";
 

@@ -1,7 +1,25 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 
 import CompetitionsMapClient from "./CompetitionsMapClient";
 import { apiUrl } from "@/lib/api";
+
+export const metadata: Metadata = {
+  title: "Mapa zawodów strzeleckich | System Strzelecki",
+  description:
+    "Znajdź zawody strzeleckie na mapie i sprawdź lokalizację nadchodzących, trwających oraz zakończonych wydarzeń.",
+  openGraph: {
+    title: "Mapa zawodów strzeleckich | System Strzelecki",
+    description:
+      "Mapa opublikowanych zawodów strzeleckich z dokładnymi lokalizacjami wydarzeń.",
+    url: "/competitions/map",
+    siteName: "System Strzelecki",
+    type: "website",
+  },
+  alternates: {
+    canonical: "/competitions/map",
+  },
+};
 
 type CompetitionStatusTab = "upcoming" | "live" | "finished";
 
