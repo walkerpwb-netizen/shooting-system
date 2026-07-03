@@ -32,6 +32,7 @@ type CompetitionListProps = {
   emptyMessage: string;
   dateSortDirection?: DateSortDirection;
   mapHref?: string;
+  onlyMyEntries?: boolean;
 };
 
 function parseCompetitionTime(dateValue: string) {
@@ -68,14 +69,19 @@ export default function CompetitionList({
   emptyMessage,
   dateSortDirection = "asc",
   mapHref = "/competitions/map",
+  onlyMyEntries = false,
 }: CompetitionListProps) {
   const [nameFilter, setNameFilter] = useState("");
   const [entryTypes, setEntryTypes] = useState<Record<string, string>>({});
+  const [entriesLoaded, setEntriesLoaded] = useState(false);
 
   useEffect(() => {
     const token = getAccessToken();
 
     if (!token) {
+      Promise.resolve().then(() => {
+        setEntriesLoaded(true);
+      });
       return;
     }
 
@@ -98,6 +104,8 @@ export default function CompetitionList({
         setEntryTypes(data || {});
       } catch (error) {
         console.error(error);
+      } finally {
+        setEntriesLoaded(true);
       }
     }
 
@@ -108,13 +116,16 @@ export default function CompetitionList({
     const normalizedFilter = nameFilter.trim().toLowerCase();
 
     return competitions
+      .filter((competition) => (
+        !onlyMyEntries || Boolean(entryTypes[String(competition.id)])
+      ))
       .filter((competition) =>
         competition.name.toLowerCase().includes(normalizedFilter)
       )
       .sort((firstCompetition, secondCompetition) =>
         compareCompetitionsByDate(firstCompetition, secondCompetition, dateSortDirection)
       );
-  }, [competitions, dateSortDirection, nameFilter]);
+  }, [competitions, dateSortDirection, entryTypes, nameFilter, onlyMyEntries]);
 
   if (competitions.length === 0) {
     return (
@@ -169,9 +180,15 @@ export default function CompetitionList({
         <p aria-hidden="true" />
       </div>
 
-      {visibleCompetitions.length === 0 ? (
+      {onlyMyEntries && !entriesLoaded ? (
         <p className="px-4 py-5 text-zinc-600 dark:text-gray-400">
-          Brak zawodów pasujących do filtra.
+          Ładowanie Twoich zawodów...
+        </p>
+      ) : visibleCompetitions.length === 0 ? (
+        <p className="px-4 py-5 text-zinc-600 dark:text-gray-400">
+          {onlyMyEntries
+            ? emptyMessage
+            : "Brak zawodów pasujących do filtra."}
         </p>
       ) : (
         <div>

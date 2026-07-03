@@ -1,8 +1,9 @@
 import CompetitionList from "../components/CompetitionList";
+import CompetitionParticipationFilterButton from "../components/CompetitionParticipationFilterButton";
 
 import { apiUrl } from "@/lib/api";
 
-type CompetitionStatusTab = "upcoming" | "live" | "finished";
+type CompetitionStatusTab = "upcoming" | "live" | "finished" | "joined";
 
 type Competition = {
   id: number;
@@ -29,7 +30,7 @@ type CompetitionsPageProps = {
 };
 
 const tabs: {
-  key: CompetitionStatusTab;
+  key: Exclude<CompetitionStatusTab, "joined">;
   label: string;
   title: string;
   empty: string;
@@ -94,7 +95,15 @@ export default async function CompetitionsPage({
   )
     ? "live"
     : "upcoming";
-  const activeTab = tabs.find((tab) => tab.key === status)
+  const joinedTab = {
+    key: "joined" as const,
+    title: "Zawody, w których bierzesz udział",
+    empty: "Nie bierzesz udziału w nadchodzących ani trwających zawodach.",
+    statuses: ["published", "started"],
+  };
+  const activeTab = status === "joined"
+    ? joinedTab
+    : tabs.find((tab) => tab.key === status)
     || tabs.find((tab) => tab.key === defaultTabKey)
     || tabs[0];
   const visibleCompetitions = competitions
@@ -135,13 +144,19 @@ export default async function CompetitionsPage({
               {tab.label}
             </a>
           ))}
+
+          <CompetitionParticipationFilterButton
+            competitions={competitions}
+            isActive={activeTab.key === "joined"}
+          />
         </div>
 
         <CompetitionList
           competitions={visibleCompetitions}
           emptyMessage={activeTab.empty}
           dateSortDirection={activeTab.key === "finished" ? "desc" : "asc"}
-          mapHref={`/competitions/map?status=${activeTab.key}`}
+          mapHref={`/competitions/map?status=${activeTab.key === "joined" ? "upcoming" : activeTab.key}`}
+          onlyMyEntries={activeTab.key === "joined"}
         />
       </div>
     </main>
