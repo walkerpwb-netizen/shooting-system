@@ -1211,9 +1211,17 @@ export default function OrganizerCompetitionPage() {
                       key={discipline.id}
                       className="border border-gray-200 rounded-2xl p-4"
                     >
-                      <p className="font-bold">
-                        {discipline.name}
-                      </p>
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <p className="font-bold">
+                          {discipline.name}
+                        </p>
+                        <Link
+                          href={`/judge/${competition.id}/${discipline.id}?test=organizer`}
+                          className="inline-flex shrink-0 items-center justify-center rounded-lg bg-green-700 px-3 py-2 text-sm font-bold text-white transition hover:bg-green-600"
+                        >
+                          Testuj sędziowanie
+                        </Link>
+                      </div>
                       <p className="text-gray-600">
                         {discipline.description || "Brak opisu"}
                       </p>

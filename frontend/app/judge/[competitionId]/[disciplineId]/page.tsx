@@ -2,12 +2,12 @@
 
 import NextImage from "next/image";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import QrCodeScanner from "@/components/QrCodeScanner";
 import { apiUrl } from "@/lib/api";
-import { getAccessToken, isPzssClubAccount } from "@/lib/auth";
+import { getAccessToken, isOrganizer, isPzssClubAccount } from "@/lib/auth";
 import {
   HUNTING_TRAP_TARGETS_COUNT,
   PRACTICAL_SHOTGUN_DISCIPLINE_TYPE,
@@ -136,10 +136,48 @@ type Shooter = {
   squad_position: number;
 };
 
+type OrganizerPreviewDisciplineAssignment = {
+  id: number;
+  division: string;
+  power_factor: string;
+  squad_group_number: number;
+  squad_position: number;
+};
+
+type OrganizerPreviewParticipant = {
+  id: number;
+  user_email: string;
+  first_name: string;
+  last_name: string;
+  license_number: string;
+  club: string;
+  display_name: string;
+  checked_in: boolean;
+  paid: boolean;
+  disciplines: OrganizerPreviewDisciplineAssignment[];
+};
+
+type OrganizerPreviewCompetition = {
+  id: number;
+  name: string;
+  date: string;
+  location: string;
+  status: string;
+  disciplines: Array<Omit<JudgeDiscipline, "shooters_count"> & {
+    discipline_type_label?: string;
+    fixed_power_factor?: string;
+    fixed_division?: string;
+    shooters_count?: number;
+  }>;
+  participants: OrganizerPreviewParticipant[];
+};
+
 type SortField = "name" | "license" | "club" | "points";
 type SortDirection = "asc" | "desc";
 type TrapScoreValue = 1 | 0 | null;
 const clayHitPoints = 5;
+const organizerJudgingTestQueryValue = "organizer";
+const testShooterParticipantId = -1;
 type PracticalShotgunInput = {
   time: string;
   hits: string;
@@ -432,6 +470,123 @@ function parseParticipantQrPayload(value: string): ParticipantQrPayload {
 function getShooterName(shooter: Shooter) {
   return [shooter.last_name, shooter.first_name].filter(Boolean).join(" ")
     || shooter.user_email;
+}
+
+function organizerPreviewDisciplineToJudgeDiscipline(
+  discipline: OrganizerPreviewCompetition["disciplines"][number],
+  shootersCount: number
+): JudgeDiscipline {
+  return {
+    id: discipline.id,
+    name: discipline.name,
+    description: discipline.description || "",
+    scoring_type: discipline.scoring_type || "",
+    discipline_type: discipline.discipline_type || "",
+    trap_variant: discipline.trap_variant || "",
+    trap_series_count: Number(discipline.trap_series_count || 0),
+    clay_variant: discipline.clay_variant || "",
+    clay_series_count: Number(discipline.clay_series_count || 0),
+    shots_count: Number(discipline.shots_count || 0),
+    ammo_type: discipline.ammo_type || "",
+    ammo_price: discipline.ammo_price || "",
+    entry_fee: discipline.entry_fee || "",
+    shooters_count: shootersCount,
+    stages: discipline.stages || [],
+  };
+}
+
+function buildOrganizerPreviewCompetitions(data: OrganizerPreviewCompetition): JudgeCompetition[] {
+  return [{
+    id: data.id,
+    name: data.name,
+    date: data.date,
+    location: data.location,
+    status: "started",
+    is_head_judge: true,
+    disciplines: data.disciplines.map((discipline) => {
+      const shootersCount = data.participants.filter((participant) =>
+        participant.disciplines.some((assignment) => assignment.id === discipline.id)
+      ).length;
+
+      return organizerPreviewDisciplineToJudgeDiscipline(
+        discipline,
+        shootersCount > 0 ? shootersCount : 1
+      );
+    }),
+  }];
+}
+
+function splitDisplayName(displayName: string) {
+  const cleanName = displayName.split(" - ")[0]?.trim() || "";
+  const [lastName = "", ...firstNameParts] = cleanName.split(/\s+/).filter(Boolean);
+
+  return {
+    firstName: firstNameParts.join(" "),
+    lastName,
+  };
+}
+
+function buildTestShooter(
+  discipline: OrganizerPreviewCompetition["disciplines"][number]
+): Shooter {
+  return {
+    participant_id: testShooterParticipantId,
+    user_email: "jan.kowalski@example.test",
+    first_name: "Jan",
+    last_name: "Kowalski",
+    license_number: "TEST-001",
+    club: "Klub testowy",
+    points: "",
+    result_data: "",
+    stage_scores: {},
+    division: discipline.fixed_division || "Open",
+    power_factor: discipline.fixed_power_factor || "minor",
+    squad_group_number: 1,
+    squad_position: 1,
+  };
+}
+
+function buildOrganizerPreviewShooters(
+  data: OrganizerPreviewCompetition,
+  disciplineId: number
+): Shooter[] {
+  const discipline = data.disciplines.find((item) => item.id === disciplineId);
+
+  if (!discipline) {
+    return [];
+  }
+
+  const shooters = data.participants
+    .map((participant, index): Shooter | null => {
+      const assignment = participant.disciplines.find((item) => item.id === disciplineId);
+
+      if (!assignment) {
+        return null;
+      }
+
+      const displayNameParts = splitDisplayName(participant.display_name || "");
+
+      return {
+        participant_id: participant.id,
+        user_email: participant.user_email || `test-${participant.id}@example.test`,
+        first_name: participant.first_name || displayNameParts.firstName,
+        last_name: participant.last_name || displayNameParts.lastName,
+        license_number: participant.license_number || "TEST",
+        club: participant.club || "Klub testowy",
+        points: "",
+        result_data: "",
+        stage_scores: {},
+        division: assignment.division || discipline.fixed_division || "Open",
+        power_factor: assignment.power_factor || discipline.fixed_power_factor || "minor",
+        squad_group_number: Number(assignment.squad_group_number || Math.floor(index / trapSquadCycleSize) + 1),
+        squad_position: Number(assignment.squad_position || (index % trapSquadCycleSize) + 1),
+      };
+    })
+    .filter((shooter): shooter is Shooter => shooter !== null);
+
+  return shooters.length > 0
+    ? shooters
+    : [buildTestShooter(discipline)];
 }
 
 function getSortValue(shooter: Shooter, field: SortField) {
@@ -756,6 +911,56 @@ function dynamicStagePreview(stage: CompetitionStage, input: StageScoreInput) {
     steelWarning: stage.steel_targets > 0 && steelEntries !== stage.steel_targets,
     paperOverflow: paperEntries > stage.paper_required_hits,
     steelOverflow: steelEntries > stage.steel_targets,
+  };
+}
+
+function buildTestStageScorePayload(
+  stage: CompetitionStage,
+  shooter: Shooter,
+  input: StageScoreInput
+): StageScorePayload {
+  const sanitizedInput = sanitizeStageScoreInput(stage, input);
+  const preview = dynamicStagePreview(stage, input);
+
+  return {
+    stage_id: stage.id,
+    competitor_id: shooter.participant_id,
+    division: sanitizedInput.division || shooter.division || "",
+    power_factor: sanitizedInput.power_factor || shooter.power_factor || "minor",
+    time_seconds: String(input.time_seconds || "").replace(",", "."),
+    hits_a: sanitizedInput.hits_a,
+    hits_c: sanitizedInput.hits_c,
+    hits_d: sanitizedInput.hits_d,
+    paper_misses: sanitizedInput.paper_misses,
+    steel_hits: sanitizedInput.steel_hits,
+    steel_misses: sanitizedInput.steel_misses,
+    popper_hits: sanitizedInput.popper_hits,
+    popper_misses: sanitizedInput.popper_misses,
+    mini_popper_hits: sanitizedInput.mini_popper_hits,
+    mini_popper_misses: sanitizedInput.mini_popper_misses,
+    plate_hits: sanitizedInput.plate_hits,
+    plate_misses: sanitizedInput.plate_misses,
+    mini_plate_hits: sanitizedInput.mini_plate_hits,
+    mini_plate_misses: sanitizedInput.mini_plate_misses,
+    no_shoots: sanitizedInput.no_shoots,
+    procedurals: sanitizedInput.procedurals,
+    ftsa: sanitizedInput.ftsa,
+    extra_shots: sanitizedInput.extra_shots,
+    extra_hits: sanitizedInput.extra_hits,
+    custom_penalties: sanitizedInput.custom_penalties
+      .filter((penalty) => penalty.name || penalty.count > 0)
+      .map((penalty) => ({
+        name: penalty.name,
+        count: penalty.count,
+        value: penalty.value,
+      })),
+    positive_points: String(preview.positivePoints),
+    penalty_points: String(preview.penaltyPoints),
+    final_points: String(preview.finalPoints),
+    hit_factor: formatFactor(preview.hitFactor),
+    stage_points: formatFactor(preview.hitFactor),
+    stage_percent: "100.00",
+    stage_place: 1,
   };
 }
 
@@ -1228,12 +1433,14 @@ function unlockScreenOrientation() {
 
 export default function JudgeDisciplinePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const params = useParams<{
     competitionId: string;
     disciplineId: string;
   }>();
   const competitionId = Number(params.competitionId);
   const disciplineId = Number(params.disciplineId);
+  const organizerTestMode = searchParams.get("test") === organizerJudgingTestQueryValue;
 
   const [competitions, setCompetitions] = useState<JudgeCompetition[]>([]);
   const [shooters, setShooters] = useState<Shooter[]>([]);
@@ -1281,6 +1488,11 @@ export default function JudgeDisciplinePage() {
       return;
     }
 
+    if (organizerTestMode && !isOrganizer()) {
+      router.push("/");
+      return;
+    }
+
     if (isPzssClubAccount()) {
       router.replace("/profile");
       return;
@@ -1288,6 +1500,49 @@ export default function JudgeDisciplinePage() {
 
     async function loadData() {
       try {
+        if (organizerTestMode) {
+          const competitionResponse = await fetch(
+            apiUrl(`/organizer/competitions/${competitionId}`),
+            {
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            }
+          );
+          const competitionData = await competitionResponse.json();
+
+          if (!competitionResponse.ok) {
+            setMessage(competitionData.detail || "Nie udało się pobrać zawodów do testu ❌");
+            return;
+          }
+
+          const loadedDiscipline = competitionData.disciplines?.find(
+            (item: JudgeDiscipline) => item.id === disciplineId
+          );
+
+          if (!loadedDiscipline) {
+            setCompetitions(buildOrganizerPreviewCompetitions(competitionData));
+            setShooters([]);
+            setMessage("Ta konkurencja nie istnieje w wybranych zawodach ❌");
+            return;
+          }
+
+          const previewShooters = buildOrganizerPreviewShooters(competitionData, disciplineId);
+          const previewCompetitions = buildOrganizerPreviewCompetitions(competitionData);
+          const loadedStages = loadedDiscipline.stages || [];
+
+          setCompetitions(previewCompetitions);
+          setShooters(previewShooters);
+          setPracticalShotgunInputs(practicalShotgunInputsFromShooters(previewShooters));
+
+          if (loadedStages.length > 0) {
+            setActiveStageId((currentStageId) => currentStageId || loadedStages[0].id);
+            setStageScoreInputs(stageScoreInputsFromShooters(previewShooters, loadedStages));
+          }
+
+          return;
+        }
+
         const competitionsResponse = await fetch(
           apiUrl("/judge/competitions"),
           {
@@ -1341,7 +1596,7 @@ export default function JudgeDisciplinePage() {
     }
 
     loadData();
-  }, [competitionId, disciplineId, router]);
+  }, [competitionId, disciplineId, organizerTestMode, router]);
 
   const competition = useMemo(
     () => competitions.find((item) => item.id === competitionId),
@@ -1512,7 +1767,10 @@ export default function JudgeDisciplinePage() {
     });
   }, [activeStageScoreKey, isDynamicStageDiscipline, isPracticalShotgunDiscipline, shooterFilter, shooters, sortDirection, sortField]);
 
-  const resultsEnabled = competition?.status === "started";
+  const resultsEnabled = organizerTestMode || competition?.status === "started";
+  const backHref = organizerTestMode
+    ? `/organizer/${competitionId}`
+    : `/judge/${competitionId}`;
 
   function toggleSort(field: SortField) {
     if (sortField === field) {
@@ -1598,6 +1856,21 @@ export default function JudgeDisciplinePage() {
     );
 
     if (points === null) {
+      return;
+    }
+
+    if (organizerTestMode) {
+      setShooters((currentShooters) =>
+        currentShooters.map((currentShooter) =>
+          currentShooter.participant_id === shooter.participant_id
+            ? {
+                ...currentShooter,
+                points,
+              }
+            : currentShooter
+        )
+      );
+      setMessage("Wynik wpisany tylko w trybie testowym ✅");
       return;
     }
 
@@ -1703,7 +1976,31 @@ export default function JudgeDisciplinePage() {
       discipline: PRACTICAL_SHOTGUN_DISCIPLINE_TYPE,
       time_seconds: safeInput.time.replace(",", "."),
       hits: preview.hits,
+      factor: preview.disqualified ? "0.000" : preview.factor,
+      disqualified: preview.disqualified,
+      disqualification_reason: preview.disqualified
+        ? "Przekroczono limit czasu"
+        : "",
     });
+
+    if (organizerTestMode) {
+      setShooters((currentShooters) =>
+        currentShooters.map((currentShooter) =>
+          currentShooter.participant_id === shooter.participant_id
+            ? {
+                ...currentShooter,
+                points: preview.disqualified ? "0.000" : preview.factor,
+                result_data: resultData,
+              }
+            : currentShooter
+        )
+      );
+      setMessage(preview.disqualified
+        ? "Wynik testowy oznaczony jako DQ za przekroczenie limitu czasu ✅"
+        : "Wynik wpisany tylko w trybie testowym ✅"
+      );
+      return;
+    }
 
     try {
       setMessage("");
@@ -1836,6 +2133,35 @@ export default function JudgeDisciplinePage() {
 
     const token = getAccessToken();
 
+    if (organizerTestMode) {
+      const score = buildTestStageScorePayload(stage, shooter, input);
+
+      setShooters((currentShooters) =>
+        currentShooters.map((currentShooter) =>
+          currentShooter.participant_id === shooter.participant_id
+            ? {
+                ...currentShooter,
+                points: score.stage_points || currentShooter.points,
+                stage_scores: {
+                  ...(currentShooter.stage_scores || {}),
+                  [String(stage.id)]: score,
+                },
+              }
+            : currentShooter
+        )
+      );
+      setStageScoreInputs((currentInputs) => ({
+        ...currentInputs,
+        [shooter.participant_id]: {
+          ...(currentInputs[shooter.participant_id] || {}),
+          [stage.id]: emptyStageScoreInput(stage, score, shooter),
+        },
+      }));
+      setExpandedDynamicShooterId(null);
+      setMessage("Wynik Stage wpisany tylko w trybie testowym ✅");
+      return;
+    }
+
     try {
       setMessage("");
       setStageScoreSavingId(shooter.participant_id);
@@ -1900,6 +2226,23 @@ export default function JudgeDisciplinePage() {
     points: number,
     scores: TrapScoreValue[]
   ) {
+    if (organizerTestMode) {
+      const resultData = JSON.stringify(scores);
+
+      setShooters((currentShooters) =>
+        currentShooters.map((currentShooter) =>
+          currentShooter.participant_id === participantId
+            ? {
+                ...currentShooter,
+                points: String(points),
+                result_data: resultData,
+              }
+            : currentShooter
+        )
+      );
+      return;
+    }
+
     const token = getAccessToken();
     const resultData = JSON.stringify(scores);
 
@@ -2087,6 +2430,18 @@ export default function JudgeDisciplinePage() {
   }
 
   async function saveSkeetParticipantScore(participantId: number, scores: TrapScoreValue[]) {
+    if (organizerTestMode) {
+      const points = trapScoreTotal(scores);
+      const resultData = buildSkeetResultData(scores, skeetRoundCount);
+
+      setShooters((currentShooters) => currentShooters.map((shooter) =>
+        shooter.participant_id === participantId
+          ? { ...shooter, points: String(points), result_data: resultData }
+          : shooter
+      ));
+      return;
+    }
+
     const token = getAccessToken();
     const points = trapScoreTotal(scores);
     const resultData = buildSkeetResultData(scores, skeetRoundCount);
@@ -2649,10 +3004,10 @@ export default function JudgeDisciplinePage() {
       <div className="mx-auto w-full max-w-5xl min-w-0">
         <div className="mb-6 min-w-0">
           <Link
-            href={`/judge/${competitionId}`}
+            href={backHref}
             className="mb-5 inline-flex bg-red-700 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-red-950/30 transition hover:bg-red-600 sm:px-5 sm:text-base"
           >
-            Wróć do konkurencji
+            {organizerTestMode ? "Wróć do szczegółów zawodów" : "Wróć do konkurencji"}
           </Link>
 
           <h1 className="mb-2 break-words text-3xl font-bold text-white sm:text-5xl">
@@ -2663,6 +3018,12 @@ export default function JudgeDisciplinePage() {
             <p className="break-words text-gray-400">
               {competition.name} • {competition.date} • {competition.location}
             </p>
+          )}
+
+          {organizerTestMode && (
+            <div className="mt-4 rounded-xl border border-yellow-500 bg-yellow-950/50 px-4 py-3 text-sm font-bold text-yellow-100">
+              Tryb testowy organizatora. Możesz wpisywać próbne wyniki, ale nic nie zostanie zapisane w zawodach.
+            </div>
           )}
         </div>
 
