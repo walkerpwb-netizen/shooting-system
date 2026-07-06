@@ -529,6 +529,13 @@ class Discipline(Base):
         nullable=True,
     )
 
+    one_hand_bonus_enabled = Column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+
     display_order = Column(
         Integer,
         nullable=False,

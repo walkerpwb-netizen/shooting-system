@@ -5,7 +5,7 @@ import Link from "next/link";
 export const metadata: Metadata = {
   title: "Pobierz aplikację | System Strzelecki",
   description:
-    "Instrukcja instalacji Systemu Strzeleckiego na telefonach z Androidem oraz na iPhone i iPadzie.",
+    "Instrukcja instalacji Systemu Strzeleckiego na telefonach, tabletach oraz komputerach z Windows i macOS.",
 };
 
 const androidSteps = [
@@ -64,6 +64,52 @@ const iosSteps = [
   },
 ];
 
+const windowsSteps = [
+  {
+    title: "Otwórz stronę w Chrome lub Edge",
+    description:
+      "Na laptopie z Windows uruchom Google Chrome albo Microsoft Edge i wejdź na stronę Systemu Strzeleckiego. Najlepiej zrobić to w zwykłym oknie przeglądarki, nie w trybie prywatnym.",
+  },
+  {
+    title: "Znajdź opcję instalacji",
+    description:
+      "W Chrome kliknij ikonę instalacji przy pasku adresu albo menu z trzema kropkami, następnie „Cast, save, and share” i „Install page as app”. W Edge możesz kliknąć ikonę aplikacji w pasku adresu albo wejść w menu z trzema kropkami, „Aplikacje” i „Zainstaluj tę witrynę jako aplikację”.",
+  },
+  {
+    title: "Potwierdź instalację",
+    description:
+      "Sprawdź nazwę aplikacji i kliknij „Zainstaluj”. System Strzelecki otworzy się w osobnym oknie, podobnie jak zwykły program na komputerze.",
+  },
+  {
+    title: "Przypnij aplikację",
+    description:
+      "Po uruchomieniu możesz przypiąć ikonę do paska zadań albo znaleźć ją później w menu Start. Dzięki temu nie trzeba za każdym razem wpisywać adresu strony.",
+  },
+];
+
+const macSteps = [
+  {
+    title: "Otwórz stronę w Safari albo Chrome",
+    description:
+      "Na MacBooku lub komputerze Mac wejdź na stronę Systemu Strzeleckiego w Safari. Możesz też użyć Chrome, jeśli to z niego korzystasz na co dzień.",
+  },
+  {
+    title: "Dodaj aplikację w Safari",
+    description:
+      "W Safari kliknij przycisk udostępniania w pasku narzędzi i wybierz „Dodaj do Docka”. Następnie potwierdź przyciskiem „Dodaj”.",
+  },
+  {
+    title: "Alternatywnie użyj Chrome",
+    description:
+      "W Chrome kliknij menu z trzema kropkami, wybierz „Cast, save, and share”, a następnie „Install page as app”. Jeżeli przy pasku adresu pojawi się ikona instalacji, możesz kliknąć ją bezpośrednio.",
+  },
+  {
+    title: "Uruchamiaj z Docka lub Spotlight",
+    description:
+      "Po instalacji ikona Systemu Strzeleckiego będzie dostępna w Docku, Launchpadzie albo przez Spotlight. Aplikacja otworzy się w osobnym oknie.",
+  },
+];
+
 function StepList({
   steps,
 }: {
@@ -109,9 +155,10 @@ export default function DownloadAppPage() {
             Pobierz Aplikację
           </h1>
           <p className="mt-6 max-w-3xl text-lg leading-8 text-zinc-300">
-            Dodaj System Strzelecki do ekranu głównego telefonu. Aplikacja będzie
-            uruchamiać się w osobnym oknie i pozostanie zawsze pod ręką — bez
-            pobierania jej ze sklepu Google Play lub App Store.
+            Dodaj System Strzelecki do ekranu głównego telefonu albo zainstaluj
+            go na laptopie jako aplikację. Będzie uruchamiać się w osobnym oknie
+            i pozostanie zawsze pod ręką — bez pobierania jej ze sklepu Google
+            Play lub App Store.
           </p>
           <div className="mt-8 rounded-xl border border-amber-300/30 bg-amber-300/10 px-5 py-4 text-left text-sm leading-6 text-amber-100">
             <strong>Ważne:</strong> obecna wersja wymaga połączenia z internetem.
@@ -201,6 +248,98 @@ export default function DownloadAppPage() {
             className="mt-6 inline-flex font-bold text-emerald-300 underline decoration-emerald-300/40 underline-offset-4 hover:text-emerald-200"
           >
             Oficjalna instrukcja Apple
+          </a>
+        </section>
+
+        <section
+          id="windows"
+          className="rounded-[2rem] border border-white/10 bg-white/[0.045] p-5 shadow-2xl sm:p-8 lg:p-10"
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.22em] text-emerald-300">
+                Chrome lub Microsoft Edge
+              </p>
+              <h2 className="mt-2 text-3xl font-black sm:text-4xl">
+                Instalacja na laptopie z Windows
+              </h2>
+            </div>
+            <span className="w-fit rounded-full border border-emerald-300/25 bg-emerald-300/10 px-4 py-2 text-sm font-bold text-emerald-100">
+              Windows
+            </span>
+          </div>
+
+          <StepList steps={windowsSteps} />
+
+          <div className="mt-7 rounded-2xl border border-sky-300/20 bg-sky-300/[0.08] p-5">
+            <h3 className="font-black text-sky-100">
+              Gdy nie widzisz przycisku instalacji
+            </h3>
+            <p className="mt-2 leading-7 text-zinc-300">
+              Odśwież stronę i sprawdź menu przeglądarki. W Chrome opcja może być
+              ukryta pod nazwą „Install page as app”, a w Edge pod „Aplikacje”.
+              Upewnij się też, że przeglądarka jest aktualna.
+            </p>
+          </div>
+
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+            <a
+              href="https://support.google.com/chrome/answer/9658361?co=GENIE.Platform%3DDesktop"
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex font-bold text-emerald-300 underline decoration-emerald-300/40 underline-offset-4 hover:text-emerald-200"
+            >
+              Oficjalna instrukcja Google Chrome
+            </a>
+            <a
+              href="https://support.microsoft.com/edge/install-manage-or-uninstall-apps-in-microsoft-edge"
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex font-bold text-emerald-300 underline decoration-emerald-300/40 underline-offset-4 hover:text-emerald-200"
+            >
+              Oficjalna instrukcja Microsoft Edge
+            </a>
+          </div>
+        </section>
+
+        <section
+          id="mac"
+          className="rounded-[2rem] border border-white/10 bg-white/[0.045] p-5 shadow-2xl sm:p-8 lg:p-10"
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.22em] text-emerald-300">
+                Safari lub Google Chrome
+              </p>
+              <h2 className="mt-2 text-3xl font-black sm:text-4xl">
+                Instalacja na MacBooku i Macu
+              </h2>
+            </div>
+            <span className="w-fit rounded-full border border-emerald-300/25 bg-emerald-300/10 px-4 py-2 text-sm font-bold text-emerald-100">
+              macOS
+            </span>
+          </div>
+
+          <StepList steps={macSteps} />
+
+          <div className="mt-7 rounded-2xl border border-sky-300/20 bg-sky-300/[0.08] p-5">
+            <h3 className="font-black text-sky-100">
+              Safari dodaje aplikację do Docka
+            </h3>
+            <p className="mt-2 leading-7 text-zinc-300">
+              Po dodaniu do Docka aplikacja jest też dostępna w Launchpadzie,
+              Spotlight i folderze Aplikacje. Logowanie pozostaje takie samo jak
+              na stronie.
+            </p>
+          </div>
+
+          <a
+            href="https://support.apple.com/guide/safari/add-to-dock-ibrw9e991864/mac"
+            target="_blank"
+            rel="noreferrer"
+            className="mt-6 inline-flex font-bold text-emerald-300 underline decoration-emerald-300/40 underline-offset-4 hover:text-emerald-200"
+          >
+            Oficjalna instrukcja Apple Safari
           </a>
         </section>
 

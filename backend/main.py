@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import func, or_, text
-from PIL import Image, ImageOps, UnidentifiedImageError
+from PIL import Image, ImageOps, ImageDraw, ImageFont, UnidentifiedImageError
 
 from database import SessionLocal
 from config import settings
@@ -46,6 +46,7 @@ from typing import Optional
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from io import BytesIO
 import hashlib
+import base64
 import json
 import math
 import os
@@ -298,6 +299,7 @@ class DisciplineData(BaseModel):
     entry_fee: str = ""
     fixed_power_factor: str = ""
     fixed_division: str = ""
+    one_hand_bonus_enabled: bool = False
     display_order: Optional[int] = None
     stages: list["CompetitionStageData"] = []
 
@@ -1612,6 +1614,25 @@ def competition_discipline_categories(competition: Competition, db):
     ]
 
 
+def competition_pdf_result_categories(competition: Competition, db):
+    disciplines = (
+        db.query(Discipline)
+        .filter(Discipline.competition_id == competition.id)
+        .order_by(*discipline_order_columns())
+        .all()
+    )
+
+    return [
+        category
+        for category in live_result_categories(disciplines)
+        if category["type"] == "discipline"
+        or (
+            category["type"] == "aggregate"
+            and category.get("disciplines_count", 0) > 0
+        )
+    ]
+
+
 def build_competition_results_pdf(competition: Competition, db) -> bytes:
     page_width = 595
     page_height = 842
@@ -1656,7 +1677,7 @@ def build_competition_results_pdf(competition: Competition, db) -> bytes:
             return safe
         return safe[: max(0, length - 3)] + "..."
 
-    categories = competition_discipline_categories(competition, db)
+    categories = competition_pdf_result_categories(competition, db)
     head_judge = competition_head_judge_name(competition, db)
 
     add_line("KOMUNIKAT KLASYFIKACYJNY", 18, "F2", gap=24)
@@ -1684,7 +1705,12 @@ def build_competition_results_pdf(competition: Competition, db) -> bytes:
                 include_license=True,
             )
             shooters = payload.get("shooters", [])
-            add_line(f"Konkurencja {index}: {category['name']}", 15, "F2", gap=20)
+            category_label = (
+                "Konkurencja"
+                if category.get("type") == "discipline"
+                else "Klasyfikacja zbiorcza"
+            )
+            add_line(f"{category_label} {index}: {category['name']}", 15, "F2", gap=20)
             add_line(f"Zawody: {competition.name}")
             add_line(f"Data i miejsce: {competition.date}, {competition.location}")
             add_line(f"Liczba sklasyfikowanych zawodników: {len(shooters)}")
@@ -1742,6 +1768,524 @@ def build_competition_results_pdf(competition: Competition, db) -> bytes:
     objects[1] = f"<< /Type /Pages /Kids [{kids}] /Count {len(page_object_ids)} >>".encode("latin-1")
 
     return build_pdf(objects)
+
+
+def build_test_results_template_pdf(
+    competition: Competition,
+    db,
+    *,
+    pzss_license_only: bool = False,
+    test_mode: bool = True,
+) -> bytes:
+    page_width = 1240
+    page_height = 1754
+    margin = 90
+    table_width = page_width - (margin * 2)
+    regular_font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+    bold_font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+    fallback_logo_path = "/home/ubuntu/logo.jpeg"
+    pzss_logo_path = "/home/ubuntu/logo_PZSS.png"
+    pages: list[Image.Image] = []
+
+    def font(size: int, bold: bool = False):
+        path = bold_font_path if bold else regular_font_path
+        return ImageFont.truetype(path, size)
+
+    def make_page():
+        return Image.new("RGB", (page_width, page_height), "white")
+
+    def safe(value) -> str:
+        return str(value or "").strip()
+
+    def has_pzss_license(shooter) -> bool:
+        license_number = safe(shooter.get("license_number")).casefold()
+        return bool(license_number) and license_number != "brak"
+
+    def pzss_filtered_shooters(shooters):
+        filtered = []
+        previous_original_place = None
+        current_place = 0
+
+        for filtered_index, shooter in enumerate(
+            [row for row in shooters if has_pzss_license(row)],
+            start=1,
+        ):
+            original_place = safe(shooter.get("place")) or str(filtered_index)
+            if original_place != previous_original_place:
+                current_place = filtered_index
+                previous_original_place = original_place
+
+            row = dict(shooter)
+            row["place"] = current_place
+            filtered.append(row)
+
+        return filtered
+
+    def draw_center(draw, y: int, text: str, text_font, fill="#111827"):
+        bbox = draw.textbbox((0, 0), text, font=text_font)
+        x = (page_width - (bbox[2] - bbox[0])) / 2
+        draw.text((x, y), text, font=text_font, fill=fill)
+
+    def draw_right(draw, x: int, y: int, text: str, text_font, fill="#111827"):
+        bbox = draw.textbbox((0, 0), text, font=text_font)
+        draw.text((x - (bbox[2] - bbox[0]), y), text, font=text_font, fill=fill)
+
+    def ellipsize(draw, text: str, text_font, max_width: int) -> str:
+        value = safe(text)
+        if draw.textlength(value, font=text_font) <= max_width:
+            return value
+
+        suffix = "..."
+        while value and draw.textlength(value + suffix, font=text_font) > max_width:
+            value = value[:-1]
+
+        return (value + suffix) if value else suffix
+
+    def wrap_text(draw, text: str, text_font, max_width: int):
+        words = safe(text).split()
+        lines = []
+        current = ""
+
+        for word in words:
+            candidate = f"{current} {word}".strip()
+            if not current or draw.textlength(candidate, font=text_font) <= max_width:
+                current = candidate
+            else:
+                lines.append(current)
+                current = word
+
+        if current:
+            lines.append(current)
+
+        return lines or [""]
+
+    def draw_wrapped(draw, x: int, y: int, text: str, text_font, max_width: int, line_gap: int = 10, fill="#111827"):
+        current_y = y
+        for line in wrap_text(draw, text, text_font, max_width):
+            draw.text((x, current_y), line, font=text_font, fill=fill)
+            current_y += text_font.size + line_gap
+        return current_y
+
+    def decode_logo(value: str):
+        candidates = [safe(value), fallback_logo_path]
+
+        for candidate in candidates:
+            if not candidate:
+                continue
+
+            try:
+                if candidate.startswith("data:image") and "," in candidate:
+                    payload = candidate.split(",", 1)[1]
+                    image = Image.open(BytesIO(base64.b64decode(payload)))
+                else:
+                    if candidate.startswith("/uploads/"):
+                        path = Path(__file__).resolve().parent / candidate.lstrip("/")
+                    else:
+                        path = Path(candidate)
+
+                    if not path.exists() or not path.is_file():
+                        continue
+
+                    image = Image.open(path)
+
+                return image.convert("RGBA")
+            except Exception:
+                continue
+
+        return None
+
+    left_logo = decode_logo(competition.organizer_logo or "")
+    right_logo = decode_logo(pzss_logo_path)
+
+    def paste_logo(page, image, box):
+        if not image:
+            return
+
+        x, y, w, h = box
+        resampling = getattr(Image, "Resampling", Image).LANCZOS
+        contained = ImageOps.contain(image, (w, h), method=resampling)
+        px = x + ((w - contained.width) // 2)
+        py = y + ((h - contained.height) // 2)
+        page.paste(contained, (px, py), contained)
+
+    def competition_date_label() -> str:
+        months = [
+            "stycznia",
+            "lutego",
+            "marca",
+            "kwietnia",
+            "maja",
+            "czerwca",
+            "lipca",
+            "sierpnia",
+            "września",
+            "października",
+            "listopada",
+            "grudnia",
+        ]
+        parsed = None
+
+        for date_format in ("%Y-%m-%d", "%d.%m.%Y"):
+            try:
+                parsed = datetime.strptime(safe(competition.date), date_format)
+                break
+            except ValueError:
+                continue
+
+        if not parsed:
+            return safe(competition.date)
+
+        return f"{parsed.day} {months[parsed.month - 1]} {parsed.year}"
+
+    def place_date_label() -> str:
+        location = safe(competition.location)
+        date_label = competition_date_label()
+        return ", ".join(part for part in [location, date_label] if part)
+
+    def draw_header(page, eyebrow: str = ""):
+        draw = ImageDraw.Draw(page)
+        paste_logo(page, left_logo, (margin, 60, 210, 135))
+        paste_logo(page, right_logo, (page_width - margin - 210, 60, 210, 135))
+
+        if eyebrow:
+            draw_center(draw, 72, eyebrow.upper(), font(21, True), "#374151")
+
+        draw_center(draw, 112, safe(competition.name), font(32, True))
+        draw_center(draw, 157, place_date_label(), font(22), "#374151")
+        draw.line((margin, 230, page_width - margin, 230), fill="#D1D5DB", width=2)
+        return draw
+
+    def draw_table(draw, x: int, y: int, headers: list[str], rows: list[list[str]], widths: list[int], row_height: int = 48):
+        header_font = font(20, True)
+        cell_font = font(19)
+        current_y = y
+        x_positions = [x]
+
+        for width in widths[:-1]:
+            x_positions.append(x_positions[-1] + width)
+
+        draw.rectangle(
+            (x, current_y, x + sum(widths), current_y + row_height),
+            fill="#E5E7EB",
+            outline="#6B7280",
+            width=2,
+        )
+
+        for index, header in enumerate(headers):
+            cell_x = x_positions[index]
+            draw.line(
+                (cell_x, current_y, cell_x, current_y + row_height),
+                fill="#6B7280",
+                width=1,
+            )
+            draw.text(
+                (cell_x + 10, current_y + 12),
+                ellipsize(draw, header, header_font, widths[index] - 20),
+                font=header_font,
+                fill="#111827",
+            )
+
+        draw.line(
+            (x + sum(widths), current_y, x + sum(widths), current_y + row_height),
+            fill="#6B7280",
+            width=1,
+        )
+        current_y += row_height
+
+        for row_index, row in enumerate(rows):
+            fill = "#FFFFFF" if row_index % 2 == 0 else "#F9FAFB"
+            draw.rectangle(
+                (x, current_y, x + sum(widths), current_y + row_height),
+                fill=fill,
+                outline="#D1D5DB",
+                width=1,
+            )
+
+            for cell_index, value in enumerate(row):
+                cell_x = x_positions[cell_index]
+                draw.line(
+                    (cell_x, current_y, cell_x, current_y + row_height),
+                    fill="#D1D5DB",
+                    width=1,
+                )
+                draw.text(
+                    (cell_x + 10, current_y + 13),
+                    ellipsize(draw, value, cell_font, widths[cell_index] - 20),
+                    font=cell_font,
+                    fill="#111827",
+                )
+
+            draw.line(
+                (x + sum(widths), current_y, x + sum(widths), current_y + row_height),
+                fill="#D1D5DB",
+                width=1,
+            )
+            current_y += row_height
+
+        return current_y
+
+    def result_table_data(shooters):
+        has_dynamic = any(
+            shooter.get("dynamic_stage") or shooter.get("practical_shotgun")
+            for shooter in shooters
+        )
+        max_rounds = max(
+            (len(shooter.get("round_scores") or []) for shooter in shooters),
+            default=0,
+        )
+
+        if has_dynamic:
+            headers = ["M-ce", "Nazwisko i imię", "Licencja", "Klub", "HF", "Punkty"]
+            widths = [90, 290, 170, 250, 120, 140]
+            rows = [
+                [
+                    safe(shooter.get("place")),
+                    safe(shooter.get("display_name")),
+                    safe(shooter.get("license_number")),
+                    safe(shooter.get("club")),
+                    safe(shooter.get("hit_factor")),
+                    safe(shooter.get("score_points") or shooter.get("points")),
+                ]
+                for shooter in shooters
+            ]
+            return headers, rows, widths
+
+        if max_rounds:
+            round_headers = [f"S{index + 1}" for index in range(max_rounds)]
+            fixed_width = 90 + 280 + 150 + 230 + 120
+            round_width = max(55, int((table_width - fixed_width) / max_rounds))
+            widths = [90, 280, 150, 230] + [round_width] * max_rounds + [120]
+            headers = ["M-ce", "Nazwisko i imię", "Licencja", "Klub"] + round_headers + ["Wynik"]
+            rows = []
+
+            for shooter in shooters:
+                round_scores = [safe(score) for score in (shooter.get("round_scores") or [])]
+                round_scores.extend([""] * (max_rounds - len(round_scores)))
+                rows.append([
+                    safe(shooter.get("place")),
+                    safe(shooter.get("display_name")),
+                    safe(shooter.get("license_number")),
+                    safe(shooter.get("club")),
+                    *round_scores,
+                    safe(shooter.get("points")),
+                ])
+
+            return headers, rows, widths
+
+        headers = ["M-ce", "Nazwisko i imię", "Licencja", "Klub", "Wynik"]
+        widths = [90, 340, 170, 310, 150]
+        rows = [
+            [
+                safe(shooter.get("place")),
+                safe(shooter.get("display_name")),
+                safe(shooter.get("license_number")),
+                safe(shooter.get("club")),
+                safe(shooter.get("points")),
+            ]
+            for shooter in shooters
+        ]
+        return headers, rows, widths
+
+    cover = make_page()
+    draw = draw_header(cover)
+    draw_center(draw, 380, "REZULTATY", font(78, True))
+    cover_subtitle = "Komunikaty dla PZSS" if pzss_license_only else "Komunikat klasyfikacyjny"
+    draw_center(draw, 490, cover_subtitle, font(36, True), "#374151")
+    draw_center(draw, 545, safe(competition.organizer_full_name or competition.created_by), font(24), "#4B5563")
+    draw.rectangle((margin, 720, page_width - margin, 1135), outline="#D1D5DB", width=2)
+    draw.text((margin + 35, 760), "Spis treści", font=font(31, True), fill="#111827")
+    toc_rows = [
+        ("1.", "Lista certyfikacyjna wyników"),
+        ("2.", "Obsada sędziowska i osoby funkcyjne"),
+        ("3.", "Wyniki końcowe konkurencji"),
+    ]
+    toc_y = 835
+    for number, title in toc_rows:
+        draw.text((margin + 45, toc_y), number, font=font(24, True), fill="#111827")
+        draw.text((margin + 105, toc_y), title, font=font(24), fill="#111827")
+        toc_y += 72
+    if test_mode:
+        draw_center(draw, 1325, "Wersja testowa generatora PDF", font(23, True), "#991B1B")
+        draw_center(draw, 1370, f"Dane pobrane z zawodów {safe(competition.name)}", font(20), "#6B7280")
+    elif pzss_license_only:
+        draw_center(draw, 1325, "Wygenerowano dla PZSS", font(23, True), "#374151")
+        draw_center(draw, 1370, "Zawodnicy bez numeru licencji nie są ujęci w tabelach", font(20), "#6B7280")
+    pages.append(cover)
+
+    certificate = make_page()
+    draw = draw_header(certificate, "Lista certyfikacyjna wyników")
+    draw_center(draw, 315, "LIST CERTYFIKACYJNY WYNIKÓW", font(40, True))
+    body_y = 430
+    body_y = draw_wrapped(
+        draw,
+        margin,
+        body_y,
+        (
+            f"Niniejszym zaświadcza się, że wyniki zawodów {safe(competition.name)} "
+            f"przeprowadzonych w miejscu {safe(competition.location)} w dniu "
+            f"{competition_date_label()} zostały sporządzone na podstawie kart startowych "
+            "i protokołów sędziowskich."
+        ),
+        font(25),
+        table_width,
+        14,
+    )
+    body_y = draw_wrapped(
+        draw,
+        margin,
+        body_y + 35,
+        (
+            "Zawody ujęte w niniejszym komunikacie rozliczane są zgodnie z zasadami "
+            "przyjętymi dla konkurencji w systemie. Dla konkurencji dynamicznych "
+            "najwyższy Hit Factor otrzymuje 100 punktów, a pozostałe wyniki są liczone "
+            "procentowo od najlepszego rezultatu."
+        ),
+        font(25),
+        table_width,
+        14,
+    )
+    if pzss_license_only:
+        body_y = draw_wrapped(
+            draw,
+            margin,
+            body_y + 35,
+            "W komunikacie dla PZSS pominięto zawodników bez podanego numeru licencji.",
+            font(25),
+            table_width,
+            14,
+        )
+    signature_rows = [
+        ("Delegat techniczny PZSS", ""),
+        ("Sędzia Główny Zawodów", competition_head_judge_name(competition, db)),
+        ("Przewodniczący Komisji RTS", ""),
+    ]
+    signature_y = 970
+    for label, value in signature_rows:
+        draw.text((margin, signature_y), label, font=font(22, True), fill="#111827")
+        draw.line((margin + 360, signature_y + 35, page_width - margin, signature_y + 35), fill="#111827", width=2)
+        if value:
+            draw_center(draw, signature_y + 43, value, font(20), "#374151")
+        signature_y += 145
+    pages.append(certificate)
+
+    staff = make_page()
+    draw = draw_header(staff, "Obsada zawodów")
+    draw_center(draw, 315, "OBSADA SĘDZIOWSKA I OSOBY FUNKCYJNE", font(38, True))
+    judges = (
+        db.query(CompetitionParticipant)
+        .filter(
+            CompetitionParticipant.competition_id == competition.id,
+            CompetitionParticipant.entry_type == "judge",
+        )
+        .order_by(CompetitionParticipant.is_head_judge.desc(), CompetitionParticipant.id.asc())
+        .all()
+    )
+    staff_rows = []
+    for judge in judges:
+        data = public_participant(judge, db, include_private=True)
+        staff_rows.append([
+            "Sędzia Główny Zawodów" if judge.is_head_judge else "Sędzia",
+            participant_result_display_name(data),
+            data.get("judge_license_number") or data.get("license_number") or "",
+        ])
+    if not staff_rows:
+        staff_rows = [
+            ["Sędzia Główny Zawodów", competition_head_judge_name(competition, db) or "................................", ""],
+            ["Przewodniczący Komisji RTS", "................................", ""],
+            ["Kierownik biura zawodów", "................................", ""],
+        ]
+    draw_table(
+        draw,
+        margin,
+        430,
+        ["Funkcja", "Imię i nazwisko", "Licencja"],
+        staff_rows,
+        [360, 500, 200],
+        54,
+    )
+    pages.append(staff)
+
+    categories = competition_discipline_categories(competition, db)
+    if not categories:
+        page = make_page()
+        draw = draw_header(page, "Wyniki")
+        draw_center(draw, 380, "Brak konkurencji w zawodach", font(36, True), "#374151")
+        pages.append(page)
+
+    for category_index, category in enumerate(categories, start=1):
+        payload = result_category_payload(
+            competition,
+            category["id"],
+            db,
+            include_license=True,
+        )
+        shooters = payload.get("shooters", [])
+        if pzss_license_only:
+            shooters = pzss_filtered_shooters(shooters)
+        headers, rows, widths = result_table_data(shooters)
+        rows_per_page = 21 if pzss_license_only else 24
+        chunks = [rows[index:index + rows_per_page] for index in range(0, len(rows), rows_per_page)] or [[]]
+
+        for chunk_index, chunk in enumerate(chunks, start=1):
+            page = make_page()
+            draw = draw_header(page, "Wyniki końcowe")
+            draw_center(draw, 300, f"{category_index}. {safe(category.get('name'))}", font(34, True))
+            if len(chunks) > 1:
+                draw_center(draw, 346, f"strona tabeli {chunk_index}/{len(chunks)}", font(20), "#6B7280")
+            draw.text((margin, 395), f"Zawody: {safe(competition.name)}", font=font(22), fill="#111827")
+            draw_right(draw, page_width - margin, 395, f"Sklasyfikowano: {len(shooters)}", font(22), "#111827")
+            if any(row.get("dynamic_stage") or row.get("practical_shotgun") for row in shooters):
+                draw.text(
+                    (margin, 435),
+                    "Punktacja dynamiczna: najlepszy Hit Factor = 100 pkt, pozostali procentowo od wyniku lidera.",
+                    font=font(19),
+                    fill="#374151",
+                )
+                table_y = 485
+            else:
+                table_y = 465
+
+            if chunk:
+                draw_table(draw, margin, table_y, headers, chunk, widths, 48)
+            else:
+                draw.rectangle((margin, table_y, page_width - margin, table_y + 120), outline="#D1D5DB", width=2)
+                draw_center(draw, table_y + 42, "Brak sklasyfikowanych zawodników w tej konkurencji", font(24), "#6B7280")
+
+            draw.line((margin, 1580, margin + 420, 1580), fill="#111827", width=2)
+            draw.text((margin, 1595), "Podpis Sędziego Głównego", font=font(18), fill="#374151")
+            draw.line((page_width - margin - 420, 1580, page_width - margin, 1580), fill="#111827", width=2)
+            draw.text((page_width - margin - 420, 1595), "Podpis Organizatora", font=font(18), fill="#374151")
+            pages.append(page)
+
+    for page_index, page in enumerate(pages, start=1):
+        draw = ImageDraw.Draw(page)
+        draw.line((margin, 1685, page_width - margin, 1685), fill="#E5E7EB", width=2)
+        footer_note = (
+            "Komunikaty dla PZSS"
+            if pzss_license_only
+            else "Testowy generator PDF - nie zastępuje obecnego generatora"
+        )
+        draw.text((margin, 1705), footer_note, font=font(16), fill="#6B7280")
+        draw_right(draw, page_width - margin, 1705, f"Strona {page_index} / {len(pages)}", font(16), "#6B7280")
+
+    output = BytesIO()
+    pages[0].save(
+        output,
+        format="PDF",
+        save_all=True,
+        append_images=pages[1:],
+        resolution=150.0,
+    )
+    return output.getvalue()
+
+
+def build_pzss_communiques_pdf(competition: Competition, db) -> bytes:
+    return build_test_results_template_pdf(
+        competition,
+        db,
+        pzss_license_only=True,
+        test_mode=False,
+    )
 
 
 def has_role(user: User, role: str):
@@ -4461,6 +5005,39 @@ def format_points(value: Decimal):
     return format(normalized, "f")
 
 
+def standard_result_with_bonus(
+    discipline: Discipline,
+    points: str,
+    result_data: Optional[str],
+):
+    one_hand_bonus_enabled = bool(getattr(discipline, "one_hand_bonus_enabled", 0))
+
+    if not one_hand_bonus_enabled or result_data is None:
+        return points.strip(), result_data
+
+    try:
+        parsed = json.loads(result_data or "{}")
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Nieprawidłowy zapis wyniku")
+
+    if not isinstance(parsed, dict) or parsed.get("discipline") != "standard":
+        raise HTTPException(status_code=400, detail="Nieprawidłowy zapis wyniku")
+
+    base_points = format_points(parse_points(str(parsed.get("base_points", points))))
+    one_hand_bonus = bool(parsed.get("one_hand_bonus"))
+    bonus_points = 5 if one_hand_bonus else 0
+    final_points = format_points(parse_points(base_points) + Decimal(bonus_points))
+    normalized_data = {
+        "discipline": "standard",
+        "base_points": base_points,
+        "one_hand_bonus": one_hand_bonus,
+        "one_hand_bonus_points": bonus_points,
+        "final_points": final_points,
+    }
+
+    return final_points, json.dumps(normalized_data, ensure_ascii=False)
+
+
 def practical_shotgun_factor(hits: int, time_seconds: Decimal):
     return (Decimal(hits) * Decimal("10") / time_seconds).quantize(
         Decimal("0.001"),
@@ -5134,9 +5711,7 @@ def recalculate_stage_results(stage: CompetitionStage, db):
             if hit_factor > 0 and max_hit_factor > 0
             else Decimal("0")
         )
-        stage_points = (
-            Decimal(int(stage.max_points or 0)) * (percent / Decimal("100"))
-        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        stage_points = percent.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
         score.stage_percent = format_points(percent.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
         score.stage_points = format_points(stage_points)
@@ -6577,6 +7152,141 @@ def competition_list_row(
     }
 
 
+COMPETITION_COPY_FIELDS = [
+    "date",
+    "location",
+    "latitude",
+    "longitude",
+    "entry_fee",
+    "organizer_full_name",
+    "organizer_logo",
+    "sponsors",
+    "sponsor_logo",
+    "participant_limit",
+    "pzss_license_calendar",
+    "requires_licensed_judge",
+    "club_discount_enabled",
+    "club_discount_scope",
+    "club_discount_amount",
+]
+
+
+DISCIPLINE_COPY_FIELDS = [
+    "name",
+    "description",
+    "scoring_type",
+    "discipline_type",
+    "shots_count",
+    "trap_variant",
+    "trap_series_count",
+    "clay_variant",
+    "clay_series_count",
+    "ammo_type",
+    "ammo_price",
+    "clay_price",
+    "entry_fee",
+    "fixed_power_factor",
+    "fixed_division",
+    "one_hand_bonus_enabled",
+    "display_order",
+]
+
+
+STAGE_COPY_FIELDS = [
+    "stage_number",
+    "name",
+    "stage_type",
+    "briefing",
+    "notes",
+    "min_rounds",
+    "max_points",
+    "paper_targets",
+    "mini_paper_targets",
+    "classic_targets",
+    "paper_no_shoots",
+    "moving_targets",
+    "swingers",
+    "drop_turners",
+    "poppers",
+    "mini_poppers",
+    "plates",
+    "mini_plates",
+    "steel_no_shoots",
+    "popper_points",
+    "mini_popper_points",
+    "plate_points",
+    "mini_plate_points",
+    "penalty_miss",
+    "penalty_no_shoot",
+    "penalty_procedural",
+    "penalty_ftsa",
+    "penalty_extra_shot",
+    "penalty_extra_hit",
+    "custom_penalties_json",
+]
+
+
+def copy_competition_as_draft(source_competition: Competition, user: User, db):
+    copied_competition = Competition(
+        name=f"Kopia - {source_competition.name}",
+        status="draft",
+        completed_at=None,
+        created_by=user.email,
+        **{
+            field: getattr(source_competition, field)
+            for field in COMPETITION_COPY_FIELDS
+        },
+    )
+
+    db.add(copied_competition)
+    db.flush()
+
+    discipline_id_map = {}
+    source_disciplines = (
+        db.query(Discipline)
+        .filter(Discipline.competition_id == source_competition.id)
+        .order_by(*discipline_order_columns())
+        .all()
+    )
+
+    for source_discipline in source_disciplines:
+        copied_discipline = Discipline(
+            competition_id=copied_competition.id,
+            **{
+                field: getattr(source_discipline, field)
+                for field in DISCIPLINE_COPY_FIELDS
+            },
+        )
+        db.add(copied_discipline)
+        db.flush()
+        discipline_id_map[source_discipline.id] = copied_discipline.id
+
+    if discipline_id_map:
+        now = current_timestamp()
+        source_stages = (
+            db.query(CompetitionStage)
+            .filter(CompetitionStage.discipline_id.in_(list(discipline_id_map.keys())))
+            .order_by(CompetitionStage.discipline_id.asc(), CompetitionStage.stage_number.asc())
+            .all()
+        )
+
+        for source_stage in source_stages:
+            db.add(
+                CompetitionStage(
+                    competition_id=copied_competition.id,
+                    discipline_id=discipline_id_map[source_stage.discipline_id],
+                    created_at=now,
+                    updated_at=now,
+                    **{
+                        field: getattr(source_stage, field)
+                        for field in STAGE_COPY_FIELDS
+                    },
+                )
+            )
+
+    return copied_competition
+
+
 def historical_sort_key(competition: Competition):
     competition_date = parse_competition_date(competition.date)
 
@@ -6723,6 +7433,53 @@ def result_category_payload(competition: Competition, category_id: str, db, incl
         None,
     ) if len(discipline_ids) == 1 else None
 
+    dynamic_stage_discipline = next(
+        (
+            discipline
+            for discipline in disciplines
+            if discipline.id in discipline_ids
+            and normalize_discipline_type(discipline.discipline_type or "") in DYNAMIC_STAGE_DISCIPLINE_TYPES
+        ),
+        None,
+    ) if len(discipline_ids) == 1 else None
+    dynamic_stage_scores_by_participant = {}
+    dynamic_stage = None
+
+    if dynamic_stage_discipline:
+        dynamic_stages = (
+            db.query(CompetitionStage)
+            .filter(
+                CompetitionStage.competition_id == competition.id,
+                CompetitionStage.discipline_id == dynamic_stage_discipline.id,
+            )
+            .order_by(CompetitionStage.stage_number.asc())
+            .all()
+        )
+
+        if len(dynamic_stages) == 1:
+            dynamic_stage = dynamic_stages[0]
+            dynamic_stage_scores_by_participant = {
+                score.competitor_id: score
+                for score in (
+                    db.query(StageScore)
+                    .filter(StageScore.stage_id == dynamic_stage.id)
+                    .all()
+                )
+            }
+
+    practical_shotgun_has_dynamic_stages = bool(
+        practical_shotgun_discipline
+        and db.query(CompetitionStage.id)
+        .filter(
+            CompetitionStage.competition_id == competition.id,
+            CompetitionStage.discipline_id == practical_shotgun_discipline.id,
+        )
+        .first()
+    )
+
+    if practical_shotgun_has_dynamic_stages:
+        practical_shotgun_discipline = None
+
     rows = []
 
     for participant in participants:
@@ -6767,6 +7524,16 @@ def result_category_payload(competition: Competition, category_id: str, db, incl
                 [-round_total for round_total in reversed(round_totals)]
                 + [-(score or 0) for score in reversed(scores)]
             )
+
+        if dynamic_stage:
+            score = dynamic_stage_scores_by_participant.get(participant.id)
+            row["dynamic_stage"] = True
+            row["hit_factor"] = score.hit_factor if score else "0"
+            row["score_points"] = score.stage_points if score else "0"
+            row["stage_percent"] = score.stage_percent if score else "0"
+            row["final_points"] = score.final_points if score else "0"
+            row["time_seconds"] = score.time_seconds if score else ""
+            row["points"] = score.stage_points if score else "0"
 
         if practical_shotgun_discipline:
             result = results_by_participant.get(participant.id)
@@ -8253,6 +9020,34 @@ def download_admin_ad_report_pdf(
     )
 
 
+@app.get("/admin/test-results-template.pdf")
+def download_admin_test_results_template_pdf(
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    competition = (
+        db.query(Competition)
+        .filter(func.lower(Competition.name) == "test2")
+        .order_by(Competition.id.desc())
+        .first()
+    )
+
+    if not competition:
+        raise HTTPException(status_code=404, detail="Nie znaleziono zawodów test2")
+
+    pdf_bytes = build_test_results_template_pdf(competition, db)
+    filename = f"testowy-komunikat-{pdf_filename_slug(competition.name)}.pdf"
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
 @app.put("/admin/settings/results-table")
 def update_admin_results_table_settings(
     data: ResultsTableSettingsData,
@@ -8992,6 +9787,7 @@ def admin_get_competitions(
                     "entry_fee": discipline.entry_fee or "",
                     "fixed_power_factor": getattr(discipline, "fixed_power_factor", "") or "",
                     "fixed_division": getattr(discipline, "fixed_division", "") or "",
+                    "one_hand_bonus_enabled": bool(getattr(discipline, "one_hand_bonus_enabled", 0)),
                     "display_order": int(getattr(discipline, "display_order", 0) or 0),
                 }
                 for discipline in disciplines
@@ -10000,6 +10796,7 @@ def organizer_competition_detail_row(competition: Competition, db):
                 "entry_fee": discipline.entry_fee or "",
                 "fixed_power_factor": getattr(discipline, "fixed_power_factor", "") or "",
                 "fixed_division": getattr(discipline, "fixed_division", "") or "",
+                "one_hand_bonus_enabled": bool(getattr(discipline, "one_hand_bonus_enabled", 0)),
                 "display_order": int(getattr(discipline, "display_order", 0) or 0),
             }
             for discipline in disciplines
@@ -10076,6 +10873,51 @@ def get_organizer_competition(
         )
 
     return organizer_competition_detail_row(competition, db)
+
+
+@app.post("/organizer/competitions/{competition_id}/copy")
+def copy_organizer_competition(
+    competition_id: int,
+    user: User = Depends(get_current_organizer),
+    db=Depends(get_db),
+):
+    auto_complete_started_competitions(db)
+
+    competition = (
+        db.query(Competition)
+        .filter(Competition.id == competition_id)
+        .first()
+    )
+
+    if not competition:
+        raise HTTPException(
+            status_code=404,
+            detail="Zawody nie istnieją"
+        )
+
+    if competition.created_by != user.email and not has_role(user, "admin"):
+        raise HTTPException(
+            status_code=403,
+            detail="Nie masz dostępu do tych zawodów"
+        )
+
+    copied_competition = copy_competition_as_draft(competition, user, db)
+    db.commit()
+    db.refresh(copied_competition)
+
+    disciplines_count = count_disciplines_by_competition(db, [copied_competition.id]).get(
+        copied_competition.id,
+        0,
+    )
+
+    return {
+        "message": "Zawody skopiowane jako szkic",
+        "competition_id": copied_competition.id,
+        "competition": competition_list_row(
+            copied_competition,
+            disciplines_count=disciplines_count,
+        ),
+    }
 
 
 @app.get("/organizer/competitions/{competition_id}/payments")
@@ -10214,6 +11056,38 @@ def download_organizer_competition_results_pdf(
 
     pdf_bytes = build_competition_results_pdf(competition, db)
     filename = f"komunikat-wynikow-{competition.id}-{pdf_filename_slug(competition.name)}.pdf"
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@app.get("/organizer/competitions/{competition_id}/pzss-communiques.pdf")
+def download_organizer_pzss_communiques_pdf(
+    competition_id: int,
+    user: User = Depends(get_current_organizer),
+    db=Depends(get_db),
+):
+    auto_complete_started_competitions(db)
+    competition = get_organizer_result_competition_or_404(
+        competition_id,
+        user,
+        db,
+    )
+
+    if competition.status != "completed":
+        raise HTTPException(
+            status_code=400,
+            detail="Komunikaty dla PZSS można wygenerować po zakończeniu zawodów"
+        )
+
+    pdf_bytes = build_pzss_communiques_pdf(competition, db)
+    filename = f"komunikaty-dla-pzss-{competition.id}-{pdf_filename_slug(competition.name)}.pdf"
 
     return Response(
         content=pdf_bytes,
@@ -11502,6 +12376,7 @@ def get_judge_competitions(
                     "entry_fee": discipline.entry_fee or "",
                     "fixed_power_factor": getattr(discipline, "fixed_power_factor", "") or "",
                     "fixed_division": getattr(discipline, "fixed_division", "") or "",
+                    "one_hand_bonus_enabled": bool(getattr(discipline, "one_hand_bonus_enabled", 0)),
                     "display_order": int(getattr(discipline, "display_order", 0) or 0),
                     "shooters_count": discipline_shooters_count(
                         competition.id,
@@ -11974,6 +12849,17 @@ def get_judge_discipline_shooters(
             "stage_scores": stage_scores_by_participant.get(participant.id, {}),
             "division": getattr(participant_discipline, "division", "") or "",
             "power_factor": getattr(participant_discipline, "power_factor", "") or "",
+            "ammo_source": getattr(participant_discipline, "ammo_type", "") or "",
+            "club_ammo_quantity": (
+                int(discipline.shots_count or 0)
+                if getattr(participant_discipline, "ammo_type", "") == "club"
+                else 0
+            ),
+            "club_ammo_type": (
+                discipline.ammo_type or ""
+                if getattr(participant_discipline, "ammo_type", "") == "club"
+                else ""
+            ),
             "squad_group_number": int(getattr(participant_discipline, "squad_group_number", 0) or 0),
             "squad_position": int(getattr(participant_discipline, "squad_position", 0) or 0),
             "sort_email": participant.user_email,
@@ -12111,6 +12997,12 @@ def save_judge_result(
                 data.result_data,
             )
             result_points = str(computed_points)
+    else:
+        result_points, data.result_data = standard_result_with_bonus(
+            discipline,
+            result_points,
+            data.result_data,
+        )
 
     result = (
         db.query(DisciplineResult)
@@ -12222,6 +13114,7 @@ def create_discipline(
             data.fixed_division,
             discipline_type,
         ),
+        one_hand_bonus_enabled=1 if data.one_hand_bonus_enabled else 0,
         display_order=(
             normalize_display_order(data.display_order)
             if data.display_order is not None
@@ -12335,6 +13228,7 @@ def update_discipline(
         data.fixed_division,
         discipline_type,
     )
+    discipline.one_hand_bonus_enabled = 1 if data.one_hand_bonus_enabled else 0
     if data.display_order is not None:
         discipline.display_order = normalize_display_order(data.display_order) or 0
 

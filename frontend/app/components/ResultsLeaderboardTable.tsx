@@ -13,6 +13,7 @@ export type ResultShooter = {
   points: string;
   place: number;
   round_scores?: number[];
+  dynamic_stage?: boolean;
   practical_shotgun?: boolean;
   time_seconds?: string;
   hits?: number | string;
@@ -20,6 +21,7 @@ export type ResultShooter = {
   hit_factor?: string;
   final_result?: string;
   score_points?: number | string;
+  stage_percent?: number | string;
   disqualified?: boolean;
   disqualification_reason?: string;
 };
@@ -49,6 +51,7 @@ export default function ResultsLeaderboardTable({
 }: ResultsLeaderboardTableProps) {
   const [filter, setFilter] = useState("");
   const showRoundScores = shooters.some((shooter) => (shooter.round_scores?.length || 0) > 0);
+  const showDynamicStageScores = shooters.some((shooter) => shooter.dynamic_stage);
   const showPracticalShotgunScores = shooters.some((shooter) => shooter.practical_shotgun);
 
   const visibleShooters = useMemo(() => {
@@ -104,7 +107,12 @@ export default function ResultsLeaderboardTable({
               <tr className="border-b border-zinc-200 bg-zinc-50 text-xs font-bold uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950/50 dark:text-gray-400">
                 <th className="whitespace-nowrap px-4 py-3">Miejsce</th>
                 <th className="whitespace-nowrap px-4 py-3">Zawodnik</th>
-                {showPracticalShotgunScores ? (
+                {showDynamicStageScores ? (
+                  <>
+                    <th className="whitespace-nowrap px-4 py-3">Hit Factor</th>
+                    <th className="whitespace-nowrap px-4 py-3">Punkty</th>
+                  </>
+                ) : showPracticalShotgunScores ? (
                   <>
                     <th className="whitespace-nowrap px-4 py-3">Czas</th>
                     <th className="whitespace-nowrap px-4 py-3">Trafienia</th>
@@ -145,7 +153,17 @@ export default function ResultsLeaderboardTable({
                     </Link>
                   </td>
 
-                  {showPracticalShotgunScores ? (
+                  {showDynamicStageScores ? (
+                    <>
+                      <td className="whitespace-nowrap px-4 py-3 text-xl font-black text-zinc-950 dark:text-white">
+                        {shooter.hit_factor || "0"}
+                      </td>
+
+                      <td className="whitespace-nowrap px-4 py-3 text-xl font-black text-zinc-950 dark:text-white">
+                        {shooter.score_points ?? shooter.points ?? "0"}
+                      </td>
+                    </>
+                  ) : showPracticalShotgunScores ? (
                     <>
                       <td className="whitespace-nowrap px-4 py-3 font-bold text-zinc-700 dark:text-gray-300">
                         {shooter.time_seconds ? `${shooter.time_seconds} s` : "–"}

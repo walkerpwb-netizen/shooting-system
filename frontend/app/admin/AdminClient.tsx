@@ -10,7 +10,7 @@ import { apiUrl } from "@/lib/api";
 import { getAccessToken, isAdmin } from "@/lib/auth";
 import QrCodeScanner from "@/components/QrCodeScanner";
 
-type AdminTab = "users" | "pzss-clubs" | "competitions" | "settings" | "premium" | "ads" | "monitoring" | "qr-scanner" | "test-data";
+type AdminTab = "users" | "pzss-clubs" | "competitions" | "settings" | "premium" | "ads" | "monitoring" | "qr-scanner" | "pdf-test" | "test-data";
 type UserSortField = "name" | "status" | "role" | "account" | "phone";
 type SortDirection = "asc" | "desc";
 
@@ -403,6 +403,7 @@ export default function AdminClient({
   const [userSortDirection, setUserSortDirection] = useState<SortDirection>("asc");
   const [adReportDays, setAdReportDays] = useState(30);
   const [adReportPdfDownloading, setAdReportPdfDownloading] = useState(false);
+  const [testPdfDownloading, setTestPdfDownloading] = useState(false);
   const [expandedCompetitionId, setExpandedCompetitionId] = useState<number | null>(null);
   const [currentAdminEmail] = useState(() =>
     typeof window === "undefined"
@@ -955,6 +956,46 @@ export default function AdminClient({
       setMessage("Błąd połączenia z serwerem ❌");
     } finally {
       setAdReportPdfDownloading(false);
+    }
+  }
+
+  async function downloadTestResultsPdf() {
+    const token = getAccessToken();
+
+    try {
+      setMessage("");
+      setTestPdfDownloading(true);
+
+      const response = await fetch(
+        apiUrl("/admin/test-results-template.pdf"),
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        setMessage(data?.detail || "Nie udało się wygenerować testowego PDF ❌");
+        return;
+      }
+
+      const blob = await response.blob();
+      const fileUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = fileUrl;
+      link.download = "testowy-komunikat-test2.pdf";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(fileUrl);
+      setMessage("Testowy PDF wyników wygenerowany");
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    } finally {
+      setTestPdfDownloading(false);
     }
   }
 
@@ -3938,6 +3979,47 @@ export default function AdminClient({
           </section>
         ) : activeTab === "qr-scanner" ? (
           <QrCodeScanner />
+        ) : activeTab === "pdf-test" ? (
+          <section className="space-y-6">
+            <div className="ui-block bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+              <h2 className="text-3xl font-bold text-white mb-2">
+                Testowy generator PDF
+              </h2>
+
+              <p className="text-gray-400">
+                Tymczasowy generator komunikatu według przesłanego wzoru. Korzysta z danych zawodów test2 i nie zastępuje obecnego generatora wyników.
+              </p>
+
+              {message && (
+                <p className="mt-4 rounded-xl border border-green-700/40 bg-green-700/10 px-4 py-3 font-semibold text-green-100">
+                  {message}
+                </p>
+              )}
+            </div>
+
+            <section className="ui-block bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <h3 className="text-2xl font-bold text-white">
+                    Komunikat z zawodów test2
+                  </h3>
+
+                  <p className="mt-2 max-w-3xl text-gray-400">
+                    PDF zawiera okładkę, listę certyfikacyjną, obsadę sędziowską oraz tabele wyników. W konkurencjach dynamicznych pokazuje Hit Factor i punkty liczone procentowo od najlepszego wyniku.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={downloadTestResultsPdf}
+                  disabled={testPdfDownloading}
+                  className="ui-button bg-green-700 hover:bg-green-600 disabled:opacity-60 disabled:cursor-not-allowed text-white px-5 py-3 rounded-xl font-semibold transition"
+                >
+                  {testPdfDownloading ? "Generuję PDF..." : "Pobierz PDF testowy"}
+                </button>
+              </div>
+            </section>
+          </section>
         ) : (
           <section className="space-y-6">
             <div className="ui-block bg-zinc-900 border border-zinc-800 rounded-2xl p-6">

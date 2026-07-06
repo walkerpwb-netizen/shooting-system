@@ -60,6 +60,7 @@ type Competition = {
     entry_fee: string;
     fixed_power_factor: string;
     fixed_division: string;
+    one_hand_bonus_enabled?: boolean;
     display_order?: number;
     stages?: DynamicStage[];
   }[];
@@ -97,6 +98,7 @@ type Discipline = {
   entry_fee: string;
   fixed_power_factor: string;
   fixed_division: string;
+  one_hand_bonus_enabled: boolean;
   display_order?: number;
   stages: DynamicStage[];
 };
@@ -524,6 +526,9 @@ export default function OrganizerPage() {
   const [disciplines, setDisciplines] = useState<Discipline[]>([]);
   const [loading, setLoading] = useState(false);
   const [resultsPdfDownloadingId, setResultsPdfDownloadingId] = useState<number | null>(null);
+  const [pzssPdfDownloadingId, setPzssPdfDownloadingId] = useState<number | null>(null);
+  const [copyDialogCompetition, setCopyDialogCompetition] = useState<Competition | null>(null);
+  const [copyingCompetitionId, setCopyingCompetitionId] = useState<number | null>(null);
   const [editingCompetitionId, setEditingCompetitionId] = useState<number | null>(null);
   const [editingCompetitionStatus, setEditingCompetitionStatus] = useState("");
   const [deletingDisciplineId, setDeletingDisciplineId] = useState<number | null>(null);
@@ -656,6 +661,7 @@ export default function OrganizerPage() {
       entry_fee: "",
       fixed_power_factor: "",
       fixed_division: "",
+      one_hand_bonus_enabled: false,
       display_order: 0,
       stages: [],
     };
@@ -760,6 +766,78 @@ export default function OrganizerPage() {
       setMessage("Błąd połączenia z serwerem ❌");
     } finally {
       setResultsPdfDownloadingId(null);
+    }
+  }
+
+  async function handleDownloadPzssCommuniquesPdf(competition: Competition) {
+    try {
+      setMessage("");
+      setPzssPdfDownloadingId(competition.id);
+
+      const response = await authFetch(apiUrl(`/organizer/competitions/${competition.id}/pzss-communiques.pdf`));
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        setMessage(data?.detail || "Nie udało się wygenerować komunikatów dla PZSS ❌");
+        return;
+      }
+
+      const blob = await response.blob();
+      const fileUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const safeName = competition.name
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "") || `zawody-${competition.id}`;
+
+      link.href = fileUrl;
+      link.download = `komunikaty-dla-pzss-${competition.id}-${safeName}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(fileUrl);
+      setMessage("Komunikaty dla PZSS wygenerowane ✅");
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    } finally {
+      setPzssPdfDownloadingId(null);
+    }
+  }
+
+  async function handleCopyCompetition() {
+    if (!copyDialogCompetition) {
+      return;
+    }
+
+    try {
+      setMessage("");
+      setCopyingCompetitionId(copyDialogCompetition.id);
+
+      const response = await authFetch(
+        apiUrl(`/organizer/competitions/${copyDialogCompetition.id}/copy`),
+        {
+          method: "POST",
+        }
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.detail || "Nie udało się skopiować zawodów ❌");
+        return;
+      }
+
+      setCopyDialogCompetition(null);
+      setActiveTab("current");
+      setMessage("Zawody skopiowane jako szkic ✅");
+      fetchOrganizerCompetitions();
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    } finally {
+      setCopyingCompetitionId(null);
     }
   }
 
@@ -1014,6 +1092,7 @@ export default function OrganizerPage() {
           entry_fee: discipline.entry_fee || "",
           fixed_power_factor: discipline.fixed_power_factor || "",
           fixed_division: discipline.fixed_division || "",
+          one_hand_bonus_enabled: Boolean(discipline.one_hand_bonus_enabled),
           display_order: discipline.display_order ?? disciplineIndex,
           stages: (discipline.stages || []).map((stage, stageIndex) => createBlankStage(stage.stage_number || stageIndex + 1, stage)),
         }))
@@ -1505,6 +1584,12 @@ export default function OrganizerPage() {
                 fixed_division: dynamicStageDiscipline
                   ? discipline.fixed_division
                   : "",
+                one_hand_bonus_enabled: (
+                  !trapDiscipline
+                  && !dynamicStageDiscipline
+                  && !practicalShotgunDiscipline
+                  && discipline.one_hand_bonus_enabled
+                ),
                 display_order: disciplineIndex,
                 stages: dynamicStageDiscipline
                   ? discipline.stages.map((stage, stageIndex) => ({
@@ -2093,6 +2178,13 @@ export default function OrganizerPage() {
                           if (!isDynamicStageDisciplineType(selectedDisciplineType)) {
                             updated[index].fixed_power_factor = "";
                             updated[index].fixed_division = "";
+                          }
+                          if (
+                            isClayDisciplineType(selectedDisciplineType)
+                            || isDynamicStageDisciplineType(selectedDisciplineType)
+                            || isPracticalShotgunDisciplineType(selectedDisciplineType)
+                          ) {
+                            updated[index].one_hand_bonus_enabled = false;
                           }
                           updated[index].stages = isDynamicStageDisciplineType(selectedDisciplineType)
                             ? updated[index].stages.length
@@ -2830,6 +2922,28 @@ export default function OrganizerPage() {
                             required
                             className={requiredFieldClass(isPositiveNumber(discipline.shots_count))}
                           />
+
+                          <label className="mt-4 flex items-start gap-3 rounded-xl border border-zinc-700 bg-zinc-900 p-4 text-white">
+                            <input
+                              type="checkbox"
+                              checked={discipline.one_hand_bonus_enabled}
+                              onChange={(event) => {
+                                const updated = [...disciplines];
+                                updated[index].one_hand_bonus_enabled = event.target.checked;
+                                setDisciplines(updated);
+                              }}
+                              className="mt-1 h-5 w-5"
+                            />
+                            <span>
+                              <span className="block font-black">
+                                Bonus za strzelanie z jednej ręki +5 pkt
+                              </span>
+                              <span className="mt-1 block text-sm leading-6 text-gray-300">
+                                Na karcie sędziowania pojawi się opcja zaznaczenia próby jedną ręką.
+                                System doliczy 5 punktów do wpisanego wyniku.
+                              </span>
+                            </span>
+                          </label>
                         </>
                       )}
 
@@ -2986,6 +3100,15 @@ export default function OrganizerPage() {
                         Sędziowie
                       </button>
 
+                      <button
+                        type="button"
+                        onClick={() => setCopyDialogCompetition(competition)}
+                        disabled={copyingCompetitionId === competition.id}
+                        className="ui-button bg-violet-700 hover:bg-violet-600 disabled:bg-gray-500 disabled:cursor-not-allowed text-white px-4 py-2 rounded-xl font-semibold"
+                      >
+                        {copyingCompetitionId === competition.id ? "Kopiuję..." : "Kopiuj"}
+                      </button>
+
                       {competition.status === "draft" && (
                         <button
                           type="button"
@@ -3058,14 +3181,25 @@ export default function OrganizerPage() {
                       )}
 
                       {competition.status === "completed" ? (
-                        <button
-                          type="button"
-                          onClick={() => handleDownloadResultsPdf(competition)}
-                          disabled={resultsPdfDownloadingId === competition.id}
-                          className="ui-button bg-blue-700 hover:bg-blue-600 disabled:bg-gray-500 disabled:cursor-not-allowed text-white px-4 py-2 rounded-xl font-semibold"
-                        >
-                          {resultsPdfDownloadingId === competition.id ? "Generuję..." : "PDF wyników"}
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleDownloadResultsPdf(competition)}
+                            disabled={resultsPdfDownloadingId === competition.id}
+                            className="ui-button bg-blue-700 hover:bg-blue-600 disabled:bg-gray-500 disabled:cursor-not-allowed text-white px-4 py-2 rounded-xl font-semibold"
+                          >
+                            {resultsPdfDownloadingId === competition.id ? "Generuję..." : "PDF wyników"}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleDownloadPzssCommuniquesPdf(competition)}
+                            disabled={pzssPdfDownloadingId === competition.id}
+                            className="ui-button bg-sky-700 hover:bg-sky-600 disabled:bg-gray-500 disabled:cursor-not-allowed text-white px-4 py-2 rounded-xl font-semibold"
+                          >
+                            {pzssPdfDownloadingId === competition.id ? "Generuję..." : "Komunikaty dla PZSS"}
+                          </button>
+                        </>
                       ) : (
                         <button
                           type="button"
@@ -3085,6 +3219,50 @@ export default function OrganizerPage() {
         )}
 
       </div>
+
+      {copyDialogCompetition && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 px-4 py-6"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="copy-competition-title"
+        >
+          <div className="w-full max-w-xl rounded-2xl border border-violet-500/70 bg-zinc-950 p-6 text-white shadow-2xl">
+            <h2 id="copy-competition-title" className="text-2xl font-black text-violet-200">
+              Skopiować zawody?
+            </h2>
+
+            <p className="mt-4 text-base leading-7 text-gray-100">
+              Zawody zostaną skopiowane jako szkic bez zawodników i wyników.
+              Skopiowane zostaną konkurencje, opisy, logotypy i ustawienia zawodów.
+            </p>
+
+            <p className="mt-3 rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 font-bold text-white">
+              {copyDialogCompetition.name}
+            </p>
+
+            <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => setCopyDialogCompetition(null)}
+                disabled={copyingCompetitionId === copyDialogCompetition.id}
+                className="ui-button rounded-xl bg-zinc-700 px-6 py-3 font-bold text-white transition hover:bg-zinc-600 disabled:cursor-not-allowed disabled:bg-gray-600"
+              >
+                NIE
+              </button>
+
+              <button
+                type="button"
+                onClick={handleCopyCompetition}
+                disabled={copyingCompetitionId === copyDialogCompetition.id}
+                className="ui-button rounded-xl bg-green-700 px-6 py-3 font-bold text-white transition hover:bg-green-600 disabled:cursor-not-allowed disabled:bg-gray-600"
+              >
+                {copyingCompetitionId === copyDialogCompetition.id ? "Kopiuję..." : "TAK"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showDisciplineContact && (
         <div

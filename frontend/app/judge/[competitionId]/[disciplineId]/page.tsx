@@ -39,6 +39,7 @@ type JudgeDiscipline = {
   ammo_type: string;
   ammo_price: string;
   entry_fee: string;
+  one_hand_bonus_enabled: boolean;
   shooters_count: number;
   stages?: CompetitionStage[];
 };
@@ -132,12 +133,16 @@ type Shooter = {
   stage_scores?: Record<string, StageScorePayload>;
   division: string;
   power_factor: string;
+  ammo_source: string;
+  club_ammo_quantity: number;
+  club_ammo_type: string;
   squad_group_number: number;
   squad_position: number;
 };
 
 type OrganizerPreviewDisciplineAssignment = {
   id: number;
+  ammo_type: string;
   division: string;
   power_factor: string;
   squad_group_number: number;
@@ -176,11 +181,17 @@ type SortField = "name" | "license" | "club" | "points";
 type SortDirection = "asc" | "desc";
 type TrapScoreValue = 1 | 0 | null;
 const clayHitPoints = 5;
+const oneHandBonusPoints = 5;
 const organizerJudgingTestQueryValue = "organizer";
 const testShooterParticipantId = -1;
 type PracticalShotgunInput = {
   time: string;
   hits: string;
+};
+type StandardResultDraft = {
+  shooter: Shooter;
+  points: string;
+  oneHandBonus: boolean;
 };
 type StageScoreInput = {
   time_seconds: string;
@@ -472,6 +483,47 @@ function getShooterName(shooter: Shooter) {
     || shooter.user_email;
 }
 
+function clubAmmoText(shooter: Shooter) {
+  if (shooter.ammo_source !== "club") {
+    return "";
+  }
+
+  const quantity = Number(shooter.club_ammo_quantity || 0);
+  const ammoType = shooter.club_ammo_type || "amunicji";
+
+  return `Wydać ${quantity} sztuk amunicji ${ammoType}`;
+}
+
+function ClubAmmoNotice({
+  shooter,
+  compact = false,
+  light = false,
+}: {
+  shooter: Shooter;
+  compact?: boolean;
+  light?: boolean;
+}) {
+  const text = clubAmmoText(shooter);
+
+  if (!text) {
+    return null;
+  }
+
+  return (
+    <div
+      className={`mt-2 break-words font-black ${
+        compact ? "text-xs" : "text-sm"
+      } ${
+        light
+          ? "text-amber-800"
+          : "rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-amber-100"
+      }`}
+    >
+      {text}
+    </div>
+  );
+}
+
 function organizerPreviewDisciplineToJudgeDiscipline(
   discipline: OrganizerPreviewCompetition["disciplines"][number],
   shootersCount: number
@@ -490,6 +542,7 @@ function organizerPreviewDisciplineToJudgeDiscipline(
     ammo_type: discipline.ammo_type || "",
     ammo_price: discipline.ammo_price || "",
     entry_fee: discipline.entry_fee || "",
+    one_hand_bonus_enabled: Boolean(discipline.one_hand_bonus_enabled),
     shooters_count: shootersCount,
     stages: discipline.stages || [],
   };
@@ -541,6 +594,9 @@ function buildTestShooter(
     stage_scores: {},
     division: discipline.fixed_division || "Open",
     power_factor: discipline.fixed_power_factor || "minor",
+    ammo_source: "club",
+    club_ammo_quantity: Number(discipline.shots_count || 0),
+    club_ammo_type: discipline.ammo_type || "",
     squad_group_number: 1,
     squad_position: 1,
   };
@@ -578,6 +634,9 @@ function buildOrganizerPreviewShooters(
         stage_scores: {},
         division: assignment.division || discipline.fixed_division || "Open",
         power_factor: assignment.power_factor || discipline.fixed_power_factor || "minor",
+        ammo_source: assignment.ammo_type || "",
+        club_ammo_quantity: assignment.ammo_type === "club" ? Number(discipline.shots_count || 0) : 0,
+        club_ammo_type: assignment.ammo_type === "club" ? discipline.ammo_type || "" : "",
         squad_group_number: Number(assignment.squad_group_number || Math.floor(index / trapSquadCycleSize) + 1),
         squad_position: Number(assignment.squad_position || (index % trapSquadCycleSize) + 1),
       };
@@ -603,6 +662,59 @@ function getSortValue(shooter: Shooter, field: SortField) {
   }
 
   return shooter.points || "";
+}
+
+function parseStandardResult(resultData: string) {
+  try {
+    const parsed = JSON.parse(resultData || "{}");
+
+    if (!parsed || parsed.discipline !== "standard") {
+      return null;
+    }
+
+    return {
+      basePoints: String(parsed.base_points ?? ""),
+      oneHandBonus: Boolean(parsed.one_hand_bonus),
+      finalPoints: String(parsed.final_points ?? ""),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function parseStandardPoints(value: string) {
+  const parsed = Number(String(value || "").replace(",", "."));
+
+  return Number.isFinite(parsed)
+    ? parsed
+    : null;
+}
+
+function formatStandardPoints(value: number) {
+  if (!Number.isFinite(value)) {
+    return "0";
+  }
+
+  return Number.isInteger(value)
+    ? String(value)
+    : String(Number(value.toFixed(2)));
+}
+
+function standardResultData(points: string, oneHandBonus: boolean) {
+  const basePoints = parseStandardPoints(points);
+  const safeBasePoints = basePoints ?? 0;
+  const finalPoints = safeBasePoints + (oneHandBonus ? oneHandBonusPoints : 0);
+
+  return {
+    finalPoints: formatStandardPoints(finalPoints),
+    resultData: JSON.stringify({
+      discipline: "standard",
+      base_points: formatStandardPoints(safeBasePoints),
+      one_hand_bonus: oneHandBonus,
+      one_hand_bonus_points: oneHandBonus ? oneHandBonusPoints : 0,
+      final_points: formatStandardPoints(finalPoints),
+    }),
+  };
 }
 
 function parseScore(value: string) {
@@ -1452,6 +1564,7 @@ export default function JudgeDisciplinePage() {
   const [highlightedParticipantId, setHighlightedParticipantId] = useState<number | null>(null);
   const [sortField, setSortField] = useState<SortField>("name");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
+  const [standardResultDraft, setStandardResultDraft] = useState<StandardResultDraft | null>(null);
   const [activeTrapGroup, setActiveTrapGroup] = useState<{
     groupNumber: number;
     shooters: Shooter[];
@@ -1850,6 +1963,16 @@ export default function JudgeDisciplinePage() {
       return;
     }
 
+    if (discipline?.one_hand_bonus_enabled) {
+      const parsedResult = parseStandardResult(shooter.result_data || "");
+      setStandardResultDraft({
+        shooter,
+        points: parsedResult?.basePoints || shooter.points || "",
+        oneHandBonus: parsedResult?.oneHandBonus || false,
+      });
+      return;
+    }
+
     const points = window.prompt(
       `Podaj wynik: ${getShooterName(shooter)}`,
       shooter.points || ""
@@ -1859,17 +1982,38 @@ export default function JudgeDisciplinePage() {
       return;
     }
 
+    await saveStandardResult(shooter, points, false);
+  }
+
+  async function saveStandardResult(
+    shooter: Shooter,
+    points: string,
+    oneHandBonus: boolean
+  ) {
+    const bonusEnabled = Boolean(discipline?.one_hand_bonus_enabled);
+    const normalizedPoints = points.trim();
+    const bonusResult = bonusEnabled
+      ? standardResultData(normalizedPoints, oneHandBonus)
+      : null;
+
+    if (bonusEnabled && parseStandardPoints(normalizedPoints) === null) {
+      setMessage("Wynik musi być liczbą, żeby doliczyć bonus jednej ręki ❌");
+      return;
+    }
+
     if (organizerTestMode) {
       setShooters((currentShooters) =>
         currentShooters.map((currentShooter) =>
           currentShooter.participant_id === shooter.participant_id
             ? {
                 ...currentShooter,
-                points,
+                points: bonusResult?.finalPoints || normalizedPoints,
+                result_data: bonusResult?.resultData || currentShooter.result_data,
               }
             : currentShooter
         )
       );
+      setStandardResultDraft(null);
       setMessage("Wynik wpisany tylko w trybie testowym ✅");
       return;
     }
@@ -1889,7 +2033,8 @@ export default function JudgeDisciplinePage() {
           },
           body: JSON.stringify({
             participant_id: shooter.participant_id,
-            points,
+            points: bonusResult?.finalPoints || normalizedPoints,
+            result_data: bonusResult?.resultData,
           }),
         }
       );
@@ -1906,10 +2051,12 @@ export default function JudgeDisciplinePage() {
             ? {
                 ...currentShooter,
                 points: data.points,
+                result_data: data.result_data || bonusResult?.resultData || currentShooter.result_data,
               }
             : currentShooter
         )
       );
+      setStandardResultDraft(null);
       setMessage("Wynik zapisany ✅");
     } catch (error) {
       console.error(error);
@@ -2733,6 +2880,9 @@ export default function JudgeDisciplinePage() {
                   <h3 className="text-4xl font-black sm:text-6xl">
                     {getShooterName(activeSkeetTurn.shooter)}
                   </h3>
+                  <div className="mx-auto max-w-md">
+                    <ClubAmmoNotice shooter={activeSkeetTurn.shooter} />
+                  </div>
                   <p className="mt-5 text-2xl font-black text-sky-300 sm:text-4xl">
                     {activeSkeetTurn.presentation.label}
                   </p>
@@ -2818,7 +2968,10 @@ export default function JudgeDisciplinePage() {
                         className={`grid grid-cols-[32px_1fr_auto] items-center gap-2 rounded-xl px-3 py-3 ${active ? "bg-sky-700" : "bg-slate-800"}`}
                       >
                         <span className="text-lg font-black">{shooter.squad_position || "–"}</span>
-                        <span className="font-bold">{getShooterName(shooter)}</span>
+                        <span className="min-w-0">
+                          <span className="block truncate font-bold">{getShooterName(shooter)}</span>
+                          <ClubAmmoNotice shooter={shooter} compact />
+                        </span>
                         <span className="text-lg font-black">
                           {trapScoreTotal(roundScores)}/{roundScores.filter((score) => score !== null).length * clayHitPoints}
                         </span>
@@ -2905,7 +3058,12 @@ export default function JudgeDisciplinePage() {
                       </div>
 
                       <div className="flex items-center justify-center border-r-2 border-black px-2 text-left text-[clamp(0.82rem,2.2vw,1.65rem)] font-black leading-tight">
-                        {shooter ? getShooterName(shooter) : (
+                        {shooter ? (
+                          <span className="min-w-0">
+                            <span className="block truncate">{getShooterName(shooter)}</span>
+                            <ClubAmmoNotice shooter={shooter} compact light />
+                          </span>
+                        ) : (
                           <span className="text-[clamp(0.65rem,1.5vw,1rem)] text-gray-400">
                             Wolne stanowisko
                           </span>
@@ -3237,6 +3395,7 @@ export default function JudgeDisciplinePage() {
                             <span className="block truncate text-xs font-semibold text-gray-400 sm:text-sm">
                               Nr {shooter.participant_id} • Squad {shooter.squad_group_number || "brak"} • {input.division || "bez dywizji"} • {input.power_factor === "major" ? "Major" : "Minor"}
                             </span>
+                            <ClubAmmoNotice shooter={shooter} compact />
                           </span>
 
                           <span className="flex shrink-0 items-center gap-2">
@@ -3276,6 +3435,7 @@ export default function JudgeDisciplinePage() {
                           <p className="mt-1 break-words text-sm leading-6 text-gray-400">
                             Nr startowy: {shooter.participant_id} • Squad: {shooter.squad_group_number || "brak"} • {shooter.club || "brak klubu"}
                           </p>
+                          <ClubAmmoNotice shooter={shooter} />
                         </div>
                         <div className="grid min-w-0 grid-cols-1 gap-2 text-center min-[380px]:grid-cols-2 sm:w-72">
                           <div className="rounded-xl border border-zinc-700 bg-zinc-900 p-3">
@@ -3589,6 +3749,7 @@ export default function JudgeDisciplinePage() {
                           <p className="mt-1 text-sm text-gray-400">
                             {shooter.club || "brak klubu"} • licencja: {shooter.license_number || "brak"}
                           </p>
+                          <ClubAmmoNotice shooter={shooter} />
                         </div>
                         <div className="rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-center">
                           <p className="text-xs font-bold uppercase text-gray-500">Hit Factor</p>
@@ -3737,8 +3898,11 @@ export default function JudgeDisciplinePage() {
                       </div>
                       <ol className="space-y-2">
                         {group.shooters.map((shooter) => (
-                          <li key={shooter.participant_id} className="flex items-center justify-between rounded-lg bg-zinc-900 px-3 py-2 text-white">
-                            <span className="font-bold">{shooter.squad_position || "–"}. {getShooterName(shooter)}</span>
+                          <li key={shooter.participant_id} className="flex items-center justify-between gap-3 rounded-lg bg-zinc-900 px-3 py-2 text-white">
+                            <span className="min-w-0">
+                              <span className="block truncate font-bold">{shooter.squad_position || "–"}. {getShooterName(shooter)}</span>
+                              <ClubAmmoNotice shooter={shooter} compact />
+                            </span>
                             <span className="font-black">{trapScoreTotal(groupState.scoresByParticipant[shooter.participant_id], shooter.points)}</span>
                           </li>
                         ))}
@@ -3838,8 +4002,11 @@ export default function JudgeDisciplinePage() {
                                 ? "oczek."
                                 : shooter.squad_position || "–"}
                             </span>
-                            <span className="min-w-0 truncate font-bold text-white">
-                              {getShooterName(shooter)}
+                            <span className="min-w-0 font-bold text-white">
+                              <span className="block truncate">
+                                {getShooterName(shooter)}
+                              </span>
+                              <ClubAmmoNotice shooter={shooter} compact />
                             </span>
                             <span className="text-right font-black text-white">
                               {shooter.points || "0"}
@@ -3989,6 +4156,7 @@ export default function JudgeDisciplinePage() {
                               </span>
                             </p>
                           </div>
+                          <ClubAmmoNotice shooter={shooter} />
                         </div>
 
                         <button
@@ -4017,6 +4185,93 @@ export default function JudgeDisciplinePage() {
               </div>
             )}
           </section>
+        )}
+
+        {standardResultDraft && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 px-3 py-4 sm:px-6">
+            <div className="w-full max-w-lg rounded-2xl border border-zinc-700 bg-zinc-950 p-5 shadow-2xl">
+              <h2 className="text-2xl font-black text-white">
+                Wynik: {getShooterName(standardResultDraft.shooter)}
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-gray-300">
+                Wpisz wynik bazowy. Po zaznaczeniu próby jedną ręką system automatycznie doliczy {oneHandBonusPoints} punktów.
+              </p>
+
+              <label className="mt-5 block">
+                <span className="mb-2 block font-bold text-white">
+                  Wynik bazowy
+                </span>
+                <input
+                  type="number"
+                  step="0.01"
+                  inputMode="decimal"
+                  value={standardResultDraft.points}
+                  onChange={(event) => setStandardResultDraft((currentDraft) =>
+                    currentDraft
+                      ? {
+                          ...currentDraft,
+                          points: event.target.value,
+                        }
+                      : currentDraft
+                  )}
+                  className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-4 text-2xl font-black text-white outline-none focus:border-green-500"
+                  autoFocus
+                />
+              </label>
+
+              <label className="mt-4 flex items-start gap-3 rounded-xl border border-zinc-700 bg-zinc-900 p-4 text-white">
+                <input
+                  type="checkbox"
+                  checked={standardResultDraft.oneHandBonus}
+                  onChange={(event) => setStandardResultDraft((currentDraft) =>
+                    currentDraft
+                      ? {
+                          ...currentDraft,
+                          oneHandBonus: event.target.checked,
+                        }
+                      : currentDraft
+                  )}
+                  className="mt-1 h-5 w-5"
+                />
+                <span>
+                  <span className="block font-black">
+                    Strzela z jednej ręki +{oneHandBonusPoints} pkt
+                  </span>
+                  <span className="mt-1 block text-sm leading-6 text-gray-400">
+                    Finalny wynik: {
+                      parseStandardPoints(standardResultDraft.points) === null
+                        ? "podaj wynik bazowy"
+                        : standardResultData(
+                            standardResultDraft.points,
+                            standardResultDraft.oneHandBonus
+                          ).finalPoints
+                    }
+                  </span>
+                </span>
+              </label>
+
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => setStandardResultDraft(null)}
+                  className="rounded-xl border border-zinc-700 px-4 py-3 font-bold text-gray-200 transition hover:bg-zinc-900"
+                >
+                  Anuluj
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void saveStandardResult(
+                    standardResultDraft.shooter,
+                    standardResultDraft.points,
+                    standardResultDraft.oneHandBonus
+                  )}
+                  className="rounded-xl bg-green-700 px-4 py-3 font-black text-white transition hover:bg-green-600"
+                >
+                  Zapisz wynik
+                </button>
+              </div>
+            </div>
+          </div>
         )}
 
         {scannerOpen && (
