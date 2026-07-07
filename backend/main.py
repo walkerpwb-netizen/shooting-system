@@ -693,7 +693,7 @@ ACHIEVEMENT_MEDALS = {
     2: "silver",
     3: "bronze",
 }
-MIN_STATISTICS_DISCIPLINE_SHOOTERS = 50
+MIN_STATISTICS_DISCIPLINE_SHOOTERS = 10
 RANKING_LIMIT = 1000
 DISCIPLINE_TYPE_GROUPS = [
     {
@@ -7730,7 +7730,10 @@ def award_achievements_for_competition(
         category = payload["category"]
         category_shooters = payload["shooters"]
 
-        if not category["discipline_ids"] or len(category_shooters) <= 50:
+        if (
+            not category["discipline_ids"]
+            or len(category_shooters) < MIN_STATISTICS_DISCIPLINE_SHOOTERS
+        ):
             continue
 
         for shooter in category_shooters[:3]:

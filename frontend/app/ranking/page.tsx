@@ -256,6 +256,7 @@ export default function RankingPage() {
   }, [metric, scope, selectedVoivodeship]);
 
   const currentTitle = rankingTitle(scope, selectedVoivodeship);
+  const minimumDisciplineShooters = ranking?.minimum_discipline_shooters ?? 10;
 
   return (
     <main className="min-h-screen bg-white px-6 py-8 text-zinc-950 dark:bg-black dark:text-red-400 sm:px-10 lg:px-14">
@@ -266,7 +267,7 @@ export default function RankingPage() {
           </h1>
 
           <p className="mt-3 max-w-3xl text-zinc-600 dark:text-red-100">
-            Top 1000 zawodników z najwyższą sumą punktów. Do rankingu wliczają się punkty zdobyte tylko za konkurencje w których wystartowało minimum 50 zawodników.
+            Top 1000 zawodników z najwyższą sumą punktów. Do rankingu wliczają się punkty zdobyte tylko za konkurencje w których wystartowało minimum {minimumDisciplineShooters} zawodników.
           </p>
         </div>
 

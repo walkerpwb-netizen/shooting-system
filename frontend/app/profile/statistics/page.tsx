@@ -92,6 +92,7 @@ export default function ProfileStatisticsPage() {
   const [statistics, setStatistics] = useState<UserStatistics | null>(null);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
+  const minimumDisciplineShooters = statistics?.minimum_discipline_shooters ?? 10;
 
   useEffect(() => {
     const token = getAccessToken();
@@ -156,7 +157,7 @@ export default function ProfileStatisticsPage() {
             </h1>
 
             <p className="mt-3 text-zinc-600 dark:text-red-100">
-              Punkty liczone są z konkurencji z minimum 50 zawodnikami. Amunicja liczona jest z zapisanych startów z wynikiem.
+              Punkty liczone są z konkurencji z minimum {minimumDisciplineShooters} zawodnikami. Amunicja liczona jest z zapisanych startów z wynikiem.
             </p>
           </div>
 
