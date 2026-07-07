@@ -295,6 +295,7 @@ const roles = [
   "shooter",
   "organizer",
   "judge",
+  "moderator",
   "admin",
 ];
 
@@ -303,6 +304,7 @@ const roleLabels: Record<string, string> = {
   shooter: "strzelec",
   organizer: "organizator",
   judge: "sędzia",
+  moderator: "moderator",
   admin: "administrator",
 };
 

@@ -535,7 +535,7 @@ class AdEventData(BaseModel):
     event_type: str = "impression"
 
 
-ALLOWED_ROLES = ["user", "shooter", "organizer", "judge", "admin"]
+ALLOWED_ROLES = ["user", "shooter", "organizer", "judge", "moderator", "admin"]
 USER_ACCOUNT_TYPE = "user"
 PZSS_CLUB_ACCOUNT_TYPE = "pzss_club"
 PZSS_CLUB_PENDING = "pending"
@@ -876,7 +876,7 @@ SKEET_TARGET_SEQUENCE = [
 
 
 def primary_role(roles: list[str]):
-    for role in ["admin", "organizer", "judge", "shooter", "user"]:
+    for role in ["admin", "moderator", "organizer", "judge", "shooter", "user"]:
         if role in roles:
             return role
 

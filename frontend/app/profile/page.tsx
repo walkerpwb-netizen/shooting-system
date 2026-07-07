@@ -92,6 +92,7 @@ const profileRoleLabels: Record<string, string> = {
   shooter: "Strzelec",
   organizer: "Organizator",
   judge: "Sędzia",
+  moderator: "Moderator",
   admin: "Administrator",
 };
 
