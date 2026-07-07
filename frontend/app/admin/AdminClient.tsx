@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 
 import { apiUrl } from "@/lib/api";
 import { getAccessToken, isAdmin } from "@/lib/auth";
+import { notifyShootingRangeSubmissionsChange } from "@/lib/shootingRangeNotifications";
 import LeafletLocationPicker from "@/app/components/LeafletLocationPicker";
 import QrCodeScanner from "@/components/QrCodeScanner";
 
@@ -1435,6 +1436,7 @@ export default function AdminClient({
         )));
       }
       setMessage(action === "approve" ? "Zgłoszenie strzelnicy zatwierdzone ✅" : "Zgłoszenie strzelnicy odrzucone");
+      notifyShootingRangeSubmissionsChange();
     } catch (error) {
       console.error(error);
       setMessage("Błąd połączenia z serwerem ❌");
@@ -1520,6 +1522,7 @@ export default function AdminClient({
       }
 
       setMessage("Strzelnica zapisana ✅");
+      notifyShootingRangeSubmissionsChange();
       closeShootingRangeEditor();
     } catch (error) {
       console.error(error);
@@ -1573,6 +1576,7 @@ export default function AdminClient({
       }
 
       setMessage("Strzelnica usunięta ✅");
+      notifyShootingRangeSubmissionsChange();
     } catch (error) {
       console.error(error);
       setMessage("Błąd połączenia z serwerem ❌");

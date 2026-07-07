@@ -11,6 +11,7 @@ import {
   hasBetaTesterRole,
   subscribeToAuthChange,
 } from "@/lib/auth";
+import { notifyShootingRangeSubmissionsChange } from "@/lib/shootingRangeNotifications";
 import LeafletLocationPicker from "./LeafletLocationPicker";
 
 export type ShootingRangeMapItem = {
@@ -189,6 +190,7 @@ function ShootingRangeSubmissionDialog({
         return;
       }
 
+      notifyShootingRangeSubmissionsChange();
       setForm(emptySubmissionForm);
       setMapPickerOpen(true);
       setMessage(mode === "change"

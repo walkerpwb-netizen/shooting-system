@@ -21,6 +21,10 @@ import {
   SESSION_TIMEOUT_MS,
   subscribeToAuthChange,
 } from "@/lib/auth";
+import {
+  SHOOTING_RANGE_SUBMISSIONS_CHANGE_EVENT,
+  SHOOTING_RANGE_SUBMISSIONS_CHANGE_STORAGE_KEY,
+} from "@/lib/shootingRangeNotifications";
 import SocialMediaIcons from "./SocialMediaIcons";
 
 type PublicCompetition = {
@@ -247,7 +251,16 @@ export default function Navbar() {
     let active = true;
 
     if (!isAdmin) {
-      return;
+      const timeoutId = window.setTimeout(() => {
+        if (active) {
+          setPendingShootingRangeSubmissionsCount(0);
+        }
+      }, 0);
+
+      return () => {
+        active = false;
+        window.clearTimeout(timeoutId);
+      };
     }
 
     async function loadPendingShootingRangeSubmissions() {
@@ -281,11 +294,31 @@ export default function Navbar() {
       }
     }
 
+    function handleShootingRangeSubmissionsChange() {
+      void loadPendingShootingRangeSubmissions();
+    }
+
+    function handleStorageChange(event: StorageEvent) {
+      if (event.key === SHOOTING_RANGE_SUBMISSIONS_CHANGE_STORAGE_KEY) {
+        void loadPendingShootingRangeSubmissions();
+      }
+    }
+
     void loadPendingShootingRangeSubmissions();
-    const intervalId = window.setInterval(loadPendingShootingRangeSubmissions, 60000);
+    window.addEventListener(
+      SHOOTING_RANGE_SUBMISSIONS_CHANGE_EVENT,
+      handleShootingRangeSubmissionsChange
+    );
+    window.addEventListener("storage", handleStorageChange);
+    const intervalId = window.setInterval(loadPendingShootingRangeSubmissions, 15000);
 
     return () => {
       active = false;
+      window.removeEventListener(
+        SHOOTING_RANGE_SUBMISSIONS_CHANGE_EVENT,
+        handleShootingRangeSubmissionsChange
+      );
+      window.removeEventListener("storage", handleStorageChange);
       window.clearInterval(intervalId);
     };
   }, [isAdmin, token]);
