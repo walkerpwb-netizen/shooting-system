@@ -2,8 +2,6 @@
 
 import dynamic from "next/dynamic";
 
-import type { ShootingRangeMapItem } from "@/app/components/ShootingRangesMap";
-
 const ShootingRangesMap = dynamic(
   () => import("@/app/components/ShootingRangesMap"),
   {
@@ -28,10 +26,6 @@ const ShootingRangesMap = dynamic(
   }
 );
 
-export default function ShootingRangesMapClient({
-  ranges,
-}: {
-  ranges: ShootingRangeMapItem[];
-}) {
-  return <ShootingRangesMap ranges={ranges} />;
+export default function ShootingRangesMapClient() {
+  return <ShootingRangesMap />;
 }

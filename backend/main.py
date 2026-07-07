@@ -23,8 +23,7 @@ from models import (
     AdDailyStat,
     AppSetting,
     HomePost,
-    ShootingRangeDeletion,
-    ShootingRangeOverride,
+    ShootingRange,
     ShootingRangeSubmission,
     User,
     Competition,
@@ -545,6 +544,7 @@ class ShootingRangeSubmissionData(BaseModel):
     address: str = ""
     latitude: Optional[float] = None
     longitude: Optional[float] = None
+    source_range_id: str = ""
 
 
 ALLOWED_ROLES = ["user", "shooter", "organizer", "judge", "moderator", "admin"]
@@ -9258,6 +9258,7 @@ def validate_shooting_range_submission(data: ShootingRangeSubmissionData):
 def public_shooting_range_submission(submission: ShootingRangeSubmission):
     return {
         "id": submission.id,
+        "source_range_id": submission.source_range_id or "",
         "name": submission.name,
         "phone": submission.phone,
         "website": submission.website,
@@ -9271,28 +9272,24 @@ def public_shooting_range_submission(submission: ShootingRangeSubmission):
     }
 
 
-def public_shooting_range_override(override: ShootingRangeOverride):
+def public_shooting_range(range_entry: ShootingRange):
     return {
-        "id": override.id,
-        "range_id": override.range_id,
-        "name": override.name,
-        "phone": override.phone,
-        "website": override.website,
-        "address": override.address or "",
-        "latitude": override.latitude,
-        "longitude": override.longitude,
-        "updated_at": override.updated_at,
-        "updated_by": override.updated_by,
+        "id": range_entry.id,
+        "range_id": range_entry.range_id,
+        "name": range_entry.name,
+        "phone": range_entry.phone,
+        "website": range_entry.website,
+        "address": range_entry.address or "",
+        "latitude": range_entry.latitude,
+        "longitude": range_entry.longitude,
+        "created_at": range_entry.created_at,
+        "updated_at": range_entry.updated_at,
+        "updated_by": range_entry.updated_by or "",
     }
 
 
-def public_shooting_range_deletion(deletion: ShootingRangeDeletion):
-    return {
-        "id": deletion.id,
-        "range_id": deletion.range_id,
-        "deleted_at": deletion.deleted_at,
-        "deleted_by": deletion.deleted_by,
-    }
+def normalize_shooting_range_source_id(value: str):
+    return normalize_text(value)[:120]
 
 
 @app.post("/shooting-range-submissions")
@@ -9303,6 +9300,7 @@ def create_shooting_range_submission(
     values = validate_shooting_range_submission(data)
     submission = ShootingRangeSubmission(
         **values,
+        source_range_id=normalize_shooting_range_source_id(data.source_range_id),
         status=SHOOTING_RANGE_SUBMISSION_PENDING,
         created_at=utc_now_iso(),
     )
@@ -9314,115 +9312,79 @@ def create_shooting_range_submission(
     return public_shooting_range_submission(submission)
 
 
-@app.get("/shooting-ranges/overrides")
-def get_shooting_range_overrides(db=Depends(get_db)):
-    overrides = (
-        db.query(ShootingRangeOverride)
-        .order_by(ShootingRangeOverride.range_id.asc())
+@app.get("/shooting-ranges")
+def get_shooting_ranges(db=Depends(get_db)):
+    ranges = (
+        db.query(ShootingRange)
+        .order_by(ShootingRange.id.asc())
         .all()
     )
 
-    return [public_shooting_range_override(override) for override in overrides]
+    return [public_shooting_range(range_entry) for range_entry in ranges]
 
 
-@app.get("/shooting-ranges/deletions")
-def get_shooting_range_deletions(db=Depends(get_db)):
-    deletions = (
-        db.query(ShootingRangeDeletion)
-        .order_by(ShootingRangeDeletion.range_id.asc())
-        .all()
-    )
-
-    return [public_shooting_range_deletion(deletion) for deletion in deletions]
-
-
-@app.get("/shooting-range-submissions/approved")
-def get_approved_shooting_range_submissions(db=Depends(get_db)):
-    submissions = (
-        db.query(ShootingRangeSubmission)
-        .filter(ShootingRangeSubmission.status == SHOOTING_RANGE_SUBMISSION_APPROVED)
-        .order_by(ShootingRangeSubmission.id.asc())
-        .all()
-    )
-
-    return [public_shooting_range_submission(submission) for submission in submissions]
-
-
-@app.put("/admin/shooting-ranges/base/{range_id}")
-def admin_update_base_shooting_range(
+@app.put("/admin/shooting-ranges/{range_id}")
+def admin_update_shooting_range(
     range_id: str,
     data: ShootingRangeSubmissionData,
     admin: User = Depends(get_current_admin),
     db=Depends(get_db),
 ):
-    normalized_range_id = normalize_text(range_id)
-
-    if not re.match(r"^shooting-range-\d{3}$", normalized_range_id):
+    normalized_range_id = normalize_shooting_range_source_id(range_id)
+    if not normalized_range_id:
         raise HTTPException(status_code=400, detail="Niepoprawny identyfikator strzelnicy")
 
-    values = validate_shooting_range_submission(data)
-    override = (
-        db.query(ShootingRangeOverride)
-        .filter(ShootingRangeOverride.range_id == normalized_range_id)
+    range_entry = (
+        db.query(ShootingRange)
+        .filter(ShootingRange.range_id == normalized_range_id)
         .first()
     )
 
-    if not override:
-        override = ShootingRangeOverride(
-            range_id=normalized_range_id,
-            updated_at=utc_now_iso(),
-            updated_by=admin.email,
-            **values,
-        )
-        db.add(override)
-    else:
-        override.name = values["name"]
-        override.phone = values["phone"]
-        override.website = values["website"]
-        override.address = values["address"]
-        override.latitude = values["latitude"]
-        override.longitude = values["longitude"]
-        override.updated_at = utc_now_iso()
-        override.updated_by = admin.email
+    if not range_entry:
+        raise HTTPException(status_code=404, detail="Strzelnica nie istnieje")
+
+    values = validate_shooting_range_submission(data)
+    range_entry.name = values["name"]
+    range_entry.phone = values["phone"]
+    range_entry.website = values["website"]
+    range_entry.address = values["address"]
+    range_entry.latitude = values["latitude"]
+    range_entry.longitude = values["longitude"]
+    range_entry.updated_at = utc_now_iso()
+    range_entry.updated_by = admin.email
 
     db.commit()
-    db.refresh(override)
+    db.refresh(range_entry)
 
-    return public_shooting_range_override(override)
+    return public_shooting_range(range_entry)
 
 
-@app.delete("/admin/shooting-ranges/base/{range_id}")
-def admin_delete_base_shooting_range(
+@app.delete("/admin/shooting-ranges/{range_id}")
+def admin_delete_shooting_range(
     range_id: str,
     admin: User = Depends(get_current_admin),
     db=Depends(get_db),
 ):
-    normalized_range_id = normalize_text(range_id)
-
-    if not re.match(r"^shooting-range-\d{3}$", normalized_range_id):
+    normalized_range_id = normalize_shooting_range_source_id(range_id)
+    if not normalized_range_id:
         raise HTTPException(status_code=400, detail="Niepoprawny identyfikator strzelnicy")
 
-    deletion = (
-        db.query(ShootingRangeDeletion)
-        .filter(ShootingRangeDeletion.range_id == normalized_range_id)
+    range_entry = (
+        db.query(ShootingRange)
+        .filter(ShootingRange.range_id == normalized_range_id)
         .first()
     )
 
-    if not deletion:
-        deletion = ShootingRangeDeletion(
-            range_id=normalized_range_id,
-            deleted_at=utc_now_iso(),
-            deleted_by=admin.email,
-        )
-        db.add(deletion)
-    else:
-        deletion.deleted_at = utc_now_iso()
-        deletion.deleted_by = admin.email
+    if not range_entry:
+        raise HTTPException(status_code=404, detail="Strzelnica nie istnieje")
 
+    db.delete(range_entry)
     db.commit()
-    db.refresh(deletion)
 
-    return public_shooting_range_deletion(deletion)
+    return {
+        "message": "Strzelnica usunięta",
+        "range_id": normalized_range_id,
+    }
 
 
 @app.get("/admin/shooting-range-submissions")
@@ -9459,12 +9421,14 @@ def admin_update_shooting_range_submission(
         raise HTTPException(status_code=404, detail="Zgłoszenie strzelnicy nie istnieje")
 
     values = validate_shooting_range_submission(data)
+    source_range_id = normalize_shooting_range_source_id(data.source_range_id)
     submission.name = values["name"]
     submission.phone = values["phone"]
     submission.website = values["website"]
     submission.address = values["address"]
     submission.latitude = values["latitude"]
     submission.longitude = values["longitude"]
+    submission.source_range_id = source_range_id or submission.source_range_id
     submission.reviewed_at = utc_now_iso()
     submission.reviewed_by = admin.email
     db.commit()
@@ -9512,13 +9476,50 @@ def admin_approve_shooting_range_submission(
     if not submission:
         raise HTTPException(status_code=404, detail="Zgłoszenie strzelnicy nie istnieje")
 
-    submission.status = SHOOTING_RANGE_SUBMISSION_APPROVED
-    submission.reviewed_at = utc_now_iso()
-    submission.reviewed_by = admin.email
-    db.commit()
-    db.refresh(submission)
+    values = validate_shooting_range_submission(ShootingRangeSubmissionData(
+        name=submission.name,
+        phone=submission.phone,
+        website=submission.website,
+        address=submission.address or "",
+        latitude=submission.latitude,
+        longitude=submission.longitude,
+        source_range_id=submission.source_range_id or "",
+    ))
+    now = utc_now_iso()
+    source_range_id = normalize_shooting_range_source_id(submission.source_range_id or "")
+    range_entry = None
 
-    return public_shooting_range_submission(submission)
+    if source_range_id:
+        range_entry = (
+            db.query(ShootingRange)
+            .filter(ShootingRange.range_id == source_range_id)
+            .first()
+        )
+
+    if range_entry:
+        range_entry.name = values["name"]
+        range_entry.phone = values["phone"]
+        range_entry.website = values["website"]
+        range_entry.address = values["address"]
+        range_entry.latitude = values["latitude"]
+        range_entry.longitude = values["longitude"]
+        range_entry.updated_at = now
+        range_entry.updated_by = admin.email
+    else:
+        range_entry = ShootingRange(
+            range_id=f"shooting-range-{uuid4().hex[:12]}",
+            created_at=now,
+            updated_at=now,
+            updated_by=admin.email,
+            **values,
+        )
+        db.add(range_entry)
+
+    db.delete(submission)
+    db.commit()
+    db.refresh(range_entry)
+
+    return public_shooting_range(range_entry)
 
 
 @app.put("/admin/shooting-range-submissions/{submission_id}/reject")

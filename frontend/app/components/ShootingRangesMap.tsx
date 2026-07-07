@@ -24,22 +24,12 @@ export type ShootingRangeMapItem = {
 };
 
 type ShootingRangesMapProps = {
-  ranges: ShootingRangeMapItem[];
+  ranges?: ShootingRangeMapItem[];
 };
 
 type MapLayerMode = "street" | "hybrid";
 
-type ShootingRangeSubmissionResponse = {
-  id: number;
-  name: string;
-  address: string;
-  phone: string;
-  website: string;
-  latitude: number | null;
-  longitude: number | null;
-};
-
-type ShootingRangeOverrideResponse = {
+type ShootingRangeResponse = {
   id: number;
   range_id: string;
   name: string;
@@ -50,12 +40,8 @@ type ShootingRangeOverrideResponse = {
   longitude: number;
 };
 
-type ShootingRangeDeletionResponse = {
-  id: number;
-  range_id: string;
-};
-
 type SubmissionFormState = {
+  source_range_id: string;
   name: string;
   phone: string;
   website: string;
@@ -91,6 +77,7 @@ const hybridReferenceLayers = [
 ];
 
 const emptySubmissionForm: SubmissionFormState = {
+  source_range_id: "",
   name: "",
   phone: "",
   website: "",
@@ -130,43 +117,15 @@ function createRangeIcon() {
   });
 }
 
-function toApprovedRange(submission: ShootingRangeSubmissionResponse): ShootingRangeMapItem | null {
-  if (
-    typeof submission.latitude !== "number"
-    || typeof submission.longitude !== "number"
-    || !Number.isFinite(submission.latitude)
-    || !Number.isFinite(submission.longitude)
-  ) {
-    return null;
-  }
-
+function toMapRange(range: ShootingRangeResponse): ShootingRangeMapItem {
   return {
-    id: `submission-${submission.id}`,
-    name: submission.name,
-    address: submission.address,
-    phone: submission.phone,
-    website: submission.website,
-    latitude: submission.latitude,
-    longitude: submission.longitude,
-  };
-}
-
-function applyRangeOverride(
-  range: ShootingRangeMapItem,
-  override: ShootingRangeOverrideResponse | undefined
-): ShootingRangeMapItem {
-  if (!override) {
-    return range;
-  }
-
-  return {
-    ...range,
-    name: override.name,
-    address: override.address,
-    phone: override.phone,
-    website: override.website,
-    latitude: override.latitude,
-    longitude: override.longitude,
+    id: range.range_id,
+    name: range.name,
+    address: range.address,
+    phone: range.phone,
+    website: range.website,
+    latitude: range.latitude,
+    longitude: range.longitude,
   };
 }
 
@@ -180,6 +139,7 @@ function ShootingRangeSubmissionDialog({
   const [form, setForm] = useState<SubmissionFormState>(() => (
     initialRange
       ? {
+          source_range_id: initialRange.id,
           name: initialRange.name,
           phone: initialRange.phone || "",
           website: initialRange.website || "",
@@ -373,15 +333,13 @@ function ShootingRangeSubmissionDialog({
 }
 
 export default function ShootingRangesMap({
-  ranges,
+  ranges = [],
 }: ShootingRangesMapProps) {
   const mapRef = useRef<L.Map | null>(null);
   const [layerMode, setLayerMode] = useState<MapLayerMode>("street");
   const [submissionDialogOpen, setSubmissionDialogOpen] = useState(false);
   const [submissionInitialRange, setSubmissionInitialRange] = useState<ShootingRangeMapItem | null>(null);
-  const [approvedSubmissions, setApprovedSubmissions] = useState<ShootingRangeSubmissionResponse[]>([]);
-  const [rangeOverrides, setRangeOverrides] = useState<ShootingRangeOverrideResponse[]>([]);
-  const [rangeDeletions, setRangeDeletions] = useState<ShootingRangeDeletionResponse[]>([]);
+  const [backendRanges, setBackendRanges] = useState<ShootingRangeMapItem[]>([]);
   const authSnapshot = useSyncExternalStore(
     subscribeToAuthChange,
     getAuthSnapshot,
@@ -394,31 +352,10 @@ export default function ShootingRangesMap({
       ? [role]
       : [];
   const isBetaTester = hasBetaTesterRole(roles);
-  const rangeOverridesById = useMemo(
-    () => new Map(rangeOverrides.map((override) => [override.range_id, override])),
-    [rangeOverrides]
-  );
-  const deletedRangeIds = useMemo(
-    () => new Set(rangeDeletions.map((deletion) => deletion.range_id)),
-    [rangeDeletions]
-  );
-  const rangesWithApprovedSubmissions = useMemo(
-    () => [
-      ...ranges
-        .filter((range) => !deletedRangeIds.has(range.id))
-        .map((range) => applyRangeOverride(
-          range,
-          rangeOverridesById.get(range.id)
-        )),
-      ...approvedSubmissions
-        .map(toApprovedRange)
-        .filter((range): range is ShootingRangeMapItem => range !== null),
-    ],
-    [approvedSubmissions, deletedRangeIds, rangeOverridesById, ranges]
-  );
+  const currentRanges = backendRanges.length > 0 ? backendRanges : ranges;
   const mappedRanges = useMemo(
-    () => rangesWithApprovedSubmissions.filter(hasCoordinates),
-    [rangesWithApprovedSubmissions]
+    () => currentRanges.filter(hasCoordinates),
+    [currentRanges]
   );
   const rangeIcon = useMemo(() => createRangeIcon(), []);
   const activeLayer = mapLayers[layerMode];
@@ -428,37 +365,19 @@ export default function ShootingRangesMap({
 
     async function loadRangeData() {
       try {
-        const [submissionsResponse, overridesResponse, deletionsResponse] = await Promise.all([
-          fetch(apiUrl("/shooting-range-submissions/approved"), {
-            cache: "no-store",
-          }),
-          fetch(apiUrl("/shooting-ranges/overrides"), {
-            cache: "no-store",
-          }),
-          fetch(apiUrl("/shooting-ranges/deletions"), {
-            cache: "no-store",
-          }),
-        ]);
+        const response = await fetch(apiUrl("/shooting-ranges"), {
+          cache: "no-store",
+        });
 
-        if (!submissionsResponse.ok || !overridesResponse.ok || !deletionsResponse.ok) {
+        if (!response.ok) {
           return;
         }
 
-        const submissionsData: ShootingRangeSubmissionResponse[] = await submissionsResponse.json();
-        const overridesData: ShootingRangeOverrideResponse[] = await overridesResponse.json();
-        const deletionsData: ShootingRangeDeletionResponse[] = await deletionsResponse.json();
+        const data: ShootingRangeResponse[] = await response.json();
 
         if (!ignore) {
-          if (Array.isArray(submissionsData)) {
-            setApprovedSubmissions(submissionsData);
-          }
-
-          if (Array.isArray(overridesData)) {
-            setRangeOverrides(overridesData);
-          }
-
-          if (Array.isArray(deletionsData)) {
-            setRangeDeletions(deletionsData);
+          if (Array.isArray(data)) {
+            setBackendRanges(data.map(toMapRange));
           }
         }
       } catch (error) {

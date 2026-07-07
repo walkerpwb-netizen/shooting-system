@@ -8,7 +8,6 @@ import { useRouter } from "next/navigation";
 
 import { apiUrl } from "@/lib/api";
 import { getAccessToken, isAdmin } from "@/lib/auth";
-import { shootingRanges } from "@/app/shooting-ranges/map/shootingRangesData";
 import LeafletLocationPicker from "@/app/components/LeafletLocationPicker";
 import QrCodeScanner from "@/components/QrCodeScanner";
 
@@ -104,6 +103,7 @@ type AdminCompetition = {
 
 type AdminShootingRangeSubmission = {
   id: number;
+  source_range_id: string;
   name: string;
   phone: string;
   website: string;
@@ -116,7 +116,7 @@ type AdminShootingRangeSubmission = {
   reviewed_by: string;
 };
 
-type AdminShootingRangeOverride = {
+type AdminShootingRange = {
   id: number;
   range_id: string;
   name: string;
@@ -129,17 +129,11 @@ type AdminShootingRangeOverride = {
   updated_by: string;
 };
 
-type AdminShootingRangeDeletion = {
-  id: number;
-  range_id: string;
-  deleted_at: string;
-  deleted_by: string;
-};
-
 type EditableShootingRange = {
   id: string;
-  editType: "base" | "submission";
+  editType: "range" | "submission";
   editId: string | number;
+  sourceRangeId: string;
   name: string;
   phone: string;
   website: string;
@@ -150,6 +144,7 @@ type EditableShootingRange = {
 };
 
 type ShootingRangeEditForm = {
+  source_range_id: string;
   name: string;
   phone: string;
   website: string;
@@ -461,8 +456,7 @@ export default function AdminClient({
   const [clubLicenseInputs, setClubLicenseInputs] = useState<Record<number, string>>({});
   const [competitions, setCompetitions] = useState<AdminCompetition[]>([]);
   const [shootingRangeSubmissions, setShootingRangeSubmissions] = useState<AdminShootingRangeSubmission[]>([]);
-  const [shootingRangeOverrides, setShootingRangeOverrides] = useState<AdminShootingRangeOverride[]>([]);
-  const [shootingRangeDeletions, setShootingRangeDeletions] = useState<AdminShootingRangeDeletion[]>([]);
+  const [shootingRanges, setShootingRanges] = useState<AdminShootingRange[]>([]);
   const [monitoring, setMonitoring] = useState<MonitoringData | null>(null);
   const [adReport, setAdReport] = useState<AdReportData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -509,6 +503,7 @@ export default function AdminClient({
   const [derivedCacheWorking, setDerivedCacheWorking] = useState(false);
   const [editingShootingRange, setEditingShootingRange] = useState<EditableShootingRange | null>(null);
   const [rangeEditForm, setRangeEditForm] = useState<ShootingRangeEditForm>({
+    source_range_id: "",
     name: "",
     phone: "",
     website: "",
@@ -534,7 +529,7 @@ export default function AdminClient({
 
     async function loadAdminData() {
       try {
-        const [usersResponse, pzssClubsResponse, competitionsResponse, shootingRangeSubmissionsResponse, shootingRangeOverridesResponse, shootingRangeDeletionsResponse, tableSettingsResponse, uiSettingsResponse, profileSettingsResponse, premiumSettingsResponse, activationEmailResponse, monitoringResponse, adReportResponse] = await Promise.all([
+        const [usersResponse, pzssClubsResponse, competitionsResponse, shootingRangeSubmissionsResponse, shootingRangesResponse, tableSettingsResponse, uiSettingsResponse, profileSettingsResponse, premiumSettingsResponse, activationEmailResponse, monitoringResponse, adReportResponse] = await Promise.all([
           fetch(
             apiUrl("/admin/users"),
             {
@@ -568,13 +563,7 @@ export default function AdminClient({
             }
           ),
           fetch(
-            apiUrl("/shooting-ranges/overrides"),
-            {
-              cache: "no-store",
-            }
-          ),
-          fetch(
-            apiUrl("/shooting-ranges/deletions"),
+            apiUrl("/shooting-ranges"),
             {
               cache: "no-store",
             }
@@ -641,8 +630,7 @@ export default function AdminClient({
         const pzssClubsData = await pzssClubsResponse.json();
         const competitionsData = await competitionsResponse.json();
         const shootingRangeSubmissionsData = await shootingRangeSubmissionsResponse.json();
-        const shootingRangeOverridesData = await shootingRangeOverridesResponse.json();
-        const shootingRangeDeletionsData = await shootingRangeDeletionsResponse.json();
+        const shootingRangesData = await shootingRangesResponse.json();
         const tableSettingsData = await tableSettingsResponse.json();
         const uiSettingsData = await uiSettingsResponse.json();
         const profileSettingsData = await profileSettingsResponse.json();
@@ -675,13 +663,8 @@ export default function AdminClient({
           return;
         }
 
-        if (!shootingRangeOverridesResponse.ok) {
-          setMessage(shootingRangeOverridesData.detail || "Nie udało się pobrać edycji strzelnic ❌");
-          return;
-        }
-
-        if (!shootingRangeDeletionsResponse.ok) {
-          setMessage(shootingRangeDeletionsData.detail || "Nie udało się pobrać usuniętych strzelnic ❌");
+        if (!shootingRangesResponse.ok) {
+          setMessage(shootingRangesData.detail || "Nie udało się pobrać listy strzelnic ❌");
           return;
         }
 
@@ -727,8 +710,7 @@ export default function AdminClient({
         ));
         setCompetitions(competitionsData);
         setShootingRangeSubmissions(shootingRangeSubmissionsData);
-        setShootingRangeOverrides(shootingRangeOverridesData);
-        setShootingRangeDeletions(shootingRangeDeletionsData);
+        setShootingRanges(shootingRangesData);
         setMonitoring(monitoringData);
         setAdReport(adReportData);
         setResultsTableSettings({
@@ -1378,9 +1360,25 @@ export default function AdminClient({
         return;
       }
 
-      setShootingRangeSubmissions((currentSubmissions) => currentSubmissions.map((submission) => (
-        submission.id === submissionId ? data : submission
-      )));
+      if (action === "approve") {
+        const approvedRange = data as AdminShootingRange;
+        setShootingRangeSubmissions((currentSubmissions) => currentSubmissions.filter((submission) => (
+          submission.id !== submissionId
+        )));
+        setShootingRanges((currentRanges) => {
+          const exists = currentRanges.some((range) => range.range_id === approvedRange.range_id);
+
+          return exists
+            ? currentRanges.map((range) => (
+                range.range_id === approvedRange.range_id ? approvedRange : range
+              ))
+            : [...currentRanges, approvedRange];
+        });
+      } else {
+        setShootingRangeSubmissions((currentSubmissions) => currentSubmissions.map((submission) => (
+          submission.id === submissionId ? data : submission
+        )));
+      }
       setMessage(action === "approve" ? "Zgłoszenie strzelnicy zatwierdzone ✅" : "Zgłoszenie strzelnicy odrzucone");
     } catch (error) {
       console.error(error);
@@ -1391,6 +1389,7 @@ export default function AdminClient({
   function openShootingRangeEditor(range: EditableShootingRange) {
     setEditingShootingRange(range);
     setRangeEditForm({
+      source_range_id: range.sourceRangeId,
       name: range.name,
       phone: range.phone,
       website: range.website,
@@ -1425,8 +1424,8 @@ export default function AdminClient({
     }
 
     const token = getAccessToken();
-    const endpoint = editingShootingRange.editType === "base"
-      ? `/admin/shooting-ranges/base/${editingShootingRange.editId}`
+    const endpoint = editingShootingRange.editType === "range"
+      ? `/admin/shooting-ranges/${editingShootingRange.editId}`
       : `/admin/shooting-range-submissions/${editingShootingRange.editId}`;
 
     try {
@@ -1451,16 +1450,13 @@ export default function AdminClient({
         return;
       }
 
-      if (editingShootingRange.editType === "base") {
-        setShootingRangeOverrides((currentOverrides) => {
-          const nextOverride = data as AdminShootingRangeOverride;
-          const exists = currentOverrides.some((override) => override.range_id === nextOverride.range_id);
+      if (editingShootingRange.editType === "range") {
+        setShootingRanges((currentRanges) => {
+          const editedRange = data as AdminShootingRange;
 
-          return exists
-            ? currentOverrides.map((override) => (
-                override.range_id === nextOverride.range_id ? nextOverride : override
-              ))
-            : [...currentOverrides, nextOverride];
+          return currentRanges.map((range) => (
+            range.range_id === editedRange.range_id ? editedRange : range
+          ));
         });
       } else {
         setShootingRangeSubmissions((currentSubmissions) => currentSubmissions.map((submission) => (
@@ -1488,8 +1484,8 @@ export default function AdminClient({
     }
 
     const token = getAccessToken();
-    const endpoint = range.editType === "base"
-      ? `/admin/shooting-ranges/base/${range.editId}`
+    const endpoint = range.editType === "range"
+      ? `/admin/shooting-ranges/${range.editId}`
       : `/admin/shooting-range-submissions/${range.editId}`;
 
     try {
@@ -1511,17 +1507,10 @@ export default function AdminClient({
         return;
       }
 
-      if (range.editType === "base") {
-        const deletion = data as AdminShootingRangeDeletion;
-        setShootingRangeDeletions((currentDeletions) => {
-          const exists = currentDeletions.some((currentDeletion) => currentDeletion.range_id === deletion.range_id);
-
-          return exists
-            ? currentDeletions.map((currentDeletion) => (
-                currentDeletion.range_id === deletion.range_id ? deletion : currentDeletion
-              ))
-            : [...currentDeletions, deletion];
-        });
+      if (range.editType === "range") {
+        setShootingRanges((currentRanges) => currentRanges.filter((currentRange) => (
+          currentRange.range_id !== range.editId
+        )));
       } else {
         setShootingRangeSubmissions((currentSubmissions) => currentSubmissions.filter((submission) => (
           submission.id !== range.editId
@@ -2525,7 +2514,6 @@ export default function AdminClient({
     (submission) => submission.status === "pending"
   );
   const visibleShootingRangeSubmissions = shootingRangeSubmissions
-    .filter((submission) => submission.status !== "approved")
     .sort((firstSubmission, secondSubmission) => {
     const statusRank = {
       pending: 0,
@@ -2541,50 +2529,21 @@ export default function AdminClient({
 
     return secondSubmission.id - firstSubmission.id;
     });
-  const shootingRangeOverridesById = useMemo(
-    () => new Map(shootingRangeOverrides.map((override) => [override.range_id, override])),
-    [shootingRangeOverrides]
-  );
-  const deletedShootingRangeIds = useMemo(
-    () => new Set(shootingRangeDeletions.map((deletion) => deletion.range_id)),
-    [shootingRangeDeletions]
-  );
   const currentMapRanges: EditableShootingRange[] = useMemo(
-    () => [
-      ...shootingRanges
-        .filter((range) => !deletedShootingRangeIds.has(range.id))
-        .map((range) => {
-          const override = shootingRangeOverridesById.get(range.id);
-
-          return {
-            id: range.id,
-            editType: "base" as const,
-            editId: range.id,
-            name: override?.name || range.name,
-            phone: override?.phone || range.phone || "",
-            website: override?.website || range.website || "",
-            address: override?.address || range.address || "",
-            latitude: override?.latitude ?? range.latitude,
-            longitude: override?.longitude ?? range.longitude,
-            source: "lista bazowa",
-          };
-        }),
-      ...shootingRangeSubmissions
-        .filter((submission) => submission.status === "approved")
-        .map((submission) => ({
-          id: `submission-${submission.id}`,
-          editType: "submission" as const,
-          editId: submission.id,
-          name: submission.name,
-          phone: submission.phone,
-          website: submission.website,
-          address: submission.address,
-          latitude: submission.latitude,
-          longitude: submission.longitude,
-          source: "lista bazowa",
-        })),
-    ],
-    [deletedShootingRangeIds, shootingRangeOverridesById, shootingRangeSubmissions]
+    () => shootingRanges.map((range) => ({
+      id: range.range_id,
+      editType: "range" as const,
+      editId: range.range_id,
+      sourceRangeId: range.range_id,
+      name: range.name,
+      phone: range.phone || "",
+      website: range.website || "",
+      address: range.address || "",
+      latitude: range.latitude,
+      longitude: range.longitude,
+      source: "lista bazowa",
+    })),
+    [shootingRanges]
   );
 
   function renderPremiumPackage(
@@ -3464,6 +3423,7 @@ export default function AdminClient({
                             id: `submission-${submission.id}`,
                             editType: "submission",
                             editId: submission.id,
+                            sourceRangeId: submission.source_range_id,
                             name: submission.name,
                             phone: submission.phone,
                             website: submission.website,

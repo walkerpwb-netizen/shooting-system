@@ -332,6 +332,12 @@ class ShootingRangeSubmission(Base):
         nullable=True,
     )
 
+    source_range_id = Column(
+        String,
+        nullable=True,
+        index=True,
+    )
+
     status = Column(
         String,
         default="pending",
@@ -356,8 +362,8 @@ class ShootingRangeSubmission(Base):
     )
 
 
-class ShootingRangeOverride(Base):
-    __tablename__ = "shooting_range_overrides"
+class ShootingRange(Base):
+    __tablename__ = "shooting_ranges"
 
     id = Column(
         Integer,
@@ -402,6 +408,12 @@ class ShootingRangeOverride(Base):
         nullable=False,
     )
 
+    created_at = Column(
+        String,
+        nullable=False,
+        index=True,
+    )
+
     updated_at = Column(
         String,
         nullable=False,
@@ -409,34 +421,7 @@ class ShootingRangeOverride(Base):
 
     updated_by = Column(
         String,
-        nullable=False,
-    )
-
-
-class ShootingRangeDeletion(Base):
-    __tablename__ = "shooting_range_deletions"
-
-    id = Column(
-        Integer,
-        primary_key=True,
-        index=True,
-    )
-
-    range_id = Column(
-        String,
-        unique=True,
-        index=True,
-        nullable=False,
-    )
-
-    deleted_at = Column(
-        String,
-        nullable=False,
-    )
-
-    deleted_by = Column(
-        String,
-        nullable=False,
+        nullable=True,
     )
 
 
