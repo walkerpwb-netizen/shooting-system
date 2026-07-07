@@ -50,6 +50,11 @@ type ShootingRangeOverrideResponse = {
   longitude: number;
 };
 
+type ShootingRangeDeletionResponse = {
+  id: number;
+  range_id: string;
+};
+
 type SubmissionFormState = {
   name: string;
   phone: string;
@@ -376,6 +381,7 @@ export default function ShootingRangesMap({
   const [submissionInitialRange, setSubmissionInitialRange] = useState<ShootingRangeMapItem | null>(null);
   const [approvedSubmissions, setApprovedSubmissions] = useState<ShootingRangeSubmissionResponse[]>([]);
   const [rangeOverrides, setRangeOverrides] = useState<ShootingRangeOverrideResponse[]>([]);
+  const [rangeDeletions, setRangeDeletions] = useState<ShootingRangeDeletionResponse[]>([]);
   const authSnapshot = useSyncExternalStore(
     subscribeToAuthChange,
     getAuthSnapshot,
@@ -392,17 +398,23 @@ export default function ShootingRangesMap({
     () => new Map(rangeOverrides.map((override) => [override.range_id, override])),
     [rangeOverrides]
   );
+  const deletedRangeIds = useMemo(
+    () => new Set(rangeDeletions.map((deletion) => deletion.range_id)),
+    [rangeDeletions]
+  );
   const rangesWithApprovedSubmissions = useMemo(
     () => [
-      ...ranges.map((range) => applyRangeOverride(
-        range,
-        rangeOverridesById.get(range.id)
-      )),
+      ...ranges
+        .filter((range) => !deletedRangeIds.has(range.id))
+        .map((range) => applyRangeOverride(
+          range,
+          rangeOverridesById.get(range.id)
+        )),
       ...approvedSubmissions
         .map(toApprovedRange)
         .filter((range): range is ShootingRangeMapItem => range !== null),
     ],
-    [approvedSubmissions, rangeOverridesById, ranges]
+    [approvedSubmissions, deletedRangeIds, rangeOverridesById, ranges]
   );
   const mappedRanges = useMemo(
     () => rangesWithApprovedSubmissions.filter(hasCoordinates),
@@ -416,21 +428,25 @@ export default function ShootingRangesMap({
 
     async function loadRangeData() {
       try {
-        const [submissionsResponse, overridesResponse] = await Promise.all([
+        const [submissionsResponse, overridesResponse, deletionsResponse] = await Promise.all([
           fetch(apiUrl("/shooting-range-submissions/approved"), {
             cache: "no-store",
           }),
           fetch(apiUrl("/shooting-ranges/overrides"), {
             cache: "no-store",
           }),
+          fetch(apiUrl("/shooting-ranges/deletions"), {
+            cache: "no-store",
+          }),
         ]);
 
-        if (!submissionsResponse.ok || !overridesResponse.ok) {
+        if (!submissionsResponse.ok || !overridesResponse.ok || !deletionsResponse.ok) {
           return;
         }
 
         const submissionsData: ShootingRangeSubmissionResponse[] = await submissionsResponse.json();
         const overridesData: ShootingRangeOverrideResponse[] = await overridesResponse.json();
+        const deletionsData: ShootingRangeDeletionResponse[] = await deletionsResponse.json();
 
         if (!ignore) {
           if (Array.isArray(submissionsData)) {
@@ -439,6 +455,10 @@ export default function ShootingRangesMap({
 
           if (Array.isArray(overridesData)) {
             setRangeOverrides(overridesData);
+          }
+
+          if (Array.isArray(deletionsData)) {
+            setRangeDeletions(deletionsData);
           }
         }
       } catch (error) {

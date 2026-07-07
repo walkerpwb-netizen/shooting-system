@@ -23,6 +23,7 @@ from models import (
     AdDailyStat,
     AppSetting,
     HomePost,
+    ShootingRangeDeletion,
     ShootingRangeOverride,
     ShootingRangeSubmission,
     User,
@@ -9285,6 +9286,15 @@ def public_shooting_range_override(override: ShootingRangeOverride):
     }
 
 
+def public_shooting_range_deletion(deletion: ShootingRangeDeletion):
+    return {
+        "id": deletion.id,
+        "range_id": deletion.range_id,
+        "deleted_at": deletion.deleted_at,
+        "deleted_by": deletion.deleted_by,
+    }
+
+
 @app.post("/shooting-range-submissions")
 def create_shooting_range_submission(
     data: ShootingRangeSubmissionData,
@@ -9313,6 +9323,17 @@ def get_shooting_range_overrides(db=Depends(get_db)):
     )
 
     return [public_shooting_range_override(override) for override in overrides]
+
+
+@app.get("/shooting-ranges/deletions")
+def get_shooting_range_deletions(db=Depends(get_db)):
+    deletions = (
+        db.query(ShootingRangeDeletion)
+        .order_by(ShootingRangeDeletion.range_id.asc())
+        .all()
+    )
+
+    return [public_shooting_range_deletion(deletion) for deletion in deletions]
 
 
 @app.get("/shooting-range-submissions/approved")
@@ -9370,6 +9391,40 @@ def admin_update_base_shooting_range(
     return public_shooting_range_override(override)
 
 
+@app.delete("/admin/shooting-ranges/base/{range_id}")
+def admin_delete_base_shooting_range(
+    range_id: str,
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    normalized_range_id = normalize_text(range_id)
+
+    if not re.match(r"^shooting-range-\d{3}$", normalized_range_id):
+        raise HTTPException(status_code=400, detail="Niepoprawny identyfikator strzelnicy")
+
+    deletion = (
+        db.query(ShootingRangeDeletion)
+        .filter(ShootingRangeDeletion.range_id == normalized_range_id)
+        .first()
+    )
+
+    if not deletion:
+        deletion = ShootingRangeDeletion(
+            range_id=normalized_range_id,
+            deleted_at=utc_now_iso(),
+            deleted_by=admin.email,
+        )
+        db.add(deletion)
+    else:
+        deletion.deleted_at = utc_now_iso()
+        deletion.deleted_by = admin.email
+
+    db.commit()
+    db.refresh(deletion)
+
+    return public_shooting_range_deletion(deletion)
+
+
 @app.get("/admin/shooting-range-submissions")
 def admin_get_shooting_range_submissions(
     admin: User = Depends(get_current_admin),
@@ -9416,6 +9471,30 @@ def admin_update_shooting_range_submission(
     db.refresh(submission)
 
     return public_shooting_range_submission(submission)
+
+
+@app.delete("/admin/shooting-range-submissions/{submission_id}")
+def admin_delete_shooting_range_submission(
+    submission_id: int,
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    submission = (
+        db.query(ShootingRangeSubmission)
+        .filter(ShootingRangeSubmission.id == submission_id)
+        .first()
+    )
+
+    if not submission:
+        raise HTTPException(status_code=404, detail="Zgłoszenie strzelnicy nie istnieje")
+
+    db.delete(submission)
+    db.commit()
+
+    return {
+        "message": "Strzelnica usunięta",
+        "id": submission_id,
+    }
 
 
 @app.put("/admin/shooting-range-submissions/{submission_id}/approve")

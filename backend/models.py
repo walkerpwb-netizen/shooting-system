@@ -413,6 +413,33 @@ class ShootingRangeOverride(Base):
     )
 
 
+class ShootingRangeDeletion(Base):
+    __tablename__ = "shooting_range_deletions"
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True,
+    )
+
+    range_id = Column(
+        String,
+        unique=True,
+        index=True,
+        nullable=False,
+    )
+
+    deleted_at = Column(
+        String,
+        nullable=False,
+    )
+
+    deleted_by = Column(
+        String,
+        nullable=False,
+    )
+
+
 class HomePost(Base):
     __tablename__ = "home_posts"
 

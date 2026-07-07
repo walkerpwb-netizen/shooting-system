@@ -129,6 +129,13 @@ type AdminShootingRangeOverride = {
   updated_by: string;
 };
 
+type AdminShootingRangeDeletion = {
+  id: number;
+  range_id: string;
+  deleted_at: string;
+  deleted_by: string;
+};
+
 type EditableShootingRange = {
   id: string;
   editType: "base" | "submission";
@@ -455,6 +462,7 @@ export default function AdminClient({
   const [competitions, setCompetitions] = useState<AdminCompetition[]>([]);
   const [shootingRangeSubmissions, setShootingRangeSubmissions] = useState<AdminShootingRangeSubmission[]>([]);
   const [shootingRangeOverrides, setShootingRangeOverrides] = useState<AdminShootingRangeOverride[]>([]);
+  const [shootingRangeDeletions, setShootingRangeDeletions] = useState<AdminShootingRangeDeletion[]>([]);
   const [monitoring, setMonitoring] = useState<MonitoringData | null>(null);
   const [adReport, setAdReport] = useState<AdReportData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -526,7 +534,7 @@ export default function AdminClient({
 
     async function loadAdminData() {
       try {
-        const [usersResponse, pzssClubsResponse, competitionsResponse, shootingRangeSubmissionsResponse, shootingRangeOverridesResponse, tableSettingsResponse, uiSettingsResponse, profileSettingsResponse, premiumSettingsResponse, activationEmailResponse, monitoringResponse, adReportResponse] = await Promise.all([
+        const [usersResponse, pzssClubsResponse, competitionsResponse, shootingRangeSubmissionsResponse, shootingRangeOverridesResponse, shootingRangeDeletionsResponse, tableSettingsResponse, uiSettingsResponse, profileSettingsResponse, premiumSettingsResponse, activationEmailResponse, monitoringResponse, adReportResponse] = await Promise.all([
           fetch(
             apiUrl("/admin/users"),
             {
@@ -561,6 +569,12 @@ export default function AdminClient({
           ),
           fetch(
             apiUrl("/shooting-ranges/overrides"),
+            {
+              cache: "no-store",
+            }
+          ),
+          fetch(
+            apiUrl("/shooting-ranges/deletions"),
             {
               cache: "no-store",
             }
@@ -628,6 +642,7 @@ export default function AdminClient({
         const competitionsData = await competitionsResponse.json();
         const shootingRangeSubmissionsData = await shootingRangeSubmissionsResponse.json();
         const shootingRangeOverridesData = await shootingRangeOverridesResponse.json();
+        const shootingRangeDeletionsData = await shootingRangeDeletionsResponse.json();
         const tableSettingsData = await tableSettingsResponse.json();
         const uiSettingsData = await uiSettingsResponse.json();
         const profileSettingsData = await profileSettingsResponse.json();
@@ -662,6 +677,11 @@ export default function AdminClient({
 
         if (!shootingRangeOverridesResponse.ok) {
           setMessage(shootingRangeOverridesData.detail || "Nie udało się pobrać edycji strzelnic ❌");
+          return;
+        }
+
+        if (!shootingRangeDeletionsResponse.ok) {
+          setMessage(shootingRangeDeletionsData.detail || "Nie udało się pobrać usuniętych strzelnic ❌");
           return;
         }
 
@@ -708,6 +728,7 @@ export default function AdminClient({
         setCompetitions(competitionsData);
         setShootingRangeSubmissions(shootingRangeSubmissionsData);
         setShootingRangeOverrides(shootingRangeOverridesData);
+        setShootingRangeDeletions(shootingRangeDeletionsData);
         setMonitoring(monitoringData);
         setAdReport(adReportData);
         setResultsTableSettings({
@@ -1454,6 +1475,63 @@ export default function AdminClient({
       setMessage("Błąd połączenia z serwerem ❌");
     } finally {
       setRangeEditSaving(false);
+    }
+  }
+
+  async function deleteShootingRange(range: EditableShootingRange) {
+    const confirmed = window.confirm(
+      `Czy na pewno chcesz całkowicie usunąć wpis "${range.name}" z listy strzelnic?`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    const token = getAccessToken();
+    const endpoint = range.editType === "base"
+      ? `/admin/shooting-ranges/base/${range.editId}`
+      : `/admin/shooting-range-submissions/${range.editId}`;
+
+    try {
+      setMessage("");
+
+      const response = await fetch(
+        apiUrl(endpoint),
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.detail || "Nie udało się usunąć strzelnicy ❌");
+        return;
+      }
+
+      if (range.editType === "base") {
+        const deletion = data as AdminShootingRangeDeletion;
+        setShootingRangeDeletions((currentDeletions) => {
+          const exists = currentDeletions.some((currentDeletion) => currentDeletion.range_id === deletion.range_id);
+
+          return exists
+            ? currentDeletions.map((currentDeletion) => (
+                currentDeletion.range_id === deletion.range_id ? deletion : currentDeletion
+              ))
+            : [...currentDeletions, deletion];
+        });
+      } else {
+        setShootingRangeSubmissions((currentSubmissions) => currentSubmissions.filter((submission) => (
+          submission.id !== range.editId
+        )));
+      }
+
+      setMessage("Strzelnica usunięta ✅");
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
     }
   }
 
@@ -2446,7 +2524,9 @@ export default function AdminClient({
   const pendingShootingRangeSubmissions = shootingRangeSubmissions.filter(
     (submission) => submission.status === "pending"
   );
-  const visibleShootingRangeSubmissions = [...shootingRangeSubmissions].sort((firstSubmission, secondSubmission) => {
+  const visibleShootingRangeSubmissions = shootingRangeSubmissions
+    .filter((submission) => submission.status !== "approved")
+    .sort((firstSubmission, secondSubmission) => {
     const statusRank = {
       pending: 0,
       approved: 1,
@@ -2460,29 +2540,35 @@ export default function AdminClient({
     }
 
     return secondSubmission.id - firstSubmission.id;
-  });
+    });
   const shootingRangeOverridesById = useMemo(
     () => new Map(shootingRangeOverrides.map((override) => [override.range_id, override])),
     [shootingRangeOverrides]
   );
+  const deletedShootingRangeIds = useMemo(
+    () => new Set(shootingRangeDeletions.map((deletion) => deletion.range_id)),
+    [shootingRangeDeletions]
+  );
   const currentMapRanges: EditableShootingRange[] = useMemo(
     () => [
-      ...shootingRanges.map((range) => {
-        const override = shootingRangeOverridesById.get(range.id);
+      ...shootingRanges
+        .filter((range) => !deletedShootingRangeIds.has(range.id))
+        .map((range) => {
+          const override = shootingRangeOverridesById.get(range.id);
 
-        return {
-          id: range.id,
-          editType: "base" as const,
-          editId: range.id,
-          name: override?.name || range.name,
-          phone: override?.phone || range.phone || "",
-          website: override?.website || range.website || "",
-          address: override?.address || range.address || "",
-          latitude: override?.latitude ?? range.latitude,
-          longitude: override?.longitude ?? range.longitude,
-          source: override ? "lista bazowa, edytowane" : "lista bazowa",
-        };
-      }),
+          return {
+            id: range.id,
+            editType: "base" as const,
+            editId: range.id,
+            name: override?.name || range.name,
+            phone: override?.phone || range.phone || "",
+            website: override?.website || range.website || "",
+            address: override?.address || range.address || "",
+            latitude: override?.latitude ?? range.latitude,
+            longitude: override?.longitude ?? range.longitude,
+            source: "lista bazowa",
+          };
+        }),
       ...shootingRangeSubmissions
         .filter((submission) => submission.status === "approved")
         .map((submission) => ({
@@ -2495,10 +2581,10 @@ export default function AdminClient({
           address: submission.address,
           latitude: submission.latitude,
           longitude: submission.longitude,
-          source: "zgłoszenie",
+          source: "lista bazowa",
         })),
     ],
-    [shootingRangeOverridesById, shootingRangeSubmissions]
+    [deletedShootingRangeIds, shootingRangeOverridesById, shootingRangeSubmissions]
   );
 
   function renderPremiumPackage(
@@ -3416,8 +3502,8 @@ export default function AdminClient({
             </section>
 
             <section className="overflow-x-auto rounded-2xl border border-zinc-800 bg-zinc-900">
-              <div className="min-w-[1240px]">
-                <div className="grid grid-cols-[70px_1.5fr_1fr_1fr_1.1fr_0.9fr_0.8fr] gap-4 border-b border-zinc-800 px-5 py-4 text-sm font-bold text-gray-400">
+              <div className="min-w-[1320px]">
+                <div className="grid grid-cols-[70px_1.5fr_1fr_1fr_1.1fr_0.9fr_1.1fr] gap-4 border-b border-zinc-800 px-5 py-4 text-sm font-bold text-gray-400">
                   <p>Nr</p>
                   <p>Nazwa</p>
                   <p>Telefon</p>
@@ -3430,7 +3516,7 @@ export default function AdminClient({
                 {currentMapRanges.map((range, index) => (
                   <div
                     key={range.id}
-                    className="grid grid-cols-[70px_1.5fr_1fr_1fr_1.1fr_0.9fr_0.8fr] items-center gap-4 border-b border-zinc-800 px-5 py-3 text-sm last:border-b-0"
+                    className="grid grid-cols-[70px_1.5fr_1fr_1fr_1.1fr_0.9fr_1.1fr] items-center gap-4 border-b border-zinc-800 px-5 py-3 text-sm last:border-b-0"
                   >
                     <p className="font-bold text-gray-300">
                       {index + 1}
@@ -3452,13 +3538,23 @@ export default function AdminClient({
                     <p className="text-gray-400">
                       {range.source}
                     </p>
-                    <button
-                      type="button"
-                      onClick={() => openShootingRangeEditor(range)}
-                      className="w-fit rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-blue-600"
-                    >
-                      Edytuj
-                    </button>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => openShootingRangeEditor(range)}
+                        className="rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-blue-600"
+                      >
+                        Edytuj
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => deleteShootingRange(range)}
+                        className="rounded-lg bg-red-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-red-600"
+                      >
+                        Usuń
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
