@@ -48,6 +48,10 @@ type ClubMemberNotification = {
   membership_status?: string;
 };
 
+type AdminShootingRangeSubmissionNotification = {
+  status?: string;
+};
+
 function formatSessionTime(milliseconds: number) {
   const totalSeconds = Math.max(0, Math.ceil(milliseconds / 1000));
   const minutes = Math.floor(totalSeconds / 60);
@@ -93,6 +97,7 @@ export default function Navbar() {
   const [hasStartedCompetition, setHasStartedCompetition] = useState(false);
   const [premiumActive, setPremiumActive] = useState(false);
   const [pendingClubMembersCount, setPendingClubMembersCount] = useState(0);
+  const [pendingShootingRangeSubmissionsCount, setPendingShootingRangeSubmissionsCount] = useState(0);
   const [sessionRemainingMs, setSessionRemainingMs] = useState(SESSION_TIMEOUT_MS);
   const [roleDialog, setRoleDialog] = useState<RoleDialog>(null);
   const [roleConfirmationOpen, setRoleConfirmationOpen] = useState(false);
@@ -136,6 +141,7 @@ export default function Navbar() {
     : "font-bold text-green-100";
   const sessionTimeLabel = formatSessionTime(sessionRemainingMs);
   const hasPendingClubMembers = pendingClubMembersCount > 0;
+  const hasPendingShootingRangeSubmissions = isAdmin && pendingShootingRangeSubmissionsCount > 0;
 
 
   useEffect(() => {
@@ -236,6 +242,53 @@ export default function Navbar() {
       window.clearInterval(intervalId);
     };
   }, [isVerifiedPzssClub, token]);
+
+  useEffect(() => {
+    let active = true;
+
+    if (!isAdmin) {
+      return;
+    }
+
+    async function loadPendingShootingRangeSubmissions() {
+      try {
+        const response = await authFetch(
+          apiUrl("/admin/shooting-range-submissions"),
+          {
+            cache: "no-store",
+          }
+        );
+        const submissions: AdminShootingRangeSubmissionNotification[] = await response.json().catch(() => []);
+
+        if (!active) {
+          return;
+        }
+
+        if (!response.ok || !Array.isArray(submissions)) {
+          setPendingShootingRangeSubmissionsCount(0);
+          return;
+        }
+
+        setPendingShootingRangeSubmissionsCount(
+          submissions.filter((submission) => submission.status === "pending").length
+        );
+      } catch (error) {
+        console.error(error);
+
+        if (active) {
+          setPendingShootingRangeSubmissionsCount(0);
+        }
+      }
+    }
+
+    void loadPendingShootingRangeSubmissions();
+    const intervalId = window.setInterval(loadPendingShootingRangeSubmissions, 60000);
+
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+    };
+  }, [isAdmin, token]);
 
   useEffect(() => {
     let active = true;
@@ -705,8 +758,16 @@ export default function Navbar() {
         </Link>
 
         {isAdmin && (
-          <Link href="/admin">
-            Panel Administratora
+          <Link
+            href="/admin"
+            className="inline-flex items-center gap-2"
+          >
+            <span>Panel Administratora</span>
+            {hasPendingShootingRangeSubmissions && (
+              <span className="rounded-full bg-yellow-300 px-2 py-0.5 text-xs font-black text-zinc-950">
+                {pendingShootingRangeSubmissionsCount}
+              </span>
+            )}
           </Link>
         )}
 
@@ -968,9 +1029,14 @@ export default function Navbar() {
                   <Link
                     href="/admin"
                     onClick={() => setMobileMenuOpen(false)}
-                    className="py-3"
+                    className="flex items-center gap-2 py-3"
                   >
-                    Panel Administratora
+                    <span>Panel Administratora</span>
+                    {hasPendingShootingRangeSubmissions && (
+                      <span className="rounded-full bg-yellow-300 px-2 py-0.5 text-xs font-black text-zinc-950">
+                        {pendingShootingRangeSubmissionsCount}
+                      </span>
+                    )}
                   </Link>
 
                   <div className="my-2 border-t border-green-800 pt-2 text-base text-green-100">
@@ -1005,9 +1071,14 @@ export default function Navbar() {
                     <Link
                       href="/admin?tab=shooting-ranges"
                       onClick={() => setMobileMenuOpen(false)}
-                      className="block py-2"
+                      className="flex items-center gap-2 py-2"
                     >
-                      Strzelnice
+                      <span>Strzelnice</span>
+                      {hasPendingShootingRangeSubmissions && (
+                        <span className="rounded-full bg-yellow-300 px-2 py-0.5 text-xs font-black text-zinc-950">
+                          {pendingShootingRangeSubmissionsCount}
+                        </span>
+                      )}
                     </Link>
 
                     <Link
@@ -1143,9 +1214,14 @@ export default function Navbar() {
 
           <Link
             href="/admin?tab=shooting-ranges"
-            className="ui-button min-w-0 bg-zinc-800 hover:bg-zinc-700 px-4 py-2 rounded-lg text-center transition"
+            className="ui-button inline-flex min-w-0 items-center gap-2 bg-zinc-800 hover:bg-zinc-700 px-4 py-2 rounded-lg text-center transition"
           >
-            Strzelnice
+            <span>Strzelnice</span>
+            {hasPendingShootingRangeSubmissions && (
+              <span className="rounded-full bg-yellow-300 px-2 py-0.5 text-xs font-black text-zinc-950">
+                {pendingShootingRangeSubmissionsCount}
+              </span>
+            )}
           </Link>
 
           <Link

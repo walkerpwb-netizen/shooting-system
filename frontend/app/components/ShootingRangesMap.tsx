@@ -59,6 +59,8 @@ type SubmissionFormState = {
   longitude: number | null;
 };
 
+type SubmissionDialogMode = "new" | "change";
+
 const defaultCenter: [number, number] = [52.0692, 19.4803];
 const polandBounds: L.LatLngBoundsExpression = [
   [48.5, 13.5],
@@ -164,15 +166,29 @@ function applyRangeOverride(
 }
 
 function ShootingRangeSubmissionDialog({
+  initialRange,
   onClose,
 }: {
+  initialRange?: ShootingRangeMapItem | null;
   onClose: () => void;
 }) {
-  const [form, setForm] = useState<SubmissionFormState>(emptySubmissionForm);
+  const [form, setForm] = useState<SubmissionFormState>(() => (
+    initialRange
+      ? {
+          name: initialRange.name,
+          phone: initialRange.phone || "",
+          website: initialRange.website || "",
+          address: initialRange.address || "",
+          latitude: initialRange.latitude,
+          longitude: initialRange.longitude,
+        }
+      : emptySubmissionForm
+  ));
   const [mapPickerOpen, setMapPickerOpen] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
   const hasLocation = form.latitude !== null && form.longitude !== null;
+  const mode: SubmissionDialogMode = initialRange ? "change" : "new";
 
   function updateForm(values: Partial<SubmissionFormState>) {
     setForm((currentForm) => ({
@@ -208,7 +224,10 @@ function ShootingRangeSubmissionDialog({
 
       setForm(emptySubmissionForm);
       setMapPickerOpen(true);
-      setMessage("Zgłoszenie wysłane. Trafiło do panelu administratora do akceptacji.");
+      setMessage(mode === "change"
+        ? "Zgłoszenie zmiany danych wysłane do akceptacji administratora."
+        : "Zgłoszenie wysłane. Trafiło do panelu administratora do akceptacji."
+      );
     } catch (error) {
       console.error(error);
       setMessage("Błąd połączenia z serwerem.");
@@ -226,7 +245,7 @@ function ShootingRangeSubmissionDialog({
               Mapa strzelnic
             </p>
             <h2 className="mt-1 text-2xl font-black">
-              Dodaj strzelnicę
+              {mode === "change" ? "Zgłoś zmianę danych" : "Dodaj strzelnicę"}
             </h2>
           </div>
 
@@ -354,6 +373,7 @@ export default function ShootingRangesMap({
   const mapRef = useRef<L.Map | null>(null);
   const [layerMode, setLayerMode] = useState<MapLayerMode>("street");
   const [submissionDialogOpen, setSubmissionDialogOpen] = useState(false);
+  const [submissionInitialRange, setSubmissionInitialRange] = useState<ShootingRangeMapItem | null>(null);
   const [approvedSubmissions, setApprovedSubmissions] = useState<ShootingRangeSubmissionResponse[]>([]);
   const [rangeOverrides, setRangeOverrides] = useState<ShootingRangeOverrideResponse[]>([]);
   const authSnapshot = useSyncExternalStore(
@@ -441,6 +461,16 @@ export default function ShootingRangesMap({
     mapRef.current?.zoomOut();
   }
 
+  function openSubmissionDialog(range: ShootingRangeMapItem | null = null) {
+    setSubmissionInitialRange(range);
+    setSubmissionDialogOpen(true);
+  }
+
+  function closeSubmissionDialog() {
+    setSubmissionDialogOpen(false);
+    setSubmissionInitialRange(null);
+  }
+
   if (!isBetaTester) {
     return (
       <main className="flex min-h-[calc(100dvh-5rem)] items-center justify-center bg-zinc-950 px-6 py-12 text-white">
@@ -514,7 +544,7 @@ export default function ShootingRangesMap({
 
             <button
               type="button"
-              onClick={() => setSubmissionDialogOpen(true)}
+              onClick={() => openSubmissionDialog()}
               className="h-11 rounded-lg border border-green-700 bg-green-800 px-4 text-sm font-bold text-white transition hover:bg-green-700"
             >
               Dodaj strzelnicę
@@ -582,6 +612,13 @@ export default function ShootingRangesMap({
                         Strona www
                       </a>
                     )}
+                    <button
+                      type="button"
+                      onClick={() => openSubmissionDialog(range)}
+                      className="block rounded-lg border border-zinc-300 bg-white px-3 py-2 text-xs font-bold text-zinc-900 transition hover:bg-zinc-100"
+                    >
+                      Zgłoś zmianę danych
+                    </button>
                   </div>
                 </Popup>
               </Marker>
@@ -599,7 +636,8 @@ export default function ShootingRangesMap({
 
       {submissionDialogOpen && (
         <ShootingRangeSubmissionDialog
-          onClose={() => setSubmissionDialogOpen(false)}
+          initialRange={submissionInitialRange}
+          onClose={closeSubmissionDialog}
         />
       )}
     </main>
