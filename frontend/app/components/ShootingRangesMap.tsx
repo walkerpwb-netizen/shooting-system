@@ -139,7 +139,7 @@ function ShootingRangeSubmissionDialog({
   onClose: () => void;
 }) {
   const [form, setForm] = useState<SubmissionFormState>(emptySubmissionForm);
-  const [mapPickerOpen, setMapPickerOpen] = useState(false);
+  const [mapPickerOpen, setMapPickerOpen] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
   const hasLocation = form.latitude !== null && form.longitude !== null;
@@ -155,8 +155,8 @@ function ShootingRangeSubmissionDialog({
     event.preventDefault();
     setMessage("");
 
-    if (!form.address.trim() && !hasLocation) {
-      setMessage("Podaj dokładny adres albo zaznacz lokalizację na mapie.");
+    if (!hasLocation) {
+      setMessage("Zaznacz lokalizację strzelnicy na mapie.");
       return;
     }
 
@@ -177,7 +177,7 @@ function ShootingRangeSubmissionDialog({
       }
 
       setForm(emptySubmissionForm);
-      setMapPickerOpen(false);
+      setMapPickerOpen(true);
       setMessage("Zgłoszenie wysłane. Trafiło do panelu administratora do akceptacji.");
     } catch (error) {
       console.error(error);
@@ -254,17 +254,6 @@ function ShootingRangeSubmissionDialog({
               />
             </label>
 
-            <label className="block md:col-span-2">
-              <span className="mb-2 block text-sm font-bold text-gray-200">
-                Dokładny adres
-              </span>
-              <textarea
-                value={form.address}
-                onChange={(event) => updateForm({ address: event.target.value })}
-                className="min-h-24 w-full resize-y rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-3 text-white placeholder:text-gray-500"
-                placeholder="Ulica, numer, miejscowość"
-              />
-            </label>
           </div>
 
           <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-900 p-4">
@@ -276,7 +265,7 @@ function ShootingRangeSubmissionDialog({
                 <p className="mt-1 text-sm text-gray-400">
                   {hasLocation
                     ? `${form.latitude?.toFixed(6)}, ${form.longitude?.toFixed(6)}`
-                    : "Brak zaznaczonego punktu"}
+                    : "Kliknij dokładne miejsce strzelnicy na mapie"}
                 </p>
               </div>
 
@@ -285,7 +274,7 @@ function ShootingRangeSubmissionDialog({
                 onClick={() => setMapPickerOpen((isOpen) => !isOpen)}
                 className="rounded-lg bg-zinc-700 px-4 py-3 text-sm font-bold text-white transition hover:bg-zinc-600"
               >
-                {mapPickerOpen ? "Ukryj mapę" : "Zaznacz lokalizację"}
+                {mapPickerOpen ? "Ukryj mapę" : "Pokaż mapę"}
               </button>
             </div>
 

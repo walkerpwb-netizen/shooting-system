@@ -9237,10 +9237,10 @@ def validate_shooting_range_submission(data: ShootingRangeSubmissionData):
         ):
             raise HTTPException(status_code=400, detail="Zaznacz lokalizację na terenie Polski")
 
-    if not address and (latitude is None or longitude is None):
+    if latitude is None or longitude is None:
         raise HTTPException(
             status_code=400,
-            detail="Podaj dokładny adres albo zaznacz lokalizację na mapie",
+            detail="Zaznacz lokalizację strzelnicy na mapie",
         )
 
     return {
