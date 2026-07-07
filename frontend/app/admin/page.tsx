@@ -10,9 +10,10 @@ export default async function AdminPage({
   searchParams,
 }: AdminPageProps) {
   const params = await searchParams;
-  const initialTab: "users" | "pzss-clubs" | "competitions" | "settings" | "premium" | "ads" | "monitoring" | "qr-scanner" | "pdf-test" | "test-data" = (
+  const initialTab: "users" | "pzss-clubs" | "competitions" | "shooting-ranges" | "settings" | "premium" | "ads" | "monitoring" | "qr-scanner" | "pdf-test" | "test-data" = (
     params.tab === "pzss-clubs"
     || params.tab === "competitions"
+    || params.tab === "shooting-ranges"
     || params.tab === "settings"
     || params.tab === "premium"
     || params.tab === "ads"

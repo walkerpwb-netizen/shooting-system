@@ -8,9 +8,10 @@ import { useRouter } from "next/navigation";
 
 import { apiUrl } from "@/lib/api";
 import { getAccessToken, isAdmin } from "@/lib/auth";
+import { shootingRanges } from "@/app/shooting-ranges/map/shootingRangesData";
 import QrCodeScanner from "@/components/QrCodeScanner";
 
-type AdminTab = "users" | "pzss-clubs" | "competitions" | "settings" | "premium" | "ads" | "monitoring" | "qr-scanner" | "pdf-test" | "test-data";
+type AdminTab = "users" | "pzss-clubs" | "competitions" | "shooting-ranges" | "settings" | "premium" | "ads" | "monitoring" | "qr-scanner" | "pdf-test" | "test-data";
 type UserSortField = "name" | "status" | "role" | "account" | "phone";
 type SortDirection = "asc" | "desc";
 
@@ -98,6 +99,20 @@ type AdminCompetition = {
     phone_number: string;
   };
   disciplines: AdminDiscipline[];
+};
+
+type AdminShootingRangeSubmission = {
+  id: number;
+  name: string;
+  phone: string;
+  website: string;
+  address: string;
+  latitude: number | null;
+  longitude: number | null;
+  status: "pending" | "approved" | "rejected";
+  created_at: string;
+  reviewed_at: string;
+  reviewed_by: string;
 };
 
 type MonitoringService = {
@@ -374,6 +389,20 @@ const profileCssVariableNames: Record<keyof ProfileSettings, string> = {
   achievement_gap: "--ss-profile-achievement-gap",
 };
 
+function normalizeWebsiteUrl(website: string) {
+  const trimmedWebsite = website.trim();
+
+  if (!trimmedWebsite) {
+    return "";
+  }
+
+  if (/^https?:\/\//i.test(trimmedWebsite)) {
+    return trimmedWebsite;
+  }
+
+  return `https://${trimmedWebsite}`;
+}
+
 type AdminClientProps = {
   initialTab: AdminTab;
 };
@@ -388,6 +417,7 @@ export default function AdminClient({
   const [pzssClubs, setPzssClubs] = useState<AdminPzssClub[]>([]);
   const [clubLicenseInputs, setClubLicenseInputs] = useState<Record<number, string>>({});
   const [competitions, setCompetitions] = useState<AdminCompetition[]>([]);
+  const [shootingRangeSubmissions, setShootingRangeSubmissions] = useState<AdminShootingRangeSubmission[]>([]);
   const [monitoring, setMonitoring] = useState<MonitoringData | null>(null);
   const [adReport, setAdReport] = useState<AdReportData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -449,7 +479,7 @@ export default function AdminClient({
 
     async function loadAdminData() {
       try {
-        const [usersResponse, pzssClubsResponse, competitionsResponse, tableSettingsResponse, uiSettingsResponse, profileSettingsResponse, premiumSettingsResponse, activationEmailResponse, monitoringResponse, adReportResponse] = await Promise.all([
+        const [usersResponse, pzssClubsResponse, competitionsResponse, shootingRangeSubmissionsResponse, tableSettingsResponse, uiSettingsResponse, profileSettingsResponse, premiumSettingsResponse, activationEmailResponse, monitoringResponse, adReportResponse] = await Promise.all([
           fetch(
             apiUrl("/admin/users"),
             {
@@ -468,6 +498,14 @@ export default function AdminClient({
           ),
           fetch(
             apiUrl("/admin/competitions"),
+            {
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            }
+          ),
+          fetch(
+            apiUrl("/admin/shooting-range-submissions"),
             {
               headers: {
                 Authorization: `Bearer ${token}`,
@@ -535,6 +573,7 @@ export default function AdminClient({
         const usersData = await usersResponse.json();
         const pzssClubsData = await pzssClubsResponse.json();
         const competitionsData = await competitionsResponse.json();
+        const shootingRangeSubmissionsData = await shootingRangeSubmissionsResponse.json();
         const tableSettingsData = await tableSettingsResponse.json();
         const uiSettingsData = await uiSettingsResponse.json();
         const profileSettingsData = await profileSettingsResponse.json();
@@ -559,6 +598,11 @@ export default function AdminClient({
 
         if (!competitionsResponse.ok) {
           setMessage(competitionsData.detail || "Nie udało się pobrać zawodów ❌");
+          return;
+        }
+
+        if (!shootingRangeSubmissionsResponse.ok) {
+          setMessage(shootingRangeSubmissionsData.detail || "Nie udało się pobrać zgłoszeń strzelnic ❌");
           return;
         }
 
@@ -603,6 +647,7 @@ export default function AdminClient({
           pzssClubsData.map((club: AdminPzssClub) => [club.id, club.license_number || ""])
         ));
         setCompetitions(competitionsData);
+        setShootingRangeSubmissions(shootingRangeSubmissionsData);
         setMonitoring(monitoringData);
         setAdReport(adReportData);
         setResultsTableSettings({
@@ -1221,6 +1266,41 @@ export default function AdminClient({
         )
       );
       setMessage("Zawody usunięte ✅");
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    }
+  }
+
+  async function updateShootingRangeSubmissionStatus(
+    submissionId: number,
+    action: "approve" | "reject"
+  ) {
+    const token = getAccessToken();
+
+    try {
+      setMessage("");
+
+      const response = await fetch(
+        apiUrl(`/admin/shooting-range-submissions/${submissionId}/${action}`),
+        {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.detail || "Nie udało się zaktualizować zgłoszenia strzelnicy ❌");
+        return;
+      }
+
+      setShootingRangeSubmissions((currentSubmissions) => currentSubmissions.map((submission) => (
+        submission.id === submissionId ? data : submission
+      )));
+      setMessage(action === "approve" ? "Zgłoszenie strzelnicy zatwierdzone ✅" : "Zgłoszenie strzelnicy odrzucone");
     } catch (error) {
       console.error(error);
       setMessage("Błąd połączenia z serwerem ❌");
@@ -2213,6 +2293,49 @@ export default function AdminClient({
         : -sortResult;
     });
 
+  const pendingShootingRangeSubmissions = shootingRangeSubmissions.filter(
+    (submission) => submission.status === "pending"
+  );
+  const visibleShootingRangeSubmissions = [...shootingRangeSubmissions].sort((firstSubmission, secondSubmission) => {
+    const statusRank = {
+      pending: 0,
+      approved: 1,
+      rejected: 2,
+    };
+    const firstRank = statusRank[firstSubmission.status] ?? 3;
+    const secondRank = statusRank[secondSubmission.status] ?? 3;
+
+    if (firstRank !== secondRank) {
+      return firstRank - secondRank;
+    }
+
+    return secondSubmission.id - firstSubmission.id;
+  });
+  const currentMapRanges = [
+    ...shootingRanges.map((range) => ({
+      id: range.id,
+      name: range.name,
+      phone: range.phone || "",
+      website: range.website || "",
+      address: range.address || "",
+      latitude: range.latitude,
+      longitude: range.longitude,
+      source: "lista bazowa",
+    })),
+    ...shootingRangeSubmissions
+      .filter((submission) => submission.status === "approved")
+      .map((submission) => ({
+        id: `submission-${submission.id}`,
+        name: submission.name,
+        phone: submission.phone,
+        website: submission.website,
+        address: submission.address,
+        latitude: submission.latitude,
+        longitude: submission.longitude,
+        source: "zgłoszenie",
+      })),
+  ];
+
   function renderPremiumPackage(
     packageType: keyof PremiumSettings,
     title: string,
@@ -2978,6 +3101,176 @@ export default function AdminClient({
                 );
               })}
             </div>
+          </section>
+        ) : activeTab === "shooting-ranges" ? (
+          <section className="space-y-6">
+            <div className="ui-block rounded-2xl border border-zinc-800 bg-zinc-900 p-6">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                <div>
+                  <h2 className="text-3xl font-bold text-white">
+                    Zgłoszenia strzelnic
+                  </h2>
+                  <p className="mt-2 text-gray-400">
+                    Nowe zgłoszenia z formularza na mapie trafiają tutaj do akceptacji.
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-yellow-500/40 bg-yellow-500/10 px-4 py-3 text-yellow-100">
+                  <p className="text-sm font-bold uppercase tracking-wide">
+                    Do akceptacji
+                  </p>
+                  <p className="text-3xl font-black">
+                    {pendingShootingRangeSubmissions.length}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <section className="overflow-x-auto rounded-2xl border border-zinc-800 bg-zinc-900">
+              <div className="min-w-[1180px]">
+                <div className="grid grid-cols-[70px_1.4fr_1fr_1fr_1.1fr_0.8fr_1.2fr] gap-4 border-b border-zinc-800 px-5 py-4 text-sm font-bold text-gray-400">
+                  <p>Nr</p>
+                  <p>Nazwa</p>
+                  <p>Kontakt</p>
+                  <p>Adres</p>
+                  <p>Lokalizacja</p>
+                  <p>Status</p>
+                  <p>Akcje</p>
+                </div>
+
+                {visibleShootingRangeSubmissions.length === 0 ? (
+                  <p className="px-5 py-6 text-gray-400">
+                    Brak zgłoszeń strzelnic.
+                  </p>
+                ) : visibleShootingRangeSubmissions.map((submission, index) => {
+                  const hasCoordinates = submission.latitude !== null && submission.longitude !== null;
+
+                  return (
+                    <div
+                      key={submission.id}
+                      className={`grid grid-cols-[70px_1.4fr_1fr_1fr_1.1fr_0.8fr_1.2fr] items-center gap-4 border-b border-zinc-800 px-5 py-4 last:border-b-0 ${
+                        submission.status === "pending" ? "bg-yellow-950/20" : ""
+                      }`}
+                    >
+                      <p className="font-bold text-gray-300">
+                        {index + 1}
+                      </p>
+
+                      <div>
+                        <p className="font-bold text-white">
+                          {submission.name}
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          ID {submission.id} • {formatDateTime(submission.created_at)}
+                        </p>
+                      </div>
+
+                      <div className="space-y-1 text-sm">
+                        <a
+                          href={`tel:${submission.phone}`}
+                          className="block font-semibold text-green-300 underline-offset-4 hover:underline"
+                        >
+                          {submission.phone}
+                        </a>
+                        <a
+                          href={normalizeWebsiteUrl(submission.website)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block truncate text-blue-300 underline-offset-4 hover:underline"
+                        >
+                          {submission.website}
+                        </a>
+                      </div>
+
+                      <p className="text-sm text-gray-300">
+                        {submission.address || "brak adresu"}
+                      </p>
+
+                      <p className={hasCoordinates ? "text-sm text-gray-300" : "text-sm text-yellow-200"}>
+                        {hasCoordinates
+                          ? `${submission.latitude?.toFixed(6)}, ${submission.longitude?.toFixed(6)}`
+                          : "brak punktu mapy"}
+                      </p>
+
+                      <p className={
+                        submission.status === "approved"
+                          ? "font-bold text-green-400"
+                          : submission.status === "rejected"
+                            ? "font-bold text-red-400"
+                            : "font-bold text-yellow-300"
+                      }>
+                        {submission.status === "approved"
+                          ? "zaakceptowane"
+                          : submission.status === "rejected"
+                            ? "odrzucone"
+                            : "oczekuje"}
+                      </p>
+
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => updateShootingRangeSubmissionStatus(submission.id, "approve")}
+                          disabled={submission.status === "approved"}
+                          className="rounded-lg bg-green-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-green-600 disabled:cursor-not-allowed disabled:bg-zinc-700"
+                        >
+                          Zatwierdź
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => updateShootingRangeSubmissionStatus(submission.id, "reject")}
+                          disabled={submission.status === "rejected"}
+                          className="rounded-lg bg-zinc-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-zinc-600 disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-gray-500"
+                        >
+                          Odrzuć
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+
+            <section className="overflow-x-auto rounded-2xl border border-zinc-800 bg-zinc-900">
+              <div className="min-w-[1120px]">
+                <div className="grid grid-cols-[70px_1.5fr_1fr_1fr_1.1fr_0.9fr] gap-4 border-b border-zinc-800 px-5 py-4 text-sm font-bold text-gray-400">
+                  <p>Nr</p>
+                  <p>Nazwa</p>
+                  <p>Telefon</p>
+                  <p>WWW</p>
+                  <p>Współrzędne</p>
+                  <p>Źródło</p>
+                </div>
+
+                {currentMapRanges.map((range, index) => (
+                  <div
+                    key={range.id}
+                    className="grid grid-cols-[70px_1.5fr_1fr_1fr_1.1fr_0.9fr] items-center gap-4 border-b border-zinc-800 px-5 py-3 text-sm last:border-b-0"
+                  >
+                    <p className="font-bold text-gray-300">
+                      {index + 1}
+                    </p>
+                    <p className="font-semibold text-white">
+                      {range.name}
+                    </p>
+                    <p className="text-gray-300">
+                      {range.phone || "brak"}
+                    </p>
+                    <p className="truncate text-blue-300">
+                      {range.website || "brak"}
+                    </p>
+                    <p className={range.latitude !== null && range.longitude !== null ? "text-gray-300" : "text-yellow-200"}>
+                      {range.latitude !== null && range.longitude !== null
+                        ? `${range.latitude.toFixed(6)}, ${range.longitude.toFixed(6)}`
+                        : "brak punktu"}
+                    </p>
+                    <p className="text-gray-400">
+                      {range.source}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </section>
           </section>
         ) : activeTab === "premium" ? (
           <section className="ui-block bg-zinc-900 border border-zinc-800 rounded-2xl p-6">

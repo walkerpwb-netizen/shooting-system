@@ -23,6 +23,7 @@ from models import (
     AdDailyStat,
     AppSetting,
     HomePost,
+    ShootingRangeSubmission,
     User,
     Competition,
     Discipline,
@@ -535,12 +536,24 @@ class AdEventData(BaseModel):
     event_type: str = "impression"
 
 
+class ShootingRangeSubmissionData(BaseModel):
+    name: str
+    phone: str
+    website: str
+    address: str = ""
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+
+
 ALLOWED_ROLES = ["user", "shooter", "organizer", "judge", "moderator", "admin"]
 USER_ACCOUNT_TYPE = "user"
 PZSS_CLUB_ACCOUNT_TYPE = "pzss_club"
 PZSS_CLUB_PENDING = "pending"
 PZSS_CLUB_APPROVED = "approved"
 PZSS_CLUB_REJECTED = "rejected"
+SHOOTING_RANGE_SUBMISSION_PENDING = "pending"
+SHOOTING_RANGE_SUBMISSION_APPROVED = "approved"
+SHOOTING_RANGE_SUBMISSION_REJECTED = "rejected"
 CLUB_MEMBERSHIP_PENDING = "pending"
 CLUB_MEMBERSHIP_CONFIRMED = "confirmed"
 POLISH_VOIVODESHIPS = [
@@ -9181,6 +9194,175 @@ def send_admin_activation_email_test(
     return {
         "message": f"Testowa wiadomość została wysłana na {admin.email}",
     }
+
+
+def validate_shooting_range_submission(data: ShootingRangeSubmissionData):
+    name = normalize_text(data.name)
+    phone = normalize_optional_phone_number(data.phone)
+    website = normalize_text(data.website)
+    address = normalize_text(data.address)
+    latitude = data.latitude
+    longitude = data.longitude
+
+    if not name:
+        raise HTTPException(status_code=400, detail="Podaj nazwę strzelnicy")
+
+    if len(name) > 180:
+        raise HTTPException(status_code=400, detail="Nazwa strzelnicy jest za długa")
+
+    if not phone:
+        raise HTTPException(status_code=400, detail="Podaj poprawny numer telefonu")
+
+    if not website:
+        raise HTTPException(status_code=400, detail="Podaj stronę www lub link do mediów społecznościowych")
+
+    if len(website) > 300 or re.search(r"\s", website):
+        raise HTTPException(status_code=400, detail="Podaj poprawny link do strony lub mediów społecznościowych")
+
+    if len(address) > 500:
+        raise HTTPException(status_code=400, detail="Adres jest za długi")
+
+    has_latitude = latitude is not None
+    has_longitude = longitude is not None
+
+    if has_latitude != has_longitude:
+        raise HTTPException(status_code=400, detail="Zaznacz pełną lokalizację na mapie")
+
+    if latitude is not None and longitude is not None:
+        if not (
+            math.isfinite(latitude)
+            and math.isfinite(longitude)
+            and 48.5 <= latitude <= 55.2
+            and 13.5 <= longitude <= 24.6
+        ):
+            raise HTTPException(status_code=400, detail="Zaznacz lokalizację na terenie Polski")
+
+    if not address and (latitude is None or longitude is None):
+        raise HTTPException(
+            status_code=400,
+            detail="Podaj dokładny adres albo zaznacz lokalizację na mapie",
+        )
+
+    return {
+        "name": name,
+        "phone": phone,
+        "website": website,
+        "address": address,
+        "latitude": latitude,
+        "longitude": longitude,
+    }
+
+
+def public_shooting_range_submission(submission: ShootingRangeSubmission):
+    return {
+        "id": submission.id,
+        "name": submission.name,
+        "phone": submission.phone,
+        "website": submission.website,
+        "address": submission.address or "",
+        "latitude": submission.latitude,
+        "longitude": submission.longitude,
+        "status": submission.status,
+        "created_at": submission.created_at,
+        "reviewed_at": submission.reviewed_at or "",
+        "reviewed_by": submission.reviewed_by or "",
+    }
+
+
+@app.post("/shooting-range-submissions")
+def create_shooting_range_submission(
+    data: ShootingRangeSubmissionData,
+    db=Depends(get_db),
+):
+    values = validate_shooting_range_submission(data)
+    submission = ShootingRangeSubmission(
+        **values,
+        status=SHOOTING_RANGE_SUBMISSION_PENDING,
+        created_at=utc_now_iso(),
+    )
+
+    db.add(submission)
+    db.commit()
+    db.refresh(submission)
+
+    return public_shooting_range_submission(submission)
+
+
+@app.get("/shooting-range-submissions/approved")
+def get_approved_shooting_range_submissions(db=Depends(get_db)):
+    submissions = (
+        db.query(ShootingRangeSubmission)
+        .filter(ShootingRangeSubmission.status == SHOOTING_RANGE_SUBMISSION_APPROVED)
+        .order_by(ShootingRangeSubmission.id.asc())
+        .all()
+    )
+
+    return [public_shooting_range_submission(submission) for submission in submissions]
+
+
+@app.get("/admin/shooting-range-submissions")
+def admin_get_shooting_range_submissions(
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    submissions = (
+        db.query(ShootingRangeSubmission)
+        .order_by(
+            ShootingRangeSubmission.status.asc(),
+            ShootingRangeSubmission.id.desc(),
+        )
+        .all()
+    )
+
+    return [public_shooting_range_submission(submission) for submission in submissions]
+
+
+@app.put("/admin/shooting-range-submissions/{submission_id}/approve")
+def admin_approve_shooting_range_submission(
+    submission_id: int,
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    submission = (
+        db.query(ShootingRangeSubmission)
+        .filter(ShootingRangeSubmission.id == submission_id)
+        .first()
+    )
+
+    if not submission:
+        raise HTTPException(status_code=404, detail="Zgłoszenie strzelnicy nie istnieje")
+
+    submission.status = SHOOTING_RANGE_SUBMISSION_APPROVED
+    submission.reviewed_at = utc_now_iso()
+    submission.reviewed_by = admin.email
+    db.commit()
+    db.refresh(submission)
+
+    return public_shooting_range_submission(submission)
+
+
+@app.put("/admin/shooting-range-submissions/{submission_id}/reject")
+def admin_reject_shooting_range_submission(
+    submission_id: int,
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    submission = (
+        db.query(ShootingRangeSubmission)
+        .filter(ShootingRangeSubmission.id == submission_id)
+        .first()
+    )
+
+    if not submission:
+        raise HTTPException(status_code=404, detail="Zgłoszenie strzelnicy nie istnieje")
+
+    submission.status = SHOOTING_RANGE_SUBMISSION_REJECTED
+    submission.reviewed_at = utc_now_iso()
+    submission.reviewed_by = admin.email
+    db.commit()
+    db.refresh(submission)
+
+    return public_shooting_range_submission(submission)
 
 
 def public_pzss_club(user: User):

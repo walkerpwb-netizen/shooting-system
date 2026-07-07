@@ -293,6 +293,69 @@ class AdDailyStat(Base):
     )
 
 
+class ShootingRangeSubmission(Base):
+    __tablename__ = "shooting_range_submissions"
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True,
+    )
+
+    name = Column(
+        String,
+        nullable=False,
+    )
+
+    phone = Column(
+        String,
+        nullable=False,
+    )
+
+    website = Column(
+        String,
+        nullable=False,
+    )
+
+    address = Column(
+        Text,
+        nullable=True,
+    )
+
+    latitude = Column(
+        Float,
+        nullable=True,
+    )
+
+    longitude = Column(
+        Float,
+        nullable=True,
+    )
+
+    status = Column(
+        String,
+        default="pending",
+        index=True,
+        nullable=False,
+    )
+
+    created_at = Column(
+        String,
+        nullable=False,
+        index=True,
+    )
+
+    reviewed_at = Column(
+        String,
+        nullable=True,
+    )
+
+    reviewed_by = Column(
+        String,
+        nullable=True,
+    )
+
+
 class HomePost(Base):
     __tablename__ = "home_posts"
 
