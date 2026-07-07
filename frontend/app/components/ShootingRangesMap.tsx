@@ -8,7 +8,6 @@ import { MapContainer, Marker, Popup, TileLayer } from "react-leaflet";
 import { apiUrl } from "@/lib/api";
 import {
   getAuthSnapshot,
-  hasBetaTesterRole,
   subscribeToAuthChange,
 } from "@/lib/auth";
 import { notifyShootingRangeSubmissionsChange } from "@/lib/shootingRangeNotifications";
@@ -342,6 +341,7 @@ export default function ShootingRangesMap({
   const mapRef = useRef<L.Map | null>(null);
   const [layerMode, setLayerMode] = useState<MapLayerMode>("street");
   const [searchQuery, setSearchQuery] = useState("");
+  const [loginMessage, setLoginMessage] = useState("");
   const [submissionDialogOpen, setSubmissionDialogOpen] = useState(false);
   const [submissionInitialRange, setSubmissionInitialRange] = useState<ShootingRangeMapItem | null>(null);
   const [backendRanges, setBackendRanges] = useState<ShootingRangeMapItem[]>([]);
@@ -350,13 +350,8 @@ export default function ShootingRangesMap({
     getAuthSnapshot,
     () => ""
   );
-  const [, role, rolesText] = authSnapshot.split("|");
-  const roles = rolesText
-    ? rolesText.split(",").filter(Boolean)
-    : role
-      ? [role]
-      : [];
-  const isBetaTester = hasBetaTesterRole(roles);
+  const [token] = authSnapshot.split("|");
+  const isLoggedIn = Boolean(token);
   const currentRanges = backendRanges.length > 0 ? backendRanges : ranges;
   const normalizedSearchQuery = searchQuery.trim().toLowerCase();
   const mappedRanges = useMemo(
@@ -420,6 +415,12 @@ export default function ShootingRangesMap({
   }
 
   function openSubmissionDialog(range: ShootingRangeMapItem | null = null) {
+    if (!isLoggedIn) {
+      setLoginMessage("Musisz się zalogować, żeby dodać strzelnicę lub zgłosić zmianę danych.");
+      return;
+    }
+
+    setLoginMessage("");
     setSubmissionInitialRange(range);
     setSubmissionDialogOpen(true);
   }
@@ -429,31 +430,13 @@ export default function ShootingRangesMap({
     setSubmissionInitialRange(null);
   }
 
-  if (!isBetaTester) {
-    return (
-      <main className="flex min-h-[calc(100dvh-5rem)] items-center justify-center bg-zinc-950 px-6 py-12 text-white">
-        <section className="w-full max-w-xl rounded-xl border border-zinc-800 bg-zinc-900 p-6 text-center shadow-2xl">
-          <p className="mb-2 text-sm font-bold uppercase tracking-[0.24em] text-green-400">
-            Mapa strzelnic
-          </p>
-          <h1 className="mb-3 text-2xl font-black">
-            Brak dostępu
-          </h1>
-          <p className="text-sm leading-6 text-gray-300">
-            Ta mapa jest teraz dostępna tylko dla administratora albo moderatora.
-          </p>
-        </section>
-      </main>
-    );
-  }
-
   return (
     <main className="flex h-[calc(100dvh-5rem)] min-h-[620px] flex-col overflow-hidden bg-zinc-950 text-white">
       <section className="border-b border-zinc-800 bg-zinc-950 px-4 py-3 sm:px-6">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
             <p className="text-xs font-bold uppercase tracking-[0.24em] text-green-400">
-              Beta test
+              Publiczna mapa
             </p>
             <h1 className="truncate text-xl font-black sm:text-2xl">
               Mapa strzelnic
@@ -520,6 +503,20 @@ export default function ShootingRangesMap({
       </section>
 
       <section className="relative min-h-0 flex-1">
+        {loginMessage && (
+          <div className="absolute inset-x-4 top-4 z-[700] mx-auto flex max-w-xl items-start justify-between gap-4 rounded-xl border border-yellow-500/50 bg-yellow-500/95 p-4 text-sm font-bold leading-6 text-zinc-950 shadow-2xl">
+            <span>{loginMessage}</span>
+            <button
+              type="button"
+              onClick={() => setLoginMessage("")}
+              className="shrink-0 rounded-md px-2 text-lg leading-none hover:bg-yellow-300"
+              aria-label="Zamknij komunikat"
+            >
+              ×
+            </button>
+          </div>
+        )}
+
         <MapContainer
           ref={mapRef}
           center={defaultCenter}

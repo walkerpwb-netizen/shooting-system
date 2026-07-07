@@ -25,6 +25,11 @@ const staticRoutes = [
     changeFrequency: "hourly",
   },
   {
+    path: "/shooting-ranges/map",
+    priority: 0.8,
+    changeFrequency: "daily",
+  },
+  {
     path: "/kontakt",
     priority: 0.6,
     changeFrequency: "monthly",

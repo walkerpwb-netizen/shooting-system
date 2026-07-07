@@ -9311,7 +9311,7 @@ def shooting_range_submitter_name(user: Optional[User]):
 @app.post("/shooting-range-submissions")
 def create_shooting_range_submission(
     data: ShootingRangeSubmissionData,
-    user: Optional[User] = Depends(get_optional_current_user),
+    user: User = Depends(get_current_user),
     db=Depends(get_db),
 ):
     values = validate_shooting_range_submission(data)
