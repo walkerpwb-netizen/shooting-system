@@ -13,7 +13,7 @@ const ShootingRangesMap = dynamic(
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-800 bg-zinc-950 px-4 py-3 sm:px-6">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.24em] text-green-400">
-              Panel administratora
+              Beta test
             </p>
             <h1 className="text-xl font-black sm:text-2xl">
               Mapa strzelnic

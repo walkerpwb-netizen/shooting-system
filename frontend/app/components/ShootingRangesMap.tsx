@@ -6,6 +6,7 @@ import { MapContainer, Marker, Popup, TileLayer } from "react-leaflet";
 
 import {
   getAuthSnapshot,
+  hasBetaTesterRole,
   subscribeToAuthChange,
 } from "@/lib/auth";
 
@@ -96,7 +97,7 @@ export default function ShootingRangesMap({
     : role
       ? [role]
       : [];
-  const isAdmin = roles.includes("admin");
+  const isBetaTester = hasBetaTesterRole(roles);
   const mappedRanges = useMemo(
     () => ranges.filter(hasCoordinates),
     [ranges]
@@ -112,7 +113,7 @@ export default function ShootingRangesMap({
     mapRef.current?.zoomOut();
   }
 
-  if (!isAdmin) {
+  if (!isBetaTester) {
     return (
       <main className="flex min-h-[calc(100dvh-5rem)] items-center justify-center bg-zinc-950 px-6 py-12 text-white">
         <section className="w-full max-w-xl rounded-xl border border-zinc-800 bg-zinc-900 p-6 text-center shadow-2xl">
@@ -123,7 +124,7 @@ export default function ShootingRangesMap({
             Brak dostępu
           </h1>
           <p className="text-sm leading-6 text-gray-300">
-            Ta mapa jest teraz dostępna tylko dla administratora.
+            Ta mapa jest teraz dostępna tylko dla administratora albo moderatora.
           </p>
         </section>
       </main>
@@ -136,7 +137,7 @@ export default function ShootingRangesMap({
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
             <p className="text-xs font-bold uppercase tracking-[0.24em] text-green-400">
-              Panel administratora
+              Beta test
             </p>
             <h1 className="truncate text-xl font-black sm:text-2xl">
               Mapa strzelnic

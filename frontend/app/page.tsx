@@ -6,7 +6,7 @@ import { ChangeEvent, FormEvent, useEffect, useState, useSyncExternalStore } fro
 
 import TrackedAdSlot from "@/components/TrackedAdSlot";
 import { apiUrl } from "@/lib/api";
-import { authFetch, getAuthSnapshot, subscribeToAuthChange } from "@/lib/auth";
+import { authFetch, getAuthSnapshot, hasBetaTesterRole, subscribeToAuthChange } from "@/lib/auth";
 
 type FeatureKind =
   | "qr"
@@ -310,13 +310,17 @@ function AdminHomeStatsPanel({
   ];
 
   return (
-    <aside className="mt-7 w-full max-w-3xl rounded-2xl border border-emerald-300/25 bg-black/25 p-4 shadow-2xl backdrop-blur-sm sm:p-5">
+    <aside className="relative mt-7 w-full max-w-3xl rounded-2xl border border-emerald-300/25 bg-black/25 p-4 shadow-2xl backdrop-blur-sm sm:p-5">
+      <span className="absolute right-3 top-3 rounded-full border border-red-400/70 bg-red-500/15 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-red-100 shadow-[0_0_18px_rgba(248,113,113,0.85)]">
+        BETA TEST
+      </span>
+
       <div className="mb-4 flex flex-col gap-1 text-left sm:text-center">
         <p className="text-[10px] font-black uppercase tracking-[0.24em] text-emerald-300">
-          Panel administratora
+          Beta test
         </p>
         <p className="text-sm font-semibold text-emerald-50/80">
-          Statystyki widoczne tylko dla administratora. W przyszłości można przełączyć je na publiczne.
+          Statystyki widoczne tylko dla administratora i moderatora. W przyszłości można przełączyć je na publiczne.
         </p>
       </div>
 
@@ -372,12 +376,12 @@ export default function Home() {
   const authParts = authSnapshot.split("|");
   const roles = authParts[2]?.split(",").filter(Boolean) || [];
   const isLoggedIn = Boolean(authParts[3]);
-  const canAddPost = roles.includes("admin");
+  const canUseBetaFeatures = hasBetaTesterRole(roles);
 
   useEffect(() => {
     let active = true;
 
-    if (!canAddPost) {
+    if (!canUseBetaFeatures) {
       return () => {
         active = false;
       };
@@ -406,7 +410,7 @@ export default function Home() {
     return () => {
       active = false;
     };
-  }, [canAddPost]);
+  }, [canUseBetaFeatures]);
 
   useEffect(() => {
     let active = true;
@@ -762,7 +766,7 @@ export default function Home() {
                 className="mt-10 h-auto w-[280px] drop-shadow-[0_22px_40px_rgba(0,0,0,0.5)] sm:w-[360px] lg:w-[430px]"
               />
 
-              {canAddPost && (
+              {canUseBetaFeatures && (
                 <AdminHomeStatsPanel
                   stats={homeStats}
                   loading={!homeStats && !homeStatsMessage}
@@ -770,7 +774,7 @@ export default function Home() {
                 />
               )}
 
-              {canAddPost && (
+              {canUseBetaFeatures && (
                 <div className="mt-7 w-full max-w-2xl">
                   <button
                     type="button"
@@ -882,7 +886,7 @@ export default function Home() {
                         </div>
 
                         <div className="relative">
-                          {canAddPost && (
+                          {canUseBetaFeatures && (
                             <div className="absolute left-3 top-3 z-10 flex max-w-[calc(100%-1.5rem)] flex-col items-start gap-2 rounded-xl border border-emerald-300/40 bg-black/80 p-2 shadow-xl backdrop-blur-sm">
                               <input
                                 id={postImageInputId}
@@ -957,7 +961,7 @@ export default function Home() {
                     feature={feature}
                     screen={screen}
                     reversed={index % 2 === 1}
-                    canReplaceScreen={canAddPost}
+                    canReplaceScreen={canUseBetaFeatures}
                     replaceSaving={Boolean(screenUploadSaving[feature.kind])}
                     replaceMessage={screenUploadMessages[feature.kind] || ""}
                     onOpenScreen={setOpenedScreen}

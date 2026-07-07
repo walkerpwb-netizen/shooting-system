@@ -334,6 +334,14 @@ export function isAdmin() {
   return getStoredRoles().includes("admin");
 }
 
+export function hasBetaTesterRole(roles: string[]) {
+  return roles.includes("admin") || roles.includes("moderator");
+}
+
+export function isBetaTester() {
+  return hasBetaTesterRole(getStoredRoles());
+}
+
 export function isOrganizer() {
   const roles = getStoredRoles();
 

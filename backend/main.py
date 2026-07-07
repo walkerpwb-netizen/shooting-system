@@ -8213,6 +8213,18 @@ def get_current_admin(
     return user
 
 
+def get_current_beta_tester(
+    user: User = Depends(get_current_user)
+):
+    if not has_role(user, "admin") and not has_role(user, "moderator"):
+        raise HTTPException(
+            status_code=403,
+            detail="Brak uprawnień beta testera"
+        )
+
+    return user
+
+
 def get_current_organizer(
     user: User = Depends(get_current_user)
 ):
@@ -8867,7 +8879,7 @@ def get_home_screens():
 def create_home_post(
     description: str = Form(...),
     image: UploadFile = File(...),
-    admin: User = Depends(get_current_admin),
+    beta_user: User = Depends(get_current_beta_tester),
     db=Depends(get_db),
 ):
     normalized_description = description.strip()
@@ -8883,7 +8895,7 @@ def create_home_post(
         description=normalized_description,
         image_url=image_url,
         created_at=datetime.now(timezone.utc).isoformat(),
-        created_by=admin.email,
+        created_by=beta_user.email,
     )
 
     try:
@@ -8907,7 +8919,7 @@ def create_home_post(
 def replace_home_post_image(
     post_id: int,
     image: UploadFile = File(...),
-    admin: User = Depends(get_current_admin),
+    beta_user: User = Depends(get_current_beta_tester),
     db=Depends(get_db),
 ):
     post = db.query(HomePost).filter(HomePost.id == post_id).first()
@@ -8941,7 +8953,7 @@ def replace_home_post_image(
 def replace_home_screen(
     kind: str,
     image: UploadFile = File(...),
-    admin: User = Depends(get_current_admin),
+    beta_user: User = Depends(get_current_beta_tester),
 ):
     return save_home_screen_image(kind, image)
 
@@ -9220,7 +9232,7 @@ def admin_get_pzss_clubs(
 
 @app.get("/admin/home-stats")
 def admin_home_stats(
-    admin: User = Depends(get_current_admin),
+    beta_user: User = Depends(get_current_beta_tester),
     db=Depends(get_db),
 ):
     users_count = db.query(User).count()

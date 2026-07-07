@@ -13,6 +13,7 @@ import {
 import {
   authFetch,
   getAuthSnapshot,
+  hasBetaTesterRole,
   logoutSession,
   notifyAuthChange,
   restoreSession,
@@ -79,6 +80,14 @@ function isFutureRoleDate(value: string) {
   return !Number.isNaN(date.getTime()) && date >= today;
 }
 
+function BetaTestBadge() {
+  return (
+    <span className="rounded-full border border-red-400/70 bg-red-500/15 px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.16em] text-red-100 shadow-[0_0_16px_rgba(248,113,113,0.8)]">
+      BETA TEST
+    </span>
+  );
+}
+
 export default function Navbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [hasStartedCompetition, setHasStartedCompetition] = useState(false);
@@ -117,6 +126,7 @@ export default function Navbar() {
     : null;
   const isShooter = Boolean(user?.roles.includes("shooter"));
   const isAdmin = Boolean(user?.roles.includes("admin"));
+  const isBetaTester = Boolean(user && hasBetaTesterRole(user.roles));
   const isPzssClubAccount = user?.accountType === "pzss_club";
   const isVerifiedPzssClub = Boolean(
     isPzssClubAccount && user?.pzssClubStatus === "approved"
@@ -700,9 +710,12 @@ export default function Navbar() {
           </Link>
         )}
 
-        {isAdmin && (
+        {isBetaTester && (
           <Link href="/shooting-ranges/map">
-            Mapa strzelnic
+            <span className="inline-flex items-center gap-2">
+              <span>Mapa strzelnic</span>
+              <BetaTestBadge />
+            </span>
           </Link>
         )}
 
@@ -939,6 +952,17 @@ export default function Navbar() {
                 Pobierz Aplikację
               </Link>
 
+              {isBetaTester && (
+                <Link
+                  href="/shooting-ranges/map"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="flex items-center gap-2 py-3"
+                >
+                  <span>Mapa strzelnic</span>
+                  <BetaTestBadge />
+                </Link>
+              )}
+
               {isAdmin && (
                 <>
                   <Link
@@ -947,14 +971,6 @@ export default function Navbar() {
                     className="py-3"
                   >
                     Panel Administratora
-                  </Link>
-
-                  <Link
-                    href="/shooting-ranges/map"
-                    onClick={() => setMobileMenuOpen(false)}
-                    className="py-3"
-                  >
-                    Mapa strzelnic
                   </Link>
 
                   <div className="my-2 border-t border-green-800 pt-2 text-base text-green-100">
