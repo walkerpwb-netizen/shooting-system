@@ -3399,20 +3399,11 @@ export default function AdminClient({
               </div>
             </div>
 
-            <section className="overflow-x-auto rounded-2xl border border-zinc-800 bg-zinc-900">
-              <div className="min-w-[1680px]">
-                <div className="grid grid-cols-[60px_1.25fr_1fr_1fr_1fr_1fr_1.4fr_0.75fr_1.1fr] gap-4 border-b border-zinc-800 px-5 py-4 text-sm font-bold text-gray-400">
-                  <p>Nr</p>
-                  <p>Nazwa</p>
-                  <p>Zgłasza</p>
-                  <p>Kontakt</p>
-                  <p>Adres</p>
-                  <p>Lokalizacja</p>
-                  <p>Zmiany</p>
-                  <p>Status</p>
-                  <p>Akcje</p>
-                </div>
-
+            <section className="rounded-2xl border border-zinc-800 bg-zinc-900">
+              <div className="border-b border-zinc-800 px-5 py-4 text-sm font-bold text-gray-400">
+                Aktualne zgłoszenia
+              </div>
+              <div>
                 {visibleShootingRangeSubmissions.length === 0 ? (
                   <p className="px-5 py-6 text-gray-400">
                     Brak zgłoszeń strzelnic.
@@ -3430,107 +3421,112 @@ export default function AdminClient({
                   return (
                     <div
                       key={submission.id}
-                      className={`grid grid-cols-[60px_1.25fr_1fr_1fr_1fr_1fr_1.4fr_0.75fr_1.1fr] items-center gap-4 border-b border-zinc-800 px-5 py-4 last:border-b-0 ${
+                      className={`grid gap-5 border-b border-zinc-800 px-5 py-4 last:border-b-0 xl:grid-cols-[1fr_230px] ${
                         submission.status === "pending" ? "bg-yellow-950/20" : ""
                       }`}
                     >
-                      <p className="font-bold text-gray-300">
-                        {index + 1}
-                      </p>
-
-                      <div>
-                        <p className="font-bold text-white">
-                          {submission.name}
-                        </p>
-                        <p className="text-xs text-gray-500">
-                          ID {submission.id} • {formatDateTime(submission.created_at)}
-                        </p>
-                      </div>
-
-                      <div className="min-w-0 text-sm">
-                        <p className="truncate font-semibold text-gray-100">
-                          {submitterName}
-                        </p>
-                        {submitterEmail && (
-                          <p className="truncate text-xs text-gray-500">
-                            {submitterEmail}
+                      <div className="min-w-0 space-y-4">
+                        <div className="grid gap-4 lg:grid-cols-[70px_1.4fr_1fr_1fr_1fr]">
+                          <p className="font-bold text-gray-300">
+                            {index + 1}
                           </p>
-                        )}
-                      </div>
 
-                      <div className="space-y-1 text-sm">
-                        <a
-                          href={`tel:${submission.phone}`}
-                          className="block font-semibold text-green-300 underline-offset-4 hover:underline"
-                        >
-                          {submission.phone}
-                        </a>
-                        <a
-                          href={normalizeWebsiteUrl(submission.website)}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="block truncate text-blue-300 underline-offset-4 hover:underline"
-                        >
-                          {submission.website}
-                        </a>
-                      </div>
-
-                      <p className="text-sm text-gray-300">
-                        {submission.address || "brak adresu"}
-                      </p>
-
-                      <p className={hasCoordinates ? "text-sm text-gray-300" : "text-sm text-yellow-200"}>
-                        {hasCoordinates
-                          ? `${submission.latitude?.toFixed(6)}, ${submission.longitude?.toFixed(6)}`
-                          : "brak punktu mapy"}
-                      </p>
-
-                      <div className="space-y-1 text-xs leading-5">
-                        {!submission.source_range_id ? (
-                          <p className="font-semibold text-green-300">
-                            Nowa strzelnica
-                          </p>
-                        ) : !sourceRange ? (
-                          <p className="font-semibold text-yellow-200">
-                            Edycja wpisu, którego nie ma już na liście
-                          </p>
-                        ) : changes.length === 0 ? (
-                          <p className="text-gray-400">
-                            Brak zmian względem aktualnego wpisu
-                          </p>
-                        ) : (
-                          changes.map((change) => (
-                            <p key={change.label} className="text-gray-300">
-                              <span className="font-bold text-gray-100">
-                                {change.label}:
-                              </span>{" "}
-                              <span className="text-red-300">
-                                {change.before}
-                              </span>{" "}
-                              →{" "}
-                              <span className="text-green-300">
-                                {change.after}
-                              </span>
+                          <div className="min-w-0">
+                            <p className="font-bold text-white">
+                              {submission.name}
                             </p>
-                          ))
-                        )}
+                            <p className="text-xs text-gray-500">
+                              ID {submission.id} • {formatDateTime(submission.created_at)}
+                            </p>
+                          </div>
+
+                          <div className="min-w-0 text-sm">
+                            <p className="truncate font-semibold text-gray-100">
+                              {submitterName}
+                            </p>
+                            {submitterEmail && (
+                              <p className="truncate text-xs text-gray-500">
+                                {submitterEmail}
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="min-w-0 space-y-1 text-sm">
+                            <a
+                              href={`tel:${submission.phone}`}
+                              className="block font-semibold text-green-300 underline-offset-4 hover:underline"
+                            >
+                              {submission.phone}
+                            </a>
+                            <a
+                              href={normalizeWebsiteUrl(submission.website)}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="block truncate text-blue-300 underline-offset-4 hover:underline"
+                            >
+                              {submission.website}
+                            </a>
+                          </div>
+
+                          <div className="space-y-1 text-sm">
+                            <p className="text-gray-300">
+                              {submission.address || "brak adresu"}
+                            </p>
+                            <p className={hasCoordinates ? "text-gray-300" : "font-semibold text-yellow-200"}>
+                              {hasCoordinates
+                                ? `${submission.latitude?.toFixed(6)}, ${submission.longitude?.toFixed(6)}`
+                                : "brak punktu mapy"}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="space-y-1 rounded-xl border border-zinc-800 bg-zinc-950/40 px-4 py-3 text-xs leading-5">
+                          {!submission.source_range_id ? (
+                            <p className="font-semibold text-green-300">
+                              Nowa strzelnica
+                            </p>
+                          ) : !sourceRange ? (
+                            <p className="font-semibold text-yellow-200">
+                              Edycja wpisu, którego nie ma już na liście
+                            </p>
+                          ) : changes.length === 0 ? (
+                            <p className="text-gray-400">
+                              Brak zmian względem aktualnego wpisu
+                            </p>
+                          ) : (
+                            changes.map((change) => (
+                              <p key={change.label} className="text-gray-300">
+                                <span className="font-bold text-gray-100">
+                                  {change.label}:
+                                </span>{" "}
+                                <span className="text-red-300">
+                                  {change.before}
+                                </span>{" "}
+                                →{" "}
+                                <span className="text-green-300">
+                                  {change.after}
+                                </span>
+                              </p>
+                            ))
+                          )}
+                        </div>
                       </div>
 
-                      <p className={
-                        submission.status === "approved"
-                          ? "font-bold text-green-400"
-                          : submission.status === "rejected"
-                            ? "font-bold text-red-400"
-                            : "font-bold text-yellow-300"
-                      }>
-                        {submission.status === "approved"
-                          ? "zaakceptowane"
-                          : submission.status === "rejected"
-                            ? "odrzucone"
-                            : "oczekuje"}
-                      </p>
+                      <div className="flex flex-col items-start gap-3 xl:items-stretch">
+                        <p className={
+                          submission.status === "approved"
+                            ? "font-bold text-green-400"
+                            : submission.status === "rejected"
+                              ? "font-bold text-red-400"
+                              : "font-bold text-yellow-300"
+                        }>
+                          {submission.status === "approved"
+                            ? "zaakceptowane"
+                            : submission.status === "rejected"
+                              ? "odrzucone"
+                              : "oczekuje"}
+                        </p>
 
-                      <div className="flex flex-wrap gap-2">
                         <button
                           type="button"
                           onClick={() => openShootingRangeEditor({
