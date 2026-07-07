@@ -3,6 +3,7 @@ node_modules/
 venv/
 __pycache__/
 *.pyc
+*.tsbuildinfo
 .DS_Store
 .env
 backend/database.db
