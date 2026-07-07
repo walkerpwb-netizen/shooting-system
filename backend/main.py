@@ -23,6 +23,7 @@ from models import (
     AdDailyStat,
     AppSetting,
     HomePost,
+    ShootingRangeOverride,
     ShootingRangeSubmission,
     User,
     Competition,
@@ -9269,6 +9270,21 @@ def public_shooting_range_submission(submission: ShootingRangeSubmission):
     }
 
 
+def public_shooting_range_override(override: ShootingRangeOverride):
+    return {
+        "id": override.id,
+        "range_id": override.range_id,
+        "name": override.name,
+        "phone": override.phone,
+        "website": override.website,
+        "address": override.address or "",
+        "latitude": override.latitude,
+        "longitude": override.longitude,
+        "updated_at": override.updated_at,
+        "updated_by": override.updated_by,
+    }
+
+
 @app.post("/shooting-range-submissions")
 def create_shooting_range_submission(
     data: ShootingRangeSubmissionData,
@@ -9288,6 +9304,17 @@ def create_shooting_range_submission(
     return public_shooting_range_submission(submission)
 
 
+@app.get("/shooting-ranges/overrides")
+def get_shooting_range_overrides(db=Depends(get_db)):
+    overrides = (
+        db.query(ShootingRangeOverride)
+        .order_by(ShootingRangeOverride.range_id.asc())
+        .all()
+    )
+
+    return [public_shooting_range_override(override) for override in overrides]
+
+
 @app.get("/shooting-range-submissions/approved")
 def get_approved_shooting_range_submissions(db=Depends(get_db)):
     submissions = (
@@ -9298,6 +9325,49 @@ def get_approved_shooting_range_submissions(db=Depends(get_db)):
     )
 
     return [public_shooting_range_submission(submission) for submission in submissions]
+
+
+@app.put("/admin/shooting-ranges/base/{range_id}")
+def admin_update_base_shooting_range(
+    range_id: str,
+    data: ShootingRangeSubmissionData,
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    normalized_range_id = normalize_text(range_id)
+
+    if not re.match(r"^shooting-range-\d{3}$", normalized_range_id):
+        raise HTTPException(status_code=400, detail="Niepoprawny identyfikator strzelnicy")
+
+    values = validate_shooting_range_submission(data)
+    override = (
+        db.query(ShootingRangeOverride)
+        .filter(ShootingRangeOverride.range_id == normalized_range_id)
+        .first()
+    )
+
+    if not override:
+        override = ShootingRangeOverride(
+            range_id=normalized_range_id,
+            updated_at=utc_now_iso(),
+            updated_by=admin.email,
+            **values,
+        )
+        db.add(override)
+    else:
+        override.name = values["name"]
+        override.phone = values["phone"]
+        override.website = values["website"]
+        override.address = values["address"]
+        override.latitude = values["latitude"]
+        override.longitude = values["longitude"]
+        override.updated_at = utc_now_iso()
+        override.updated_by = admin.email
+
+    db.commit()
+    db.refresh(override)
+
+    return public_shooting_range_override(override)
 
 
 @app.get("/admin/shooting-range-submissions")
@@ -9315,6 +9385,37 @@ def admin_get_shooting_range_submissions(
     )
 
     return [public_shooting_range_submission(submission) for submission in submissions]
+
+
+@app.put("/admin/shooting-range-submissions/{submission_id}")
+def admin_update_shooting_range_submission(
+    submission_id: int,
+    data: ShootingRangeSubmissionData,
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    submission = (
+        db.query(ShootingRangeSubmission)
+        .filter(ShootingRangeSubmission.id == submission_id)
+        .first()
+    )
+
+    if not submission:
+        raise HTTPException(status_code=404, detail="Zgłoszenie strzelnicy nie istnieje")
+
+    values = validate_shooting_range_submission(data)
+    submission.name = values["name"]
+    submission.phone = values["phone"]
+    submission.website = values["website"]
+    submission.address = values["address"]
+    submission.latitude = values["latitude"]
+    submission.longitude = values["longitude"]
+    submission.reviewed_at = utc_now_iso()
+    submission.reviewed_by = admin.email
+    db.commit()
+    db.refresh(submission)
+
+    return public_shooting_range_submission(submission)
 
 
 @app.put("/admin/shooting-range-submissions/{submission_id}/approve")

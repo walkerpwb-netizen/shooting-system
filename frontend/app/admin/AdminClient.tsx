@@ -3,12 +3,13 @@
 import Image from "next/image";
 import Link from "next/link";
 import type { FormEvent } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { apiUrl } from "@/lib/api";
 import { getAccessToken, isAdmin } from "@/lib/auth";
 import { shootingRanges } from "@/app/shooting-ranges/map/shootingRangesData";
+import LeafletLocationPicker from "@/app/components/LeafletLocationPicker";
 import QrCodeScanner from "@/components/QrCodeScanner";
 
 type AdminTab = "users" | "pzss-clubs" | "competitions" | "shooting-ranges" | "settings" | "premium" | "ads" | "monitoring" | "qr-scanner" | "pdf-test" | "test-data";
@@ -113,6 +114,41 @@ type AdminShootingRangeSubmission = {
   created_at: string;
   reviewed_at: string;
   reviewed_by: string;
+};
+
+type AdminShootingRangeOverride = {
+  id: number;
+  range_id: string;
+  name: string;
+  phone: string;
+  website: string;
+  address: string;
+  latitude: number;
+  longitude: number;
+  updated_at: string;
+  updated_by: string;
+};
+
+type EditableShootingRange = {
+  id: string;
+  editType: "base" | "submission";
+  editId: string | number;
+  name: string;
+  phone: string;
+  website: string;
+  address: string;
+  latitude: number | null;
+  longitude: number | null;
+  source: string;
+};
+
+type ShootingRangeEditForm = {
+  name: string;
+  phone: string;
+  website: string;
+  address: string;
+  latitude: number | null;
+  longitude: number | null;
 };
 
 type MonitoringService = {
@@ -418,6 +454,7 @@ export default function AdminClient({
   const [clubLicenseInputs, setClubLicenseInputs] = useState<Record<number, string>>({});
   const [competitions, setCompetitions] = useState<AdminCompetition[]>([]);
   const [shootingRangeSubmissions, setShootingRangeSubmissions] = useState<AdminShootingRangeSubmission[]>([]);
+  const [shootingRangeOverrides, setShootingRangeOverrides] = useState<AdminShootingRangeOverride[]>([]);
   const [monitoring, setMonitoring] = useState<MonitoringData | null>(null);
   const [adReport, setAdReport] = useState<AdReportData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -462,6 +499,16 @@ export default function AdminClient({
   const [testOverwriteResults, setTestOverwriteResults] = useState(true);
   const [testWorking, setTestWorking] = useState(false);
   const [derivedCacheWorking, setDerivedCacheWorking] = useState(false);
+  const [editingShootingRange, setEditingShootingRange] = useState<EditableShootingRange | null>(null);
+  const [rangeEditForm, setRangeEditForm] = useState<ShootingRangeEditForm>({
+    name: "",
+    phone: "",
+    website: "",
+    address: "",
+    latitude: null,
+    longitude: null,
+  });
+  const [rangeEditSaving, setRangeEditSaving] = useState(false);
 
   useEffect(() => {
     if (!isAdmin()) {
@@ -479,7 +526,7 @@ export default function AdminClient({
 
     async function loadAdminData() {
       try {
-        const [usersResponse, pzssClubsResponse, competitionsResponse, shootingRangeSubmissionsResponse, tableSettingsResponse, uiSettingsResponse, profileSettingsResponse, premiumSettingsResponse, activationEmailResponse, monitoringResponse, adReportResponse] = await Promise.all([
+        const [usersResponse, pzssClubsResponse, competitionsResponse, shootingRangeSubmissionsResponse, shootingRangeOverridesResponse, tableSettingsResponse, uiSettingsResponse, profileSettingsResponse, premiumSettingsResponse, activationEmailResponse, monitoringResponse, adReportResponse] = await Promise.all([
           fetch(
             apiUrl("/admin/users"),
             {
@@ -510,6 +557,12 @@ export default function AdminClient({
               headers: {
                 Authorization: `Bearer ${token}`,
               },
+            }
+          ),
+          fetch(
+            apiUrl("/shooting-ranges/overrides"),
+            {
+              cache: "no-store",
             }
           ),
           fetch(
@@ -574,6 +627,7 @@ export default function AdminClient({
         const pzssClubsData = await pzssClubsResponse.json();
         const competitionsData = await competitionsResponse.json();
         const shootingRangeSubmissionsData = await shootingRangeSubmissionsResponse.json();
+        const shootingRangeOverridesData = await shootingRangeOverridesResponse.json();
         const tableSettingsData = await tableSettingsResponse.json();
         const uiSettingsData = await uiSettingsResponse.json();
         const profileSettingsData = await profileSettingsResponse.json();
@@ -603,6 +657,11 @@ export default function AdminClient({
 
         if (!shootingRangeSubmissionsResponse.ok) {
           setMessage(shootingRangeSubmissionsData.detail || "Nie udało się pobrać zgłoszeń strzelnic ❌");
+          return;
+        }
+
+        if (!shootingRangeOverridesResponse.ok) {
+          setMessage(shootingRangeOverridesData.detail || "Nie udało się pobrać edycji strzelnic ❌");
           return;
         }
 
@@ -648,6 +707,7 @@ export default function AdminClient({
         ));
         setCompetitions(competitionsData);
         setShootingRangeSubmissions(shootingRangeSubmissionsData);
+        setShootingRangeOverrides(shootingRangeOverridesData);
         setMonitoring(monitoringData);
         setAdReport(adReportData);
         setResultsTableSettings({
@@ -1304,6 +1364,96 @@ export default function AdminClient({
     } catch (error) {
       console.error(error);
       setMessage("Błąd połączenia z serwerem ❌");
+    }
+  }
+
+  function openShootingRangeEditor(range: EditableShootingRange) {
+    setEditingShootingRange(range);
+    setRangeEditForm({
+      name: range.name,
+      phone: range.phone,
+      website: range.website,
+      address: range.address,
+      latitude: range.latitude,
+      longitude: range.longitude,
+    });
+  }
+
+  function closeShootingRangeEditor() {
+    setEditingShootingRange(null);
+    setRangeEditSaving(false);
+  }
+
+  function updateRangeEditForm(values: Partial<ShootingRangeEditForm>) {
+    setRangeEditForm((currentForm) => ({
+      ...currentForm,
+      ...values,
+    }));
+  }
+
+  async function saveShootingRangeEdit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!editingShootingRange) {
+      return;
+    }
+
+    if (rangeEditForm.latitude === null || rangeEditForm.longitude === null) {
+      setMessage("Zaznacz lokalizację strzelnicy na mapie ❌");
+      return;
+    }
+
+    const token = getAccessToken();
+    const endpoint = editingShootingRange.editType === "base"
+      ? `/admin/shooting-ranges/base/${editingShootingRange.editId}`
+      : `/admin/shooting-range-submissions/${editingShootingRange.editId}`;
+
+    try {
+      setMessage("");
+      setRangeEditSaving(true);
+
+      const response = await fetch(
+        apiUrl(endpoint),
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(rangeEditForm),
+        }
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.detail || "Nie udało się zapisać strzelnicy ❌");
+        return;
+      }
+
+      if (editingShootingRange.editType === "base") {
+        setShootingRangeOverrides((currentOverrides) => {
+          const nextOverride = data as AdminShootingRangeOverride;
+          const exists = currentOverrides.some((override) => override.range_id === nextOverride.range_id);
+
+          return exists
+            ? currentOverrides.map((override) => (
+                override.range_id === nextOverride.range_id ? nextOverride : override
+              ))
+            : [...currentOverrides, nextOverride];
+        });
+      } else {
+        setShootingRangeSubmissions((currentSubmissions) => currentSubmissions.map((submission) => (
+          submission.id === editingShootingRange.editId ? data : submission
+        )));
+      }
+
+      setMessage("Strzelnica zapisana ✅");
+      closeShootingRangeEditor();
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    } finally {
+      setRangeEditSaving(false);
     }
   }
 
@@ -2311,30 +2461,45 @@ export default function AdminClient({
 
     return secondSubmission.id - firstSubmission.id;
   });
-  const currentMapRanges = [
-    ...shootingRanges.map((range) => ({
-      id: range.id,
-      name: range.name,
-      phone: range.phone || "",
-      website: range.website || "",
-      address: range.address || "",
-      latitude: range.latitude,
-      longitude: range.longitude,
-      source: "lista bazowa",
-    })),
-    ...shootingRangeSubmissions
-      .filter((submission) => submission.status === "approved")
-      .map((submission) => ({
-        id: `submission-${submission.id}`,
-        name: submission.name,
-        phone: submission.phone,
-        website: submission.website,
-        address: submission.address,
-        latitude: submission.latitude,
-        longitude: submission.longitude,
-        source: "zgłoszenie",
-      })),
-  ];
+  const shootingRangeOverridesById = useMemo(
+    () => new Map(shootingRangeOverrides.map((override) => [override.range_id, override])),
+    [shootingRangeOverrides]
+  );
+  const currentMapRanges: EditableShootingRange[] = useMemo(
+    () => [
+      ...shootingRanges.map((range) => {
+        const override = shootingRangeOverridesById.get(range.id);
+
+        return {
+          id: range.id,
+          editType: "base" as const,
+          editId: range.id,
+          name: override?.name || range.name,
+          phone: override?.phone || range.phone || "",
+          website: override?.website || range.website || "",
+          address: override?.address || range.address || "",
+          latitude: override?.latitude ?? range.latitude,
+          longitude: override?.longitude ?? range.longitude,
+          source: override ? "lista bazowa, edytowane" : "lista bazowa",
+        };
+      }),
+      ...shootingRangeSubmissions
+        .filter((submission) => submission.status === "approved")
+        .map((submission) => ({
+          id: `submission-${submission.id}`,
+          editType: "submission" as const,
+          editId: submission.id,
+          name: submission.name,
+          phone: submission.phone,
+          website: submission.website,
+          address: submission.address,
+          latitude: submission.latitude,
+          longitude: submission.longitude,
+          source: "zgłoszenie",
+        })),
+    ],
+    [shootingRangeOverridesById, shootingRangeSubmissions]
+  );
 
   function renderPremiumPackage(
     packageType: keyof PremiumSettings,
@@ -3209,6 +3374,25 @@ export default function AdminClient({
                       <div className="flex flex-wrap gap-2">
                         <button
                           type="button"
+                          onClick={() => openShootingRangeEditor({
+                            id: `submission-${submission.id}`,
+                            editType: "submission",
+                            editId: submission.id,
+                            name: submission.name,
+                            phone: submission.phone,
+                            website: submission.website,
+                            address: submission.address,
+                            latitude: submission.latitude,
+                            longitude: submission.longitude,
+                            source: "zgłoszenie",
+                          })}
+                          className="rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-blue-600"
+                        >
+                          Edytuj
+                        </button>
+
+                        <button
+                          type="button"
                           onClick={() => updateShootingRangeSubmissionStatus(submission.id, "approve")}
                           disabled={submission.status === "approved"}
                           className="rounded-lg bg-green-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-green-600 disabled:cursor-not-allowed disabled:bg-zinc-700"
@@ -3232,20 +3416,21 @@ export default function AdminClient({
             </section>
 
             <section className="overflow-x-auto rounded-2xl border border-zinc-800 bg-zinc-900">
-              <div className="min-w-[1120px]">
-                <div className="grid grid-cols-[70px_1.5fr_1fr_1fr_1.1fr_0.9fr] gap-4 border-b border-zinc-800 px-5 py-4 text-sm font-bold text-gray-400">
+              <div className="min-w-[1240px]">
+                <div className="grid grid-cols-[70px_1.5fr_1fr_1fr_1.1fr_0.9fr_0.8fr] gap-4 border-b border-zinc-800 px-5 py-4 text-sm font-bold text-gray-400">
                   <p>Nr</p>
                   <p>Nazwa</p>
                   <p>Telefon</p>
                   <p>WWW</p>
                   <p>Współrzędne</p>
                   <p>Źródło</p>
+                  <p>Akcje</p>
                 </div>
 
                 {currentMapRanges.map((range, index) => (
                   <div
                     key={range.id}
-                    className="grid grid-cols-[70px_1.5fr_1fr_1fr_1.1fr_0.9fr] items-center gap-4 border-b border-zinc-800 px-5 py-3 text-sm last:border-b-0"
+                    className="grid grid-cols-[70px_1.5fr_1fr_1fr_1.1fr_0.9fr_0.8fr] items-center gap-4 border-b border-zinc-800 px-5 py-3 text-sm last:border-b-0"
                   >
                     <p className="font-bold text-gray-300">
                       {index + 1}
@@ -3267,6 +3452,13 @@ export default function AdminClient({
                     <p className="text-gray-400">
                       {range.source}
                     </p>
+                    <button
+                      type="button"
+                      onClick={() => openShootingRangeEditor(range)}
+                      className="w-fit rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-blue-600"
+                    >
+                      Edytuj
+                    </button>
                   </div>
                 ))}
               </div>
@@ -4547,8 +4739,120 @@ export default function AdminClient({
               </section>
             </div>
           </section>
-        )}
-      </div>
+      )}
+    </div>
+
+      {editingShootingRange && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-6">
+          <div className="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-zinc-700 bg-zinc-950 shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-zinc-800 px-6 py-5">
+              <div>
+                <p className="text-sm font-bold uppercase tracking-wide text-green-400">
+                  Edycja strzelnicy
+                </p>
+
+                <h2 className="mt-1 text-2xl font-black text-white">
+                  {editingShootingRange.name}
+                </h2>
+
+                <p className="mt-1 text-sm text-gray-400">
+                  Źródło: {editingShootingRange.source}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={closeShootingRangeEditor}
+                className="ui-button rounded-xl bg-zinc-800 px-4 py-2 font-bold text-white transition hover:bg-zinc-700"
+              >
+                Zamknij
+              </button>
+            </div>
+
+            <form
+              onSubmit={saveShootingRangeEdit}
+              className="min-h-0 overflow-y-auto px-6 py-5"
+            >
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="block md:col-span-2">
+                  <span className="mb-2 block font-semibold text-white">
+                    Nazwa
+                  </span>
+                  <input
+                    required
+                    value={rangeEditForm.name}
+                    onChange={(event) => updateRangeEditForm({ name: event.target.value })}
+                    className="w-full rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-white placeholder:text-gray-500"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-2 block font-semibold text-white">
+                    Telefon
+                  </span>
+                  <input
+                    required
+                    value={rangeEditForm.phone}
+                    onChange={(event) => updateRangeEditForm({ phone: event.target.value })}
+                    className="w-full rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-white placeholder:text-gray-500"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-2 block font-semibold text-white">
+                    WWW lub social media
+                  </span>
+                  <input
+                    required
+                    value={rangeEditForm.website}
+                    onChange={(event) => updateRangeEditForm({ website: event.target.value })}
+                    className="w-full rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-white placeholder:text-gray-500"
+                  />
+                </label>
+              </div>
+
+              <div className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
+                <div className="mb-3 flex flex-col gap-1">
+                  <p className="font-bold text-white">
+                    Lokalizacja
+                  </p>
+                  <p className={rangeEditForm.latitude !== null && rangeEditForm.longitude !== null ? "text-sm text-gray-400" : "text-sm font-semibold text-yellow-200"}>
+                    {rangeEditForm.latitude !== null && rangeEditForm.longitude !== null
+                      ? `${rangeEditForm.latitude.toFixed(6)}, ${rangeEditForm.longitude.toFixed(6)}`
+                      : "Kliknij punkt na mapie"}
+                  </p>
+                </div>
+
+                <div className="h-[420px] overflow-hidden rounded-xl border border-zinc-700">
+                  <LeafletLocationPicker
+                    latitude={rangeEditForm.latitude}
+                    longitude={rangeEditForm.longitude}
+                    onChange={(location) => updateRangeEditForm(location)}
+                  />
+                </div>
+              </div>
+
+              <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={closeShootingRangeEditor}
+                  className="rounded-xl border border-zinc-700 px-5 py-3 font-bold text-gray-200 transition hover:bg-zinc-900"
+                >
+                  Anuluj
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={rangeEditSaving}
+                  className="rounded-xl bg-green-700 px-5 py-3 font-bold text-white transition hover:bg-green-600 disabled:cursor-not-allowed disabled:bg-zinc-700"
+                >
+                  {rangeEditSaving ? "Zapisuję..." : "Zapisz zmiany"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {selectedUserInfo && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-6">

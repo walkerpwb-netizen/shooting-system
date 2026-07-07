@@ -356,6 +356,63 @@ class ShootingRangeSubmission(Base):
     )
 
 
+class ShootingRangeOverride(Base):
+    __tablename__ = "shooting_range_overrides"
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True,
+    )
+
+    range_id = Column(
+        String,
+        unique=True,
+        index=True,
+        nullable=False,
+    )
+
+    name = Column(
+        String,
+        nullable=False,
+    )
+
+    phone = Column(
+        String,
+        nullable=False,
+    )
+
+    website = Column(
+        String,
+        nullable=False,
+    )
+
+    address = Column(
+        Text,
+        nullable=True,
+    )
+
+    latitude = Column(
+        Float,
+        nullable=False,
+    )
+
+    longitude = Column(
+        Float,
+        nullable=False,
+    )
+
+    updated_at = Column(
+        String,
+        nullable=False,
+    )
+
+    updated_by = Column(
+        String,
+        nullable=False,
+    )
+
+
 class HomePost(Base):
     __tablename__ = "home_posts"
 
