@@ -9259,6 +9259,9 @@ def public_shooting_range_submission(submission: ShootingRangeSubmission):
     return {
         "id": submission.id,
         "source_range_id": submission.source_range_id or "",
+        "submitted_by_user_id": submission.submitted_by_user_id,
+        "submitted_by_email": submission.submitted_by_email or "",
+        "submitted_by_name": submission.submitted_by_name or "",
         "name": submission.name,
         "phone": submission.phone,
         "website": submission.website,
@@ -9292,15 +9295,32 @@ def normalize_shooting_range_source_id(value: str):
     return normalize_text(value)[:120]
 
 
+def shooting_range_submitter_name(user: Optional[User]):
+    if not user:
+        return ""
+
+    name = normalize_text(f"{user.first_name or ''} {user.last_name or ''}")
+    return (
+        name
+        or normalize_text(getattr(user, "organizer_name", "") or "")
+        or normalize_text(getattr(user, "club", "") or "")
+        or user.email
+    )
+
+
 @app.post("/shooting-range-submissions")
 def create_shooting_range_submission(
     data: ShootingRangeSubmissionData,
+    user: Optional[User] = Depends(get_optional_current_user),
     db=Depends(get_db),
 ):
     values = validate_shooting_range_submission(data)
     submission = ShootingRangeSubmission(
         **values,
         source_range_id=normalize_shooting_range_source_id(data.source_range_id),
+        submitted_by_user_id=user.id if user else None,
+        submitted_by_email=user.email if user else "",
+        submitted_by_name=shooting_range_submitter_name(user),
         status=SHOOTING_RANGE_SUBMISSION_PENDING,
         created_at=utc_now_iso(),
     )

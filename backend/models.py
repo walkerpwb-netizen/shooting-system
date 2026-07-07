@@ -338,6 +338,22 @@ class ShootingRangeSubmission(Base):
         index=True,
     )
 
+    submitted_by_user_id = Column(
+        Integer,
+        nullable=True,
+        index=True,
+    )
+
+    submitted_by_email = Column(
+        String,
+        nullable=True,
+    )
+
+    submitted_by_name = Column(
+        String,
+        nullable=True,
+    )
+
     status = Column(
         String,
         default="pending",

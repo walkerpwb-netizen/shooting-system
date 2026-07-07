@@ -173,10 +173,12 @@ function ShootingRangeSubmissionDialog({
 
     try {
       setSubmitting(true);
+      const token = getAuthSnapshot().split("|")[0];
       const response = await fetch(apiUrl("/shooting-range-submissions"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify(form),
       });
@@ -337,6 +339,7 @@ export default function ShootingRangesMap({
 }: ShootingRangesMapProps) {
   const mapRef = useRef<L.Map | null>(null);
   const [layerMode, setLayerMode] = useState<MapLayerMode>("street");
+  const [searchQuery, setSearchQuery] = useState("");
   const [submissionDialogOpen, setSubmissionDialogOpen] = useState(false);
   const [submissionInitialRange, setSubmissionInitialRange] = useState<ShootingRangeMapItem | null>(null);
   const [backendRanges, setBackendRanges] = useState<ShootingRangeMapItem[]>([]);
@@ -353,9 +356,23 @@ export default function ShootingRangesMap({
       : [];
   const isBetaTester = hasBetaTesterRole(roles);
   const currentRanges = backendRanges.length > 0 ? backendRanges : ranges;
+  const normalizedSearchQuery = searchQuery.trim().toLowerCase();
   const mappedRanges = useMemo(
-    () => currentRanges.filter(hasCoordinates),
-    [currentRanges]
+    () => currentRanges
+      .filter(hasCoordinates)
+      .filter((range) => {
+        if (!normalizedSearchQuery) {
+          return true;
+        }
+
+        return [
+          range.name,
+          range.address || "",
+          range.phone || "",
+          range.website || "",
+        ].some((value) => value.toLowerCase().includes(normalizedSearchQuery));
+      }),
+    [currentRanges, normalizedSearchQuery]
   );
   const rangeIcon = useMemo(() => createRangeIcon(), []);
   const activeLayer = mapLayers[layerMode];
@@ -442,6 +459,14 @@ export default function ShootingRangesMap({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            <input
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              className="h-11 min-w-0 rounded-lg border border-zinc-700 bg-zinc-900 px-4 text-sm font-semibold text-white outline-none placeholder:text-gray-500 focus:border-green-600 sm:w-72"
+              placeholder="Szukaj strzelnicy"
+              type="search"
+            />
+
             <div className="flex overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900">
               <button
                 type="button"
@@ -567,8 +592,9 @@ export default function ShootingRangesMap({
 
         {mappedRanges.length === 0 && (
           <div className="pointer-events-none absolute inset-x-4 top-4 z-[500] mx-auto max-w-xl rounded-xl border border-zinc-700 bg-zinc-950/90 p-4 text-sm font-semibold leading-6 text-gray-200 shadow-2xl backdrop-blur">
-            Brak zaimportowanej oficjalnej listy zarejestrowanych strzelnic.
-            Punkty dodamy po potwierdzeniu źródła danych.
+            {normalizedSearchQuery
+              ? "Brak strzelnic pasujących do filtra."
+              : "Brak zaimportowanej oficjalnej listy zarejestrowanych strzelnic. Punkty dodamy po potwierdzeniu źródła danych."}
           </div>
         )}
       </section>

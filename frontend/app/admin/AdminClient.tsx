@@ -104,6 +104,9 @@ type AdminCompetition = {
 type AdminShootingRangeSubmission = {
   id: number;
   source_range_id: string;
+  submitted_by_user_id: number | null;
+  submitted_by_email: string;
+  submitted_by_name: string;
   name: string;
   phone: string;
   website: string;
@@ -127,6 +130,12 @@ type AdminShootingRange = {
   longitude: number;
   updated_at: string;
   updated_by: string;
+};
+
+type ShootingRangeChange = {
+  label: string;
+  before: string;
+  after: string;
 };
 
 type EditableShootingRange = {
@@ -439,6 +448,52 @@ function normalizeWebsiteUrl(website: string) {
   }
 
   return `https://${trimmedWebsite}`;
+}
+
+function displayRangeValue(value: string | number | null | undefined) {
+  if (value === null || value === undefined || value === "") {
+    return "brak";
+  }
+
+  if (typeof value === "number") {
+    return value.toFixed(6);
+  }
+
+  return value;
+}
+
+function rangeValueChanged(before: string | number | null | undefined, after: string | number | null | undefined) {
+  return displayRangeValue(before) !== displayRangeValue(after);
+}
+
+function getShootingRangeChanges(
+  submission: AdminShootingRangeSubmission,
+  sourceRange: AdminShootingRange | undefined
+): ShootingRangeChange[] {
+  if (!submission.source_range_id || !sourceRange) {
+    return [];
+  }
+
+  const fields: Array<{
+    label: string;
+    before: string | number | null | undefined;
+    after: string | number | null | undefined;
+  }> = [
+    { label: "Nazwa", before: sourceRange.name, after: submission.name },
+    { label: "Telefon", before: sourceRange.phone, after: submission.phone },
+    { label: "WWW", before: sourceRange.website, after: submission.website },
+    { label: "Adres", before: sourceRange.address, after: submission.address },
+    { label: "Szer.", before: sourceRange.latitude, after: submission.latitude },
+    { label: "Dł.", before: sourceRange.longitude, after: submission.longitude },
+  ];
+
+  return fields
+    .filter((field) => rangeValueChanged(field.before, field.after))
+    .map((field) => ({
+      label: field.label,
+      before: displayRangeValue(field.before),
+      after: displayRangeValue(field.after),
+    }));
 }
 
 type AdminClientProps = {
@@ -2513,6 +2568,10 @@ export default function AdminClient({
   const pendingShootingRangeSubmissions = shootingRangeSubmissions.filter(
     (submission) => submission.status === "pending"
   );
+  const shootingRangesById = useMemo(
+    () => new Map(shootingRanges.map((range) => [range.range_id, range])),
+    [shootingRanges]
+  );
   const visibleShootingRangeSubmissions = shootingRangeSubmissions
     .sort((firstSubmission, secondSubmission) => {
     const statusRank = {
@@ -3337,13 +3396,15 @@ export default function AdminClient({
             </div>
 
             <section className="overflow-x-auto rounded-2xl border border-zinc-800 bg-zinc-900">
-              <div className="min-w-[1180px]">
-                <div className="grid grid-cols-[70px_1.4fr_1fr_1fr_1.1fr_0.8fr_1.2fr] gap-4 border-b border-zinc-800 px-5 py-4 text-sm font-bold text-gray-400">
+              <div className="min-w-[1680px]">
+                <div className="grid grid-cols-[60px_1.25fr_1fr_1fr_1fr_1fr_1.4fr_0.75fr_1.1fr] gap-4 border-b border-zinc-800 px-5 py-4 text-sm font-bold text-gray-400">
                   <p>Nr</p>
                   <p>Nazwa</p>
+                  <p>Zgłasza</p>
                   <p>Kontakt</p>
                   <p>Adres</p>
                   <p>Lokalizacja</p>
+                  <p>Zmiany</p>
                   <p>Status</p>
                   <p>Akcje</p>
                 </div>
@@ -3354,11 +3415,18 @@ export default function AdminClient({
                   </p>
                 ) : visibleShootingRangeSubmissions.map((submission, index) => {
                   const hasCoordinates = submission.latitude !== null && submission.longitude !== null;
+                  const sourceRange = shootingRangesById.get(submission.source_range_id);
+                  const changes = getShootingRangeChanges(submission, sourceRange);
+                  const submitterName = submission.submitted_by_name || submission.submitted_by_email || "Gość / niezalogowany";
+                  const submitterEmail = submission.submitted_by_email
+                    && submission.submitted_by_email !== submission.submitted_by_name
+                    ? submission.submitted_by_email
+                    : "";
 
                   return (
                     <div
                       key={submission.id}
-                      className={`grid grid-cols-[70px_1.4fr_1fr_1fr_1.1fr_0.8fr_1.2fr] items-center gap-4 border-b border-zinc-800 px-5 py-4 last:border-b-0 ${
+                      className={`grid grid-cols-[60px_1.25fr_1fr_1fr_1fr_1fr_1.4fr_0.75fr_1.1fr] items-center gap-4 border-b border-zinc-800 px-5 py-4 last:border-b-0 ${
                         submission.status === "pending" ? "bg-yellow-950/20" : ""
                       }`}
                     >
@@ -3373,6 +3441,17 @@ export default function AdminClient({
                         <p className="text-xs text-gray-500">
                           ID {submission.id} • {formatDateTime(submission.created_at)}
                         </p>
+                      </div>
+
+                      <div className="min-w-0 text-sm">
+                        <p className="truncate font-semibold text-gray-100">
+                          {submitterName}
+                        </p>
+                        {submitterEmail && (
+                          <p className="truncate text-xs text-gray-500">
+                            {submitterEmail}
+                          </p>
+                        )}
                       </div>
 
                       <div className="space-y-1 text-sm">
@@ -3401,6 +3480,37 @@ export default function AdminClient({
                           ? `${submission.latitude?.toFixed(6)}, ${submission.longitude?.toFixed(6)}`
                           : "brak punktu mapy"}
                       </p>
+
+                      <div className="space-y-1 text-xs leading-5">
+                        {!submission.source_range_id ? (
+                          <p className="font-semibold text-green-300">
+                            Nowa strzelnica
+                          </p>
+                        ) : !sourceRange ? (
+                          <p className="font-semibold text-yellow-200">
+                            Edycja wpisu, którego nie ma już na liście
+                          </p>
+                        ) : changes.length === 0 ? (
+                          <p className="text-gray-400">
+                            Brak zmian względem aktualnego wpisu
+                          </p>
+                        ) : (
+                          changes.map((change) => (
+                            <p key={change.label} className="text-gray-300">
+                              <span className="font-bold text-gray-100">
+                                {change.label}:
+                              </span>{" "}
+                              <span className="text-red-300">
+                                {change.before}
+                              </span>{" "}
+                              →{" "}
+                              <span className="text-green-300">
+                                {change.after}
+                              </span>
+                            </p>
+                          ))
+                        )}
+                      </div>
 
                       <p className={
                         submission.status === "approved"
