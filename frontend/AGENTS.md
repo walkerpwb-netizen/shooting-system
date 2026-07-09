@@ -17,5 +17,7 @@ Do not run the production deploy script manually in parallel with the GitHub Act
 
 For frontend changes, run the same checks that CI runs before committing: `npm run lint` and `npm run build` from `frontend/`. A local production deploy may also build the frontend, but it does not replace verifying the GitHub Actions result after the push.
 
+When checking backend Python files on this server, use `python3`; the `python` command is not available.
+
 If GitHub Actions fails, inspect the failed job, fix the cause, push a follow-up commit, and monitor the new run. If logs are not accessible, report the inaccessible logs and at least identify the failing job and step from the available Actions summary.
 <!-- END:nextjs-agent-rules -->
