@@ -38,6 +38,7 @@ type Competition = {
   club_discount_enabled: boolean;
   club_discount_scope: "competition" | "discipline";
   club_discount_amount: string;
+  club_discount_clubs: string;
   status: string;
   disciplines_count: number;
   shooters_count: number;
@@ -521,6 +522,7 @@ export default function OrganizerPage() {
   const [clubDiscountEnabled, setClubDiscountEnabled] = useState(false);
   const [clubDiscountScope, setClubDiscountScope] = useState<"competition" | "discipline">("competition");
   const [clubDiscountAmount, setClubDiscountAmount] = useState("");
+  const [clubDiscountClubs, setClubDiscountClubs] = useState("");
   const [message, setMessage] = useState("");
   const [premiumPublicationDialog, setPremiumPublicationDialog] = useState("");
   const [disciplines, setDisciplines] = useState<Discipline[]>([]);
@@ -611,6 +613,7 @@ export default function OrganizerPage() {
     setClubDiscountEnabled(false);
     setClubDiscountScope("competition");
     setClubDiscountAmount("");
+    setClubDiscountClubs("");
     setDisciplines([]);
     setEditingCompetitionId(null);
     setEditingCompetitionStatus("");
@@ -1065,6 +1068,7 @@ export default function OrganizerPage() {
           : "competition"
       );
       setClubDiscountAmount(competitionDetails.club_discount_amount || "");
+      setClubDiscountClubs(competitionDetails.club_discount_clubs || "");
       setParticipantLimit(
         competitionDetails.participant_limit
           ? String(competitionDetails.participant_limit)
@@ -1360,6 +1364,10 @@ export default function OrganizerPage() {
       return "competition-club-discount-amount";
     }
 
+    if (clubDiscountEnabled && !hasText(clubDiscountClubs)) {
+      return "competition-club-discount-clubs";
+    }
+
     for (let index = 0; index < disciplines.length; index += 1) {
       const discipline = disciplines[index];
       const clayDiscipline = isClayDiscipline(discipline);
@@ -1509,6 +1517,9 @@ export default function OrganizerPage() {
             club_discount_scope: clubDiscountScope,
             club_discount_amount: clubDiscountEnabled
               ? clubDiscountAmount
+              : "",
+            club_discount_clubs: clubDiscountEnabled
+              ? clubDiscountClubs
               : "",
           }),
         }
@@ -1998,64 +2009,82 @@ export default function OrganizerPage() {
                       if (!event.target.checked) {
                         setClubDiscountScope("competition");
                         setClubDiscountAmount("");
+                        setClubDiscountClubs("");
                       }
                     }}
                     className="mt-1 h-5 w-5"
                   />
                   <span>
-                    <span className="block">Zniżka klubowa dla klubowiczów organizatora</span>
+                    <span className="block">Zniżka klubowa dla wybranych klubów</span>
                     <span className="mt-1 block text-sm font-normal text-gray-400">
-                      Jeśli klub zawodnika jest taki sam jak nazwa organizatora zawodów, system naliczy zniżkę.
+                      Wpisz nazwę klubu lub kilka klubów po przecinku, dla których system naliczy zniżkę.
                     </span>
                   </span>
                 </label>
 
                 {clubDiscountEnabled && (
-                  <div className="mt-4 grid gap-4 md:grid-cols-[minmax(0,1fr)_220px]">
-                    <fieldset className="rounded-xl border border-zinc-700 bg-zinc-900/60 p-4">
-                      <legend className="px-2 text-sm font-bold text-gray-200">
-                        Sposób naliczania
-                      </legend>
-                      <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-                        <label className="flex items-center gap-2 font-semibold text-gray-200">
-                          <input
-                            type="radio"
-                            name="club-discount-scope"
-                            checked={clubDiscountScope === "competition"}
-                            onChange={() => setClubDiscountScope("competition")}
-                            className="h-5 w-5"
-                          />
-                          Za całe zawody
-                        </label>
-                        <label className="flex items-center gap-2 font-semibold text-gray-200">
-                          <input
-                            type="radio"
-                            name="club-discount-scope"
-                            checked={clubDiscountScope === "discipline"}
-                            onChange={() => setClubDiscountScope("discipline")}
-                            className="h-5 w-5"
-                          />
-                          Za każdą konkurencję
-                        </label>
-                      </div>
-                    </fieldset>
-
+                  <div className="mt-4 space-y-4">
                     <label className="block">
                       <span className="mb-2 block text-sm font-bold text-gray-200">
-                        Kwota zniżki *
+                        Kluby objęte zniżką *
                       </span>
                       <input
-                        id="competition-club-discount-amount"
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        placeholder="np. 10"
-                        value={clubDiscountAmount}
-                        onChange={(event) => setClubDiscountAmount(event.target.value)}
-                        aria-invalid={!isPositiveNumber(clubDiscountAmount)}
-                        className={requiredFieldClass(isPositiveNumber(clubDiscountAmount))}
+                        id="competition-club-discount-clubs"
+                        type="text"
+                        placeholder="np. KŻR Warka, Klub Strzelecki Alfa"
+                        value={clubDiscountClubs}
+                        onChange={(event) => setClubDiscountClubs(event.target.value)}
+                        aria-invalid={!hasText(clubDiscountClubs)}
+                        className={requiredFieldClass(hasText(clubDiscountClubs))}
                       />
                     </label>
+
+                    <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_220px]">
+                      <fieldset className="rounded-xl border border-zinc-700 bg-zinc-900/60 p-4">
+                        <legend className="px-2 text-sm font-bold text-gray-200">
+                          Sposób naliczania
+                        </legend>
+                        <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+                          <label className="flex items-center gap-2 font-semibold text-gray-200">
+                            <input
+                              type="radio"
+                              name="club-discount-scope"
+                              checked={clubDiscountScope === "competition"}
+                              onChange={() => setClubDiscountScope("competition")}
+                              className="h-5 w-5"
+                            />
+                            Za całe zawody
+                          </label>
+                          <label className="flex items-center gap-2 font-semibold text-gray-200">
+                            <input
+                              type="radio"
+                              name="club-discount-scope"
+                              checked={clubDiscountScope === "discipline"}
+                              onChange={() => setClubDiscountScope("discipline")}
+                              className="h-5 w-5"
+                            />
+                            Za każdą konkurencję
+                          </label>
+                        </div>
+                      </fieldset>
+
+                      <label className="block">
+                        <span className="mb-2 block text-sm font-bold text-gray-200">
+                          Kwota zniżki *
+                        </span>
+                        <input
+                          id="competition-club-discount-amount"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          placeholder="np. 10"
+                          value={clubDiscountAmount}
+                          onChange={(event) => setClubDiscountAmount(event.target.value)}
+                          aria-invalid={!isPositiveNumber(clubDiscountAmount)}
+                          className={requiredFieldClass(isPositiveNumber(clubDiscountAmount))}
+                        />
+                      </label>
+                    </div>
                   </div>
                 )}
               </section>

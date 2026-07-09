@@ -57,6 +57,7 @@ type Competition = {
   club_discount_enabled?: boolean;
   club_discount_scope?: "competition" | "discipline";
   club_discount_amount?: string;
+  club_discount_clubs?: string;
   participants: Participant[];
   disciplines: Discipline[];
 };
@@ -338,6 +339,7 @@ export default async function CompetitionPage({
           clubDiscountEnabled={Boolean(competition.club_discount_enabled)}
           clubDiscountScope={competition.club_discount_scope === "discipline" ? "discipline" : "competition"}
           clubDiscountAmount={competition.club_discount_amount || ""}
+          clubDiscountClubs={competition.club_discount_clubs || competition.organizer_full_name || ""}
           competitionEntryFee={competition.entry_fee || ""}
           participantLimit={competition.participant_limit || null}
           competitionStatus={competition.status}

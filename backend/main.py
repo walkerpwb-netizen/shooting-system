@@ -234,6 +234,7 @@ class CompetitionData(BaseModel):
     club_discount_enabled: bool = False
     club_discount_scope: str = "competition"
     club_discount_amount: str = ""
+    club_discount_clubs: str = ""
 
 
 def safe_auth_redirect_path(value: str) -> str:
@@ -4546,15 +4547,45 @@ def normalize_club_discount_scope(value: str):
     return CLUB_DISCOUNT_SCOPE_COMPETITION
 
 
+def normalize_club_discount_clubs(value: str):
+    names: list[str] = []
+    seen = set()
+
+    for raw_name in (value or "").split(","):
+        name = normalize_text(raw_name)
+        key = normalize_search_text(name).strip()
+
+        if not name or not key or key in seen:
+            continue
+
+        names.append(name)
+        seen.add(key)
+
+    return ", ".join(names)
+
+
+def competition_discount_club_names(competition: Competition):
+    configured_names = normalize_club_discount_clubs(
+        getattr(competition, "club_discount_clubs", "") or ""
+    )
+
+    if configured_names:
+        return configured_names
+
+    return normalize_text(getattr(competition, "organizer_full_name", "") or "")
+
+
 def normalize_competition_club_discount(data: CompetitionData):
     if not data.club_discount_enabled:
         return {
             "club_discount_enabled": 0,
             "club_discount_scope": CLUB_DISCOUNT_SCOPE_COMPETITION,
             "club_discount_amount": "",
+            "club_discount_clubs": "",
         }
 
     amount = parse_price(data.club_discount_amount)
+    discount_clubs = normalize_club_discount_clubs(data.club_discount_clubs)
 
     if amount <= 0:
         raise HTTPException(
@@ -4562,20 +4593,37 @@ def normalize_competition_club_discount(data: CompetitionData):
             detail="Podaj kwotę zniżki klubowej większą od 0"
         )
 
+    if not discount_clubs:
+        raise HTTPException(
+            status_code=400,
+            detail="Podaj nazwę klubu objętego zniżką"
+        )
+
     return {
         "club_discount_enabled": 1,
         "club_discount_scope": normalize_club_discount_scope(data.club_discount_scope),
         "club_discount_amount": format_money(amount),
+        "club_discount_clubs": discount_clubs,
     }
 
 
 def competition_club_discount_payload(competition: Competition):
+    discount_enabled = bool(getattr(competition, "club_discount_enabled", 0))
+    stored_discount_clubs = normalize_club_discount_clubs(
+        getattr(competition, "club_discount_clubs", "") or ""
+    )
+
     return {
-        "club_discount_enabled": bool(getattr(competition, "club_discount_enabled", 0)),
+        "club_discount_enabled": discount_enabled,
         "club_discount_scope": normalize_club_discount_scope(
             getattr(competition, "club_discount_scope", "") or ""
         ),
         "club_discount_amount": getattr(competition, "club_discount_amount", "") or "",
+        "club_discount_clubs": (
+            competition_discount_club_names(competition)
+            if discount_enabled
+            else stored_discount_clubs
+        ),
     }
 
 
@@ -4606,12 +4654,17 @@ def configured_club_discount_applies(competition: Competition, shooter_club: str
     if not getattr(competition, "club_discount_enabled", 0):
         return False
 
-    organizer_name = getattr(competition, "organizer_full_name", "") or ""
+    shooter_club_key = normalize_search_text(shooter_club).strip()
 
-    return (
-        bool(organizer_name.strip())
-        and normalize_search_text(shooter_club).strip()
-        == normalize_search_text(organizer_name).strip()
+    if not shooter_club_key:
+        return False
+
+    discount_clubs = competition_discount_club_names(competition)
+
+    return any(
+        shooter_club_key == normalize_search_text(club_name).strip()
+        for club_name in discount_clubs.split(",")
+        if club_name.strip()
     )
 
 
@@ -7186,6 +7239,7 @@ COMPETITION_COPY_FIELDS = [
     "club_discount_enabled",
     "club_discount_scope",
     "club_discount_amount",
+    "club_discount_clubs",
 ]
 
 
@@ -14868,6 +14922,7 @@ def update_competition(
     competition.club_discount_enabled = club_discount["club_discount_enabled"]
     competition.club_discount_scope = club_discount["club_discount_scope"]
     competition.club_discount_amount = club_discount["club_discount_amount"]
+    competition.club_discount_clubs = club_discount["club_discount_clubs"]
 
     db.commit()
 

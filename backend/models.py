@@ -569,6 +569,11 @@ class Competition(Base):
         nullable=True,
     )
 
+    club_discount_clubs = Column(
+        Text,
+        nullable=True,
+    )
+
     status = Column(
         String,
         default="draft",

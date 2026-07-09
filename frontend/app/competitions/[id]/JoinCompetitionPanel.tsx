@@ -81,6 +81,7 @@ type JoinCompetitionPanelProps = {
   clubDiscountEnabled: boolean;
   clubDiscountScope: "competition" | "discipline";
   clubDiscountAmount: string;
+  clubDiscountClubs: string;
   initialParticipants: Participant[];
   disciplines: Discipline[];
 };
@@ -95,6 +96,7 @@ export default function JoinCompetitionPanel({
   clubDiscountEnabled,
   clubDiscountScope,
   clubDiscountAmount,
+  clubDiscountClubs,
   initialParticipants,
   disciplines,
 }: JoinCompetitionPanelProps) {
@@ -341,10 +343,33 @@ export default function JoinCompetitionPanel({
       && normalizeDiscountText(currentProfileClub()) === normalizeDiscountText(SPECIAL_PORONIN_DISCOUNT_CLUB);
   }
 
-  function configuredClubDiscountApplies() {
-    return clubDiscountEnabled
-      && Boolean(competitionOrganizerName.trim())
-      && normalizeDiscountText(currentProfileClub()) === normalizeDiscountText(competitionOrganizerName);
+  function configuredClubDiscountClubNames() {
+    const clubNames = clubDiscountClubs
+      .split(",")
+      .map((clubName) => clubName.trim())
+      .filter(Boolean);
+
+    return clubNames.length > 0
+      ? clubNames
+      : competitionOrganizerName.trim()
+        ? [competitionOrganizerName.trim()]
+        : [];
+  }
+
+  function configuredClubDiscountMatch() {
+    if (!clubDiscountEnabled) {
+      return "";
+    }
+
+    const profileClub = normalizeDiscountText(currentProfileClub());
+
+    if (!profileClub) {
+      return "";
+    }
+
+    return configuredClubDiscountClubNames().find(
+      (clubName) => normalizeDiscountText(clubName) === profileClub
+    ) || "";
   }
 
   function getSelectedDisciplineDetails() {
@@ -400,7 +425,8 @@ export default function JoinCompetitionPanel({
         0
       );
   const baseEntryFee = competitionFee + disciplinesFee;
-  const configuredClubDiscount = configuredClubDiscountApplies()
+  const configuredClubDiscountClubName = configuredClubDiscountMatch();
+  const configuredClubDiscount = configuredClubDiscountClubName
     ? Math.min(
         baseEntryFee,
         parsePrice(clubDiscountAmount) * (
@@ -769,13 +795,13 @@ export default function JoinCompetitionPanel({
                         })()}
                       </p>
 
-                      {configuredClubDiscountApplies() && clubDiscountScope === "discipline" && (
+                      {configuredClubDiscountClubName && clubDiscountScope === "discipline" && (
                         <p className="text-sm font-semibold text-green-700 dark:text-green-300">
-                          Rabat klubowy {competitionOrganizerName}: -{parsePrice(clubDiscountAmount).toFixed(2)} zł za tę konkurencję.
+                          Rabat klubowy {configuredClubDiscountClubName}: -{parsePrice(clubDiscountAmount).toFixed(2)} zł za tę konkurencję.
                         </p>
                       )}
 
-                      {!configuredClubDiscountApplies() && poroninClubDiscountApplies() && (
+                      {!configuredClubDiscountClubName && poroninClubDiscountApplies() && (
                         <p className="text-sm font-semibold text-green-700 dark:text-green-300">
                           Rabat klubowy KŻR Warka: -{SPECIAL_PORONIN_DISCIPLINE_DISCOUNT} zł za tę konkurencję.
                         </p>
