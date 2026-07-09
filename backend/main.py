@@ -6223,16 +6223,19 @@ def user_competition_statistics(user: User, db):
         ):
             eligible_discipline_ids.add(discipline.id)
 
+    eligible_results = [
+        result
+        for result in results
+        if result.discipline_id in eligible_discipline_ids
+    ]
+
     practical_points_by_result_id = practical_shotgun_points_by_result_id(
-        results,
+        eligible_results,
         disciplines_by_id,
         db,
     )
 
-    for result in results:
-        if result.discipline_id not in eligible_discipline_ids:
-            continue
-
+    for result in eligible_results:
         discipline = disciplines_by_id.get(result.discipline_id)
 
         if not discipline:
@@ -6282,7 +6285,7 @@ def user_competition_statistics(user: User, db):
             for discipline_type, discipline_statistics in discipline_type_statistics.items()
         },
         "total_points_sum": format_points(total_points_sum),
-        "ammunition_usage": ammunition_usage_from_results(results, disciplines_by_id),
+        "ammunition_usage": ammunition_usage_from_results(eligible_results, disciplines_by_id),
         "updated_at": datetime.now(APP_TIMEZONE).isoformat(),
     }
 

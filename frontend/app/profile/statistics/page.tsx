@@ -157,7 +157,7 @@ export default function ProfileStatisticsPage() {
             </h1>
 
             <p className="mt-3 text-zinc-600 dark:text-red-100">
-              Punkty liczone są z konkurencji z minimum {minimumDisciplineShooters} zawodnikami. Amunicja liczona jest z zapisanych startów z wynikiem.
+              Punkty i amunicja liczone są z konkurencji z minimum {minimumDisciplineShooters} zawodnikami oraz zapisanym wynikiem.
             </p>
           </div>
 
