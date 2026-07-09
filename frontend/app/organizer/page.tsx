@@ -1736,7 +1736,7 @@ export default function OrganizerPage() {
               <input
                 id="competition-location"
                 type="text"
-                placeholder="Lokalizacja *"
+                placeholder="Podaj nazwę Strzelnicy gdzie odbywają się zawody *"
                 value={location}
                 onChange={(e) => setLocation(e.target.value)}
                 aria-invalid={!hasText(location)}
