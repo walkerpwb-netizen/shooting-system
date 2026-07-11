@@ -468,6 +468,10 @@ class ParticipantPaymentStatusData(BaseModel):
     paid: Optional[bool] = None
 
 
+class ParticipantDisciplineAddData(JoinDisciplineData):
+    pass
+
+
 class ParticipantSquadGroupData(BaseModel):
     group_number: int
     squad_position: int = 0
@@ -11436,6 +11440,35 @@ def get_organizer_competition_payments(
             "date": competition.date,
             "location": competition.location,
             "status": competition.status,
+            "entry_fee": competition.entry_fee or "",
+            "disciplines": [
+                {
+                    "id": discipline.id,
+                    "name": discipline.name,
+                    "discipline_type": discipline.discipline_type or "",
+                    "discipline_type_label": DISCIPLINE_TYPE_LABELS.get(
+                        discipline.discipline_type or "",
+                        discipline.discipline_type or "",
+                    ),
+                    "shots_count": discipline.shots_count or 0,
+                    "trap_variant": getattr(discipline, "trap_variant", "") or "",
+                    "trap_series_count": getattr(discipline, "trap_series_count", 0) or 0,
+                    "clay_variant": getattr(discipline, "clay_variant", "") or "",
+                    "clay_series_count": getattr(discipline, "clay_series_count", 0) or 0,
+                    "ammo_type": discipline.ammo_type or "",
+                    "ammo_price": discipline.ammo_price or "",
+                    "clay_price": getattr(discipline, "clay_price", "") or "",
+                    "entry_fee": discipline.entry_fee or "",
+                    "fixed_power_factor": getattr(discipline, "fixed_power_factor", "") or "",
+                    "fixed_division": getattr(discipline, "fixed_division", "") or "",
+                }
+                for discipline in (
+                    db.query(Discipline)
+                    .filter(Discipline.competition_id == competition.id)
+                    .order_by(*discipline_order_columns())
+                    .all()
+                )
+            ],
         },
         "participants": participant_rows,
         "summary": {
@@ -11454,6 +11487,128 @@ def get_organizer_competition_payments(
             "paid_total": format_money(paid_total),
             "unpaid_total": format_money(total_fee - paid_total),
         },
+    }
+
+
+@app.post("/organizer/competitions/{competition_id}/participants/{participant_id}/disciplines")
+def organizer_add_participant_discipline(
+    competition_id: int,
+    participant_id: int,
+    data: ParticipantDisciplineAddData,
+    user: User = Depends(get_current_organizer),
+    db=Depends(get_db),
+):
+    auto_complete_started_competitions(db)
+
+    competition = (
+        db.query(Competition)
+        .filter(Competition.id == competition_id)
+        .first()
+    )
+
+    if not competition:
+        raise HTTPException(
+            status_code=404,
+            detail="Zawody nie istnieją"
+        )
+
+    if competition.created_by != user.email and not has_role(user, "admin"):
+        raise HTTPException(
+            status_code=403,
+            detail="Nie masz dostępu do rozliczeń tych zawodów"
+        )
+
+    if competition.status != "started":
+        raise HTTPException(
+            status_code=400,
+            detail="Dopisywanie konkurencji jest dostępne tylko w trakcie zawodów"
+        )
+
+    participant = (
+        db.query(CompetitionParticipant)
+        .filter(
+            CompetitionParticipant.id == participant_id,
+            CompetitionParticipant.competition_id == competition.id,
+            CompetitionParticipant.entry_type == "shooter",
+        )
+        .first()
+    )
+
+    if not participant:
+        raise HTTPException(
+            status_code=404,
+            detail="Nie znaleziono zawodnika w tych zawodach"
+        )
+
+    discipline = (
+        db.query(Discipline)
+        .filter(
+            Discipline.id == data.discipline_id,
+            Discipline.competition_id == competition.id,
+        )
+        .first()
+    )
+
+    if not discipline:
+        raise HTTPException(
+            status_code=404,
+            detail="Konkurencja nie istnieje w tych zawodach"
+        )
+
+    existing_assignment = (
+        db.query(ParticipantDiscipline)
+        .filter(
+            ParticipantDiscipline.participant_id == participant.id,
+            ParticipantDiscipline.discipline_id == discipline.id,
+        )
+        .first()
+    )
+
+    if existing_assignment:
+        raise HTTPException(
+            status_code=400,
+            detail="Zawodnik jest już zapisany do tej konkurencji"
+        )
+
+    if data.ammo_type not in ["own", "club"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Wybierz typ amunicji dla dopisywanej konkurencji"
+        )
+
+    division, power_factor = normalize_participant_dynamic_fields(
+        data,
+        discipline,
+    )
+    previous_total_fee = parse_price(participant.total_fee or calculate_participant_total_fee(participant, db))
+    participant_discipline = ParticipantDiscipline(
+        participant_id=participant.id,
+        discipline_id=discipline.id,
+        ammo_type=data.ammo_type,
+        division=division,
+        power_factor=power_factor,
+    )
+    db.add(participant_discipline)
+    db.flush()
+
+    participant.total_fee = calculate_participant_total_fee(participant, db)
+    new_total_fee = parse_price(participant.total_fee)
+    fee_difference = max(new_total_fee - previous_total_fee, Decimal("0"))
+
+    if fee_difference > 0:
+        participant.paid = 0
+        participant.paid_at = None
+
+    if is_participant_confirmed(participant):
+        assign_squad_group(participant_discipline, db)
+
+    db.commit()
+    db.refresh(participant)
+
+    return {
+        "message": "Konkurencja dopisana",
+        "fee_difference": format_money(fee_difference),
+        "participant": participant_payment_row(participant, db),
     }
 
 

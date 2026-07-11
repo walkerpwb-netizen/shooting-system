@@ -8,6 +8,30 @@ import { useEffect, useMemo, useState } from "react";
 import QrCodeScanner from "@/components/QrCodeScanner";
 import { apiUrl } from "@/lib/api";
 import { getAccessToken, isOrganizer } from "@/lib/auth";
+import {
+  POWER_FACTOR_OPTIONS,
+  getClayTargetsCount,
+  getDynamicDisciplineDivisions,
+  isDynamicStageDisciplineType,
+} from "@/lib/disciplines";
+
+type CompetitionDiscipline = {
+  id: number;
+  name: string;
+  discipline_type: string;
+  discipline_type_label?: string;
+  shots_count: number;
+  trap_variant?: string;
+  trap_series_count?: number;
+  clay_variant?: string;
+  clay_series_count?: number;
+  ammo_type: string;
+  ammo_price: string;
+  clay_price?: string;
+  entry_fee: string;
+  fixed_power_factor?: string;
+  fixed_division?: string;
+};
 
 type Competition = {
   id: number;
@@ -15,6 +39,8 @@ type Competition = {
   date: string;
   location: string;
   status: string;
+  entry_fee: string;
+  disciplines: CompetitionDiscipline[];
 };
 
 type PaymentParticipant = {
@@ -38,6 +64,12 @@ type PaymentParticipant = {
 
 type SortField = "name" | "license" | "club" | "disciplines" | "fee" | "checked_in" | "paid";
 type SortDirection = "asc" | "desc";
+type AddDisciplineDraft = {
+  discipline_id: string;
+  ammo_type: "" | "own" | "club";
+  division: string;
+  power_factor: "" | "minor" | "major";
+};
 
 function licenseDigits(value: string) {
   return value.replace(/\D/g, "");
@@ -146,6 +178,8 @@ export default function OrganizerPaymentsPage() {
   const [scannerOpen, setScannerOpen] = useState(false);
   const [sortField, setSortField] = useState<SortField>("name");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
+  const [disciplineDrafts, setDisciplineDrafts] = useState<Record<number, AddDisciplineDraft>>({});
+  const [addingDisciplineId, setAddingDisciplineId] = useState<number | null>(null);
 
   useEffect(() => {
     if (!isOrganizer()) {
@@ -305,6 +339,162 @@ export default function OrganizerPaymentsPage() {
     setMessage(`Znaleziono zawodnika: ${participantName(participant)} ✅`);
   }
 
+  function availableDisciplines(participant: PaymentParticipant) {
+    if (!competition) {
+      return [];
+    }
+
+    const assignedIds = new Set(participant.disciplines.map((discipline) => discipline.id));
+
+    return competition.disciplines.filter((discipline) => !assignedIds.has(discipline.id));
+  }
+
+  function getDisciplineDraft(participant: PaymentParticipant) {
+    const available = availableDisciplines(participant);
+    const current = disciplineDrafts[participant.id];
+
+    if (current) {
+      return current;
+    }
+
+    return {
+      discipline_id: available[0]?.id ? String(available[0].id) : "",
+      ammo_type: "",
+      division: "",
+      power_factor: "",
+    } satisfies AddDisciplineDraft;
+  }
+
+  function updateDisciplineDraft(
+    participant: PaymentParticipant,
+    changes: Partial<AddDisciplineDraft>
+  ) {
+    setDisciplineDrafts((current) => {
+      const draft = {
+        ...getDisciplineDraft(participant),
+        ...changes,
+      };
+
+      if (changes.discipline_id) {
+        draft.division = "";
+        draft.power_factor = "";
+      }
+
+      return {
+        ...current,
+        [participant.id]: draft,
+      };
+    });
+  }
+
+  function estimateAddedDisciplineFee(discipline: CompetitionDiscipline | undefined, ammoType: AddDisciplineDraft["ammo_type"]) {
+    if (!competition || !discipline) {
+      return 0;
+    }
+
+    const competitionFee = parseFee(competition.entry_fee);
+    const entryFee = competitionFee === 0
+      ? parseFee(discipline.entry_fee)
+      : 0;
+    const ammoFee = ammoType === "club"
+      ? parseFee(discipline.ammo_price) * (discipline.shots_count || 0)
+        + parseFee(discipline.clay_price || "") * getClayTargetsCount(discipline)
+      : 0;
+
+    return entryFee + ammoFee;
+  }
+
+  async function addParticipantDiscipline(participant: PaymentParticipant) {
+    const token = getAccessToken();
+
+    if (!token) {
+      router.push("/login");
+      return;
+    }
+
+    if (!competition) {
+      return;
+    }
+
+    const draft = getDisciplineDraft(participant);
+    const discipline = competition.disciplines.find(
+      (item) => item.id === Number(draft.discipline_id)
+    );
+
+    if (!discipline) {
+      setMessage("Wybierz konkurencję do dopisania ❌");
+      return;
+    }
+
+    if (!draft.ammo_type) {
+      setMessage("Wybierz typ amunicji dla dopisywanej konkurencji ❌");
+      return;
+    }
+
+    if (
+      isDynamicStageDisciplineType(discipline.discipline_type)
+      && (
+        !discipline.fixed_division
+        && !draft.division
+        || (!discipline.fixed_power_factor && !draft.power_factor)
+      )
+    ) {
+      setMessage("Wybierz dywizję i Power Factor dla dopisywanej konkurencji ❌");
+      return;
+    }
+
+    try {
+      setAddingDisciplineId(participant.id);
+      setMessage("");
+
+      const response = await fetch(
+        apiUrl(`/organizer/competitions/${competitionId}/participants/${participant.id}/disciplines`),
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            discipline_id: discipline.id,
+            ammo_type: draft.ammo_type,
+            division: draft.division,
+            power_factor: draft.power_factor,
+          }),
+        }
+      );
+      const data = await readJsonResponse(response);
+
+      if (!response.ok) {
+        setMessage(data.detail || "Nie udało się dopisać konkurencji ❌");
+        return;
+      }
+
+      setParticipants((currentParticipants) =>
+        currentParticipants.map((currentParticipant) =>
+          currentParticipant.id === participant.id
+            ? data.participant
+            : currentParticipant
+        )
+      );
+      setDisciplineDrafts((current) => {
+        const updated = {
+          ...current,
+        };
+
+        delete updated[participant.id];
+
+        return updated;
+      });
+      setMessage(`Dopisano konkurencję. Dopłata: ${data.fee_difference || "0.00"} zł ✅`);
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    } finally {
+      setAddingDisciplineId(null);
+    }
+  }
+
   async function updateParticipant(
     participant: PaymentParticipant,
     changes: Partial<Pick<PaymentParticipant, "checked_in" | "paid">>
@@ -352,6 +542,137 @@ export default function OrganizerPaymentsPage() {
     } finally {
       setSavingId(null);
     }
+  }
+
+  function renderAddDisciplineControls(participant: PaymentParticipant, compact = false) {
+    const available = availableDisciplines(participant);
+
+    if (competition?.status !== "started" || available.length === 0) {
+      return null;
+    }
+
+    const draft = getDisciplineDraft(participant);
+    const selectedDiscipline = competition.disciplines.find(
+      (discipline) => discipline.id === Number(draft.discipline_id)
+    );
+    const dynamicDiscipline = selectedDiscipline
+      ? isDynamicStageDisciplineType(selectedDiscipline.discipline_type)
+      : false;
+    const divisionOptions = selectedDiscipline
+      ? getDynamicDisciplineDivisions(selectedDiscipline.discipline_type)
+      : [];
+    const estimatedFee = estimateAddedDisciplineFee(selectedDiscipline, draft.ammo_type);
+    const isAdding = addingDisciplineId === participant.id;
+
+    return (
+      <div className={`rounded-lg border border-zinc-700 bg-zinc-950/60 p-2 ${compact ? "space-y-2" : "space-y-2"}`}>
+        <select
+          value={draft.discipline_id}
+          onChange={(event) => updateDisciplineDraft(participant, {
+            discipline_id: event.target.value,
+          })}
+          disabled={isAdding}
+          className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-2 text-sm text-white focus:outline-none focus:border-green-600 disabled:opacity-60"
+        >
+          {available.map((discipline) => (
+            <option key={discipline.id} value={discipline.id}>
+              {discipline.name}
+            </option>
+          ))}
+        </select>
+
+        <div className="grid grid-cols-2 gap-2">
+          <label className="flex items-center gap-2 rounded-md border border-zinc-700 px-2 py-2 text-xs font-bold text-gray-200">
+            <input
+              type="radio"
+              name={`add-ammo-${participant.id}`}
+              checked={draft.ammo_type === "own"}
+              onChange={() => updateDisciplineDraft(participant, {
+                ammo_type: "own",
+              })}
+              disabled={isAdding}
+            />
+            Własna
+          </label>
+
+          <label className="flex items-center gap-2 rounded-md border border-zinc-700 px-2 py-2 text-xs font-bold text-gray-200">
+            <input
+              type="radio"
+              name={`add-ammo-${participant.id}`}
+              checked={draft.ammo_type === "club"}
+              onChange={() => updateDisciplineDraft(participant, {
+                ammo_type: "club",
+              })}
+              disabled={isAdding}
+            />
+            Klubowa
+          </label>
+        </div>
+
+        {dynamicDiscipline && selectedDiscipline && (
+          <div className="grid gap-2">
+            {selectedDiscipline.fixed_division ? (
+              <p className="rounded-md border border-zinc-700 px-2 py-2 text-xs font-bold text-gray-300">
+                Dywizja: {selectedDiscipline.fixed_division}
+              </p>
+            ) : (
+              <select
+                value={draft.division}
+                onChange={(event) => updateDisciplineDraft(participant, {
+                  division: event.target.value,
+                })}
+                disabled={isAdding}
+                className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-2 text-sm text-white focus:outline-none focus:border-green-600 disabled:opacity-60"
+              >
+                <option value="">Dywizja</option>
+                {divisionOptions.map((division) => (
+                  <option key={division} value={division}>
+                    {division}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            {selectedDiscipline.fixed_power_factor ? (
+              <p className="rounded-md border border-zinc-700 px-2 py-2 text-xs font-bold text-gray-300">
+                PF: {selectedDiscipline.fixed_power_factor === "major" ? "Major" : "Minor"}
+              </p>
+            ) : (
+              <select
+                value={draft.power_factor}
+                onChange={(event) => updateDisciplineDraft(participant, {
+                  power_factor: event.target.value as AddDisciplineDraft["power_factor"],
+                })}
+                disabled={isAdding}
+                className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-2 text-sm text-white focus:outline-none focus:border-green-600 disabled:opacity-60"
+              >
+                <option value="">Power Factor</option>
+                {POWER_FACTOR_OPTIONS.map((powerFactor) => (
+                  <option key={powerFactor} value={powerFactor}>
+                    {powerFactor === "major" ? "Major" : "Minor"}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+        )}
+
+        {estimatedFee > 0 && (
+          <p className="text-xs font-semibold text-red-200">
+            Szacowana dopłata: {formatFee(estimatedFee)}
+          </p>
+        )}
+
+        <button
+          type="button"
+          onClick={() => addParticipantDiscipline(participant)}
+          disabled={isAdding}
+          className="w-full rounded-md bg-blue-700 px-3 py-2 text-sm font-bold text-white transition hover:bg-blue-600 disabled:opacity-50"
+        >
+          {isAdding ? "Dopisywanie..." : "Dopisz konkurencję"}
+        </button>
+      </div>
+    );
   }
 
   return (
@@ -597,6 +918,8 @@ export default function OrganizerPaymentsPage() {
                             Cofnij status
                           </button>
                         )}
+
+                        {renderAddDisciplineControls(participant, true)}
                       </div>
                     );
                   })
@@ -605,7 +928,7 @@ export default function OrganizerPaymentsPage() {
             </div>
 
             <div className="hidden md:block bg-zinc-900 border border-zinc-800 rounded-xl overflow-x-auto">
-              <div className="min-w-[1240px]">
+              <div className="min-w-[1380px]">
                 <div className="px-3 py-3 border-b border-zinc-800">
                   <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
                     <div>
@@ -655,7 +978,7 @@ export default function OrganizerPaymentsPage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-[1.5fr_1fr_1.1fr_1.4fr_0.8fr_0.9fr_0.9fr_1.7fr] gap-3 px-3 py-2 text-xs font-bold text-gray-400 border-b border-zinc-800 bg-zinc-950/40">
+                <div className="grid grid-cols-[1.5fr_1fr_1.1fr_1.4fr_0.8fr_0.9fr_0.9fr_2.1fr] gap-3 px-3 py-2 text-xs font-bold text-gray-400 border-b border-zinc-800 bg-zinc-950/40">
                   <button
                     type="button"
                     onClick={() => toggleSort("name")}
@@ -727,7 +1050,7 @@ export default function OrganizerPaymentsPage() {
                     return (
                       <div
                         key={participant.id}
-                        className="grid grid-cols-[1.5fr_1fr_1.1fr_1.4fr_0.8fr_0.9fr_0.9fr_1.7fr] gap-3 px-3 py-2 items-center text-sm border-b border-zinc-800 last:border-b-0 hover:bg-zinc-800/40"
+                        className="grid grid-cols-[1.5fr_1fr_1.1fr_1.4fr_0.8fr_0.9fr_0.9fr_2.1fr] gap-3 px-3 py-2 items-center text-sm border-b border-zinc-800 last:border-b-0 hover:bg-zinc-800/40"
                       >
                         <Link
                           href={`/profile/${participant.id}`}
@@ -782,7 +1105,7 @@ export default function OrganizerPaymentsPage() {
                           {participant.paid ? "Opłacone" : "Do zapłaty"}
                         </button>
 
-                        <div className="flex gap-2">
+                        <div className="flex flex-col gap-2">
                           {!isComplete ? (
                             <button
                               type="button"
@@ -808,6 +1131,8 @@ export default function OrganizerPaymentsPage() {
                               Cofnij status
                             </button>
                           )}
+
+                          {renderAddDisciplineControls(participant)}
                         </div>
                       </div>
                     );
