@@ -7,7 +7,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiUrl } from "@/lib/api";
-import { getAccessToken, isOrganizer } from "@/lib/auth";
+import { authFetch, getAccessToken, isOrganizer } from "@/lib/auth";
 import {
   POWER_FACTOR_OPTIONS,
   getDynamicDisciplineDivisions,
@@ -256,7 +256,7 @@ export default function OrganizerCompetitionPage() {
     const token = getAccessToken();
 
     try {
-      const response = await fetch(
+      const response = await authFetch(
         apiUrl(`/organizer/competitions/${competitionId}`),
         {
           headers: {
@@ -619,7 +619,7 @@ export default function OrganizerCompetitionPage() {
       setManualSaving(true);
       setMessage("");
 
-      const response = await fetch(
+      const response = await authFetch(
         apiUrl(`/organizer/competitions/${competition.id}/manual-participants`),
         {
           method: "POST",
@@ -678,7 +678,7 @@ export default function OrganizerCompetitionPage() {
       setHeadJudge(false);
       setMessage("");
 
-      const response = await fetch(
+      const response = await authFetch(
         apiUrl(`/organizer/judges/search?competition_id=${competition.id}&query=${encodeURIComponent(searchQuery)}`),
         {
           headers: {
@@ -752,7 +752,7 @@ export default function OrganizerCompetitionPage() {
     try {
       setMessage("");
 
-      const response = await fetch(
+      const response = await authFetch(
         apiUrl(`/competitions/${competition.id}/judge-invitations`),
         {
           method: "POST",
@@ -809,7 +809,7 @@ export default function OrganizerCompetitionPage() {
     try {
       setMessage("");
 
-      const response = await fetch(
+      const response = await authFetch(
         apiUrl(`/competitions/${competition.id}/judge-invitations/remove`),
         {
           method: "POST",
@@ -947,7 +947,7 @@ export default function OrganizerCompetitionPage() {
       setSavingSquadLayout(true);
       setMessage("");
 
-      const response = await fetch(
+      const response = await authFetch(
         apiUrl(`/organizer/competitions/${competition.id}/disciplines/${disciplineId}/squad-groups/layout`),
         {
           method: "PUT",
@@ -1001,7 +1001,7 @@ export default function OrganizerCompetitionPage() {
       setRandomizingDisciplineId(disciplineId);
       setMessage("");
 
-      const response = await fetch(
+      const response = await authFetch(
         apiUrl(`/organizer/competitions/${competition.id}/disciplines/${disciplineId}/squad-groups/randomize`),
         {
           method: "POST",
@@ -1047,7 +1047,7 @@ export default function OrganizerCompetitionPage() {
     try {
       setMessage("");
 
-      const response = await fetch(
+      const response = await authFetch(
         apiUrl(`/organizer/competitions/${competition.id}/participants/${participant.id}`),
         {
           method: "DELETE",

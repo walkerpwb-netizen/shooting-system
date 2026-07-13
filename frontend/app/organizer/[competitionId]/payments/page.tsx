@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import QrCodeScanner from "@/components/QrCodeScanner";
 import { apiUrl } from "@/lib/api";
-import { getAccessToken, isOrganizer } from "@/lib/auth";
+import { authFetch, getAccessToken, isOrganizer } from "@/lib/auth";
 import {
   POWER_FACTOR_OPTIONS,
   getClayTargetsCount,
@@ -196,7 +196,7 @@ export default function OrganizerPaymentsPage() {
 
     async function loadPayments() {
       try {
-        const response = await fetch(
+        const response = await authFetch(
           apiUrl(`/organizer/competitions/${competitionId}/payments`),
           {
             headers: {
@@ -447,7 +447,7 @@ export default function OrganizerPaymentsPage() {
       setAddingDisciplineId(participant.id);
       setMessage("");
 
-      const response = await fetch(
+      const response = await authFetch(
         apiUrl(`/organizer/competitions/${competitionId}/participants/${participant.id}/disciplines`),
         {
           method: "POST",
@@ -510,7 +510,7 @@ export default function OrganizerPaymentsPage() {
       setSavingId(participant.id);
       setMessage("");
 
-      const response = await fetch(
+      const response = await authFetch(
         apiUrl(`/organizer/competitions/${competitionId}/participants/${participant.id}/payments`),
         {
           method: "PUT",

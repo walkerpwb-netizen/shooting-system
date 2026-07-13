@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 
 import ResultsLeaderboardTable from "@/app/components/ResultsLeaderboardTable";
 import { apiUrl } from "@/lib/api";
-import { getAccessToken, isOrganizer } from "@/lib/auth";
+import { authFetch, getAccessToken, isOrganizer } from "@/lib/auth";
 
 type OrganizerResultCompetition = {
   id: number;
@@ -92,7 +92,7 @@ export default function OrganizerLeaderboardPage() {
 
     async function loadLeaderboard() {
       try {
-        const response = await fetch(
+        const response = await authFetch(
           apiUrl(`/organizer/competitions/${competitionId}/results/${categoryId}`),
           {
             cache: "no-store",
