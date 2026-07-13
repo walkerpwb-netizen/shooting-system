@@ -7,7 +7,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import QrCodeScanner from "@/components/QrCodeScanner";
 import { apiUrl } from "@/lib/api";
-import { getAccessToken, isOrganizer, isPzssClubAccount } from "@/lib/auth";
+import { authFetch, getAccessToken, isOrganizer, isPzssClubAccount } from "@/lib/auth";
 import {
   HUNTING_TRAP_TARGETS_COUNT,
   PRACTICAL_SHOTGUN_DISCIPLINE_TYPE,
@@ -1614,7 +1614,7 @@ export default function JudgeDisciplinePage() {
     async function loadData() {
       try {
         if (organizerTestMode) {
-          const competitionResponse = await fetch(
+          const competitionResponse = await authFetch(
             apiUrl(`/organizer/competitions/${competitionId}`),
             {
               headers: {
@@ -1656,7 +1656,7 @@ export default function JudgeDisciplinePage() {
           return;
         }
 
-        const competitionsResponse = await fetch(
+        const competitionsResponse = await authFetch(
           apiUrl("/judge/competitions"),
           {
             headers: {
@@ -1674,7 +1674,7 @@ export default function JudgeDisciplinePage() {
         setCompetitions(competitionsData);
         setLoading(false);
 
-        const shootersResponse = await fetch(
+        const shootersResponse = await authFetch(
           apiUrl(`/judge/competitions/${competitionId}/disciplines/${disciplineId}/shooters`),
           {
             headers: {
@@ -2023,7 +2023,7 @@ export default function JudgeDisciplinePage() {
     try {
       setMessage("");
 
-      const response = await fetch(
+      const response = await authFetch(
         apiUrl(`/judge/competitions/${competitionId}/disciplines/${disciplineId}/results`),
         {
           method: "PUT",
@@ -2153,7 +2153,7 @@ export default function JudgeDisciplinePage() {
       setMessage("");
       setPracticalShotgunSavingId(shooter.participant_id);
 
-      const response = await fetch(
+      const response = await authFetch(
         apiUrl(`/judge/competitions/${competitionId}/disciplines/${disciplineId}/results`),
         {
           method: "PUT",
@@ -2313,7 +2313,7 @@ export default function JudgeDisciplinePage() {
       setMessage("");
       setStageScoreSavingId(shooter.participant_id);
 
-      const response = await fetch(
+      const response = await authFetch(
         apiUrl(`/judge/competitions/${competitionId}/disciplines/${disciplineId}/stages/${stage.id}/scores`),
         {
           method: "PUT",
@@ -2393,7 +2393,7 @@ export default function JudgeDisciplinePage() {
     const token = getAccessToken();
     const resultData = JSON.stringify(scores);
 
-    const response = await fetch(
+    const response = await authFetch(
       apiUrl(`/judge/competitions/${competitionId}/disciplines/${disciplineId}/results`),
       {
         method: "PUT",
@@ -2592,7 +2592,7 @@ export default function JudgeDisciplinePage() {
     const token = getAccessToken();
     const points = trapScoreTotal(scores);
     const resultData = buildSkeetResultData(scores, skeetRoundCount);
-    const response = await fetch(
+    const response = await authFetch(
       apiUrl(`/judge/competitions/${competitionId}/disciplines/${disciplineId}/results`),
       {
         method: "PUT",

@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { apiUrl } from "@/lib/api";
-import { getAccessToken, isPzssClubAccount } from "@/lib/auth";
+import { authFetch, getAccessToken, isPzssClubAccount } from "@/lib/auth";
 
 type JudgeCompetition = {
   id: number;
@@ -44,13 +44,9 @@ export default function JudgePage() {
 
     async function loadCompetitions() {
       try {
-        const response = await fetch(
+        const response = await authFetch(
           apiUrl("/judge/competitions"),
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }
+          {}
         );
         const data = await response.json();
 
