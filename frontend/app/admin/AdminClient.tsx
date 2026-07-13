@@ -531,6 +531,8 @@ export default function AdminClient({
   const [adReportDays, setAdReportDays] = useState(30);
   const [adReportPdfDownloading, setAdReportPdfDownloading] = useState(false);
   const [testPdfDownloading, setTestPdfDownloading] = useState(false);
+  const [competitionResultsPdfDownloadingId, setCompetitionResultsPdfDownloadingId] = useState<number | null>(null);
+  const [competitionPzssPdfDownloadingId, setCompetitionPzssPdfDownloadingId] = useState<number | null>(null);
   const [expandedCompetitionId, setExpandedCompetitionId] = useState<number | null>(null);
   const [currentAdminEmail] = useState(() =>
     typeof window === "undefined"
@@ -1162,6 +1164,95 @@ export default function AdminClient({
       setMessage("Błąd połączenia z serwerem ❌");
     } finally {
       setTestPdfDownloading(false);
+    }
+  }
+
+  function competitionPdfSafeName(competition: AdminCompetition) {
+    return competition.name
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "") || `zawody-${competition.id}`;
+  }
+
+  async function downloadCompetitionResultsPdf(competition: AdminCompetition) {
+    const token = getAccessToken();
+
+    try {
+      setMessage("");
+      setCompetitionResultsPdfDownloadingId(competition.id);
+
+      const response = await fetch(
+        apiUrl(`/admin/competitions/${competition.id}/results.pdf`),
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        setMessage(data?.detail || "Nie udało się wygenerować PDF wyników ❌");
+        return;
+      }
+
+      const blob = await response.blob();
+      const fileUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = fileUrl;
+      link.download = `komunikat-wynikow-${competition.id}-${competitionPdfSafeName(competition)}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(fileUrl);
+      setMessage("PDF z wynikami wygenerowany ✅");
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    } finally {
+      setCompetitionResultsPdfDownloadingId(null);
+    }
+  }
+
+  async function downloadCompetitionPzssCommuniquesPdf(competition: AdminCompetition) {
+    const token = getAccessToken();
+
+    try {
+      setMessage("");
+      setCompetitionPzssPdfDownloadingId(competition.id);
+
+      const response = await fetch(
+        apiUrl(`/admin/competitions/${competition.id}/pzss-communiques.pdf`),
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        setMessage(data?.detail || "Nie udało się wygenerować komunikatów dla PZSS ❌");
+        return;
+      }
+
+      const blob = await response.blob();
+      const fileUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = fileUrl;
+      link.download = `komunikaty-dla-pzss-${competition.id}-${competitionPdfSafeName(competition)}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(fileUrl);
+      setMessage("Komunikaty dla PZSS wygenerowane ✅");
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    } finally {
+      setCompetitionPzssPdfDownloadingId(null);
     }
   }
 
@@ -3294,7 +3385,7 @@ export default function AdminClient({
                           : "wg konkurencji"}
                       </p>
 
-                      <div className="flex gap-2">
+                      <div className="flex flex-wrap gap-2">
                         <button
                           type="button"
                           onClick={() =>
@@ -3310,6 +3401,32 @@ export default function AdminClient({
                             ? "Ukryj"
                             : "Szczegóły"}
                         </button>
+
+                        {competition.status === "completed" && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => downloadCompetitionResultsPdf(competition)}
+                              disabled={competitionResultsPdfDownloadingId === competition.id}
+                              className="bg-blue-700 hover:bg-blue-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-3 py-2 rounded-lg text-sm font-semibold transition"
+                            >
+                              {competitionResultsPdfDownloadingId === competition.id
+                                ? "Generuję..."
+                                : "PDF wyników"}
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => downloadCompetitionPzssCommuniquesPdf(competition)}
+                              disabled={competitionPzssPdfDownloadingId === competition.id}
+                              className="bg-sky-700 hover:bg-sky-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-3 py-2 rounded-lg text-sm font-semibold transition"
+                            >
+                              {competitionPzssPdfDownloadingId === competition.id
+                                ? "Generuję..."
+                                : "Komunikaty dla PZSS"}
+                            </button>
+                          </>
+                        )}
 
                         <button
                           type="button"

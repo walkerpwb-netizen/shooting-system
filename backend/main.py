@@ -10256,6 +10256,70 @@ def admin_get_competitions(
     return result
 
 
+def get_admin_completed_competition_or_404(competition_id: int, db):
+    competition = (
+        db.query(Competition)
+        .filter(Competition.id == competition_id)
+        .first()
+    )
+
+    if not competition:
+        raise HTTPException(
+            status_code=404,
+            detail="Zawody nie istnieją"
+        )
+
+    if competition.status != "completed":
+        raise HTTPException(
+            status_code=400,
+            detail="Wydruki PDF można wygenerować po zakończeniu zawodów"
+        )
+
+    return competition
+
+
+@app.get("/admin/competitions/{competition_id}/results.pdf")
+def download_admin_competition_results_pdf(
+    competition_id: int,
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    auto_complete_started_competitions(db)
+    competition = get_admin_completed_competition_or_404(competition_id, db)
+    pdf_bytes = build_competition_results_pdf(competition, db)
+    filename = f"komunikat-wynikow-{competition.id}-{pdf_filename_slug(competition.name)}.pdf"
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@app.get("/admin/competitions/{competition_id}/pzss-communiques.pdf")
+def download_admin_pzss_communiques_pdf(
+    competition_id: int,
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    auto_complete_started_competitions(db)
+    competition = get_admin_completed_competition_or_404(competition_id, db)
+    pdf_bytes = build_pzss_communiques_pdf(competition, db)
+    filename = f"komunikaty-dla-pzss-{competition.id}-{pdf_filename_slug(competition.name)}.pdf"
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
 @app.delete("/admin/competitions/{competition_id}")
 def admin_delete_competition(
     competition_id: int,
