@@ -5291,6 +5291,19 @@ def stage_required_paper_hits(stage):
     return stage_paper_targets_count(stage) * 2
 
 
+def stage_targets_count(stage):
+    return stage_required_paper_hits(stage) + stage_steel_targets_count(stage)
+
+
+def stage_score_hits_count(score):
+    return (
+        int(getattr(score, "hits_a", 0) or 0)
+        + int(getattr(score, "hits_c", 0) or 0)
+        + int(getattr(score, "hits_d", 0) or 0)
+        + int(getattr(score, "steel_hits", 0) or 0)
+    )
+
+
 def stage_max_points_from_counts(paper_targets: int, steel_targets: int):
     return paper_targets * 2 * 5 + steel_targets * 5
 
@@ -7519,6 +7532,7 @@ def result_category_payload(competition: Competition, category_id: str, db, incl
         None,
     ) if len(discipline_ids) == 1 else None
     dynamic_stage_scores_by_participant = {}
+    dynamic_stage_targets_count = 0
     dynamic_stage = None
 
     if dynamic_stage_discipline:
@@ -7530,6 +7544,10 @@ def result_category_payload(competition: Competition, category_id: str, db, incl
             )
             .order_by(CompetitionStage.stage_number.asc())
             .all()
+        )
+        dynamic_stage_targets_count = sum(
+            stage_targets_count(stage)
+            for stage in dynamic_stages
         )
         dynamic_stage_ids = [stage.id for stage in dynamic_stages]
 
@@ -7612,6 +7630,7 @@ def result_category_payload(competition: Competition, category_id: str, db, incl
                 (parse_points(score_item.time_seconds) for score_item in scores),
                 Decimal("0"),
             )
+            total_hits = sum(stage_score_hits_count(score_item) for score_item in scores)
             row["dynamic_stage"] = True
             row["hit_factor"] = score.hit_factor if score else ""
             row["score_points"] = (
@@ -7626,6 +7645,8 @@ def result_category_payload(competition: Competition, category_id: str, db, incl
                 if total_time_seconds > 0
                 else ""
             )
+            row["hits"] = total_hits if scores else ""
+            row["targets_count"] = dynamic_stage_targets_count or ""
             row["points"] = (
                 score.stage_points
                 if score

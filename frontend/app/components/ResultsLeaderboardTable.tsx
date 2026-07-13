@@ -47,6 +47,16 @@ function secondsLabel(value?: string) {
   return value ? `${value} s` : "–";
 }
 
+function hitsLabel(hits?: number | string, targetsCount?: number | string) {
+  const targetLabel = targetsCount !== "" && targetsCount !== undefined
+    ? targetsCount
+    : "–";
+
+  return hits !== "" && hits !== undefined
+    ? `${hits}/${targetLabel}`
+    : `–/${targetLabel}`;
+}
+
 export default function ResultsLeaderboardTable({
   shooters,
   description,
@@ -120,6 +130,7 @@ export default function ResultsLeaderboardTable({
                       <th className="whitespace-nowrap px-4 py-3">Hit Factor</th>
                     )}
                     <th className="whitespace-nowrap px-4 py-3">Czas</th>
+                    <th className="whitespace-nowrap px-4 py-3">Trafienia</th>
                     <th className="whitespace-nowrap px-4 py-3">Punkty</th>
                   </>
                 ) : showPracticalShotgunScores ? (
@@ -175,6 +186,10 @@ export default function ResultsLeaderboardTable({
                         {secondsLabel(shooter.time_seconds)}
                       </td>
 
+                      <td className="whitespace-nowrap px-4 py-3 font-bold text-zinc-700 dark:text-gray-300">
+                        {hitsLabel(shooter.hits, shooter.targets_count)}
+                      </td>
+
                       <td className="whitespace-nowrap px-4 py-3 text-xl font-black text-zinc-950 dark:text-white">
                         {shooter.score_points ?? shooter.points ?? "0"}
                       </td>
@@ -186,9 +201,7 @@ export default function ResultsLeaderboardTable({
                       </td>
 
                       <td className="whitespace-nowrap px-4 py-3 font-bold text-zinc-700 dark:text-gray-300">
-                        {shooter.hits !== "" && shooter.hits !== undefined
-                          ? `${shooter.hits}/${shooter.targets_count || "–"}`
-                          : `–/${shooter.targets_count || "–"}`}
+                        {hitsLabel(shooter.hits, shooter.targets_count)}
                       </td>
 
                       <td className={`whitespace-nowrap px-4 py-3 text-xl font-black ${
