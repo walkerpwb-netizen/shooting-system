@@ -7531,17 +7531,21 @@ def result_category_payload(competition: Competition, category_id: str, db, incl
             .order_by(CompetitionStage.stage_number.asc())
             .all()
         )
+        dynamic_stage_ids = [stage.id for stage in dynamic_stages]
+
+        if dynamic_stage_ids:
+            for score in (
+                db.query(StageScore)
+                .filter(StageScore.stage_id.in_(dynamic_stage_ids))
+                .all()
+            ):
+                dynamic_stage_scores_by_participant.setdefault(
+                    score.competitor_id,
+                    [],
+                ).append(score)
 
         if len(dynamic_stages) == 1:
             dynamic_stage = dynamic_stages[0]
-            dynamic_stage_scores_by_participant = {
-                score.competitor_id: score
-                for score in (
-                    db.query(StageScore)
-                    .filter(StageScore.stage_id == dynamic_stage.id)
-                    .all()
-                )
-            }
 
     practical_shotgun_has_dynamic_stages = bool(
         practical_shotgun_discipline
@@ -7601,15 +7605,32 @@ def result_category_payload(competition: Competition, category_id: str, db, incl
                 + [-(score or 0) for score in reversed(scores)]
             )
 
-        if dynamic_stage:
-            score = dynamic_stage_scores_by_participant.get(participant.id)
+        if dynamic_stage_discipline:
+            scores = dynamic_stage_scores_by_participant.get(participant.id, [])
+            score = scores[0] if dynamic_stage and scores else None
+            total_time_seconds = sum(
+                (parse_points(score_item.time_seconds) for score_item in scores),
+                Decimal("0"),
+            )
             row["dynamic_stage"] = True
-            row["hit_factor"] = score.hit_factor if score else "0"
-            row["score_points"] = score.stage_points if score else "0"
+            row["hit_factor"] = score.hit_factor if score else ""
+            row["score_points"] = (
+                score.stage_points
+                if score
+                else format_points(points_value)
+            )
             row["stage_percent"] = score.stage_percent if score else "0"
             row["final_points"] = score.final_points if score else "0"
-            row["time_seconds"] = score.time_seconds if score else ""
-            row["points"] = score.stage_points if score else "0"
+            row["time_seconds"] = (
+                format_time_seconds(total_time_seconds)
+                if total_time_seconds > 0
+                else ""
+            )
+            row["points"] = (
+                score.stage_points
+                if score
+                else format_points(points_value)
+            )
 
         if practical_shotgun_discipline:
             result = results_by_participant.get(participant.id)

@@ -43,6 +43,10 @@ function shooterName(shooter: ResultShooter) {
     || shooter.display_name;
 }
 
+function secondsLabel(value?: string) {
+  return value ? `${value} s` : "–";
+}
+
 export default function ResultsLeaderboardTable({
   shooters,
   description,
@@ -52,6 +56,9 @@ export default function ResultsLeaderboardTable({
   const [filter, setFilter] = useState("");
   const showRoundScores = shooters.some((shooter) => (shooter.round_scores?.length || 0) > 0);
   const showDynamicStageScores = shooters.some((shooter) => shooter.dynamic_stage);
+  const showDynamicHitFactor = shooters.some((shooter) =>
+    shooter.dynamic_stage && Boolean(shooter.hit_factor)
+  );
   const showPracticalShotgunScores = shooters.some((shooter) => shooter.practical_shotgun);
 
   const visibleShooters = useMemo(() => {
@@ -109,7 +116,10 @@ export default function ResultsLeaderboardTable({
                 <th className="whitespace-nowrap px-4 py-3">Zawodnik</th>
                 {showDynamicStageScores ? (
                   <>
-                    <th className="whitespace-nowrap px-4 py-3">Hit Factor</th>
+                    {showDynamicHitFactor && (
+                      <th className="whitespace-nowrap px-4 py-3">Hit Factor</th>
+                    )}
+                    <th className="whitespace-nowrap px-4 py-3">Czas</th>
                     <th className="whitespace-nowrap px-4 py-3">Punkty</th>
                   </>
                 ) : showPracticalShotgunScores ? (
@@ -155,8 +165,14 @@ export default function ResultsLeaderboardTable({
 
                   {showDynamicStageScores ? (
                     <>
-                      <td className="whitespace-nowrap px-4 py-3 text-xl font-black text-zinc-950 dark:text-white">
-                        {shooter.hit_factor || "0"}
+                      {showDynamicHitFactor && (
+                        <td className="whitespace-nowrap px-4 py-3 text-xl font-black text-zinc-950 dark:text-white">
+                          {shooter.hit_factor || "–"}
+                        </td>
+                      )}
+
+                      <td className="whitespace-nowrap px-4 py-3 font-bold text-zinc-700 dark:text-gray-300">
+                        {secondsLabel(shooter.time_seconds)}
                       </td>
 
                       <td className="whitespace-nowrap px-4 py-3 text-xl font-black text-zinc-950 dark:text-white">
@@ -166,7 +182,7 @@ export default function ResultsLeaderboardTable({
                   ) : showPracticalShotgunScores ? (
                     <>
                       <td className="whitespace-nowrap px-4 py-3 font-bold text-zinc-700 dark:text-gray-300">
-                        {shooter.time_seconds ? `${shooter.time_seconds} s` : "–"}
+                        {secondsLabel(shooter.time_seconds)}
                       </td>
 
                       <td className="whitespace-nowrap px-4 py-3 font-bold text-zinc-700 dark:text-gray-300">
