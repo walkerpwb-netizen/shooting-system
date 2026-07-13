@@ -11701,10 +11701,6 @@ def organizer_add_participant_discipline(
     new_total_fee = parse_price(participant.total_fee)
     fee_difference = max(new_total_fee - previous_total_fee, Decimal("0"))
 
-    if fee_difference > 0:
-        participant.paid = 0
-        participant.paid_at = None
-
     if is_participant_confirmed(participant):
         assign_squad_group(participant_discipline, db)
 
