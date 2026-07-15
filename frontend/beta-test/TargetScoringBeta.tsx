@@ -88,6 +88,8 @@ type AlignmentResult = PreparedImage & {
 
 type AnalysisResult = {
   imageUrl: string;
+  imageWidth: number;
+  imageHeight: number;
   shots: ShotMark[];
   totalScore: number;
   threshold: number;
@@ -1164,21 +1166,10 @@ async function analyzeTargetImage(
 
     drawScoringRings(targetContext, outputSize.width, outputSize.height, scoringTemplate);
 
-    shots.forEach((shot) => {
-      targetContext.save();
-      targetContext.strokeStyle = "#ef4444";
-      targetContext.fillStyle = "#ef4444";
-      targetContext.lineWidth = Math.max(3, Math.round(Math.min(outputSize.width, outputSize.height) * 0.004));
-      targetContext.beginPath();
-      targetContext.arc(shot.x, shot.y, Math.max(shot.radius, 14), 0, Math.PI * 2);
-      targetContext.stroke();
-      targetContext.font = `700 ${Math.max(16, Math.round(Math.min(outputSize.width, outputSize.height) * 0.028))}px Arial`;
-      targetContext.fillText(String(shot.score), shot.x + shot.radius + 6, shot.y - shot.radius - 6);
-      targetContext.restore();
-    });
-
     return {
       imageUrl: alignedTarget.canvas.toDataURL("image/jpeg", 0.92),
+      imageWidth: outputSize.width,
+      imageHeight: outputSize.height,
       shots,
       totalScore: shots.reduce((sum, shot) => sum + shot.score, 0),
       threshold: detection.threshold,
@@ -1205,6 +1196,8 @@ export default function TargetScoringBeta() {
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [working, setWorking] = useState(false);
   const [result, setResult] = useState<AnalysisResult | null>(null);
+  const [resultOpen, setResultOpen] = useState(false);
+  const [showShotMarkers, setShowShotMarkers] = useState(true);
   const [accepted, setAccepted] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -1276,8 +1269,13 @@ export default function TargetScoringBeta() {
     setTargetFile(file);
     setTargetFileName(file?.name || "");
     setResult(null);
+    setResultOpen(false);
     setAccepted(false);
     setMessage("");
+
+    if (file) {
+      void runAnalysis(file);
+    }
   }
 
   function handleTemplateFileChange(event: ChangeEvent<HTMLInputElement>) {
@@ -1353,6 +1351,7 @@ export default function TargetScoringBeta() {
       setTemplateFileName("");
       setSaveMode("selected");
       setResult(null);
+      setResultOpen(false);
       setAccepted(false);
       setMessage("Wzorzec zapisany w systemie.");
     } catch (error) {
@@ -1363,7 +1362,7 @@ export default function TargetScoringBeta() {
     }
   }
 
-  async function runAnalysis() {
+  async function runAnalysis(fileOverride?: File) {
     if (!selectedTemplate) {
       setMessage("Wybierz wzorzec tarczy.");
       return;
@@ -1374,7 +1373,9 @@ export default function TargetScoringBeta() {
       return;
     }
 
-    if (!targetFile) {
+    const fileToAnalyze = fileOverride || targetFile;
+
+    if (!fileToAnalyze) {
       setMessage("Dodaj zdjęcie tarczy do analizy.");
       return;
     }
@@ -1382,14 +1383,17 @@ export default function TargetScoringBeta() {
     try {
       setWorking(true);
       setAccepted(false);
+      setResultOpen(false);
       setMessage("");
       const nextResult = await analyzeTargetImage(
-        targetFile,
+        fileToAnalyze,
         selectedTemplate,
         sensitivity
       );
 
       setResult(nextResult);
+      setShowShotMarkers(true);
+      setResultOpen(true);
       setMessage("Zdjęcie przycięte, dopasowane do wzorca i przeanalizowane.");
     } catch (error) {
       console.error(error);
@@ -1462,6 +1466,7 @@ export default function TargetScoringBeta() {
                     prepareTemplateForm(template);
                     setSaveMode("selected");
                     setResult(null);
+                    setResultOpen(false);
                     setAccepted(false);
                     setMessage("");
                   }}
@@ -1609,6 +1614,12 @@ export default function TargetScoringBeta() {
                 )}
               </label>
 
+              {working && (
+                <p className="rounded-xl border border-green-700/40 bg-green-700/10 px-4 py-3 text-sm font-bold text-green-100">
+                  Analizuję zdjęcie...
+                </p>
+              )}
+
               <label>
                 <span className="mb-2 block text-sm font-bold text-gray-300">
                   Czułość różnicy: {sensitivity}
@@ -1626,10 +1637,10 @@ export default function TargetScoringBeta() {
               <button
                 type="button"
                 onClick={() => void runAnalysis()}
-                disabled={working || !selectedTemplateHasImage}
+                disabled={working || !selectedTemplateHasImage || !targetFile}
                 className="ui-button rounded-xl bg-green-700 px-5 py-3 font-black text-white transition hover:bg-green-600 disabled:cursor-not-allowed disabled:bg-zinc-700"
               >
-                {working ? "Dopasowuję i analizuję..." : "Analizuj zdjęcie"}
+                {working ? "Dopasowuję..." : "Analizuj ponownie"}
               </button>
             </div>
           </div>
@@ -1651,7 +1662,10 @@ export default function TargetScoringBeta() {
             <div className="flex flex-wrap gap-3">
               <button
                 type="button"
-                onClick={() => setAccepted(true)}
+                onClick={() => {
+                  setAccepted(true);
+                  setResultOpen(false);
+                }}
                 disabled={!result}
                 className="ui-button rounded-xl bg-green-700 px-5 py-3 font-bold text-white transition hover:bg-green-600 disabled:cursor-not-allowed disabled:bg-zinc-700"
               >
@@ -1660,9 +1674,19 @@ export default function TargetScoringBeta() {
 
               <button
                 type="button"
+                onClick={() => setResultOpen(true)}
+                disabled={!result}
+                className="ui-button rounded-xl bg-red-700 px-5 py-3 font-bold text-white transition hover:bg-red-600 disabled:cursor-not-allowed disabled:bg-zinc-700"
+              >
+                Otwórz wynik
+              </button>
+
+              <button
+                type="button"
                 onClick={() => {
                   setAccepted(false);
                   setResult(null);
+                  setResultOpen(false);
                 }}
                 className="ui-button rounded-xl bg-zinc-800 px-5 py-3 font-bold text-white transition hover:bg-zinc-700"
               >
@@ -1671,45 +1695,23 @@ export default function TargetScoringBeta() {
             </div>
           </div>
 
-          <div className="mt-6 overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950">
+          <div className="mt-6 rounded-xl border border-zinc-800 bg-zinc-950 px-5 py-8 text-center">
             {result ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={result.imageUrl}
-                alt="Zdjęcie tarczy dopasowane do wzorca z zaznaczonymi przestrzelinami"
-                className="max-h-[72vh] w-full object-contain"
-              />
+              <div className="mx-auto grid max-w-xl gap-3 text-gray-200">
+                <p className="text-3xl font-black text-white">{result.totalScore} pkt</p>
+                <p className="font-bold text-gray-300">
+                  Wykryte przestrzeliny: {result.shots.length}
+                </p>
+                <p className="text-sm text-gray-500">
+                  Wynik otworzył się w pełnym ekranie po analizie. Możesz wrócić do podglądu przyciskiem „Otwórz wynik”.
+                </p>
+              </div>
             ) : (
-              <div className="flex min-h-[28rem] items-center justify-center px-6 text-center text-gray-500">
+              <div className="flex min-h-[16rem] items-center justify-center px-6 text-center text-gray-500">
                 Brak wyniku analizy.
               </div>
             )}
           </div>
-
-          {result && (
-            <div className="mt-6 overflow-x-auto">
-              <div className="grid min-w-[640px] grid-cols-[80px_1fr_1fr_1fr] border-b border-zinc-800 px-4 py-3 text-sm font-black text-gray-400">
-                <p>Nr</p>
-                <p>Punkt</p>
-                <p>Pozycja</p>
-                <p>Pewność</p>
-              </div>
-
-              {result.shots.map((shot) => (
-                <div
-                  key={shot.id}
-                  className="grid min-w-[640px] grid-cols-[80px_1fr_1fr_1fr] border-b border-zinc-800 px-4 py-3 text-sm text-gray-200 last:border-b-0"
-                >
-                  <p className="font-black text-white">{shot.id}</p>
-                  <p>{shot.score}</p>
-                  <p>
-                    {Math.round(shot.x)}, {Math.round(shot.y)}
-                  </p>
-                  <p>{Math.round(shot.confidence * 100)}%</p>
-                </div>
-              ))}
-            </div>
-          )}
 
           {accepted && (
             <p className="mt-4 rounded-xl border border-green-700/40 bg-green-700/10 px-4 py-3 font-semibold text-green-100">
@@ -1718,6 +1720,116 @@ export default function TargetScoringBeta() {
           )}
         </section>
       </div>
+
+      {result && resultOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Wynik do akceptacji"
+          className="fixed inset-0 z-[1000] flex flex-col bg-zinc-950 text-white"
+        >
+          <div className="flex flex-col gap-3 border-b border-zinc-800 bg-zinc-950/95 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <h3 className="text-xl font-black">Wynik do akceptacji</h3>
+              <p className="mt-1 text-sm text-gray-400">
+                {result.shots.length} przestrzelin · {result.totalScore} pkt · próg {result.threshold}
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setShowShotMarkers((currentValue) => !currentValue)}
+                className="ui-button rounded-xl bg-zinc-800 px-4 py-3 text-sm font-black text-white transition hover:bg-zinc-700"
+              >
+                {showShotMarkers ? "Ukryj znaczniki" : "Pokaż znaczniki"}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setAccepted(true);
+                  setResultOpen(false);
+                }}
+                className="ui-button rounded-xl bg-green-700 px-4 py-3 text-sm font-black text-white transition hover:bg-green-600"
+              >
+                Akceptuj
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setResultOpen(false)}
+                className="ui-button rounded-xl bg-zinc-800 px-4 py-3 text-sm font-black text-white transition hover:bg-zinc-700"
+              >
+                Zamknij
+              </button>
+            </div>
+          </div>
+
+          <div className="grid min-h-0 flex-1 gap-4 overflow-hidden p-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
+            <div className="min-h-0 overflow-auto rounded-xl border border-zinc-800 bg-black p-2">
+              <div
+                className="relative mx-auto w-full max-w-full"
+                style={{ aspectRatio: `${result.imageWidth} / ${result.imageHeight}` }}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={result.imageUrl}
+                  alt="Zdjęcie tarczy dopasowane do wzorca"
+                  className="absolute inset-0 h-full w-full object-contain"
+                />
+
+                {showShotMarkers && result.shots.map((shot) => {
+                  const markerRadius = Math.max(shot.radius, 14);
+
+                  return (
+                    <div key={shot.id}>
+                      <span
+                        className="pointer-events-none absolute rounded-full border-[3px] border-red-500"
+                        style={{
+                          left: `${(shot.x / result.imageWidth) * 100}%`,
+                          top: `${(shot.y / result.imageHeight) * 100}%`,
+                          width: `${((markerRadius * 2) / result.imageWidth) * 100}%`,
+                          aspectRatio: "1 / 1",
+                          transform: "translate(-50%, -50%)",
+                        }}
+                      />
+                      <span
+                        className="pointer-events-none absolute text-lg font-black text-red-500"
+                        style={{
+                          left: `${((shot.x + markerRadius + 8) / result.imageWidth) * 100}%`,
+                          top: `${((shot.y - markerRadius - 8) / result.imageHeight) * 100}%`,
+                        }}
+                      >
+                        {shot.score}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="min-h-0 overflow-auto rounded-xl border border-zinc-800 bg-zinc-900">
+              <div className="sticky top-0 grid grid-cols-[64px_1fr_1fr] border-b border-zinc-800 bg-zinc-900 px-4 py-3 text-sm font-black text-gray-400">
+                <p>Nr</p>
+                <p>Punkt</p>
+                <p>Pewność</p>
+              </div>
+
+              {result.shots.map((shot) => (
+                <div
+                  key={shot.id}
+                  className="grid grid-cols-[64px_1fr_1fr] border-b border-zinc-800 px-4 py-3 text-sm text-gray-200 last:border-b-0"
+                >
+                  <p className="font-black text-white">{shot.id}</p>
+                  <p>{shot.score}</p>
+                  <p>{Math.round(shot.confidence * 100)}%</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
