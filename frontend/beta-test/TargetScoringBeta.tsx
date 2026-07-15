@@ -52,6 +52,11 @@ type Bullseye = {
   x: number;
   y: number;
   radius: number;
+  boxWidth: number;
+  boxHeight: number;
+  majorAxis: number;
+  minorAxis: number;
+  angle: number;
   area: number;
 };
 
@@ -555,6 +560,9 @@ function detectBullseye(canvas: HTMLCanvasElement): Bullseye | null {
       let area = 0;
       let sumX = 0;
       let sumY = 0;
+      let sumXX = 0;
+      let sumYY = 0;
+      let sumXY = 0;
       let minX = startX;
       let maxX = startX;
       let minY = startY;
@@ -576,6 +584,9 @@ function detectBullseye(canvas: HTMLCanvasElement): Bullseye | null {
         area += 1;
         sumX += x;
         sumY += y;
+        sumXX += x * x;
+        sumYY += y * y;
+        sumXY += x * y;
         minX = Math.min(minX, x);
         maxX = Math.max(maxX, x);
         minY = Math.min(minY, y);
@@ -615,6 +626,17 @@ function detectBullseye(canvas: HTMLCanvasElement): Bullseye | null {
       const centerX = sumX / area;
       const centerY = sumY / area;
       const radius = Math.max(boxWidth, boxHeight) / 2;
+      const varianceX = Math.max(1, sumXX / area - centerX ** 2);
+      const varianceY = Math.max(1, sumYY / area - centerY ** 2);
+      const covariance = sumXY / area - centerX * centerY;
+      const trace = varianceX + varianceY;
+      const delta = Math.sqrt((varianceX - varianceY) ** 2 + 4 * covariance ** 2);
+      const majorVariance = Math.max(1, (trace + delta) / 2);
+      const minorVariance = Math.max(1, (trace - delta) / 2);
+      const majorAxis = Math.max(1, 4 * Math.sqrt(majorVariance));
+      const minorAxis = Math.max(1, 4 * Math.sqrt(minorVariance));
+      const angle = 0.5 * Math.atan2(2 * covariance, varianceX - varianceY);
+      const stableAngle = majorAxis / minorAxis < 1.08 ? 0 : angle;
 
       if (
         area < minArea
@@ -631,9 +653,14 @@ function detectBullseye(canvas: HTMLCanvasElement): Bullseye | null {
 
       if (!bestBullseye || area > bestBullseye.area) {
         bestBullseye = {
-          x: (minX + maxX) / 2,
-          y: (minY + maxY) / 2,
+          x: centerX,
+          y: centerY,
           radius,
+          boxWidth,
+          boxHeight,
+          majorAxis,
+          minorAxis,
+          angle: stableAngle,
           area,
         };
       }
@@ -687,12 +714,22 @@ function alignCanvasByBullseye(
   outputCanvas.height = targetCanvas.height;
 
   const outputImageData = outputContext.createImageData(outputCanvas.width, outputCanvas.height);
-  const scale = Math.max(0.45, Math.min(2.2, targetBullseye.radius / patternBullseye.radius));
+  const scaleMajor = Math.max(0.45, Math.min(2.4, targetBullseye.majorAxis / patternBullseye.majorAxis));
+  const scaleMinor = Math.max(0.45, Math.min(2.4, targetBullseye.minorAxis / patternBullseye.minorAxis));
+  const patternCos = Math.cos(patternBullseye.angle);
+  const patternSin = Math.sin(patternBullseye.angle);
+  const targetCos = Math.cos(targetBullseye.angle);
+  const targetSin = Math.sin(targetBullseye.angle);
+  const rotationDegrees = ((targetBullseye.angle - patternBullseye.angle) * 180) / Math.PI;
 
   for (let y = 0; y < outputCanvas.height; y += 1) {
     for (let x = 0; x < outputCanvas.width; x += 1) {
-      const sourceX = targetBullseye.x + (x - patternBullseye.x) * scale;
-      const sourceY = targetBullseye.y + (y - patternBullseye.y) * scale;
+      const patternDx = x - patternBullseye.x;
+      const patternDy = y - patternBullseye.y;
+      const majorCoordinate = (patternCos * patternDx + patternSin * patternDy) * scaleMajor;
+      const minorCoordinate = (-patternSin * patternDx + patternCos * patternDy) * scaleMinor;
+      const sourceX = targetBullseye.x + targetCos * majorCoordinate - targetSin * minorCoordinate;
+      const sourceY = targetBullseye.y + targetSin * majorCoordinate + targetCos * minorCoordinate;
       const outputIndex = (y * outputCanvas.width + x) * 4;
 
       if (
@@ -727,7 +764,7 @@ function alignCanvasByBullseye(
 
   return {
     canvas: outputCanvas,
-    description: `centrum dopasowane, skala ${scale.toFixed(2)}x`,
+    description: `centrum dopasowane, osie ${scaleMajor.toFixed(2)}x/${scaleMinor.toFixed(2)}x, obrót ${rotationDegrees.toFixed(1)}°`,
     bullseye: targetBullseye,
   };
 }
@@ -871,13 +908,61 @@ function isOnPrintedScoreAxis(
   );
 }
 
+function distanceToPrintedScoreNumberZone(
+  component: ComponentBox,
+  canvasWidth: number,
+  canvasHeight: number,
+  template: TargetTemplate
+) {
+  const centerX = canvasWidth * template.centerX;
+  const centerY = canvasHeight * template.centerY;
+  const targetScale = Math.min(
+    canvasWidth / template.sheetWidthMm,
+    canvasHeight / template.sheetHeightMm
+  );
+  const minSide = Math.min(canvasWidth, canvasHeight);
+  const halfWidth = Math.max(18, minSide * 0.018);
+  const halfHeight = Math.max(24, minSide * 0.026);
+
+  return template.rings.reduce((nearestDistance, ring) => {
+    const ringRadius = (ring.diameterMm * targetScale) / 2;
+    const labelPoints = [
+      { x: centerX + ringRadius, y: centerY },
+      { x: centerX - ringRadius, y: centerY },
+      { x: centerX, y: centerY + ringRadius },
+      { x: centerX, y: centerY - ringRadius },
+    ];
+    const labelDistance = labelPoints.reduce((nearestLabelDistance, point) => {
+      const normalizedDistance = Math.max(
+        Math.abs(component.x - point.x) / halfWidth,
+        Math.abs(component.y - point.y) / halfHeight
+      );
+
+      return Math.min(nearestLabelDistance, normalizedDistance);
+    }, Number.POSITIVE_INFINITY);
+
+    return Math.min(nearestDistance, labelDistance);
+  }, Number.POSITIVE_INFINITY);
+}
+
+function isInPrintedScoreNumberZone(
+  component: ComponentBox,
+  canvasWidth: number,
+  canvasHeight: number,
+  template: TargetTemplate
+) {
+  return distanceToPrintedScoreNumberZone(component, canvasWidth, canvasHeight, template) <= 1.15;
+}
+
 function isLikelyPrintedScoreNumber(
   component: ComponentBox,
   canvasWidth: number,
   canvasHeight: number,
   template: TargetTemplate
 ) {
-  if (!isOnPrintedScoreAxis(component, canvasWidth, canvasHeight, template)) {
+  const inNumberZone = isInPrintedScoreNumberZone(component, canvasWidth, canvasHeight, template);
+
+  if (!inNumberZone && !isOnPrintedScoreAxis(component, canvasWidth, canvasHeight, template)) {
     return false;
   }
 
@@ -897,8 +982,21 @@ function isLikelyPrintedScoreNumber(
       || shorterSide <= Math.max(7, longerSide * 0.48)
     )
   );
+  const singlePolarityPrint = (
+    (component.darkShare > 0.44 && component.brightShare < 0.08)
+    || (component.brightShare > 0.44 && component.darkShare < 0.08)
+  );
+  const digitImpactEvidence = (
+    component.meanDifference >= 58
+    && component.circularFill >= 0.22
+    && component.density >= 0.24
+    && (
+      (component.darkShare >= 0.14 && component.brightShare >= 0.08)
+      || component.area >= canvasWidth * canvasHeight * 0.00008
+    )
+  );
 
-  return smallPrintedMark && thinStrokeShape && !hasImpactMass(component);
+  return smallPrintedMark && (thinStrokeShape || singlePolarityPrint) && !digitImpactEvidence;
 }
 
 function distanceToNearestScoringRing(
