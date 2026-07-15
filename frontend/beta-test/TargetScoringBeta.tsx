@@ -412,6 +412,40 @@ function getScoreForPoint(
   return 0;
 }
 
+function isLikelyPrintedNumberZone(
+  component: ComponentBox,
+  canvasWidth: number,
+  canvasHeight: number,
+  template: TargetTemplate
+) {
+  const centerX = canvasWidth * template.centerX;
+  const centerY = canvasHeight * template.centerY;
+  const targetScale = Math.min(
+    canvasWidth / template.sheetWidthMm,
+    canvasHeight / template.sheetHeightMm
+  );
+  const minSide = Math.min(canvasWidth, canvasHeight);
+  const axisBand = Math.max(16, minSide * 0.018);
+  const radiusBand = Math.max(22, minSide * 0.026);
+  const nearVerticalAxis = Math.abs(component.x - centerX) <= axisBand;
+  const nearHorizontalAxis = Math.abs(component.y - centerY) <= axisBand;
+
+  if (!nearVerticalAxis && !nearHorizontalAxis) {
+    return false;
+  }
+
+  if (component.radius > Math.max(26, minSide * 0.032)) {
+    return false;
+  }
+
+  const distance = Math.hypot(component.x - centerX, component.y - centerY);
+  const ringRadii = template.rings
+    .map((ring) => (ring.diameterMm * targetScale) / 2)
+    .filter((radius) => radius > minSide * 0.04);
+
+  return ringRadii.some((radius) => Math.abs(distance - radius) <= radiusBand);
+}
+
 function solveLinearSystem(matrix: number[][], vector: number[]) {
   const size = vector.length;
   const augmented = matrix.map((row, index) => [...row, vector[index]]);
@@ -1060,6 +1094,12 @@ async function analyzeTargetImage(
       .filter((component) => pointInScoringArea(
         component.x,
         component.y,
+        outputSize.width,
+        outputSize.height,
+        scoringTemplate
+      ))
+      .filter((component) => !isLikelyPrintedNumberZone(
+        component,
         outputSize.width,
         outputSize.height,
         scoringTemplate
