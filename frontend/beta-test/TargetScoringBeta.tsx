@@ -159,26 +159,133 @@ function imageToCanvas(image: HTMLImageElement, maxSide: number) {
   return canvas;
 }
 
-function detectPaperQuad(imageData: ImageData): Point[] {
+function detectPaperQuad(imageData: ImageData, targetAspectRatio: number): Point[] {
   const { width, height, data } = imageData;
-  const candidates: Point[] = [];
+  const sampleStep = Math.max(2, Math.ceil(Math.max(width, height) / 420));
+  const sampleWidth = Math.ceil(width / sampleStep);
+  const sampleHeight = Math.ceil(height / sampleStep);
+  const mask = new Uint8Array(sampleWidth * sampleHeight);
+  const visited = new Uint8Array(mask.length);
 
-  for (let y = 0; y < height; y += 2) {
-    for (let x = 0; x < width; x += 2) {
+  for (let sampleY = 0; sampleY < sampleHeight; sampleY += 1) {
+    for (let sampleX = 0; sampleX < sampleWidth; sampleX += 1) {
+      const x = Math.min(width - 1, sampleX * sampleStep);
+      const y = Math.min(height - 1, sampleY * sampleStep);
       const index = (y * width + x) * 4;
       const red = data[index];
       const green = data[index + 1];
       const blue = data[index + 2];
+      const maxChannel = Math.max(red, green, blue);
+      const minChannel = Math.min(red, green, blue);
       const brightness = (red + green + blue) / 3;
-      const spread = Math.max(red, green, blue) - Math.min(red, green, blue);
+      const saturation = maxChannel === 0 ? 0 : (maxChannel - minChannel) / maxChannel;
 
-      if (brightness > 132 && spread < 92) {
-        candidates.push({ x, y });
+      if (
+        (brightness > 118 && saturation < 0.42)
+        || (brightness > 150 && saturation < 0.58)
+      ) {
+        mask[sampleY * sampleWidth + sampleX] = 1;
       }
     }
   }
 
-  if (candidates.length < 80) {
+  let bestComponent: {
+    area: number;
+    minX: number;
+    maxX: number;
+    minY: number;
+    maxY: number;
+  } | null = null;
+  const stack: number[] = [];
+
+  for (let startY = 0; startY < sampleHeight; startY += 1) {
+    for (let startX = 0; startX < sampleWidth; startX += 1) {
+      const startIndex = startY * sampleWidth + startX;
+
+      if (!mask[startIndex] || visited[startIndex]) {
+        continue;
+      }
+
+      let area = 0;
+      let minX = startX;
+      let maxX = startX;
+      let minY = startY;
+      let maxY = startY;
+
+      visited[startIndex] = 1;
+      stack.push(startIndex);
+
+      while (stack.length > 0) {
+        const currentIndex = stack.pop();
+
+        if (currentIndex === undefined) {
+          break;
+        }
+
+        const x = currentIndex % sampleWidth;
+        const y = Math.floor(currentIndex / sampleWidth);
+
+        area += 1;
+        minX = Math.min(minX, x);
+        maxX = Math.max(maxX, x);
+        minY = Math.min(minY, y);
+        maxY = Math.max(maxY, y);
+
+        const neighbors = [
+          currentIndex - 1,
+          currentIndex + 1,
+          currentIndex - sampleWidth,
+          currentIndex + sampleWidth,
+        ];
+
+        neighbors.forEach((neighborIndex) => {
+          if (
+            neighborIndex < 0
+            || neighborIndex >= mask.length
+            || visited[neighborIndex]
+            || !mask[neighborIndex]
+          ) {
+            return;
+          }
+
+          const neighborX = neighborIndex % sampleWidth;
+
+          if (Math.abs(neighborX - x) > 1) {
+            return;
+          }
+
+          visited[neighborIndex] = 1;
+          stack.push(neighborIndex);
+        });
+      }
+
+      const componentWidth = maxX - minX + 1;
+      const componentHeight = maxY - minY + 1;
+      const componentArea = componentWidth * componentHeight;
+      const fill = area / componentArea;
+
+      if (
+        area < mask.length * 0.025
+        || fill < 0.28
+        || componentWidth < sampleWidth * 0.18
+        || componentHeight < sampleHeight * 0.18
+      ) {
+        continue;
+      }
+
+      if (!bestComponent || area > bestComponent.area) {
+        bestComponent = {
+          area,
+          minX,
+          maxX,
+          minY,
+          maxY,
+        };
+      }
+    }
+  }
+
+  if (!bestComponent) {
     return [
       { x: 0, y: 0 },
       { x: width - 1, y: 0 },
@@ -187,30 +294,111 @@ function detectPaperQuad(imageData: ImageData): Point[] {
     ];
   }
 
-  let topLeft = candidates[0];
-  let topRight = candidates[0];
-  let bottomRight = candidates[0];
-  let bottomLeft = candidates[0];
+  const padding = Math.round(sampleStep * 1.5);
+  let left = Math.max(0, bestComponent.minX * sampleStep - padding);
+  let top = Math.max(0, bestComponent.minY * sampleStep - padding);
+  let right = Math.min(width - 1, (bestComponent.maxX + 1) * sampleStep + padding);
+  let bottom = Math.min(height - 1, (bestComponent.maxY + 1) * sampleStep + padding);
+  const centerX = (left + right) / 2;
+  const centerY = (top + bottom) / 2;
+  const cropWidth = right - left;
+  const cropHeight = bottom - top;
 
-  candidates.forEach((point) => {
-    if (point.x + point.y < topLeft.x + topLeft.y) {
-      topLeft = point;
+  if (cropWidth / cropHeight > targetAspectRatio) {
+    const nextHeight = Math.min(height - 1, cropWidth / targetAspectRatio);
+
+    top = centerY - nextHeight / 2;
+    bottom = centerY + nextHeight / 2;
+  } else {
+    const nextWidth = Math.min(width - 1, cropHeight * targetAspectRatio);
+
+    left = centerX - nextWidth / 2;
+    right = centerX + nextWidth / 2;
+  }
+
+  if (left < 0) {
+    right -= left;
+    left = 0;
+  }
+
+  if (right > width - 1) {
+    left -= right - (width - 1);
+    right = width - 1;
+  }
+
+  if (top < 0) {
+    bottom -= top;
+    top = 0;
+  }
+
+  if (bottom > height - 1) {
+    top -= bottom - (height - 1);
+    bottom = height - 1;
+  }
+
+  left = Math.max(0, left);
+  top = Math.max(0, top);
+  right = Math.min(width - 1, right);
+  bottom = Math.min(height - 1, bottom);
+
+  return [
+    { x: left, y: top },
+    { x: right, y: top },
+    { x: right, y: bottom },
+    { x: left, y: bottom },
+  ];
+}
+
+function pointInScoringArea(
+  x: number,
+  y: number,
+  canvasWidth: number,
+  canvasHeight: number,
+  template: TargetTemplate
+) {
+  const largestRing = template.rings.reduce(
+    (largest, ring) => Math.max(largest, ring.diameterMm),
+    0
+  );
+
+  if (!largestRing) {
+    return true;
+  }
+
+  const centerX = canvasWidth * template.centerX;
+  const centerY = canvasHeight * template.centerY;
+  const targetScale = Math.min(
+    canvasWidth / template.sheetWidthMm,
+    canvasHeight / template.sheetHeightMm
+  );
+  const outerRadius = (largestRing * targetScale) / 2;
+
+  return Math.hypot(x - centerX, y - centerY) <= outerRadius * 1.04;
+}
+
+function getScoreForPoint(
+  x: number,
+  y: number,
+  canvasWidth: number,
+  canvasHeight: number,
+  template: TargetTemplate
+) {
+  const centerX = canvasWidth * template.centerX;
+  const centerY = canvasHeight * template.centerY;
+  const targetScale = Math.min(
+    canvasWidth / template.sheetWidthMm,
+    canvasHeight / template.sheetHeightMm
+  );
+  const distance = Math.hypot(x - centerX, y - centerY);
+  const rings = [...template.rings].sort((firstRing, secondRing) => secondRing.score - firstRing.score);
+
+  for (const ring of rings) {
+    if (distance <= (ring.diameterMm * targetScale) / 2) {
+      return ring.score;
     }
+  }
 
-    if (point.x - point.y > topRight.x - topRight.y) {
-      topRight = point;
-    }
-
-    if (point.x + point.y > bottomRight.x + bottomRight.y) {
-      bottomRight = point;
-    }
-
-    if (point.y - point.x > bottomLeft.y - bottomLeft.x) {
-      bottomLeft = point;
-    }
-  });
-
-  return [topLeft, topRight, bottomRight, bottomLeft];
+  return 0;
 }
 
 function solveLinearSystem(matrix: number[][], vector: number[]) {
@@ -309,7 +497,7 @@ function warpCanvasToTemplate(
   }
 
   const sourceImageData = sourceContext.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
-  const quad = detectPaperQuad(sourceImageData);
+  const quad = detectPaperQuad(sourceImageData, template.sheetWidthMm / template.sheetHeightMm);
   const outputCanvas = document.createElement("canvas");
   const outputContext = outputCanvas.getContext("2d", {
     willReadFrequently: true,
@@ -370,31 +558,6 @@ function outputSizeForTemplate(template: TargetTemplate) {
     width: Math.max(1, Math.round(maxSide * aspectRatio)),
     height: maxSide,
   };
-}
-
-function getScoreForPoint(
-  x: number,
-  y: number,
-  canvasWidth: number,
-  canvasHeight: number,
-  template: TargetTemplate
-) {
-  const centerX = canvasWidth * template.centerX;
-  const centerY = canvasHeight * template.centerY;
-  const targetScale = Math.min(
-    canvasWidth / template.sheetWidthMm,
-    canvasHeight / template.sheetHeightMm
-  );
-  const distance = Math.hypot(x - centerX, y - centerY);
-  const rings = [...template.rings].sort((firstRing, secondRing) => secondRing.score - firstRing.score);
-
-  for (const ring of rings) {
-    if (distance <= (ring.diameterMm * targetScale) / 2) {
-      return ring.score;
-    }
-  }
-
-  return 0;
 }
 
 function drawScoringRings(
@@ -590,7 +753,7 @@ function detectShotComponents(
 
   return {
     components: mergedComponents
-      .slice(0, Math.max(1, expectedShots))
+      .slice(0, Math.max(expectedShots * 3, expectedShots + 6))
       .sort((firstComponent, secondComponent) => firstComponent.y - secondComponent.y || firstComponent.x - secondComponent.x),
     threshold,
   };
@@ -646,20 +809,33 @@ async function analyzeTargetImage(
       sensitivity,
       expectedShots
     );
-    const shots = detection.components.map((component, index) => ({
-      id: index + 1,
-      x: component.x,
-      y: component.y,
-      radius: component.radius,
-      score: getScoreForPoint(
+    const shots = detection.components
+      .filter((component) => pointInScoringArea(
         component.x,
         component.y,
         outputSize.width,
         outputSize.height,
         template
-      ),
-      confidence: component.confidence,
-    }));
+      ))
+      .map((component) => ({
+        x: component.x,
+        y: component.y,
+        radius: component.radius,
+        score: getScoreForPoint(
+          component.x,
+          component.y,
+          outputSize.width,
+          outputSize.height,
+          template
+        ),
+        confidence: component.confidence,
+      }))
+      .filter((shot) => shot.score > 0)
+      .slice(0, expectedShots)
+      .map((shot, index) => ({
+        ...shot,
+        id: index + 1,
+      }));
 
     drawScoringRings(targetContext, outputSize.width, outputSize.height, template);
 
