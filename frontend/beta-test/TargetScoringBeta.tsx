@@ -48,6 +48,13 @@ type Point = {
   y: number;
 };
 
+type Bullseye = {
+  x: number;
+  y: number;
+  radius: number;
+  area: number;
+};
+
 type ShotMark = {
   id: number;
   x: number;
@@ -68,6 +75,10 @@ type ComponentBox = {
 type PreparedImage = {
   canvas: HTMLCanvasElement;
   description: string;
+};
+
+type AlignmentResult = PreparedImage & {
+  bullseye: Bullseye | null;
 };
 
 type AnalysisResult = {
@@ -482,6 +493,233 @@ function samplePixel(data: Uint8ClampedArray, width: number, height: number, x: 
   ];
 }
 
+function detectBullseye(canvas: HTMLCanvasElement): Bullseye | null {
+  const context = canvas.getContext("2d", {
+    willReadFrequently: true,
+  });
+
+  if (!context) {
+    return null;
+  }
+
+  const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+  const { width, height, data } = imageData;
+  const pixelCount = width * height;
+  const mask = new Uint8Array(pixelCount);
+  const visited = new Uint8Array(pixelCount);
+
+  for (let index = 0; index < pixelCount; index += 1) {
+    const dataIndex = index * 4;
+    const red = data[dataIndex];
+    const green = data[dataIndex + 1];
+    const blue = data[dataIndex + 2];
+    const brightness = red * 0.299 + green * 0.587 + blue * 0.114;
+    const maxChannel = Math.max(red, green, blue);
+    const minChannel = Math.min(red, green, blue);
+    const saturation = maxChannel === 0 ? 0 : (maxChannel - minChannel) / maxChannel;
+
+    if (brightness < 82 || (brightness < 118 && saturation < 0.38)) {
+      mask[index] = 1;
+    }
+  }
+
+  let bestBullseye: Bullseye | null = null;
+  const stack: number[] = [];
+  const minArea = pixelCount * 0.004;
+  const maxArea = pixelCount * 0.24;
+  const minCenterX = width * 0.18;
+  const maxCenterX = width * 0.82;
+  const minCenterY = height * 0.14;
+  const maxCenterY = height * 0.86;
+
+  for (let startY = 1; startY < height - 1; startY += 1) {
+    for (let startX = 1; startX < width - 1; startX += 1) {
+      const startIndex = startY * width + startX;
+
+      if (!mask[startIndex] || visited[startIndex]) {
+        continue;
+      }
+
+      let area = 0;
+      let sumX = 0;
+      let sumY = 0;
+      let minX = startX;
+      let maxX = startX;
+      let minY = startY;
+      let maxY = startY;
+
+      visited[startIndex] = 1;
+      stack.push(startIndex);
+
+      while (stack.length > 0) {
+        const currentIndex = stack.pop();
+
+        if (currentIndex === undefined) {
+          break;
+        }
+
+        const x = currentIndex % width;
+        const y = Math.floor(currentIndex / width);
+
+        area += 1;
+        sumX += x;
+        sumY += y;
+        minX = Math.min(minX, x);
+        maxX = Math.max(maxX, x);
+        minY = Math.min(minY, y);
+        maxY = Math.max(maxY, y);
+
+        const neighbors = [
+          currentIndex - 1,
+          currentIndex + 1,
+          currentIndex - width,
+          currentIndex + width,
+        ];
+
+        neighbors.forEach((neighborIndex) => {
+          if (
+            neighborIndex <= 0
+            || neighborIndex >= pixelCount
+            || visited[neighborIndex]
+            || !mask[neighborIndex]
+          ) {
+            return;
+          }
+
+          const neighborX = neighborIndex % width;
+
+          if (Math.abs(neighborX - x) > 1) {
+            return;
+          }
+
+          visited[neighborIndex] = 1;
+          stack.push(neighborIndex);
+        });
+      }
+
+      const boxWidth = maxX - minX + 1;
+      const boxHeight = maxY - minY + 1;
+      const ratio = boxWidth / boxHeight;
+      const centerX = sumX / area;
+      const centerY = sumY / area;
+      const radius = Math.max(boxWidth, boxHeight) / 2;
+
+      if (
+        area < minArea
+        || area > maxArea
+        || ratio < 0.55
+        || ratio > 1.8
+        || centerX < minCenterX
+        || centerX > maxCenterX
+        || centerY < minCenterY
+        || centerY > maxCenterY
+      ) {
+        continue;
+      }
+
+      if (!bestBullseye || area > bestBullseye.area) {
+        bestBullseye = {
+          x: (minX + maxX) / 2,
+          y: (minY + maxY) / 2,
+          radius,
+          area,
+        };
+      }
+    }
+  }
+
+  return bestBullseye;
+}
+
+function alignCanvasByBullseye(
+  targetCanvas: HTMLCanvasElement,
+  patternBullseye: Bullseye | null
+): AlignmentResult {
+  const targetBullseye = detectBullseye(targetCanvas);
+
+  if (!patternBullseye || !targetBullseye) {
+    return {
+      canvas: targetCanvas,
+      description: "centrum nie wykryte",
+      bullseye: targetBullseye,
+    };
+  }
+
+  const context = targetCanvas.getContext("2d", {
+    willReadFrequently: true,
+  });
+
+  if (!context) {
+    return {
+      canvas: targetCanvas,
+      description: "centrum bez korekty",
+      bullseye: targetBullseye,
+    };
+  }
+
+  const sourceImageData = context.getImageData(0, 0, targetCanvas.width, targetCanvas.height);
+  const outputCanvas = document.createElement("canvas");
+  const outputContext = outputCanvas.getContext("2d", {
+    willReadFrequently: true,
+  });
+
+  if (!outputContext) {
+    return {
+      canvas: targetCanvas,
+      description: "centrum bez korekty",
+      bullseye: targetBullseye,
+    };
+  }
+
+  outputCanvas.width = targetCanvas.width;
+  outputCanvas.height = targetCanvas.height;
+
+  const outputImageData = outputContext.createImageData(outputCanvas.width, outputCanvas.height);
+  const scale = Math.max(0.45, Math.min(2.2, targetBullseye.radius / patternBullseye.radius));
+
+  for (let y = 0; y < outputCanvas.height; y += 1) {
+    for (let x = 0; x < outputCanvas.width; x += 1) {
+      const sourceX = targetBullseye.x + (x - patternBullseye.x) * scale;
+      const sourceY = targetBullseye.y + (y - patternBullseye.y) * scale;
+      const outputIndex = (y * outputCanvas.width + x) * 4;
+
+      if (
+        sourceX < 0
+        || sourceX >= targetCanvas.width
+        || sourceY < 0
+        || sourceY >= targetCanvas.height
+      ) {
+        outputImageData.data[outputIndex] = 245;
+        outputImageData.data[outputIndex + 1] = 245;
+        outputImageData.data[outputIndex + 2] = 242;
+        outputImageData.data[outputIndex + 3] = 255;
+        continue;
+      }
+
+      const pixel = samplePixel(
+        sourceImageData.data,
+        targetCanvas.width,
+        targetCanvas.height,
+        sourceX,
+        sourceY
+      );
+
+      outputImageData.data[outputIndex] = pixel[0];
+      outputImageData.data[outputIndex + 1] = pixel[1];
+      outputImageData.data[outputIndex + 2] = pixel[2];
+      outputImageData.data[outputIndex + 3] = pixel[3];
+    }
+  }
+
+  outputContext.putImageData(outputImageData, 0, 0);
+
+  return {
+    canvas: outputCanvas,
+    description: `centrum dopasowane, skala ${scale.toFixed(2)}x`,
+    bullseye: targetBullseye,
+  };
+}
+
 function warpCanvasToTemplate(
   sourceCanvas: HTMLCanvasElement,
   template: TargetTemplate,
@@ -790,7 +1028,16 @@ async function analyzeTargetImage(
       outputSize.width,
       outputSize.height
     );
-    const targetContext = preparedTarget.canvas.getContext("2d", {
+    const patternBullseye = detectBullseye(preparedPattern.canvas);
+    const alignedTarget = alignCanvasByBullseye(preparedTarget.canvas, patternBullseye);
+    const scoringTemplate = patternBullseye
+      ? {
+          ...template,
+          centerX: patternBullseye.x / outputSize.width,
+          centerY: patternBullseye.y / outputSize.height,
+        }
+      : template;
+    const targetContext = alignedTarget.canvas.getContext("2d", {
       willReadFrequently: true,
     });
     const patternContext = preparedPattern.canvas.getContext("2d", {
@@ -815,7 +1062,7 @@ async function analyzeTargetImage(
         component.y,
         outputSize.width,
         outputSize.height,
-        template
+        scoringTemplate
       ))
       .map((component) => ({
         x: component.x,
@@ -826,7 +1073,7 @@ async function analyzeTargetImage(
           component.y,
           outputSize.width,
           outputSize.height,
-          template
+          scoringTemplate
         ),
         confidence: component.confidence,
       }))
@@ -837,7 +1084,7 @@ async function analyzeTargetImage(
         id: index + 1,
       }));
 
-    drawScoringRings(targetContext, outputSize.width, outputSize.height, template);
+    drawScoringRings(targetContext, outputSize.width, outputSize.height, scoringTemplate);
 
     shots.forEach((shot) => {
       targetContext.save();
@@ -853,11 +1100,11 @@ async function analyzeTargetImage(
     });
 
     return {
-      imageUrl: preparedTarget.canvas.toDataURL("image/jpeg", 0.92),
+      imageUrl: alignedTarget.canvas.toDataURL("image/jpeg", 0.92),
       shots,
       totalScore: shots.reduce((sum, shot) => sum + shot.score, 0),
       threshold: detection.threshold,
-      cropDescription: preparedTarget.description,
+      cropDescription: `${preparedTarget.description}; ${alignedTarget.description}`,
     };
   } finally {
     loadedTarget.revoke?.();
