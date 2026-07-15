@@ -987,31 +987,12 @@ function isInScoreNumberCorridor(
   );
 }
 
-function hasPaperTearEvidence(component: ComponentBox, canvasWidth: number, canvasHeight: number) {
-  const pixelCount = canvasWidth * canvasHeight;
-  const mixedToneDamage = (
-    component.darkShare >= 0.1
-    && (component.brightShare >= 0.075 || component.tearShare >= 0.08)
-  );
-  const largeScar = (
-    component.area >= pixelCount * 0.000075
-    && (component.darkShare >= 0.24 || component.brightShare >= 0.24 || component.brownShare >= 0.08)
-  );
-  const fiberDamage = component.brownShare >= 0.045 && (component.tearShare >= 0.05 || component.brightShare >= 0.06);
-
-  return (
-    component.meanDifference >= 42
-    && component.circularFill >= 0.18
-    && component.density >= 0.19
-    && (mixedToneDamage || largeScar || fiberDamage)
-  );
-}
-
 function shotPatternScore(component: ComponentBox, canvasWidth: number, canvasHeight: number) {
   const pixelCount = canvasWidth * canvasHeight;
+  const axisLikePrint = component.brownShare < 0.025 && component.tearShare < 0.045;
   let score = 0;
 
-  if (component.darkShare >= 0.12 || component.brownShare >= 0.06) {
+  if (component.brownShare >= 0.06 || (component.darkShare >= 0.12 && !axisLikePrint)) {
     score += 0.28;
   }
 
@@ -1039,8 +1020,7 @@ function shotPatternScore(component: ComponentBox, canvasWidth: number, canvasHe
   }
 
   if (
-    component.brownShare < 0.025
-    && component.tearShare < 0.045
+    axisLikePrint
     && (
       (component.darkShare > 0.58 && component.brightShare < 0.05)
       || (component.brightShare > 0.58 && component.darkShare < 0.05)
@@ -1050,6 +1030,26 @@ function shotPatternScore(component: ComponentBox, canvasWidth: number, canvasHe
   }
 
   return Math.max(0, Math.min(1, score));
+}
+
+function hasDigitCorridorImpactPattern(component: ComponentBox, canvasWidth: number, canvasHeight: number) {
+  const pixelCount = canvasWidth * canvasHeight;
+  const mixedFiber = (
+    (component.brownShare >= 0.035 && (component.tearShare >= 0.035 || component.brightShare >= 0.045))
+    || (component.darkShare >= 0.12 && component.tearShare >= 0.075)
+    || (component.darkShare >= 0.1 && component.brightShare >= 0.09)
+  );
+  const largeTornHole = (
+    component.area >= pixelCount * 0.000065
+    && (component.brownShare >= 0.05 || component.tearShare >= 0.07 || component.brightShare >= 0.12)
+  );
+
+  return (
+    component.meanDifference >= 40
+    && component.circularFill >= 0.17
+    && component.density >= 0.18
+    && (mixedFiber || largeTornHole)
+  );
 }
 
 function isLikelyPrintedScoreNumber(
@@ -1095,7 +1095,7 @@ function isLikelyPrintedScoreNumber(
     )
   );
 
-  if ((inNumberZone || inNumberCorridor) && !hasPaperTearEvidence(component, canvasWidth, canvasHeight)) {
+  if ((inNumberZone || inNumberCorridor) && !hasDigitCorridorImpactPattern(component, canvasWidth, canvasHeight)) {
     return true;
   }
 
@@ -1404,6 +1404,7 @@ function detectShotComponents(
         confidence: Math.min(1, meanDifference / 120) * density,
       };
       const patternScore = shotPatternScore(component, width, height);
+      const inDigitCorridor = isInScoreNumberCorridor(component, width, height, template);
 
       if (
         area < minArea
@@ -1415,7 +1416,7 @@ function detectShotComponents(
         || density < 0.17
         || circularFill < 0.16
         || meanDifference < threshold + 5
-        || patternScore < (isInScoreNumberCorridor(component, width, height, template) ? 0.62 : 0.42)
+        || patternScore < (inDigitCorridor ? 0.7 : 0.42)
       ) {
         continue;
       }
