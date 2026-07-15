@@ -93,6 +93,8 @@ const defaultCustomRings = Array.from({ length: 10 }, (_, index) => ({
   score: index + 1,
   diameterMm: (10 - index) * 50,
 }));
+const maxSourceCanvasSide = 4096;
+const maxAnalysisCanvasSide = 1800;
 
 function apiTemplateToTargetTemplate(template: ApiTargetTemplate): TargetTemplate {
   return {
@@ -410,40 +412,6 @@ function getScoreForPoint(
   }
 
   return 0;
-}
-
-function isLikelyPrintedNumberZone(
-  component: ComponentBox,
-  canvasWidth: number,
-  canvasHeight: number,
-  template: TargetTemplate
-) {
-  const centerX = canvasWidth * template.centerX;
-  const centerY = canvasHeight * template.centerY;
-  const targetScale = Math.min(
-    canvasWidth / template.sheetWidthMm,
-    canvasHeight / template.sheetHeightMm
-  );
-  const minSide = Math.min(canvasWidth, canvasHeight);
-  const axisBand = Math.max(16, minSide * 0.018);
-  const radiusBand = Math.max(22, minSide * 0.026);
-  const nearVerticalAxis = Math.abs(component.x - centerX) <= axisBand;
-  const nearHorizontalAxis = Math.abs(component.y - centerY) <= axisBand;
-
-  if (!nearVerticalAxis && !nearHorizontalAxis) {
-    return false;
-  }
-
-  if (component.radius > Math.max(26, minSide * 0.032)) {
-    return false;
-  }
-
-  const distance = Math.hypot(component.x - centerX, component.y - centerY);
-  const ringRadii = template.rings
-    .map((ring) => (ring.diameterMm * targetScale) / 2)
-    .filter((radius) => radius > minSide * 0.04);
-
-  return ringRadii.some((radius) => Math.abs(distance - radius) <= radiusBand);
 }
 
 function solveLinearSystem(matrix: number[][], vector: number[]) {
@@ -816,7 +784,7 @@ function warpCanvasToTemplate(
 }
 
 function outputSizeForTemplate(template: TargetTemplate) {
-  const maxSide = 1080;
+  const maxSide = maxAnalysisCanvasSide;
   const aspectRatio = template.sheetWidthMm / template.sheetHeightMm;
 
   if (aspectRatio >= 1) {
@@ -905,13 +873,13 @@ function detectShotComponents(
 
   const standardDeviation = Math.sqrt(variance / pixelCount);
   const threshold = Math.max(
-    18,
-    Math.min(120, Math.round(averageDifference + standardDeviation * 2.25 - sensitivity))
+    10,
+    Math.min(105, Math.round(averageDifference + standardDeviation * 1.35 - sensitivity))
   );
   const visited = new Uint8Array(pixelCount);
   const components: ComponentBox[] = [];
-  const minArea = Math.max(12, Math.round(pixelCount * 0.000018));
-  const maxArea = Math.max(70, Math.round(pixelCount * 0.0012));
+  const minArea = Math.max(8, Math.round(pixelCount * 0.000006));
+  const maxArea = Math.max(120, Math.round(pixelCount * 0.0016));
   const maxBoxSize = Math.min(width, height) * 0.065;
   const stack: number[] = [];
   const marginX = Math.round(width * 0.025);
@@ -990,7 +958,7 @@ function detectShotComponents(
         || boxHeight > maxBoxSize
         || ratio < 0.38
         || ratio > 2.65
-        || density < 0.22
+        || density < 0.14
       ) {
         continue;
       }
@@ -1025,7 +993,7 @@ function detectShotComponents(
 
   return {
     components: mergedComponents
-      .slice(0, Math.max(expectedShots * 3, expectedShots + 6))
+      .slice(0, Math.max(expectedShots * 5, expectedShots + 12))
       .sort((firstComponent, secondComponent) => firstComponent.y - secondComponent.y || firstComponent.x - secondComponent.x),
     threshold,
   };
@@ -1048,8 +1016,8 @@ async function analyzeTargetImage(
 
   try {
     const outputSize = outputSizeForTemplate(template);
-    const targetSourceCanvas = imageToCanvas(loadedTarget.image, 1500);
-    const patternSourceCanvas = imageToCanvas(loadedPattern.image, 1500);
+    const targetSourceCanvas = imageToCanvas(loadedTarget.image, maxSourceCanvasSide);
+    const patternSourceCanvas = imageToCanvas(loadedPattern.image, maxSourceCanvasSide);
     const preparedTarget = warpCanvasToTemplate(
       targetSourceCanvas,
       template,
@@ -1094,12 +1062,6 @@ async function analyzeTargetImage(
       .filter((component) => pointInScoringArea(
         component.x,
         component.y,
-        outputSize.width,
-        outputSize.height,
-        scoringTemplate
-      ))
-      .filter((component) => !isLikelyPrintedNumberZone(
-        component,
         outputSize.width,
         outputSize.height,
         scoringTemplate
