@@ -48,25 +48,20 @@ type Point = {
   y: number;
 };
 
-type Bullseye = {
-  x: number;
-  y: number;
-  radius: number;
-  boxWidth: number;
-  boxHeight: number;
-  majorAxis: number;
-  minorAxis: number;
-  angle: number;
-  area: number;
-};
-
 type PreparedImage = {
   canvas: HTMLCanvasElement;
   description: string;
 };
 
-type AlignmentResult = PreparedImage & {
-  bullseye: Bullseye | null;
+type AlignmentResult = PreparedImage;
+
+type RingAlignment = {
+  x: number;
+  y: number;
+  scaleX: number;
+  scaleY: number;
+  angle: number;
+  score: number;
 };
 
 type AnalysisResult = {
@@ -126,17 +121,6 @@ function loadImageFile(file: File): Promise<LoadedImage> {
       URL.revokeObjectURL(url);
       reject(new Error("Nie udało się odczytać obrazu."));
     };
-    image.src = url;
-  });
-}
-
-function loadImageUrl(url: string): Promise<LoadedImage> {
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-
-    image.crossOrigin = "anonymous";
-    image.onload = () => resolve({ image });
-    image.onerror = () => reject(new Error("Nie udało się pobrać obrazu wzorcowego."));
     image.src = url;
   });
 }
@@ -430,226 +414,212 @@ function samplePixel(data: Uint8ClampedArray, width: number, height: number, x: 
   ];
 }
 
-function detectBullseye(canvas: HTMLCanvasElement): Bullseye | null {
+function grayAt(data: Uint8ClampedArray, width: number, height: number, x: number, y: number) {
+  if (x < 0 || x >= width || y < 0 || y >= height) {
+    return null;
+  }
+
+  const safeX = Math.max(0, Math.min(width - 1, Math.round(x)));
+  const safeY = Math.max(0, Math.min(height - 1, Math.round(y)));
+  const index = (safeY * width + safeX) * 4;
+
+  return data[index] * 0.299 + data[index + 1] * 0.587 + data[index + 2] * 0.114;
+}
+
+function lineLikelihood(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+  x: number,
+  y: number,
+  normalX: number,
+  normalY: number
+) {
+  const center = grayAt(data, width, height, x, y);
+  const inner = grayAt(data, width, height, x - normalX * 5, y - normalY * 5);
+  const outer = grayAt(data, width, height, x + normalX * 5, y + normalY * 5);
+
+  if (center === null || inner === null || outer === null) {
+    return 0;
+  }
+
+  const neighborAverage = (inner + outer) / 2;
+  const contrast = Math.abs(center - neighborAverage);
+  const pixel = samplePixel(data, width, height, x, y);
+  const greenInk = pixel[1] > 88 && pixel[1] - pixel[0] > 8 && pixel[1] - pixel[2] > 6;
+
+  return Math.max(0, Math.min(1, (contrast - 10) / 44 + (greenInk ? 0.2 : 0)));
+}
+
+function scoreRingAlignment(
+  imageData: ImageData,
+  template: TargetTemplate,
+  candidate: Omit<RingAlignment, "score">
+) {
+  const { width, height, data } = imageData;
+  const targetScale = Math.min(
+    width / template.sheetWidthMm,
+    height / template.sheetHeightMm
+  );
+  const ringRadii = template.rings
+    .map((ring) => (ring.diameterMm * targetScale) / 2)
+    .filter((radius) => radius > Math.min(width, height) * 0.035)
+    .sort((firstRadius, secondRadius) => firstRadius - secondRadius);
+  const angleCount = 72;
+  let score = 0;
+  let samples = 0;
+
+  ringRadii.forEach((radius) => {
+    for (let angleIndex = 0; angleIndex < angleCount; angleIndex += 1) {
+      const angle = (Math.PI * 2 * angleIndex) / angleCount;
+      const ringCos = Math.cos(angle);
+      const ringSin = Math.sin(angle);
+      const alignmentCos = Math.cos(candidate.angle);
+      const alignmentSin = Math.sin(candidate.angle);
+      const scaledX = ringCos * radius * candidate.scaleX;
+      const scaledY = ringSin * radius * candidate.scaleY;
+      const normalX = alignmentCos * ringCos - alignmentSin * ringSin;
+      const normalY = alignmentSin * ringCos + alignmentCos * ringSin;
+      const x = candidate.x + alignmentCos * scaledX - alignmentSin * scaledY;
+      const y = candidate.y + alignmentSin * scaledX + alignmentCos * scaledY;
+      const sampleScore = lineLikelihood(data, width, height, x, y, normalX, normalY);
+
+      if (sampleScore > 0) {
+        score += sampleScore;
+      }
+
+      samples += 1;
+    }
+  });
+
+  return samples ? score / samples : 0;
+}
+
+function detectRingAlignment(canvas: HTMLCanvasElement, template: TargetTemplate): RingAlignment | null {
   const context = canvas.getContext("2d", {
     willReadFrequently: true,
   });
 
-  if (!context) {
+  if (!context || template.rings.length === 0) {
     return null;
   }
 
   const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-  const { width, height, data } = imageData;
-  const pixelCount = width * height;
-  const mask = new Uint8Array(pixelCount);
-  const visited = new Uint8Array(pixelCount);
+  const centerX = canvas.width * template.centerX;
+  const centerY = canvas.height * template.centerY;
+  const minSide = Math.min(canvas.width, canvas.height);
+  let bestAlignment: RingAlignment | null = null;
 
-  for (let index = 0; index < pixelCount; index += 1) {
-    const dataIndex = index * 4;
-    const red = data[dataIndex];
-    const green = data[dataIndex + 1];
-    const blue = data[dataIndex + 2];
-    const brightness = red * 0.299 + green * 0.587 + blue * 0.114;
-    const maxChannel = Math.max(red, green, blue);
-    const minChannel = Math.min(red, green, blue);
-    const saturation = maxChannel === 0 ? 0 : (maxChannel - minChannel) / maxChannel;
+  function testCandidate(candidate: Omit<RingAlignment, "score">) {
+    const score = scoreRingAlignment(imageData, template, candidate);
 
-    if (brightness < 82 || (brightness < 118 && saturation < 0.38)) {
-      mask[index] = 1;
+    if (!bestAlignment || score > bestAlignment.score) {
+      bestAlignment = {
+        ...candidate,
+        score,
+      };
     }
   }
 
-  let bestBullseye: Bullseye | null = null;
-  const stack: number[] = [];
-  const minArea = pixelCount * 0.004;
-  const maxArea = pixelCount * 0.24;
-  const minCenterX = width * 0.18;
-  const maxCenterX = width * 0.82;
-  const minCenterY = height * 0.14;
-  const maxCenterY = height * 0.86;
+  const coarseCenterStep = minSide * 0.025;
+  const coarseScales = [0.82, 0.9, 0.98, 1.06, 1.14];
+  const coarseAngles = [-5, -2.5, 0, 2.5, 5].map((degrees) => (degrees * Math.PI) / 180);
 
-  for (let startY = 1; startY < height - 1; startY += 1) {
-    for (let startX = 1; startX < width - 1; startX += 1) {
-      const startIndex = startY * width + startX;
-
-      if (!mask[startIndex] || visited[startIndex]) {
-        continue;
-      }
-
-      let area = 0;
-      let sumX = 0;
-      let sumY = 0;
-      let sumXX = 0;
-      let sumYY = 0;
-      let sumXY = 0;
-      let minX = startX;
-      let maxX = startX;
-      let minY = startY;
-      let maxY = startY;
-
-      visited[startIndex] = 1;
-      stack.push(startIndex);
-
-      while (stack.length > 0) {
-        const currentIndex = stack.pop();
-
-        if (currentIndex === undefined) {
-          break;
-        }
-
-        const x = currentIndex % width;
-        const y = Math.floor(currentIndex / width);
-
-        area += 1;
-        sumX += x;
-        sumY += y;
-        sumXX += x * x;
-        sumYY += y * y;
-        sumXY += x * y;
-        minX = Math.min(minX, x);
-        maxX = Math.max(maxX, x);
-        minY = Math.min(minY, y);
-        maxY = Math.max(maxY, y);
-
-        const neighbors = [
-          currentIndex - 1,
-          currentIndex + 1,
-          currentIndex - width,
-          currentIndex + width,
-        ];
-
-        neighbors.forEach((neighborIndex) => {
-          if (
-            neighborIndex <= 0
-            || neighborIndex >= pixelCount
-            || visited[neighborIndex]
-            || !mask[neighborIndex]
-          ) {
-            return;
-          }
-
-          const neighborX = neighborIndex % width;
-
-          if (Math.abs(neighborX - x) > 1) {
-            return;
-          }
-
-          visited[neighborIndex] = 1;
-          stack.push(neighborIndex);
+  for (let offsetY = -3; offsetY <= 3; offsetY += 1) {
+    for (let offsetX = -3; offsetX <= 3; offsetX += 1) {
+      coarseScales.forEach((scaleX) => {
+        coarseScales.forEach((scaleY) => {
+          coarseAngles.forEach((angle) => {
+            testCandidate({
+              x: centerX + offsetX * coarseCenterStep,
+              y: centerY + offsetY * coarseCenterStep,
+              scaleX,
+              scaleY,
+              angle,
+            });
+          });
         });
-      }
+      });
+    }
+  }
 
-      const boxWidth = maxX - minX + 1;
-      const boxHeight = maxY - minY + 1;
-      const ratio = boxWidth / boxHeight;
-      const centerX = sumX / area;
-      const centerY = sumY / area;
-      const radius = Math.max(boxWidth, boxHeight) / 2;
-      const varianceX = Math.max(1, sumXX / area - centerX ** 2);
-      const varianceY = Math.max(1, sumYY / area - centerY ** 2);
-      const covariance = sumXY / area - centerX * centerY;
-      const trace = varianceX + varianceY;
-      const delta = Math.sqrt((varianceX - varianceY) ** 2 + 4 * covariance ** 2);
-      const majorVariance = Math.max(1, (trace + delta) / 2);
-      const minorVariance = Math.max(1, (trace - delta) / 2);
-      const majorAxis = Math.max(1, 4 * Math.sqrt(majorVariance));
-      const minorAxis = Math.max(1, 4 * Math.sqrt(minorVariance));
-      const angle = 0.5 * Math.atan2(2 * covariance, varianceX - varianceY);
-      const stableAngle = majorAxis / minorAxis < 1.08 ? 0 : angle;
+  if (!bestAlignment) {
+    return null;
+  }
 
-      if (
-        area < minArea
-        || area > maxArea
-        || ratio < 0.55
-        || ratio > 1.8
-        || centerX < minCenterX
-        || centerX > maxCenterX
-        || centerY < minCenterY
-        || centerY > maxCenterY
-      ) {
-        continue;
-      }
+  const refineCenterStep = coarseCenterStep / 2;
+  const refineScaleStep = 0.035;
+  const refineAngleStep = (1.25 * Math.PI) / 180;
+  const seed = bestAlignment as RingAlignment;
 
-      if (!bestBullseye || area > bestBullseye.area) {
-        bestBullseye = {
-          x: centerX,
-          y: centerY,
-          radius,
-          boxWidth,
-          boxHeight,
-          majorAxis,
-          minorAxis,
-          angle: stableAngle,
-          area,
-        };
+  for (let offsetY = -2; offsetY <= 2; offsetY += 1) {
+    for (let offsetX = -2; offsetX <= 2; offsetX += 1) {
+      for (let scaleYStep = -2; scaleYStep <= 2; scaleYStep += 1) {
+        for (let scaleXStep = -2; scaleXStep <= 2; scaleXStep += 1) {
+          for (let angleStep = -2; angleStep <= 2; angleStep += 1) {
+            testCandidate({
+              x: seed.x + offsetX * refineCenterStep,
+              y: seed.y + offsetY * refineCenterStep,
+              scaleX: Math.max(0.65, Math.min(1.35, seed.scaleX + scaleXStep * refineScaleStep)),
+              scaleY: Math.max(0.65, Math.min(1.35, seed.scaleY + scaleYStep * refineScaleStep)),
+              angle: seed.angle + angleStep * refineAngleStep,
+            });
+          }
+        }
       }
     }
   }
 
-  return bestBullseye;
+  const finalAlignment = bestAlignment as RingAlignment | null;
+
+  return finalAlignment && finalAlignment.score >= 0.16 ? finalAlignment : null;
 }
 
-function alignCanvasByBullseye(
+function alignCanvasByRings(
   targetCanvas: HTMLCanvasElement,
-  patternBullseye: Bullseye | null
+  template: TargetTemplate
 ): AlignmentResult {
-  const targetBullseye = detectBullseye(targetCanvas);
+  const ringAlignment = detectRingAlignment(targetCanvas, template);
 
-  if (!patternBullseye || !targetBullseye) {
+  if (!ringAlignment) {
     return {
       canvas: targetCanvas,
-      description: "centrum nie wykryte",
-      bullseye: targetBullseye,
+      description: "linie nie wykryte",
     };
   }
 
   const context = targetCanvas.getContext("2d", {
     willReadFrequently: true,
   });
-
-  if (!context) {
-    return {
-      canvas: targetCanvas,
-      description: "centrum bez korekty",
-      bullseye: targetBullseye,
-    };
-  }
-
-  const sourceImageData = context.getImageData(0, 0, targetCanvas.width, targetCanvas.height);
   const outputCanvas = document.createElement("canvas");
   const outputContext = outputCanvas.getContext("2d", {
     willReadFrequently: true,
   });
 
-  if (!outputContext) {
+  if (!context || !outputContext) {
     return {
       canvas: targetCanvas,
-      description: "centrum bez korekty",
-      bullseye: targetBullseye,
+      description: "linie bez korekty",
     };
   }
 
   outputCanvas.width = targetCanvas.width;
   outputCanvas.height = targetCanvas.height;
 
+  const sourceImageData = context.getImageData(0, 0, targetCanvas.width, targetCanvas.height);
   const outputImageData = outputContext.createImageData(outputCanvas.width, outputCanvas.height);
-  const scaleMajor = Math.max(0.45, Math.min(2.4, targetBullseye.majorAxis / patternBullseye.majorAxis));
-  const scaleMinor = Math.max(0.45, Math.min(2.4, targetBullseye.minorAxis / patternBullseye.minorAxis));
-  const patternCos = Math.cos(patternBullseye.angle);
-  const patternSin = Math.sin(patternBullseye.angle);
-  const targetCos = Math.cos(targetBullseye.angle);
-  const targetSin = Math.sin(targetBullseye.angle);
-  const rotationDegrees = ((targetBullseye.angle - patternBullseye.angle) * 180) / Math.PI;
+  const referenceX = outputCanvas.width * template.centerX;
+  const referenceY = outputCanvas.height * template.centerY;
+  const alignmentCos = Math.cos(ringAlignment.angle);
+  const alignmentSin = Math.sin(ringAlignment.angle);
+  const rotationDegrees = (ringAlignment.angle * 180) / Math.PI;
 
   for (let y = 0; y < outputCanvas.height; y += 1) {
     for (let x = 0; x < outputCanvas.width; x += 1) {
-      const patternDx = x - patternBullseye.x;
-      const patternDy = y - patternBullseye.y;
-      const majorCoordinate = (patternCos * patternDx + patternSin * patternDy) * scaleMajor;
-      const minorCoordinate = (-patternSin * patternDx + patternCos * patternDy) * scaleMinor;
-      const sourceX = targetBullseye.x + targetCos * majorCoordinate - targetSin * minorCoordinate;
-      const sourceY = targetBullseye.y + targetSin * majorCoordinate + targetCos * minorCoordinate;
+      const scaledX = (x - referenceX) * ringAlignment.scaleX;
+      const scaledY = (y - referenceY) * ringAlignment.scaleY;
+      const sourceX = ringAlignment.x + alignmentCos * scaledX - alignmentSin * scaledY;
+      const sourceY = ringAlignment.y + alignmentSin * scaledX + alignmentCos * scaledY;
       const outputIndex = (y * outputCanvas.width + x) * 4;
 
       if (
@@ -684,8 +654,7 @@ function alignCanvasByBullseye(
 
   return {
     canvas: outputCanvas,
-    description: `centrum dopasowane, osie ${scaleMajor.toFixed(2)}x/${scaleMinor.toFixed(2)}x, obrót ${rotationDegrees.toFixed(1)}°`,
-    bullseye: targetBullseye,
+    description: `linie dopasowane, osie ${ringAlignment.scaleX.toFixed(2)}x/${ringAlignment.scaleY.toFixed(2)}x, obrót ${rotationDegrees.toFixed(1)}°, zgodność ${Math.round(ringAlignment.score * 100)}%`,
   };
 }
 
@@ -809,33 +778,17 @@ async function analyzeTargetImage(
   }
 
   const loadedTarget = await loadImageFile(file);
-  const loadedPattern = await loadImageUrl(patternUrl);
 
   try {
     const outputSize = outputSizeForTemplate(template);
     const targetSourceCanvas = imageToCanvas(loadedTarget.image, maxSourceCanvasSide);
-    const patternSourceCanvas = imageToCanvas(loadedPattern.image, maxSourceCanvasSide);
     const preparedTarget = warpCanvasToTemplate(
       targetSourceCanvas,
       template,
       outputSize.width,
       outputSize.height
     );
-    const preparedPattern = warpCanvasToTemplate(
-      patternSourceCanvas,
-      template,
-      outputSize.width,
-      outputSize.height
-    );
-    const patternBullseye = detectBullseye(preparedPattern.canvas);
-    const alignedTarget = alignCanvasByBullseye(preparedTarget.canvas, patternBullseye);
-    const alignmentTemplate = patternBullseye
-      ? {
-          ...template,
-          centerX: patternBullseye.x / outputSize.width,
-          centerY: patternBullseye.y / outputSize.height,
-        }
-      : template;
+    const alignedTarget = alignCanvasByRings(preparedTarget.canvas, template);
     const targetContext = alignedTarget.canvas.getContext("2d", {
       willReadFrequently: true,
     });
@@ -844,7 +797,7 @@ async function analyzeTargetImage(
       throw new Error("Nie udało się przygotować dopasowania.");
     }
 
-    drawScoringRings(targetContext, outputSize.width, outputSize.height, alignmentTemplate);
+    drawScoringRings(targetContext, outputSize.width, outputSize.height, template);
 
     return {
       imageUrl: alignedTarget.canvas.toDataURL("image/jpeg", 0.92),
