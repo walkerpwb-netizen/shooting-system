@@ -1,7 +1,10 @@
 "use client";
 
-import type { ChangeEvent } from "react";
-import { useMemo, useState } from "react";
+import type { ChangeEvent, FormEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
+
+import { apiUrl } from "@/lib/api";
+import { getAccessToken } from "@/lib/auth";
 
 type TargetRing = {
   score: number;
@@ -11,13 +14,38 @@ type TargetRing = {
 type TargetTemplate = {
   id: string;
   name: string;
+  source: string;
   sheetWidthMm: number;
   sheetHeightMm: number;
-  source: string;
-  rings: TargetRing[];
   centerX: number;
   centerY: number;
-  patternPreviewUrl?: string;
+  imageUrl: string;
+  rings: TargetRing[];
+};
+
+type ApiTargetTemplate = {
+  id: string;
+  name: string;
+  source: string;
+  sheet_width_mm: number;
+  sheet_height_mm: number;
+  center_x: number;
+  center_y: number;
+  image_url: string;
+  rings: Array<{
+    score: number;
+    diameter_mm: number;
+  }>;
+};
+
+type LoadedImage = {
+  image: HTMLImageElement;
+  revoke?: () => void;
+};
+
+type Point = {
+  x: number;
+  y: number;
 };
 
 type ShotMark = {
@@ -29,19 +57,6 @@ type ShotMark = {
   confidence: number;
 };
 
-type AnalysisResult = {
-  imageUrl: string;
-  shots: ShotMark[];
-  totalScore: number;
-  threshold: number;
-  cropDescription: string;
-};
-
-type LoadedImage = {
-  image: HTMLImageElement;
-  url: string;
-};
-
 type ComponentBox = {
   x: number;
   y: number;
@@ -50,79 +65,311 @@ type ComponentBox = {
   confidence: number;
 };
 
-const officialTemplates: TargetTemplate[] = [
-  {
-    id: "ts-2",
-    name: "TS-2",
-    sheetWidthMm: 500,
-    sheetHeightMm: 500,
-    source: "wzór oficjalny",
-    centerX: 0.5,
-    centerY: 0.5,
-    rings: [
-      { score: 1, diameterMm: 500 },
-      { score: 2, diameterMm: 450 },
-      { score: 3, diameterMm: 400 },
-      { score: 4, diameterMm: 350 },
-      { score: 5, diameterMm: 300 },
-      { score: 6, diameterMm: 250 },
-      { score: 7, diameterMm: 200 },
-      { score: 8, diameterMm: 150 },
-      { score: 9, diameterMm: 100 },
-      { score: 10, diameterMm: 50 },
-    ],
-  },
-  {
-    id: "nt-23p",
-    name: "NT-23P",
-    sheetWidthMm: 500,
-    sheetHeightMm: 500,
-    source: "wzór oficjalny",
-    centerX: 0.5,
-    centerY: 0.5,
-    rings: [
-      { score: 6, diameterMm: 500 },
-      { score: 7, diameterMm: 400 },
-      { score: 8, diameterMm: 300 },
-      { score: 9, diameterMm: 200 },
-      { score: 10, diameterMm: 100 },
-    ],
-  },
-  {
-    id: "nt-23p-2",
-    name: "NT-23P/2",
-    sheetWidthMm: 250,
-    sheetHeightMm: 250,
-    source: "wzór oficjalny",
-    centerX: 0.5,
-    centerY: 0.5,
-    rings: [
-      { score: 6, diameterMm: 250 },
-      { score: 7, diameterMm: 200 },
-      { score: 8, diameterMm: 150 },
-      { score: 9, diameterMm: 100 },
-      { score: 10, diameterMm: 50 },
-    ],
-  },
-];
+type PreparedImage = {
+  canvas: HTMLCanvasElement;
+  description: string;
+};
 
-const generatedCustomRings = Array.from({ length: 10 }, (_, index) => ({
-  score: 10 - index,
-  diameterMm: (index + 1) * 50,
-})).reverse();
+type AnalysisResult = {
+  imageUrl: string;
+  shots: ShotMark[];
+  totalScore: number;
+  threshold: number;
+  cropDescription: string;
+};
+
+const defaultCustomRings = Array.from({ length: 10 }, (_, index) => ({
+  score: index + 1,
+  diameterMm: (10 - index) * 50,
+}));
+
+function apiTemplateToTargetTemplate(template: ApiTargetTemplate): TargetTemplate {
+  return {
+    id: template.id,
+    name: template.name,
+    source: template.source,
+    sheetWidthMm: template.sheet_width_mm,
+    sheetHeightMm: template.sheet_height_mm,
+    centerX: template.center_x,
+    centerY: template.center_y,
+    imageUrl: template.image_url,
+    rings: template.rings.map((ring) => ({
+      score: ring.score,
+      diameterMm: ring.diameter_mm,
+    })),
+  };
+}
+
+function templateImageSrc(template: TargetTemplate) {
+  return template.imageUrl ? apiUrl(template.imageUrl) : "";
+}
+
+function generatedRingsForSize(widthMm: number, heightMm: number) {
+  const maxDiameter = Math.max(50, Math.min(widthMm, heightMm));
+
+  return defaultCustomRings.map((ring) => ({
+    score: ring.score,
+    diameterMm: (maxDiameter / 10) * (11 - ring.score),
+  }));
+}
 
 function loadImageFile(file: File): Promise<LoadedImage> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const image = new Image();
 
-    image.onload = () => resolve({ image, url });
+    image.onload = () => resolve({
+      image,
+      revoke: () => URL.revokeObjectURL(url),
+    });
     image.onerror = () => {
       URL.revokeObjectURL(url);
       reject(new Error("Nie udało się odczytać obrazu."));
     };
     image.src = url;
   });
+}
+
+function loadImageUrl(url: string): Promise<LoadedImage> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+
+    image.crossOrigin = "anonymous";
+    image.onload = () => resolve({ image });
+    image.onerror = () => reject(new Error("Nie udało się pobrać obrazu wzorcowego."));
+    image.src = url;
+  });
+}
+
+function imageToCanvas(image: HTMLImageElement, maxSide: number) {
+  const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight));
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d", {
+    willReadFrequently: true,
+  });
+
+  if (!context) {
+    throw new Error("Przeglądarka nie udostępniła kontekstu obrazu.");
+  }
+
+  canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+  canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+  return canvas;
+}
+
+function detectPaperQuad(imageData: ImageData): Point[] {
+  const { width, height, data } = imageData;
+  const candidates: Point[] = [];
+
+  for (let y = 0; y < height; y += 2) {
+    for (let x = 0; x < width; x += 2) {
+      const index = (y * width + x) * 4;
+      const red = data[index];
+      const green = data[index + 1];
+      const blue = data[index + 2];
+      const brightness = (red + green + blue) / 3;
+      const spread = Math.max(red, green, blue) - Math.min(red, green, blue);
+
+      if (brightness > 132 && spread < 92) {
+        candidates.push({ x, y });
+      }
+    }
+  }
+
+  if (candidates.length < 80) {
+    return [
+      { x: 0, y: 0 },
+      { x: width - 1, y: 0 },
+      { x: width - 1, y: height - 1 },
+      { x: 0, y: height - 1 },
+    ];
+  }
+
+  let topLeft = candidates[0];
+  let topRight = candidates[0];
+  let bottomRight = candidates[0];
+  let bottomLeft = candidates[0];
+
+  candidates.forEach((point) => {
+    if (point.x + point.y < topLeft.x + topLeft.y) {
+      topLeft = point;
+    }
+
+    if (point.x - point.y > topRight.x - topRight.y) {
+      topRight = point;
+    }
+
+    if (point.x + point.y > bottomRight.x + bottomRight.y) {
+      bottomRight = point;
+    }
+
+    if (point.y - point.x > bottomLeft.y - bottomLeft.x) {
+      bottomLeft = point;
+    }
+  });
+
+  return [topLeft, topRight, bottomRight, bottomLeft];
+}
+
+function solveLinearSystem(matrix: number[][], vector: number[]) {
+  const size = vector.length;
+  const augmented = matrix.map((row, index) => [...row, vector[index]]);
+
+  for (let column = 0; column < size; column += 1) {
+    let pivotRow = column;
+
+    for (let row = column + 1; row < size; row += 1) {
+      if (Math.abs(augmented[row][column]) > Math.abs(augmented[pivotRow][column])) {
+        pivotRow = row;
+      }
+    }
+
+    [augmented[column], augmented[pivotRow]] = [augmented[pivotRow], augmented[column]];
+
+    const pivot = augmented[column][column] || 1;
+
+    for (let valueIndex = column; valueIndex <= size; valueIndex += 1) {
+      augmented[column][valueIndex] /= pivot;
+    }
+
+    for (let row = 0; row < size; row += 1) {
+      if (row === column) {
+        continue;
+      }
+
+      const factor = augmented[row][column];
+
+      for (let valueIndex = column; valueIndex <= size; valueIndex += 1) {
+        augmented[row][valueIndex] -= factor * augmented[column][valueIndex];
+      }
+    }
+  }
+
+  return augmented.map((row) => row[size]);
+}
+
+function transformFromRectToQuad(width: number, height: number, quad: Point[]) {
+  const sourcePoints = [
+    { x: 0, y: 0 },
+    { x: width - 1, y: 0 },
+    { x: width - 1, y: height - 1 },
+    { x: 0, y: height - 1 },
+  ];
+  const matrix: number[][] = [];
+  const vector: number[] = [];
+
+  sourcePoints.forEach((point, index) => {
+    const target = quad[index];
+
+    matrix.push([point.x, point.y, 1, 0, 0, 0, -target.x * point.x, -target.x * point.y]);
+    vector.push(target.x);
+    matrix.push([0, 0, 0, point.x, point.y, 1, -target.y * point.x, -target.y * point.y]);
+    vector.push(target.y);
+  });
+
+  const [a, b, c, d, e, f, g, h] = solveLinearSystem(matrix, vector);
+
+  return (x: number, y: number) => {
+    const denominator = g * x + h * y + 1;
+
+    return {
+      x: (a * x + b * y + c) / denominator,
+      y: (d * x + e * y + f) / denominator,
+    };
+  };
+}
+
+function samplePixel(data: Uint8ClampedArray, width: number, height: number, x: number, y: number) {
+  const safeX = Math.max(0, Math.min(width - 1, Math.round(x)));
+  const safeY = Math.max(0, Math.min(height - 1, Math.round(y)));
+  const index = (safeY * width + safeX) * 4;
+
+  return [
+    data[index],
+    data[index + 1],
+    data[index + 2],
+    data[index + 3],
+  ];
+}
+
+function warpCanvasToTemplate(
+  sourceCanvas: HTMLCanvasElement,
+  template: TargetTemplate,
+  outputWidth: number,
+  outputHeight: number
+): PreparedImage {
+  const sourceContext = sourceCanvas.getContext("2d", {
+    willReadFrequently: true,
+  });
+
+  if (!sourceContext) {
+    throw new Error("Nie udało się przygotować zdjęcia.");
+  }
+
+  const sourceImageData = sourceContext.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
+  const quad = detectPaperQuad(sourceImageData);
+  const outputCanvas = document.createElement("canvas");
+  const outputContext = outputCanvas.getContext("2d", {
+    willReadFrequently: true,
+  });
+
+  if (!outputContext) {
+    throw new Error("Nie udało się przygotować kadru wzorca.");
+  }
+
+  outputCanvas.width = outputWidth;
+  outputCanvas.height = outputHeight;
+
+  const outputImageData = outputContext.createImageData(outputWidth, outputHeight);
+  const mapPoint = transformFromRectToQuad(outputWidth, outputHeight, quad);
+
+  for (let y = 0; y < outputHeight; y += 1) {
+    for (let x = 0; x < outputWidth; x += 1) {
+      const sourcePoint = mapPoint(x, y);
+      const pixel = samplePixel(
+        sourceImageData.data,
+        sourceCanvas.width,
+        sourceCanvas.height,
+        sourcePoint.x,
+        sourcePoint.y
+      );
+      const outputIndex = (y * outputWidth + x) * 4;
+
+      outputImageData.data[outputIndex] = pixel[0];
+      outputImageData.data[outputIndex + 1] = pixel[1];
+      outputImageData.data[outputIndex + 2] = pixel[2];
+      outputImageData.data[outputIndex + 3] = pixel[3];
+    }
+  }
+
+  outputContext.putImageData(outputImageData, 0, 0);
+
+  const quadWidth = Math.round((Math.hypot(quad[1].x - quad[0].x, quad[1].y - quad[0].y) + Math.hypot(quad[2].x - quad[3].x, quad[2].y - quad[3].y)) / 2);
+  const quadHeight = Math.round((Math.hypot(quad[3].x - quad[0].x, quad[3].y - quad[0].y) + Math.hypot(quad[2].x - quad[1].x, quad[2].y - quad[1].y)) / 2);
+
+  return {
+    canvas: outputCanvas,
+    description: `${quadWidth} x ${quadHeight} px, dopasowane do ${template.name}`,
+  };
+}
+
+function outputSizeForTemplate(template: TargetTemplate) {
+  const maxSide = 1080;
+  const aspectRatio = template.sheetWidthMm / template.sheetHeightMm;
+
+  if (aspectRatio >= 1) {
+    return {
+      width: maxSide,
+      height: Math.max(1, Math.round(maxSide / aspectRatio)),
+    };
+  }
+
+  return {
+    width: Math.max(1, Math.round(maxSide * aspectRatio)),
+    height: maxSide,
+  };
 }
 
 function getScoreForPoint(
@@ -164,7 +411,7 @@ function drawScoringRings(
   );
 
   context.save();
-  context.strokeStyle = "rgba(34, 197, 94, 0.5)";
+  context.strokeStyle = "rgba(34, 197, 94, 0.42)";
   context.lineWidth = Math.max(1, Math.round(Math.min(canvasWidth, canvasHeight) * 0.002));
   context.font = `${Math.max(12, Math.round(Math.min(canvasWidth, canvasHeight) * 0.02))}px Arial`;
   context.fillStyle = "rgba(34, 197, 94, 0.85)";
@@ -182,75 +429,71 @@ function drawScoringRings(
 }
 
 function detectShotComponents(
-  imageData: ImageData,
+  targetImageData: ImageData,
+  patternImageData: ImageData,
   sensitivity: number,
-  expectedShots: number,
-  patternImageData?: ImageData
+  expectedShots: number
 ): {
   components: ComponentBox[];
   threshold: number;
 } {
-  const { width, height, data } = imageData;
+  const { width, height, data } = targetImageData;
+  const patternData = patternImageData.data;
   const pixelCount = width * height;
-  const gray = new Uint8Array(pixelCount);
-  const patternGray = patternImageData ? new Uint8Array(pixelCount) : null;
-  let sum = 0;
+  const difference = new Uint8Array(pixelCount);
+  let totalDifference = 0;
 
   for (let index = 0; index < pixelCount; index += 1) {
     const dataIndex = index * 4;
-    const value = Math.round(
+    const targetGray = Math.round(
       data[dataIndex] * 0.299
       + data[dataIndex + 1] * 0.587
       + data[dataIndex + 2] * 0.114
     );
+    const patternGray = Math.round(
+      patternData[dataIndex] * 0.299
+      + patternData[dataIndex + 1] * 0.587
+      + patternData[dataIndex + 2] * 0.114
+    );
+    const value = Math.abs(patternGray - targetGray);
 
-    gray[index] = value;
-    sum += value;
-
-    if (patternGray && patternImageData) {
-      const patternData = patternImageData.data;
-      patternGray[index] = Math.round(
-        patternData[dataIndex] * 0.299
-        + patternData[dataIndex + 1] * 0.587
-        + patternData[dataIndex + 2] * 0.114
-      );
-    }
+    difference[index] = value;
+    totalDifference += value;
   }
 
-  const mean = sum / pixelCount;
+  const averageDifference = totalDifference / pixelCount;
   let variance = 0;
 
   for (let index = 0; index < pixelCount; index += 1) {
-    variance += (gray[index] - mean) ** 2;
+    variance += (difference[index] - averageDifference) ** 2;
   }
 
   const standardDeviation = Math.sqrt(variance / pixelCount);
   const threshold = Math.max(
     18,
-    Math.min(125, Math.round(mean - standardDeviation * 0.95 + sensitivity))
+    Math.min(120, Math.round(averageDifference + standardDeviation * 2.25 - sensitivity))
   );
   const visited = new Uint8Array(pixelCount);
   const components: ComponentBox[] = [];
-  const minArea = Math.max(10, Math.round(pixelCount * 0.000012));
-  const maxArea = Math.max(80, Math.round(pixelCount * 0.002));
-  const maxBoxSize = Math.min(width, height) * 0.09;
+  const minArea = Math.max(12, Math.round(pixelCount * 0.000018));
+  const maxArea = Math.max(70, Math.round(pixelCount * 0.0012));
+  const maxBoxSize = Math.min(width, height) * 0.065;
   const stack: number[] = [];
+  const marginX = Math.round(width * 0.025);
+  const marginY = Math.round(height * 0.025);
 
-  for (let startY = 1; startY < height - 1; startY += 1) {
-    for (let startX = 1; startX < width - 1; startX += 1) {
+  for (let startY = marginY; startY < height - marginY; startY += 1) {
+    for (let startX = marginX; startX < width - marginX; startX += 1) {
       const startIndex = startY * width + startX;
-      const isDarkCandidate = patternGray
-        ? gray[startIndex] + 34 < patternGray[startIndex] && gray[startIndex] < 150
-        : gray[startIndex] <= threshold;
 
-      if (visited[startIndex] || !isDarkCandidate) {
+      if (visited[startIndex] || difference[startIndex] <= threshold) {
         continue;
       }
 
       let area = 0;
       let sumX = 0;
       let sumY = 0;
-      let darkness = 0;
+      let strength = 0;
       let minX = startX;
       let maxX = startX;
       let minY = startY;
@@ -272,7 +515,7 @@ function detectShotComponents(
         area += 1;
         sumX += x;
         sumY += y;
-        darkness += 255 - gray[currentIndex];
+        strength += difference[currentIndex];
         minX = Math.min(minX, x);
         maxX = Math.max(maxX, x);
         minY = Math.min(minY, y);
@@ -286,15 +529,11 @@ function detectShotComponents(
         ];
 
         neighbors.forEach((neighborIndex) => {
-          const neighborIsDarkCandidate = patternGray
-            ? gray[neighborIndex] + 34 < patternGray[neighborIndex] && gray[neighborIndex] < 150
-            : gray[neighborIndex] <= threshold;
-
           if (
             neighborIndex <= 0
             || neighborIndex >= pixelCount
             || visited[neighborIndex]
-            || !neighborIsDarkCandidate
+            || difference[neighborIndex] <= threshold
           ) {
             return;
           }
@@ -314,9 +553,9 @@ function detectShotComponents(
         || area > maxArea
         || boxWidth > maxBoxSize
         || boxHeight > maxBoxSize
-        || ratio < 0.35
-        || ratio > 2.85
-        || density < 0.24
+        || ratio < 0.38
+        || ratio > 2.65
+        || density < 0.22
       ) {
         continue;
       }
@@ -324,31 +563,29 @@ function detectShotComponents(
       components.push({
         x: sumX / area,
         y: sumY / area,
-        radius: Math.max(8, Math.sqrt(area / Math.PI) * 1.9),
+        radius: Math.max(9, Math.sqrt(area / Math.PI) * 1.85),
         area,
-        confidence: Math.min(1, (darkness / area) / 210) * density,
+        confidence: Math.min(1, (strength / area) / 120) * density,
       });
     }
   }
 
   const mergedComponents: ComponentBox[] = [];
-  const mergeDistance = Math.min(width, height) * 0.024;
+  const mergeDistance = Math.min(width, height) * 0.026;
 
   [...components]
     .sort((firstComponent, secondComponent) => secondComponent.confidence - firstComponent.confidence)
     .forEach((component) => {
-      const existingComponent = mergedComponents.find(
+      const duplicate = mergedComponents.some(
         (mergedComponent) => Math.hypot(
           mergedComponent.x - component.x,
           mergedComponent.y - component.y
         ) < mergeDistance
       );
 
-      if (existingComponent) {
-        return;
+      if (!duplicate) {
+        mergedComponents.push(component);
       }
-
-      mergedComponents.push(component);
     });
 
   return {
@@ -363,182 +600,175 @@ async function analyzeTargetImage(
   file: File,
   template: TargetTemplate,
   sensitivity: number,
-  expectedShots: number,
-  patternFile?: File | null
+  expectedShots: number
 ): Promise<AnalysisResult> {
-  const loadedImage = await loadImageFile(file);
-  const loadedPatternImage = patternFile ? await loadImageFile(patternFile) : null;
-  const aspectRatio = template.sheetWidthMm / template.sheetHeightMm;
-  let sourceWidth = loadedImage.image.naturalWidth;
-  let sourceHeight = loadedImage.image.naturalHeight;
-  let sourceX = 0;
-  let sourceY = 0;
+  const patternUrl = templateImageSrc(template);
 
-  if (sourceWidth / sourceHeight > aspectRatio) {
-    sourceWidth = sourceHeight * aspectRatio;
-    sourceX = (loadedImage.image.naturalWidth - sourceWidth) / 2;
-  } else {
-    sourceHeight = sourceWidth / aspectRatio;
-    sourceY = (loadedImage.image.naturalHeight - sourceHeight) / 2;
+  if (!patternUrl) {
+    throw new Error("Najpierw zapisz obraz wzorcowy dla wybranej tarczy.");
   }
 
-  const maxCanvasSide = 1200;
-  const scale = Math.min(1, maxCanvasSide / Math.max(sourceWidth, sourceHeight));
-  const canvas = document.createElement("canvas");
-  const context = canvas.getContext("2d", {
-    willReadFrequently: true,
-  });
+  const loadedTarget = await loadImageFile(file);
+  const loadedPattern = await loadImageUrl(patternUrl);
 
-  if (!context) {
-    URL.revokeObjectURL(loadedImage.url);
-    throw new Error("Przeglądarka nie udostępniła kontekstu obrazu.");
-  }
-
-  canvas.width = Math.round(sourceWidth * scale);
-  canvas.height = Math.round(sourceHeight * scale);
-  context.drawImage(
-    loadedImage.image,
-    sourceX,
-    sourceY,
-    sourceWidth,
-    sourceHeight,
-    0,
-    0,
-    canvas.width,
-    canvas.height
-  );
-
-  const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-  let patternImageData: ImageData | undefined;
-
-  if (loadedPatternImage) {
-    const patternCanvas = document.createElement("canvas");
-    const patternContext = patternCanvas.getContext("2d", {
+  try {
+    const outputSize = outputSizeForTemplate(template);
+    const targetSourceCanvas = imageToCanvas(loadedTarget.image, 1500);
+    const patternSourceCanvas = imageToCanvas(loadedPattern.image, 1500);
+    const preparedTarget = warpCanvasToTemplate(
+      targetSourceCanvas,
+      template,
+      outputSize.width,
+      outputSize.height
+    );
+    const preparedPattern = warpCanvasToTemplate(
+      patternSourceCanvas,
+      template,
+      outputSize.width,
+      outputSize.height
+    );
+    const targetContext = preparedTarget.canvas.getContext("2d", {
+      willReadFrequently: true,
+    });
+    const patternContext = preparedPattern.canvas.getContext("2d", {
       willReadFrequently: true,
     });
 
-    if (patternContext) {
-      let patternSourceWidth = loadedPatternImage.image.naturalWidth;
-      let patternSourceHeight = loadedPatternImage.image.naturalHeight;
-      let patternSourceX = 0;
-      let patternSourceY = 0;
-
-      if (patternSourceWidth / patternSourceHeight > aspectRatio) {
-        patternSourceWidth = patternSourceHeight * aspectRatio;
-        patternSourceX = (loadedPatternImage.image.naturalWidth - patternSourceWidth) / 2;
-      } else {
-        patternSourceHeight = patternSourceWidth / aspectRatio;
-        patternSourceY = (loadedPatternImage.image.naturalHeight - patternSourceHeight) / 2;
-      }
-
-      patternCanvas.width = canvas.width;
-      patternCanvas.height = canvas.height;
-      patternContext.drawImage(
-        loadedPatternImage.image,
-        patternSourceX,
-        patternSourceY,
-        patternSourceWidth,
-        patternSourceHeight,
-        0,
-        0,
-        patternCanvas.width,
-        patternCanvas.height
-      );
-      patternImageData = patternContext.getImageData(0, 0, patternCanvas.width, patternCanvas.height);
+    if (!targetContext || !patternContext) {
+      throw new Error("Nie udało się przygotować porównania.");
     }
+
+    const targetImageData = targetContext.getImageData(0, 0, outputSize.width, outputSize.height);
+    const patternImageData = patternContext.getImageData(0, 0, outputSize.width, outputSize.height);
+    const detection = detectShotComponents(
+      targetImageData,
+      patternImageData,
+      sensitivity,
+      expectedShots
+    );
+    const shots = detection.components.map((component, index) => ({
+      id: index + 1,
+      x: component.x,
+      y: component.y,
+      radius: component.radius,
+      score: getScoreForPoint(
+        component.x,
+        component.y,
+        outputSize.width,
+        outputSize.height,
+        template
+      ),
+      confidence: component.confidence,
+    }));
+
+    drawScoringRings(targetContext, outputSize.width, outputSize.height, template);
+
+    shots.forEach((shot) => {
+      targetContext.save();
+      targetContext.strokeStyle = "#ef4444";
+      targetContext.fillStyle = "#ef4444";
+      targetContext.lineWidth = Math.max(3, Math.round(Math.min(outputSize.width, outputSize.height) * 0.004));
+      targetContext.beginPath();
+      targetContext.arc(shot.x, shot.y, Math.max(shot.radius, 14), 0, Math.PI * 2);
+      targetContext.stroke();
+      targetContext.font = `700 ${Math.max(16, Math.round(Math.min(outputSize.width, outputSize.height) * 0.028))}px Arial`;
+      targetContext.fillText(String(shot.score), shot.x + shot.radius + 6, shot.y - shot.radius - 6);
+      targetContext.restore();
+    });
+
+    return {
+      imageUrl: preparedTarget.canvas.toDataURL("image/jpeg", 0.92),
+      shots,
+      totalScore: shots.reduce((sum, shot) => sum + shot.score, 0),
+      threshold: detection.threshold,
+      cropDescription: preparedTarget.description,
+    };
+  } finally {
+    loadedTarget.revoke?.();
   }
-
-  const detection = detectShotComponents(imageData, sensitivity, expectedShots, patternImageData);
-  const shots = detection.components.map((component, index) => ({
-    id: index + 1,
-    x: component.x,
-    y: component.y,
-    radius: component.radius,
-    score: getScoreForPoint(component.x, component.y, canvas.width, canvas.height, template),
-    confidence: component.confidence,
-  }));
-
-  drawScoringRings(context, canvas.width, canvas.height, template);
-
-  shots.forEach((shot) => {
-    context.save();
-    context.strokeStyle = "#ef4444";
-    context.fillStyle = "#ef4444";
-    context.lineWidth = Math.max(3, Math.round(Math.min(canvas.width, canvas.height) * 0.004));
-    context.beginPath();
-    context.arc(shot.x, shot.y, Math.max(shot.radius, 14), 0, Math.PI * 2);
-    context.stroke();
-    context.font = `700 ${Math.max(16, Math.round(Math.min(canvas.width, canvas.height) * 0.028))}px Arial`;
-    context.fillText(String(shot.score), shot.x + shot.radius + 6, shot.y - shot.radius - 6);
-    context.restore();
-  });
-
-  URL.revokeObjectURL(loadedImage.url);
-  if (loadedPatternImage) {
-    URL.revokeObjectURL(loadedPatternImage.url);
-  }
-
-  return {
-    imageUrl: canvas.toDataURL("image/jpeg", 0.92),
-    shots,
-    totalScore: shots.reduce((sum, shot) => sum + shot.score, 0),
-    threshold: detection.threshold,
-    cropDescription: `${Math.round(sourceWidth)} x ${Math.round(sourceHeight)} px`,
-  };
 }
 
 export default function TargetScoringBeta() {
-  const [selectedTemplateId, setSelectedTemplateId] = useState(officialTemplates[0].id);
-  const [customTemplate, setCustomTemplate] = useState<TargetTemplate | null>(null);
-  const [customName, setCustomName] = useState("Własna tarcza");
-  const [customWidth, setCustomWidth] = useState(500);
-  const [customHeight, setCustomHeight] = useState(500);
+  const [templates, setTemplates] = useState<TargetTemplate[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [targetFile, setTargetFile] = useState<File | null>(null);
-  const [patternFile, setPatternFile] = useState<File | null>(null);
   const [targetFileName, setTargetFileName] = useState("");
-  const [patternFileName, setPatternFileName] = useState("");
+  const [templateFile, setTemplateFile] = useState<File | null>(null);
+  const [templateFileName, setTemplateFileName] = useState("");
+  const [saveMode, setSaveMode] = useState("selected");
+  const [templateName, setTemplateName] = useState("Własna tarcza");
+  const [templateWidth, setTemplateWidth] = useState(500);
+  const [templateHeight, setTemplateHeight] = useState(500);
   const [expectedShots, setExpectedShots] = useState(10);
   const [sensitivity, setSensitivity] = useState(0);
+  const [loadingTemplates, setLoadingTemplates] = useState(true);
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [working, setWorking] = useState(false);
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [accepted, setAccepted] = useState(false);
-  const [working, setWorking] = useState(false);
   const [message, setMessage] = useState("");
 
-  const templates = useMemo(
-    () => customTemplate ? [...officialTemplates, customTemplate] : officialTemplates,
-    [customTemplate]
+  const selectedTemplate = useMemo(
+    () => templates.find((template) => template.id === selectedTemplateId) || templates[0],
+    [selectedTemplateId, templates]
   );
-  const selectedTemplate = templates.find((template) => template.id === selectedTemplateId) || templates[0];
+  const selectedTemplateHasImage = Boolean(selectedTemplate?.imageUrl);
 
-  async function handlePatternFileChange(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
+  function prepareTemplateForm(template: TargetTemplate) {
+    setTemplateName(template.name);
+    setTemplateWidth(template.sheetWidthMm);
+    setTemplateHeight(template.sheetHeightMm);
+  }
 
-    if (!file) {
-      return;
+  useEffect(() => {
+    let active = true;
+
+    async function loadTemplates() {
+      const token = getAccessToken();
+
+      try {
+        setLoadingTemplates(true);
+        const response = await fetch(apiUrl("/admin/beta-target-templates"), {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+        const data: ApiTargetTemplate[] | { detail?: string } = await response.json();
+
+        if (!active) {
+          return;
+        }
+
+        if (!response.ok || !Array.isArray(data)) {
+          setMessage("Nie udało się pobrać listy wzorców.");
+          return;
+        }
+
+        const nextTemplates = data.map(apiTemplateToTargetTemplate);
+        setTemplates(nextTemplates);
+        setSelectedTemplateId((currentId) => currentId || nextTemplates[0]?.id || "");
+
+        if (nextTemplates[0]) {
+          prepareTemplateForm(nextTemplates[0]);
+        }
+      } catch (error) {
+        console.error(error);
+        if (active) {
+          setMessage("Błąd połączenia przy pobieraniu wzorców.");
+        }
+      } finally {
+        if (active) {
+          setLoadingTemplates(false);
+        }
+      }
     }
 
-    const loadedImage = await loadImageFile(file);
-    const nextCustomTemplate: TargetTemplate = {
-      id: "custom",
-      name: customName.trim() || "Własna tarcza",
-      sheetWidthMm: Math.max(50, customWidth),
-      sheetHeightMm: Math.max(50, customHeight),
-      source: "wzór własny",
-      centerX: 0.5,
-      centerY: 0.5,
-      rings: generatedCustomRings.map((ring) => ({
-        ...ring,
-        diameterMm: (Math.min(customWidth, customHeight) / 10) * (11 - ring.score),
-      })),
-      patternPreviewUrl: loadedImage.url,
-    };
+    void loadTemplates();
 
-    setPatternFileName(file.name);
-    setPatternFile(file);
-    setCustomTemplate(nextCustomTemplate);
-    setSelectedTemplateId(nextCustomTemplate.id);
-    setMessage("Własny wzór dodany do listy.");
-  }
+    return () => {
+      active = false;
+    };
+  }, []);
 
   function handleTargetFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0] || null;
@@ -550,7 +780,100 @@ export default function TargetScoringBeta() {
     setMessage("");
   }
 
+  function handleTemplateFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] || null;
+
+    setTemplateFile(file);
+    setTemplateFileName(file?.name || "");
+  }
+
+  async function saveTemplate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!templateFile) {
+      setMessage("Dodaj plik obrazu wzorcowego.");
+      return;
+    }
+
+    const baseTemplate = saveMode === "new" ? null : selectedTemplate;
+    const width = Math.max(50, templateWidth);
+    const height = Math.max(50, templateHeight);
+    const rings = baseTemplate?.rings || generatedRingsForSize(width, height);
+    const formData = new FormData();
+    const token = getAccessToken();
+
+    formData.set("template_id", baseTemplate?.id || "");
+    formData.set("name", templateName.trim() || "Własna tarcza");
+    formData.set("source", baseTemplate?.source || "wzór własny");
+    formData.set("sheet_width_mm", String(width));
+    formData.set("sheet_height_mm", String(height));
+    formData.set("center_x", String(baseTemplate?.centerX ?? 0.5));
+    formData.set("center_y", String(baseTemplate?.centerY ?? 0.5));
+    formData.set(
+      "rings_json",
+      JSON.stringify(rings.map((ring) => ({
+        score: ring.score,
+        diameter_mm: ring.diameterMm,
+      })))
+    );
+    formData.set("image", templateFile);
+
+    try {
+      setSavingTemplate(true);
+      setMessage("");
+      const response = await fetch(apiUrl("/admin/beta-target-templates"), {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: formData,
+      });
+      const data: ApiTargetTemplate | { detail?: string } = await response.json();
+
+      if (!response.ok) {
+        setMessage(("detail" in data && data.detail) || "Nie udało się zapisać wzorca.");
+        return;
+      }
+
+      if (!("id" in data)) {
+        setMessage("Nie udało się zapisać wzorca.");
+        return;
+      }
+
+      const savedTemplate = apiTemplateToTargetTemplate(data);
+      setTemplates((currentTemplates) => {
+        const exists = currentTemplates.some((template) => template.id === savedTemplate.id);
+
+        return exists
+          ? currentTemplates.map((template) => template.id === savedTemplate.id ? savedTemplate : template)
+          : [...currentTemplates, savedTemplate];
+      });
+      setSelectedTemplateId(savedTemplate.id);
+      setTemplateFile(null);
+      setTemplateFileName("");
+      setSaveMode("selected");
+      setResult(null);
+      setAccepted(false);
+      setMessage("Wzorzec zapisany w systemie.");
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia przy zapisie wzorca.");
+    } finally {
+      setSavingTemplate(false);
+    }
+  }
+
   async function runAnalysis() {
+    if (!selectedTemplate) {
+      setMessage("Wybierz wzorzec tarczy.");
+      return;
+    }
+
+    if (!selectedTemplate.imageUrl) {
+      setMessage("Ten wzorzec nie ma jeszcze zapisanego obrazu. Najpierw wgraj i zapisz obraz wzorcowy.");
+      return;
+    }
+
     if (!targetFile) {
       setMessage("Dodaj zdjęcie tarczy do analizy.");
       return;
@@ -564,12 +887,11 @@ export default function TargetScoringBeta() {
         targetFile,
         selectedTemplate,
         sensitivity,
-        expectedShots,
-        selectedTemplate.id === "custom" ? patternFile : null
+        expectedShots
       );
 
       setResult(nextResult);
-      setMessage("Analiza zakończona.");
+      setMessage("Zdjęcie przycięte, dopasowane do wzorca i przeanalizowane.");
     } catch (error) {
       console.error(error);
       setMessage(error instanceof Error ? error.message : "Nie udało się przeanalizować zdjęcia.");
@@ -593,8 +915,14 @@ export default function TargetScoringBeta() {
 
           <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
             <div className="rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3">
-              <p className="font-bold text-gray-400">Wzór</p>
-              <p className="mt-1 text-lg font-black text-white">{selectedTemplate.name}</p>
+              <p className="font-bold text-gray-400">Wzorzec</p>
+              <p className="mt-1 text-lg font-black text-white">{selectedTemplate?.name || "-"}</p>
+            </div>
+            <div className="rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3">
+              <p className="font-bold text-gray-400">Obraz</p>
+              <p className={`mt-1 text-lg font-black ${selectedTemplateHasImage ? "text-green-300" : "text-yellow-300"}`}>
+                {selectedTemplateHasImage ? "zapisany" : "brak"}
+              </p>
             </div>
             <div className="rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3">
               <p className="font-bold text-gray-400">Strzały</p>
@@ -603,12 +931,6 @@ export default function TargetScoringBeta() {
             <div className="rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3">
               <p className="font-bold text-gray-400">Wynik</p>
               <p className="mt-1 text-lg font-black text-white">{result?.totalScore ?? "-"}</p>
-            </div>
-            <div className="rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3">
-              <p className="font-bold text-gray-400">Status</p>
-              <p className={`mt-1 text-lg font-black ${accepted ? "text-green-300" : "text-yellow-300"}`}>
-                {accepted ? "zaakceptowany" : "roboczy"}
-              </p>
             </div>
           </div>
         </div>
@@ -620,25 +942,32 @@ export default function TargetScoringBeta() {
         )}
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,24rem)_minmax(0,1fr)]">
-        <section className="ui-block space-y-5 bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,25rem)_minmax(0,1fr)]">
+        <section className="ui-block space-y-6 bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
           <div>
             <h3 className="text-xl font-black text-white">
-              Wzór tarczy
+              Lista wzorców
             </h3>
 
             <div className="mt-4 grid gap-2">
-              {templates.map((template) => (
+              {loadingTemplates ? (
+                <p className="rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-gray-400">
+                  Ładowanie wzorców...
+                </p>
+              ) : templates.map((template) => (
                 <button
                   key={template.id}
                   type="button"
                   onClick={() => {
                     setSelectedTemplateId(template.id);
+                    prepareTemplateForm(template);
+                    setSaveMode("selected");
                     setResult(null);
                     setAccepted(false);
+                    setMessage("");
                   }}
                   className={`rounded-xl border px-4 py-3 text-left transition ${
-                    selectedTemplate.id === template.id
+                    selectedTemplate?.id === template.id
                       ? "border-green-500 bg-green-950/50 text-white"
                       : "border-zinc-800 bg-zinc-950 text-gray-300 hover:border-zinc-600"
                   }`}
@@ -647,21 +976,70 @@ export default function TargetScoringBeta() {
                   <span className="mt-1 block text-sm text-gray-400">
                     {template.sheetWidthMm} x {template.sheetHeightMm} mm · {template.source}
                   </span>
+                  <span className={`mt-2 inline-block rounded-full px-2 py-1 text-xs font-black ${
+                    template.imageUrl
+                      ? "bg-green-500/15 text-green-200"
+                      : "bg-yellow-500/15 text-yellow-200"
+                  }`}>
+                    {template.imageUrl ? "obraz wzorcowy zapisany" : "wgraj obraz wzorcowy"}
+                  </span>
                 </button>
               ))}
             </div>
+
+            {selectedTemplate?.imageUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={templateImageSrc(selectedTemplate)}
+                alt="Zapisany wzorzec tarczy"
+                className="mt-4 max-h-56 w-full rounded-xl border border-zinc-800 bg-zinc-950 object-contain"
+              />
+            )}
           </div>
 
-          <div className="border-t border-zinc-800 pt-5">
+          <form
+            onSubmit={(event) => void saveTemplate(event)}
+            className="border-t border-zinc-800 pt-5"
+          >
             <h3 className="text-xl font-black text-white">
-              Własny wzór
+              Zapisz wzorzec
             </h3>
 
             <div className="mt-4 grid gap-3">
+              <div className="grid grid-cols-2 gap-2 rounded-xl bg-zinc-950 p-1">
+                <button
+                  type="button"
+                  onClick={() => setSaveMode("selected")}
+                  className={`rounded-lg px-3 py-2 text-sm font-black transition ${
+                    saveMode === "selected"
+                      ? "bg-green-700 text-white"
+                      : "text-gray-300 hover:bg-zinc-800"
+                  }`}
+                >
+                  Aktualizuj
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSaveMode("new");
+                    setTemplateName("Własna tarcza");
+                    setTemplateWidth(500);
+                    setTemplateHeight(500);
+                  }}
+                  className={`rounded-lg px-3 py-2 text-sm font-black transition ${
+                    saveMode === "new"
+                      ? "bg-green-700 text-white"
+                      : "text-gray-300 hover:bg-zinc-800"
+                  }`}
+                >
+                  Nowy
+                </button>
+              </div>
+
               <input
                 type="text"
-                value={customName}
-                onChange={(event) => setCustomName(event.target.value)}
+                value={templateName}
+                onChange={(event) => setTemplateName(event.target.value)}
                 className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-white"
               />
 
@@ -671,8 +1049,8 @@ export default function TargetScoringBeta() {
                   <input
                     type="number"
                     min={50}
-                    value={customWidth}
-                    onChange={(event) => setCustomWidth(Number(event.target.value))}
+                    value={templateWidth}
+                    onChange={(event) => setTemplateWidth(Number(event.target.value))}
                     className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-white"
                   />
                 </label>
@@ -682,40 +1060,39 @@ export default function TargetScoringBeta() {
                   <input
                     type="number"
                     min={50}
-                    value={customHeight}
-                    onChange={(event) => setCustomHeight(Number(event.target.value))}
+                    value={templateHeight}
+                    onChange={(event) => setTemplateHeight(Number(event.target.value))}
                     className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-white"
                   />
                 </label>
               </div>
 
               <label className="block rounded-xl border border-dashed border-zinc-700 bg-zinc-950 px-4 py-4 text-gray-200">
-                <span className="block font-bold">Plik wzoru</span>
+                <span className="block font-bold">Obraz wzorcowy</span>
                 <input
                   type="file"
                   accept="image/*"
-                  onChange={(event) => void handlePatternFileChange(event)}
+                  onChange={handleTemplateFileChange}
                   className="mt-3 block w-full text-sm text-gray-300 file:mr-4 file:rounded-lg file:border-0 file:bg-green-700 file:px-4 file:py-2 file:font-bold file:text-white"
                 />
-                {patternFileName && (
-                  <span className="mt-2 block text-sm text-green-300">{patternFileName}</span>
+                {templateFileName && (
+                  <span className="mt-2 block text-sm text-green-300">{templateFileName}</span>
                 )}
               </label>
 
-              {customTemplate?.patternPreviewUrl && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={customTemplate.patternPreviewUrl}
-                  alt="Podgląd własnego wzoru tarczy"
-                  className="max-h-56 w-full rounded-xl border border-zinc-800 object-contain"
-                />
-              )}
+              <button
+                type="submit"
+                disabled={savingTemplate}
+                className="ui-button rounded-xl bg-green-700 px-5 py-3 font-black text-white transition hover:bg-green-600 disabled:cursor-not-allowed disabled:bg-zinc-700"
+              >
+                {savingTemplate ? "Zapisuję..." : "Zapisz wzorzec w systemie"}
+              </button>
             </div>
-          </div>
+          </form>
 
           <div className="border-t border-zinc-800 pt-5">
             <h3 className="text-xl font-black text-white">
-              Zdjęcie
+              Zdjęcie do analizy
             </h3>
 
             <div className="mt-4 grid gap-4">
@@ -749,11 +1126,11 @@ export default function TargetScoringBeta() {
 
               <label>
                 <span className="mb-2 block text-sm font-bold text-gray-300">
-                  Czułość: {sensitivity}
+                  Czułość różnicy: {sensitivity}
                 </span>
                 <input
                   type="range"
-                  min={-35}
+                  min={-25}
                   max={35}
                   value={sensitivity}
                   onChange={(event) => setSensitivity(Number(event.target.value))}
@@ -764,10 +1141,10 @@ export default function TargetScoringBeta() {
               <button
                 type="button"
                 onClick={() => void runAnalysis()}
-                disabled={working}
+                disabled={working || !selectedTemplateHasImage}
                 className="ui-button rounded-xl bg-green-700 px-5 py-3 font-black text-white transition hover:bg-green-600 disabled:cursor-not-allowed disabled:bg-zinc-700"
               >
-                {working ? "Analizuję..." : "Analizuj zdjęcie"}
+                {working ? "Dopasowuję i analizuję..." : "Analizuj zdjęcie"}
               </button>
             </div>
           </div>
@@ -781,7 +1158,7 @@ export default function TargetScoringBeta() {
               </h3>
               {result && (
                 <p className="mt-2 text-sm text-gray-400">
-                  Próg: {result.threshold} · kadr: {result.cropDescription}
+                  Próg różnicy: {result.threshold} · kadr: {result.cropDescription}
                 </p>
               )}
             </div>
@@ -814,7 +1191,7 @@ export default function TargetScoringBeta() {
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={result.imageUrl}
-                alt="Zdjęcie tarczy z zaznaczonymi przestrzelinami"
+                alt="Zdjęcie tarczy dopasowane do wzorca z zaznaczonymi przestrzelinami"
                 className="max-h-[72vh] w-full object-contain"
               />
             ) : (
@@ -847,6 +1224,12 @@ export default function TargetScoringBeta() {
                 </div>
               ))}
             </div>
+          )}
+
+          {accepted && (
+            <p className="mt-4 rounded-xl border border-green-700/40 bg-green-700/10 px-4 py-3 font-semibold text-green-100">
+              Wynik zaakceptowany w beta teście.
+            </p>
           )}
         </section>
       </div>

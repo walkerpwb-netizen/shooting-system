@@ -85,10 +85,12 @@ PROFILE_PHOTO_DIR = UPLOADS_DIR / "profile-photos"
 EMAIL_ASSET_DIR = UPLOADS_DIR / "email-assets"
 HOME_POST_DIR = UPLOADS_DIR / "home-posts"
 HOME_SCREEN_DIR = UPLOADS_DIR / "home-screens"
+BETA_TARGET_DIR = UPLOADS_DIR / "beta-targets"
 PROFILE_PHOTO_ROUTE_PREFIX = "/uploads/profile-photos"
 EMAIL_ASSET_ROUTE_PREFIX = "/uploads/email-assets"
 HOME_POST_ROUTE_PREFIX = "/uploads/home-posts"
 HOME_SCREEN_ROUTE_PREFIX = "/uploads/home-screens"
+BETA_TARGET_ROUTE_PREFIX = "/uploads/beta-targets"
 PROFILE_PHOTO_SIZE = 320
 PROFILE_PHOTO_MAX_BYTES = 8 * 1024 * 1024
 PROFILE_PHOTO_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
@@ -98,8 +100,11 @@ HOME_POST_IMAGE_MAX_BYTES = 10 * 1024 * 1024
 HOME_POST_IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 HOME_SCREEN_IMAGE_MAX_BYTES = 10 * 1024 * 1024
 HOME_SCREEN_IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
+BETA_TARGET_IMAGE_MAX_BYTES = 12 * 1024 * 1024
+BETA_TARGET_IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 HOME_SCREEN_KINDS = {"qr", "organizer", "live", "judge", "history", "ranking"}
 ACTIVATION_EMAIL_SETTING_KEY = "activation_email_template"
+BETA_TARGET_TEMPLATES_SETTING_KEY = "beta_target_templates"
 MONITORED_LOG_FILES = [
     {
         "name": "Frontend error",
@@ -136,6 +141,7 @@ PROFILE_PHOTO_DIR.mkdir(parents=True, exist_ok=True)
 EMAIL_ASSET_DIR.mkdir(parents=True, exist_ok=True)
 HOME_POST_DIR.mkdir(parents=True, exist_ok=True)
 HOME_SCREEN_DIR.mkdir(parents=True, exist_ok=True)
+BETA_TARGET_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 
 oauth2_scheme = OAuth2PasswordBearer(
@@ -1145,6 +1151,259 @@ def set_setting_value(key: str, value: str, db):
         db.add(setting)
     else:
         setting.value = value
+
+
+DEFAULT_BETA_TARGET_TEMPLATES = [
+    {
+        "id": "ts-2",
+        "name": "TS-2",
+        "source": "wzór oficjalny",
+        "sheet_width_mm": 500,
+        "sheet_height_mm": 500,
+        "center_x": 0.5,
+        "center_y": 0.5,
+        "image_url": "",
+        "rings": [
+            {"score": 1, "diameter_mm": 500},
+            {"score": 2, "diameter_mm": 450},
+            {"score": 3, "diameter_mm": 400},
+            {"score": 4, "diameter_mm": 350},
+            {"score": 5, "diameter_mm": 300},
+            {"score": 6, "diameter_mm": 250},
+            {"score": 7, "diameter_mm": 200},
+            {"score": 8, "diameter_mm": 150},
+            {"score": 9, "diameter_mm": 100},
+            {"score": 10, "diameter_mm": 50},
+        ],
+    },
+    {
+        "id": "nt-23p",
+        "name": "NT-23P",
+        "source": "wzór oficjalny",
+        "sheet_width_mm": 500,
+        "sheet_height_mm": 500,
+        "center_x": 0.5,
+        "center_y": 0.5,
+        "image_url": "",
+        "rings": [
+            {"score": 6, "diameter_mm": 500},
+            {"score": 7, "diameter_mm": 400},
+            {"score": 8, "diameter_mm": 300},
+            {"score": 9, "diameter_mm": 200},
+            {"score": 10, "diameter_mm": 100},
+        ],
+    },
+    {
+        "id": "nt-23p-2",
+        "name": "NT-23P/2",
+        "source": "wzór oficjalny",
+        "sheet_width_mm": 250,
+        "sheet_height_mm": 250,
+        "center_x": 0.5,
+        "center_y": 0.5,
+        "image_url": "",
+        "rings": [
+            {"score": 6, "diameter_mm": 250},
+            {"score": 7, "diameter_mm": 200},
+            {"score": 8, "diameter_mm": 150},
+            {"score": 9, "diameter_mm": 100},
+            {"score": 10, "diameter_mm": 50},
+        ],
+    },
+]
+
+
+def beta_target_image_path_from_url(image_url: str):
+    if not image_url or not image_url.startswith(f"{BETA_TARGET_ROUTE_PREFIX}/"):
+        return None
+
+    file_path = BETA_TARGET_DIR / Path(image_url).name
+
+    try:
+        file_path.resolve().relative_to(BETA_TARGET_DIR.resolve())
+    except ValueError:
+        return None
+
+    return file_path
+
+
+def delete_beta_target_image(image_url: str):
+    file_path = beta_target_image_path_from_url(image_url)
+
+    if file_path and file_path.exists():
+        file_path.unlink()
+
+
+def normalize_beta_target_rings(raw_rings):
+    if not isinstance(raw_rings, list) or not raw_rings:
+        raise HTTPException(status_code=400, detail="Podaj pola punktowe wzorca")
+
+    rings = []
+
+    for raw_ring in raw_rings:
+        if not isinstance(raw_ring, dict):
+            raise HTTPException(status_code=400, detail="Nieprawidłowe pole punktowe")
+
+        try:
+            score = int(raw_ring.get("score"))
+            diameter_mm = float(raw_ring.get("diameter_mm"))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Nieprawidłowe wartości pól punktowych")
+
+        if score < 0 or score > 100 or diameter_mm <= 0 or diameter_mm > 5000:
+            raise HTTPException(status_code=400, detail="Nieprawidłowe wartości pól punktowych")
+
+        rings.append({
+            "score": score,
+            "diameter_mm": diameter_mm,
+        })
+
+    return sorted(rings, key=lambda ring: ring["diameter_mm"], reverse=True)
+
+
+def normalize_beta_target_template(raw_template):
+    if not isinstance(raw_template, dict):
+        raise HTTPException(status_code=400, detail="Nieprawidłowy wzorzec")
+
+    template_id = normalize_text(str(raw_template.get("id", "")))
+    name = normalize_text(str(raw_template.get("name", "")))
+    source = normalize_text(str(raw_template.get("source", ""))) or "wzór własny"
+    image_url = normalize_text(str(raw_template.get("image_url", "")))
+
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{1,80}", template_id):
+        raise HTTPException(status_code=400, detail="Nieprawidłowy identyfikator wzorca")
+
+    if not name or len(name) > 120:
+        raise HTTPException(status_code=400, detail="Nazwa wzorca jest wymagana")
+
+    try:
+        sheet_width_mm = float(raw_template.get("sheet_width_mm"))
+        sheet_height_mm = float(raw_template.get("sheet_height_mm"))
+        center_x = float(raw_template.get("center_x", 0.5))
+        center_y = float(raw_template.get("center_y", 0.5))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Nieprawidłowe wymiary wzorca")
+
+    if sheet_width_mm < 50 or sheet_width_mm > 5000 or sheet_height_mm < 50 or sheet_height_mm > 5000:
+        raise HTTPException(status_code=400, detail="Wymiary wzorca są poza zakresem")
+
+    if center_x < 0 or center_x > 1 or center_y < 0 or center_y > 1:
+        raise HTTPException(status_code=400, detail="Środek wzorca jest poza zakresem")
+
+    if image_url and not image_url.startswith(f"{BETA_TARGET_ROUTE_PREFIX}/"):
+        raise HTTPException(status_code=400, detail="Nieprawidłowy obraz wzorca")
+
+    return {
+        "id": template_id,
+        "name": name,
+        "source": source[:80],
+        "sheet_width_mm": sheet_width_mm,
+        "sheet_height_mm": sheet_height_mm,
+        "center_x": center_x,
+        "center_y": center_y,
+        "image_url": image_url,
+        "rings": normalize_beta_target_rings(raw_template.get("rings")),
+    }
+
+
+def get_beta_target_templates(db):
+    setting = (
+        db.query(AppSetting)
+        .filter(AppSetting.key == BETA_TARGET_TEMPLATES_SETTING_KEY)
+        .first()
+    )
+
+    if not setting:
+        return DEFAULT_BETA_TARGET_TEMPLATES
+
+    try:
+        templates = json.loads(setting.value)
+    except (TypeError, json.JSONDecodeError):
+        return DEFAULT_BETA_TARGET_TEMPLATES
+
+    if not isinstance(templates, list):
+        return DEFAULT_BETA_TARGET_TEMPLATES
+
+    normalized_templates = []
+
+    for raw_template in templates:
+        try:
+            normalized_templates.append(normalize_beta_target_template(raw_template))
+        except HTTPException:
+            continue
+
+    stored_ids = {template["id"] for template in normalized_templates}
+    merged_templates = [
+        {
+            **default_template,
+            **next(
+                (
+                    template
+                    for template in normalized_templates
+                    if template["id"] == default_template["id"]
+                ),
+                {},
+            ),
+        }
+        for default_template in DEFAULT_BETA_TARGET_TEMPLATES
+    ]
+    merged_templates.extend([
+        template
+        for template in normalized_templates
+        if template["id"] not in {default_template["id"] for default_template in DEFAULT_BETA_TARGET_TEMPLATES}
+    ])
+
+    return merged_templates if stored_ids else DEFAULT_BETA_TARGET_TEMPLATES
+
+
+def save_beta_target_templates(templates, db):
+    normalized_templates = [
+        normalize_beta_target_template(template)
+        for template in templates
+    ]
+    set_setting_value(
+        BETA_TARGET_TEMPLATES_SETTING_KEY,
+        json.dumps(normalized_templates, ensure_ascii=False),
+        db,
+    )
+    db.commit()
+    return normalized_templates
+
+
+def save_beta_target_image(file: UploadFile):
+    content_type = (file.content_type or "").lower()
+
+    if content_type not in BETA_TARGET_IMAGE_CONTENT_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail="Dodaj wzór w formacie JPG, PNG albo WebP",
+        )
+
+    contents = file.file.read(BETA_TARGET_IMAGE_MAX_BYTES + 1)
+
+    if len(contents) > BETA_TARGET_IMAGE_MAX_BYTES:
+        raise HTTPException(status_code=400, detail="Wzór może mieć maksymalnie 12 MB")
+
+    try:
+        image = Image.open(BytesIO(contents))
+        image.load()
+    except (UnidentifiedImageError, OSError) as exc:
+        raise HTTPException(status_code=400, detail="Nie udało się odczytać wzoru") from exc
+
+    image = ImageOps.exif_transpose(image)
+    image.thumbnail((1800, 1800), Image.Resampling.LANCZOS)
+
+    if image.mode not in ("RGB", "RGBA"):
+        image = image.convert("RGBA" if "transparency" in image.info else "RGB")
+
+    file_name = f"{uuid4().hex}.png"
+    image.save(
+        BETA_TARGET_DIR / file_name,
+        format="PNG",
+        optimize=True,
+    )
+
+    return f"{BETA_TARGET_ROUTE_PREFIX}/{file_name}"
 
 
 def get_activation_email_template(db):
@@ -9114,6 +9373,130 @@ def get_admin_activation_email_template(
     db=Depends(get_db),
 ):
     return get_activation_email_template(db)
+
+
+@app.get("/admin/beta-target-templates")
+def get_admin_beta_target_templates(
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    return get_beta_target_templates(db)
+
+
+@app.post("/admin/beta-target-templates")
+def upsert_admin_beta_target_template(
+    template_id: str = Form(""),
+    name: str = Form(...),
+    source: str = Form("wzór własny"),
+    sheet_width_mm: float = Form(...),
+    sheet_height_mm: float = Form(...),
+    center_x: float = Form(0.5),
+    center_y: float = Form(0.5),
+    rings_json: str = Form(...),
+    image: UploadFile = File(...),
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    try:
+        rings = json.loads(rings_json)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="Nieprawidłowe pola punktowe") from exc
+
+    normalized_id = normalize_text(template_id)
+    if not normalized_id:
+        normalized_id = normalize_text(name)
+        normalized_id = unicodedata.normalize("NFD", normalized_id)
+        normalized_id = "".join(
+            character
+            for character in normalized_id
+            if unicodedata.category(character) != "Mn"
+        )
+        normalized_id = re.sub(r"[^a-zA-Z0-9]+", "-", normalized_id).strip("-").lower()
+        normalized_id = normalized_id[:60] or f"wzor-{uuid4().hex[:12]}"
+
+    image_url = save_beta_target_image(image)
+    templates = get_beta_target_templates(db)
+    old_template = next(
+        (
+            template
+            for template in templates
+            if template["id"] == normalized_id
+        ),
+        None,
+    )
+    next_template = normalize_beta_target_template({
+        "id": normalized_id,
+        "name": name,
+        "source": source,
+        "sheet_width_mm": sheet_width_mm,
+        "sheet_height_mm": sheet_height_mm,
+        "center_x": center_x,
+        "center_y": center_y,
+        "image_url": image_url,
+        "rings": rings,
+    })
+
+    if old_template:
+        templates = [
+            next_template if template["id"] == normalized_id else template
+            for template in templates
+        ]
+    else:
+        templates.append(next_template)
+
+    saved_templates = save_beta_target_templates(templates, db)
+
+    if old_template and old_template.get("image_url") != image_url:
+        delete_beta_target_image(old_template.get("image_url", ""))
+
+    return next(
+        template
+        for template in saved_templates
+        if template["id"] == normalized_id
+    )
+
+
+@app.delete("/admin/beta-target-templates/{template_id}")
+def delete_admin_beta_target_template(
+    template_id: str,
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    default_template_ids = {
+        template["id"]
+        for template in DEFAULT_BETA_TARGET_TEMPLATES
+    }
+
+    if template_id in default_template_ids:
+        raise HTTPException(
+            status_code=400,
+            detail="Wzorce oficjalne można aktualizować, ale nie usuwać",
+        )
+
+    templates = get_beta_target_templates(db)
+    template = next(
+        (
+            current_template
+            for current_template in templates
+            if current_template["id"] == template_id
+        ),
+        None,
+    )
+
+    if not template:
+        raise HTTPException(status_code=404, detail="Nie znaleziono wzorca")
+
+    next_templates = [
+        current_template
+        for current_template in templates
+        if current_template["id"] != template_id
+    ]
+    save_beta_target_templates(next_templates, db)
+    delete_beta_target_image(template.get("image_url", ""))
+
+    return {
+        "message": "Wzorzec usunięty",
+    }
 
 
 @app.get("/admin/monitoring")
