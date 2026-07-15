@@ -81,6 +81,8 @@ type ComponentBox = {
   greenShare: number;
   darkShare: number;
   brightShare: number;
+  brownShare: number;
+  tearShare: number;
   meanDifference: number;
   confidence: number;
 };
@@ -987,18 +989,67 @@ function isInScoreNumberCorridor(
 
 function hasPaperTearEvidence(component: ComponentBox, canvasWidth: number, canvasHeight: number) {
   const pixelCount = canvasWidth * canvasHeight;
-  const mixedToneDamage = component.darkShare >= 0.1 && component.brightShare >= 0.075;
+  const mixedToneDamage = (
+    component.darkShare >= 0.1
+    && (component.brightShare >= 0.075 || component.tearShare >= 0.08)
+  );
   const largeScar = (
     component.area >= pixelCount * 0.000075
-    && (component.darkShare >= 0.24 || component.brightShare >= 0.24)
+    && (component.darkShare >= 0.24 || component.brightShare >= 0.24 || component.brownShare >= 0.08)
   );
+  const fiberDamage = component.brownShare >= 0.045 && (component.tearShare >= 0.05 || component.brightShare >= 0.06);
 
   return (
     component.meanDifference >= 42
     && component.circularFill >= 0.18
     && component.density >= 0.19
-    && (mixedToneDamage || largeScar)
+    && (mixedToneDamage || largeScar || fiberDamage)
   );
+}
+
+function shotPatternScore(component: ComponentBox, canvasWidth: number, canvasHeight: number) {
+  const pixelCount = canvasWidth * canvasHeight;
+  let score = 0;
+
+  if (component.darkShare >= 0.12 || component.brownShare >= 0.06) {
+    score += 0.28;
+  }
+
+  if (component.tearShare >= 0.08 || component.brightShare >= 0.1) {
+    score += 0.24;
+  }
+
+  if (
+    (component.darkShare >= 0.08 && (component.brightShare >= 0.06 || component.tearShare >= 0.06))
+    || (component.brownShare >= 0.04 && (component.tearShare >= 0.04 || component.brightShare >= 0.05))
+  ) {
+    score += 0.2;
+  }
+
+  if (component.circularFill >= 0.18 && component.density >= 0.18) {
+    score += 0.12;
+  }
+
+  if (component.area >= pixelCount * 0.000018) {
+    score += 0.08;
+  }
+
+  if (component.meanDifference >= 46) {
+    score += 0.08;
+  }
+
+  if (
+    component.brownShare < 0.025
+    && component.tearShare < 0.045
+    && (
+      (component.darkShare > 0.58 && component.brightShare < 0.05)
+      || (component.brightShare > 0.58 && component.darkShare < 0.05)
+    )
+  ) {
+    score -= 0.28;
+  }
+
+  return Math.max(0, Math.min(1, score));
 }
 
 function isLikelyPrintedScoreNumber(
@@ -1232,6 +1283,8 @@ function detectShotComponents(
       let greenPixels = 0;
       let darkPixels = 0;
       let brightPixels = 0;
+      let brownPixels = 0;
+      let tearPixels = 0;
 
       visited[startIndex] = 1;
       stack.push(startIndex);
@@ -1256,6 +1309,9 @@ function detectShotComponents(
         const green = data[currentDataIndex + 1];
         const blue = data[currentDataIndex + 2];
         const targetGray = red * 0.299 + green * 0.587 + blue * 0.114;
+        const maxChannel = Math.max(red, green, blue);
+        const minChannel = Math.min(red, green, blue);
+        const saturation = maxChannel === 0 ? 0 : (maxChannel - minChannel) / maxChannel;
 
         if (green > 95 && green - red > 14 && green - blue > 10) {
           greenPixels += 1;
@@ -1267,6 +1323,24 @@ function detectShotComponents(
 
         if (targetGray > 178) {
           brightPixels += 1;
+        }
+
+        if (
+          targetGray > 42
+          && targetGray < 176
+          && red > blue + 18
+          && green > blue + 8
+          && red >= green - 6
+        ) {
+          brownPixels += 1;
+        }
+
+        if (
+          targetGray > 126
+          && saturation < 0.26
+          && !(green > 100 && green - red > 10 && green - blue > 8)
+        ) {
+          tearPixels += 1;
         }
 
         minX = Math.min(minX, x);
@@ -1310,6 +1384,8 @@ function detectShotComponents(
       const boundingRadius = Math.max(boxWidth, boxHeight) / 2;
       const circularFill = area / Math.max(1, Math.PI * boundingRadius * boundingRadius);
       const meanDifference = strength / area;
+      const brownShare = brownPixels / area;
+      const tearShare = tearPixels / area;
       const component = {
         x: sumX / area,
         y: sumY / area,
@@ -1322,9 +1398,12 @@ function detectShotComponents(
         greenShare: greenPixels / area,
         darkShare: darkPixels / area,
         brightShare: brightPixels / area,
+        brownShare,
+        tearShare,
         meanDifference,
         confidence: Math.min(1, meanDifference / 120) * density,
       };
+      const patternScore = shotPatternScore(component, width, height);
 
       if (
         area < minArea
@@ -1336,6 +1415,7 @@ function detectShotComponents(
         || density < 0.17
         || circularFill < 0.16
         || meanDifference < threshold + 5
+        || patternScore < (isInScoreNumberCorridor(component, width, height, template) ? 0.62 : 0.42)
       ) {
         continue;
       }
