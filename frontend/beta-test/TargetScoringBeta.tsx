@@ -73,6 +73,9 @@ type ComponentBox = {
   boxHeight: number;
   density: number;
   circularFill: number;
+  greenShare: number;
+  darkShare: number;
+  brightShare: number;
   meanDifference: number;
   confidence: number;
 };
@@ -898,6 +901,76 @@ function isLikelyPrintedScoreNumber(
   return smallPrintedMark && thinStrokeShape;
 }
 
+function distanceToNearestScoringRing(
+  component: ComponentBox,
+  canvasWidth: number,
+  canvasHeight: number,
+  template: TargetTemplate
+) {
+  if (template.rings.length === 0) {
+    return null;
+  }
+
+  const centerX = canvasWidth * template.centerX;
+  const centerY = canvasHeight * template.centerY;
+  const targetScale = Math.min(
+    canvasWidth / template.sheetWidthMm,
+    canvasHeight / template.sheetHeightMm
+  );
+  const distanceFromCenter = Math.hypot(component.x - centerX, component.y - centerY);
+
+  return template.rings.reduce((nearestDistance, ring) => {
+    const ringRadius = (ring.diameterMm * targetScale) / 2;
+
+    return Math.min(nearestDistance, Math.abs(distanceFromCenter - ringRadius));
+  }, Number.POSITIVE_INFINITY);
+}
+
+function hasImpactMass(component: ComponentBox) {
+  const contrastShare = component.darkShare + component.brightShare;
+  const compactEnough = component.circularFill >= 0.2 || component.density >= 0.36;
+
+  return (
+    compactEnough
+    && component.meanDifference >= 44
+    && (
+      component.darkShare >= 0.2
+      || component.brightShare >= 0.18
+      || contrastShare >= 0.34
+    )
+  );
+}
+
+function isLikelyPrintedGuideLine(
+  component: ComponentBox,
+  canvasWidth: number,
+  canvasHeight: number,
+  template: TargetTemplate
+) {
+  const ringDistance = distanceToNearestScoringRing(component, canvasWidth, canvasHeight, template);
+
+  if (ringDistance === null) {
+    return false;
+  }
+
+  const shorterSide = Math.min(component.boxWidth, component.boxHeight);
+  const longerSide = Math.max(component.boxWidth, component.boxHeight);
+  const elongation = longerSide / Math.max(1, shorterSide);
+  const nearRing = ringDistance <= Math.max(8, component.radius * 1.15);
+  const lineLike = (
+    component.density < 0.43
+    && (
+      component.circularFill < 0.54
+      || elongation > 1.35
+      || shorterSide <= Math.max(7, longerSide * 0.46)
+    )
+  );
+  const greenRingInk = component.greenShare > 0.18 && component.darkShare < 0.36;
+  const weakRingDifference = component.meanDifference < 92 && component.confidence < 0.34;
+
+  return nearRing && (greenRingInk || (lineLike && weakRingDifference)) && !hasImpactMass(component);
+}
+
 function detectShotComponents(
   targetImageData: ImageData,
   patternImageData: ImageData,
@@ -968,6 +1041,9 @@ function detectShotComponents(
       let maxX = startX;
       let minY = startY;
       let maxY = startY;
+      let greenPixels = 0;
+      let darkPixels = 0;
+      let brightPixels = 0;
 
       visited[startIndex] = 1;
       stack.push(startIndex);
@@ -986,6 +1062,25 @@ function detectShotComponents(
         sumX += x;
         sumY += y;
         strength += difference[currentIndex];
+
+        const currentDataIndex = currentIndex * 4;
+        const red = data[currentDataIndex];
+        const green = data[currentDataIndex + 1];
+        const blue = data[currentDataIndex + 2];
+        const targetGray = red * 0.299 + green * 0.587 + blue * 0.114;
+
+        if (green > 95 && green - red > 14 && green - blue > 10) {
+          greenPixels += 1;
+        }
+
+        if (targetGray < 92) {
+          darkPixels += 1;
+        }
+
+        if (targetGray > 178) {
+          brightPixels += 1;
+        }
+
         minX = Math.min(minX, x);
         maxX = Math.max(maxX, x);
         minY = Math.min(minY, y);
@@ -1030,6 +1125,9 @@ function detectShotComponents(
         boxHeight,
         density,
         circularFill,
+        greenShare: greenPixels / area,
+        darkShare: darkPixels / area,
+        brightShare: brightPixels / area,
         meanDifference,
         confidence: Math.min(1, meanDifference / 120) * density,
       };
@@ -1046,7 +1144,10 @@ function detectShotComponents(
         continue;
       }
 
-      if (isLikelyPrintedScoreNumber(component, width, height, template)) {
+      if (
+        isLikelyPrintedScoreNumber(component, width, height, template)
+        || isLikelyPrintedGuideLine(component, width, height, template)
+      ) {
         continue;
       }
 
