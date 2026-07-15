@@ -898,7 +898,7 @@ function isLikelyPrintedScoreNumber(
     )
   );
 
-  return smallPrintedMark && thinStrokeShape;
+  return smallPrintedMark && thinStrokeShape && !hasImpactMass(component);
 }
 
 function distanceToNearestScoringRing(
@@ -973,7 +973,6 @@ function isLikelyPrintedGuideLine(
 
 function detectShotComponents(
   targetImageData: ImageData,
-  patternImageData: ImageData,
   sensitivity: number,
   template: TargetTemplate
 ): {
@@ -981,55 +980,94 @@ function detectShotComponents(
   threshold: number;
 } {
   const { width, height, data } = targetImageData;
-  const patternData = patternImageData.data;
   const pixelCount = width * height;
-  const difference = new Uint8Array(pixelCount);
-  let totalDifference = 0;
+  const gray = new Uint8Array(pixelCount);
+  const localContrast = new Uint8Array(pixelCount);
+  const candidateMask = new Uint8Array(pixelCount);
+  const integral = new Float64Array((width + 1) * (height + 1));
 
-  for (let index = 0; index < pixelCount; index += 1) {
-    const dataIndex = index * 4;
-    const targetGray = Math.round(
-      data[dataIndex] * 0.299
-      + data[dataIndex + 1] * 0.587
-      + data[dataIndex + 2] * 0.114
-    );
-    const patternGray = Math.round(
-      patternData[dataIndex] * 0.299
-      + patternData[dataIndex + 1] * 0.587
-      + patternData[dataIndex + 2] * 0.114
-    );
-    const value = Math.abs(patternGray - targetGray);
+  for (let y = 0; y < height; y += 1) {
+    let rowSum = 0;
 
-    difference[index] = value;
-    totalDifference += value;
+    for (let x = 0; x < width; x += 1) {
+      const index = y * width + x;
+      const dataIndex = index * 4;
+      const value = Math.round(
+        data[dataIndex] * 0.299
+        + data[dataIndex + 1] * 0.587
+        + data[dataIndex + 2] * 0.114
+      );
+
+      gray[index] = value;
+      rowSum += value;
+      integral[(y + 1) * (width + 1) + x + 1] = integral[y * (width + 1) + x + 1] + rowSum;
+    }
   }
 
-  const averageDifference = totalDifference / pixelCount;
-  let variance = 0;
-
-  for (let index = 0; index < pixelCount; index += 1) {
-    variance += (difference[index] - averageDifference) ** 2;
-  }
-
-  const standardDeviation = Math.sqrt(variance / pixelCount);
-  const threshold = Math.max(
-    10,
-    Math.min(105, Math.round(averageDifference + standardDeviation * 1.35 - sensitivity))
-  );
-  const visited = new Uint8Array(pixelCount);
-  const components: ComponentBox[] = [];
-  const minArea = Math.max(8, Math.round(pixelCount * 0.000006));
-  const maxArea = Math.max(120, Math.round(pixelCount * 0.0016));
-  const maxBoxSize = Math.min(width, height) * 0.065;
-  const stack: number[] = [];
+  const sampleWindow = Math.max(18, Math.round(Math.min(width, height) * 0.024));
+  const threshold = Math.max(18, Math.min(58, Math.round(38 - sensitivity * 0.45)));
   const marginX = Math.round(width * 0.025);
   const marginY = Math.round(height * 0.025);
+
+  function localAverage(x: number, y: number) {
+    const left = Math.max(0, x - sampleWindow);
+    const right = Math.min(width - 1, x + sampleWindow);
+    const top = Math.max(0, y - sampleWindow);
+    const bottom = Math.min(height - 1, y + sampleWindow);
+    const integralWidth = width + 1;
+    const area = (right - left + 1) * (bottom - top + 1);
+    const sum = (
+      integral[(bottom + 1) * integralWidth + right + 1]
+      - integral[top * integralWidth + right + 1]
+      - integral[(bottom + 1) * integralWidth + left]
+      + integral[top * integralWidth + left]
+    );
+
+    return sum / area;
+  }
+
+  for (let y = marginY; y < height - marginY; y += 1) {
+    for (let x = marginX; x < width - marginX; x += 1) {
+      const index = y * width + x;
+      const dataIndex = index * 4;
+      const red = data[dataIndex];
+      const green = data[dataIndex + 1];
+      const blue = data[dataIndex + 2];
+      const isGreenInk = green > 92 && green - red > 12 && green - blue > 8;
+
+      if (isGreenInk) {
+        continue;
+      }
+
+      const average = localAverage(x, y);
+      const value = gray[index];
+      const darkContrast = average - value;
+      const brightContrast = value - average;
+      const darkImpact = average > 108 && darkContrast >= threshold;
+      const brightImpact = average < 168 && brightContrast >= threshold + 4;
+      const sharpDarkImpact = value < 62 && darkContrast >= threshold * 0.72;
+
+      if (!darkImpact && !brightImpact && !sharpDarkImpact) {
+        continue;
+      }
+
+      localContrast[index] = Math.min(255, Math.round(Math.max(darkContrast, brightContrast)));
+      candidateMask[index] = 1;
+    }
+  }
+
+  const visited = new Uint8Array(pixelCount);
+  const components: ComponentBox[] = [];
+  const minArea = Math.max(14, Math.round(pixelCount * 0.000007));
+  const maxArea = Math.max(150, Math.round(pixelCount * 0.0014));
+  const maxBoxSize = Math.min(width, height) * 0.055;
+  const stack: number[] = [];
 
   for (let startY = marginY; startY < height - marginY; startY += 1) {
     for (let startX = marginX; startX < width - marginX; startX += 1) {
       const startIndex = startY * width + startX;
 
-      if (visited[startIndex] || difference[startIndex] <= threshold) {
+      if (visited[startIndex] || !candidateMask[startIndex]) {
         continue;
       }
 
@@ -1061,7 +1099,7 @@ function detectShotComponents(
         area += 1;
         sumX += x;
         sumY += y;
-        strength += difference[currentIndex];
+        strength += localContrast[currentIndex];
 
         const currentDataIndex = currentIndex * 4;
         const red = data[currentDataIndex];
@@ -1098,8 +1136,14 @@ function detectShotComponents(
             neighborIndex <= 0
             || neighborIndex >= pixelCount
             || visited[neighborIndex]
-            || difference[neighborIndex] <= threshold
+            || !candidateMask[neighborIndex]
           ) {
+            return;
+          }
+
+          const neighborX = neighborIndex % width;
+
+          if (Math.abs(neighborX - x) > 1) {
             return;
           }
 
@@ -1137,9 +1181,11 @@ function detectShotComponents(
         || area > maxArea
         || boxWidth > maxBoxSize
         || boxHeight > maxBoxSize
-        || ratio < 0.38
-        || ratio > 2.65
-        || density < 0.14
+        || ratio < 0.45
+        || ratio > 2.25
+        || density < 0.17
+        || circularFill < 0.16
+        || meanDifference < threshold + 5
       ) {
         continue;
       }
@@ -1222,19 +1268,14 @@ async function analyzeTargetImage(
     const targetContext = alignedTarget.canvas.getContext("2d", {
       willReadFrequently: true,
     });
-    const patternContext = preparedPattern.canvas.getContext("2d", {
-      willReadFrequently: true,
-    });
 
-    if (!targetContext || !patternContext) {
+    if (!targetContext) {
       throw new Error("Nie udało się przygotować porównania.");
     }
 
     const targetImageData = targetContext.getImageData(0, 0, outputSize.width, outputSize.height);
-    const patternImageData = patternContext.getImageData(0, 0, outputSize.width, outputSize.height);
     const detection = detectShotComponents(
       targetImageData,
-      patternImageData,
       sensitivity,
       scoringTemplate
     );
