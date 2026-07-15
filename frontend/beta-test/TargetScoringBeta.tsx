@@ -60,33 +60,6 @@ type Bullseye = {
   area: number;
 };
 
-type ShotMark = {
-  id: number;
-  x: number;
-  y: number;
-  radius: number;
-  score: number;
-  confidence: number;
-};
-
-type ComponentBox = {
-  x: number;
-  y: number;
-  radius: number;
-  area: number;
-  boxWidth: number;
-  boxHeight: number;
-  density: number;
-  circularFill: number;
-  greenShare: number;
-  darkShare: number;
-  brightShare: number;
-  brownShare: number;
-  tearShare: number;
-  meanDifference: number;
-  confidence: number;
-};
-
 type PreparedImage = {
   canvas: HTMLCanvasElement;
   description: string;
@@ -100,9 +73,6 @@ type AnalysisResult = {
   imageUrl: string;
   imageWidth: number;
   imageHeight: number;
-  shots: ShotMark[];
-  totalScore: number;
-  threshold: number;
   cropDescription: string;
 };
 
@@ -377,58 +347,6 @@ function detectPaperQuad(imageData: ImageData, targetAspectRatio: number): Point
     { x: right, y: bottom },
     { x: left, y: bottom },
   ];
-}
-
-function pointInScoringArea(
-  x: number,
-  y: number,
-  canvasWidth: number,
-  canvasHeight: number,
-  template: TargetTemplate
-) {
-  const largestRing = template.rings.reduce(
-    (largest, ring) => Math.max(largest, ring.diameterMm),
-    0
-  );
-
-  if (!largestRing) {
-    return true;
-  }
-
-  const centerX = canvasWidth * template.centerX;
-  const centerY = canvasHeight * template.centerY;
-  const targetScale = Math.min(
-    canvasWidth / template.sheetWidthMm,
-    canvasHeight / template.sheetHeightMm
-  );
-  const outerRadius = (largestRing * targetScale) / 2;
-
-  return Math.hypot(x - centerX, y - centerY) <= outerRadius * 1.04;
-}
-
-function getScoreForPoint(
-  x: number,
-  y: number,
-  canvasWidth: number,
-  canvasHeight: number,
-  template: TargetTemplate
-) {
-  const centerX = canvasWidth * template.centerX;
-  const centerY = canvasHeight * template.centerY;
-  const targetScale = Math.min(
-    canvasWidth / template.sheetWidthMm,
-    canvasHeight / template.sheetHeightMm
-  );
-  const distance = Math.hypot(x - centerX, y - centerY);
-  const rings = [...template.rings].sort((firstRing, secondRing) => secondRing.score - firstRing.score);
-
-  for (const ring of rings) {
-    if (distance <= (ring.diameterMm * targetScale) / 2) {
-      return ring.score;
-    }
-  }
-
-  return 0;
 }
 
 function solveLinearSystem(matrix: number[][], vector: number[]) {
@@ -880,587 +798,9 @@ function drawScoringRings(
   context.restore();
 }
 
-function isOnPrintedScoreAxis(
-  component: ComponentBox,
-  canvasWidth: number,
-  canvasHeight: number,
-  template: TargetTemplate
-) {
-  const centerX = canvasWidth * template.centerX;
-  const centerY = canvasHeight * template.centerY;
-  const targetScale = Math.min(
-    canvasWidth / template.sheetWidthMm,
-    canvasHeight / template.sheetHeightMm
-  );
-  const largestRing = template.rings.reduce(
-    (largest, ring) => Math.max(largest, ring.diameterMm),
-    0
-  );
-  const outerRadius = (largestRing * targetScale) / 2;
-  const distanceFromCenter = Math.hypot(component.x - centerX, component.y - centerY);
-  const axisBand = Math.max(16, Math.round(Math.min(canvasWidth, canvasHeight) * 0.024));
-
-  return (
-    distanceFromCenter > outerRadius * 0.18
-    && distanceFromCenter < outerRadius * 1.02
-    && (
-      Math.abs(component.x - centerX) <= axisBand
-      || Math.abs(component.y - centerY) <= axisBand
-    )
-  );
-}
-
-function distanceToPrintedScoreNumberZone(
-  component: ComponentBox,
-  canvasWidth: number,
-  canvasHeight: number,
-  template: TargetTemplate
-) {
-  const centerX = canvasWidth * template.centerX;
-  const centerY = canvasHeight * template.centerY;
-  const targetScale = Math.min(
-    canvasWidth / template.sheetWidthMm,
-    canvasHeight / template.sheetHeightMm
-  );
-  const minSide = Math.min(canvasWidth, canvasHeight);
-  const halfWidth = Math.max(26, minSide * 0.035);
-  const halfHeight = Math.max(30, minSide * 0.042);
-
-  return template.rings.reduce((nearestDistance, ring) => {
-    const ringRadius = (ring.diameterMm * targetScale) / 2;
-    const labelPoints = [
-      { x: centerX + ringRadius, y: centerY },
-      { x: centerX - ringRadius, y: centerY },
-      { x: centerX, y: centerY + ringRadius },
-      { x: centerX, y: centerY - ringRadius },
-    ];
-    const labelDistance = labelPoints.reduce((nearestLabelDistance, point) => {
-      const normalizedDistance = Math.max(
-        Math.abs(component.x - point.x) / halfWidth,
-        Math.abs(component.y - point.y) / halfHeight
-      );
-
-      return Math.min(nearestLabelDistance, normalizedDistance);
-    }, Number.POSITIVE_INFINITY);
-
-    return Math.min(nearestDistance, labelDistance);
-  }, Number.POSITIVE_INFINITY);
-}
-
-function isInPrintedScoreNumberZone(
-  component: ComponentBox,
-  canvasWidth: number,
-  canvasHeight: number,
-  template: TargetTemplate
-) {
-  return distanceToPrintedScoreNumberZone(component, canvasWidth, canvasHeight, template) <= 1.35;
-}
-
-function isInScoreNumberCorridor(
-  component: ComponentBox,
-  canvasWidth: number,
-  canvasHeight: number,
-  template: TargetTemplate
-) {
-  const centerX = canvasWidth * template.centerX;
-  const centerY = canvasHeight * template.centerY;
-  const targetScale = Math.min(
-    canvasWidth / template.sheetWidthMm,
-    canvasHeight / template.sheetHeightMm
-  );
-  const largestRing = template.rings.reduce(
-    (largest, ring) => Math.max(largest, ring.diameterMm),
-    0
-  );
-  const outerRadius = (largestRing * targetScale) / 2;
-  const distanceFromCenter = Math.hypot(component.x - centerX, component.y - centerY);
-  const minSide = Math.min(canvasWidth, canvasHeight);
-  const axisBand = Math.max(28, minSide * 0.036);
-
-  return (
-    distanceFromCenter > outerRadius * 0.12
-    && distanceFromCenter < outerRadius * 1.02
-    && (
-      Math.abs(component.x - centerX) <= axisBand
-      || Math.abs(component.y - centerY) <= axisBand
-    )
-  );
-}
-
-function shotPatternScore(component: ComponentBox, canvasWidth: number, canvasHeight: number) {
-  const pixelCount = canvasWidth * canvasHeight;
-  const axisLikePrint = component.brownShare < 0.025 && component.tearShare < 0.045;
-  let score = 0;
-
-  if (component.brownShare >= 0.06 || (component.darkShare >= 0.12 && !axisLikePrint)) {
-    score += 0.28;
-  }
-
-  if (component.tearShare >= 0.08 || component.brightShare >= 0.1) {
-    score += 0.24;
-  }
-
-  if (
-    (component.darkShare >= 0.08 && (component.brightShare >= 0.06 || component.tearShare >= 0.06))
-    || (component.brownShare >= 0.04 && (component.tearShare >= 0.04 || component.brightShare >= 0.05))
-  ) {
-    score += 0.2;
-  }
-
-  if (component.circularFill >= 0.18 && component.density >= 0.18) {
-    score += 0.12;
-  }
-
-  if (component.area >= pixelCount * 0.000018) {
-    score += 0.08;
-  }
-
-  if (component.meanDifference >= 46) {
-    score += 0.08;
-  }
-
-  if (
-    axisLikePrint
-    && (
-      (component.darkShare > 0.58 && component.brightShare < 0.05)
-      || (component.brightShare > 0.58 && component.darkShare < 0.05)
-    )
-  ) {
-    score -= 0.28;
-  }
-
-  return Math.max(0, Math.min(1, score));
-}
-
-function hasDigitCorridorImpactPattern(component: ComponentBox, canvasWidth: number, canvasHeight: number) {
-  const pixelCount = canvasWidth * canvasHeight;
-  const mixedFiber = (
-    (component.brownShare >= 0.035 && (component.tearShare >= 0.035 || component.brightShare >= 0.045))
-    || (component.darkShare >= 0.12 && component.tearShare >= 0.075)
-    || (component.darkShare >= 0.1 && component.brightShare >= 0.09)
-  );
-  const largeTornHole = (
-    component.area >= pixelCount * 0.000065
-    && (component.brownShare >= 0.05 || component.tearShare >= 0.07 || component.brightShare >= 0.12)
-  );
-
-  return (
-    component.meanDifference >= 40
-    && component.circularFill >= 0.17
-    && component.density >= 0.18
-    && (mixedFiber || largeTornHole)
-  );
-}
-
-function isLikelyPrintedScoreNumber(
-  component: ComponentBox,
-  canvasWidth: number,
-  canvasHeight: number,
-  template: TargetTemplate
-) {
-  const inNumberZone = isInPrintedScoreNumberZone(component, canvasWidth, canvasHeight, template);
-  const inNumberCorridor = isInScoreNumberCorridor(component, canvasWidth, canvasHeight, template);
-
-  if (!inNumberZone && !inNumberCorridor && !isOnPrintedScoreAxis(component, canvasWidth, canvasHeight, template)) {
-    return false;
-  }
-
-  const shorterSide = Math.min(component.boxWidth, component.boxHeight);
-  const longerSide = Math.max(component.boxWidth, component.boxHeight);
-  const elongation = longerSide / Math.max(1, shorterSide);
-  const canvasMinSide = Math.min(canvasWidth, canvasHeight);
-  const smallPrintedMark = (
-    longerSide <= Math.max(38, canvasMinSide * 0.038)
-    && component.area <= canvasWidth * canvasHeight * 0.00016
-  );
-  const thinStrokeShape = (
-    component.density < 0.48
-    && (
-      component.circularFill < 0.5
-      || elongation > 1.45
-      || shorterSide <= Math.max(7, longerSide * 0.48)
-    )
-  );
-  const singlePolarityPrint = (
-    (component.darkShare > 0.44 && component.brightShare < 0.08)
-    || (component.brightShare > 0.44 && component.darkShare < 0.08)
-  );
-  const digitImpactEvidence = (
-    component.meanDifference >= 58
-    && component.circularFill >= 0.22
-    && component.density >= 0.24
-    && (
-      (component.darkShare >= 0.14 && component.brightShare >= 0.08)
-      || component.area >= canvasWidth * canvasHeight * 0.00008
-    )
-  );
-
-  if ((inNumberZone || inNumberCorridor) && !hasDigitCorridorImpactPattern(component, canvasWidth, canvasHeight)) {
-    return true;
-  }
-
-  return smallPrintedMark && (thinStrokeShape || singlePolarityPrint) && !digitImpactEvidence;
-}
-
-function distanceToNearestScoringRing(
-  component: ComponentBox,
-  canvasWidth: number,
-  canvasHeight: number,
-  template: TargetTemplate
-) {
-  if (template.rings.length === 0) {
-    return null;
-  }
-
-  const centerX = canvasWidth * template.centerX;
-  const centerY = canvasHeight * template.centerY;
-  const targetScale = Math.min(
-    canvasWidth / template.sheetWidthMm,
-    canvasHeight / template.sheetHeightMm
-  );
-  const distanceFromCenter = Math.hypot(component.x - centerX, component.y - centerY);
-
-  return template.rings.reduce((nearestDistance, ring) => {
-    const ringRadius = (ring.diameterMm * targetScale) / 2;
-
-    return Math.min(nearestDistance, Math.abs(distanceFromCenter - ringRadius));
-  }, Number.POSITIVE_INFINITY);
-}
-
-function hasImpactMass(component: ComponentBox) {
-  const contrastShare = component.darkShare + component.brightShare;
-  const compactEnough = component.circularFill >= 0.2 || component.density >= 0.36;
-
-  return (
-    compactEnough
-    && component.meanDifference >= 44
-    && (
-      component.darkShare >= 0.2
-      || component.brightShare >= 0.18
-      || contrastShare >= 0.34
-    )
-  );
-}
-
-function isLikelyPrintedGuideLine(
-  component: ComponentBox,
-  canvasWidth: number,
-  canvasHeight: number,
-  template: TargetTemplate
-) {
-  const ringDistance = distanceToNearestScoringRing(component, canvasWidth, canvasHeight, template);
-
-  if (ringDistance === null) {
-    return false;
-  }
-
-  const shorterSide = Math.min(component.boxWidth, component.boxHeight);
-  const longerSide = Math.max(component.boxWidth, component.boxHeight);
-  const elongation = longerSide / Math.max(1, shorterSide);
-  const nearRing = ringDistance <= Math.max(8, component.radius * 1.15);
-  const lineLike = (
-    component.density < 0.43
-    && (
-      component.circularFill < 0.54
-      || elongation > 1.35
-      || shorterSide <= Math.max(7, longerSide * 0.46)
-    )
-  );
-  const greenRingInk = component.greenShare > 0.18 && component.darkShare < 0.36;
-  const weakRingDifference = component.meanDifference < 92 && component.confidence < 0.34;
-
-  return nearRing && (greenRingInk || (lineLike && weakRingDifference)) && !hasImpactMass(component);
-}
-
-function detectShotComponents(
-  targetImageData: ImageData,
-  sensitivity: number,
-  template: TargetTemplate
-): {
-  components: ComponentBox[];
-  threshold: number;
-} {
-  const { width, height, data } = targetImageData;
-  const pixelCount = width * height;
-  const gray = new Uint8Array(pixelCount);
-  const localContrast = new Uint8Array(pixelCount);
-  const candidateMask = new Uint8Array(pixelCount);
-  const integral = new Float64Array((width + 1) * (height + 1));
-
-  for (let y = 0; y < height; y += 1) {
-    let rowSum = 0;
-
-    for (let x = 0; x < width; x += 1) {
-      const index = y * width + x;
-      const dataIndex = index * 4;
-      const value = Math.round(
-        data[dataIndex] * 0.299
-        + data[dataIndex + 1] * 0.587
-        + data[dataIndex + 2] * 0.114
-      );
-
-      gray[index] = value;
-      rowSum += value;
-      integral[(y + 1) * (width + 1) + x + 1] = integral[y * (width + 1) + x + 1] + rowSum;
-    }
-  }
-
-  const sampleWindow = Math.max(18, Math.round(Math.min(width, height) * 0.024));
-  const threshold = Math.max(16, Math.min(54, Math.round(32 - sensitivity * 0.42)));
-  const marginX = Math.round(width * 0.025);
-  const marginY = Math.round(height * 0.025);
-
-  function localAverage(x: number, y: number) {
-    const left = Math.max(0, x - sampleWindow);
-    const right = Math.min(width - 1, x + sampleWindow);
-    const top = Math.max(0, y - sampleWindow);
-    const bottom = Math.min(height - 1, y + sampleWindow);
-    const integralWidth = width + 1;
-    const area = (right - left + 1) * (bottom - top + 1);
-    const sum = (
-      integral[(bottom + 1) * integralWidth + right + 1]
-      - integral[top * integralWidth + right + 1]
-      - integral[(bottom + 1) * integralWidth + left]
-      + integral[top * integralWidth + left]
-    );
-
-    return sum / area;
-  }
-
-  for (let y = marginY; y < height - marginY; y += 1) {
-    for (let x = marginX; x < width - marginX; x += 1) {
-      const index = y * width + x;
-      const dataIndex = index * 4;
-      const red = data[dataIndex];
-      const green = data[dataIndex + 1];
-      const blue = data[dataIndex + 2];
-      const isGreenInk = green > 92 && green - red > 12 && green - blue > 8;
-
-      if (isGreenInk) {
-        continue;
-      }
-
-      const average = localAverage(x, y);
-      const value = gray[index];
-      const darkContrast = average - value;
-      const brightContrast = value - average;
-      const darkImpact = average > 108 && darkContrast >= threshold;
-      const brightImpact = average < 168 && brightContrast >= threshold + 4;
-      const sharpDarkImpact = value < 62 && darkContrast >= threshold * 0.72;
-
-      if (!darkImpact && !brightImpact && !sharpDarkImpact) {
-        continue;
-      }
-
-      localContrast[index] = Math.min(255, Math.round(Math.max(darkContrast, brightContrast)));
-      candidateMask[index] = 1;
-    }
-  }
-
-  const visited = new Uint8Array(pixelCount);
-  const components: ComponentBox[] = [];
-  const minArea = Math.max(10, Math.round(pixelCount * 0.000005));
-  const maxArea = Math.max(150, Math.round(pixelCount * 0.0014));
-  const maxBoxSize = Math.min(width, height) * 0.055;
-  const stack: number[] = [];
-
-  for (let startY = marginY; startY < height - marginY; startY += 1) {
-    for (let startX = marginX; startX < width - marginX; startX += 1) {
-      const startIndex = startY * width + startX;
-
-      if (visited[startIndex] || !candidateMask[startIndex]) {
-        continue;
-      }
-
-      let area = 0;
-      let sumX = 0;
-      let sumY = 0;
-      let strength = 0;
-      let minX = startX;
-      let maxX = startX;
-      let minY = startY;
-      let maxY = startY;
-      let greenPixels = 0;
-      let darkPixels = 0;
-      let brightPixels = 0;
-      let brownPixels = 0;
-      let tearPixels = 0;
-
-      visited[startIndex] = 1;
-      stack.push(startIndex);
-
-      while (stack.length > 0) {
-        const currentIndex = stack.pop();
-
-        if (currentIndex === undefined) {
-          break;
-        }
-
-        const x = currentIndex % width;
-        const y = Math.floor(currentIndex / width);
-
-        area += 1;
-        sumX += x;
-        sumY += y;
-        strength += localContrast[currentIndex];
-
-        const currentDataIndex = currentIndex * 4;
-        const red = data[currentDataIndex];
-        const green = data[currentDataIndex + 1];
-        const blue = data[currentDataIndex + 2];
-        const targetGray = red * 0.299 + green * 0.587 + blue * 0.114;
-        const maxChannel = Math.max(red, green, blue);
-        const minChannel = Math.min(red, green, blue);
-        const saturation = maxChannel === 0 ? 0 : (maxChannel - minChannel) / maxChannel;
-
-        if (green > 95 && green - red > 14 && green - blue > 10) {
-          greenPixels += 1;
-        }
-
-        if (targetGray < 92) {
-          darkPixels += 1;
-        }
-
-        if (targetGray > 178) {
-          brightPixels += 1;
-        }
-
-        if (
-          targetGray > 42
-          && targetGray < 176
-          && red > blue + 18
-          && green > blue + 8
-          && red >= green - 6
-        ) {
-          brownPixels += 1;
-        }
-
-        if (
-          targetGray > 126
-          && saturation < 0.26
-          && !(green > 100 && green - red > 10 && green - blue > 8)
-        ) {
-          tearPixels += 1;
-        }
-
-        minX = Math.min(minX, x);
-        maxX = Math.max(maxX, x);
-        minY = Math.min(minY, y);
-        maxY = Math.max(maxY, y);
-
-        const neighbors = [
-          currentIndex - 1,
-          currentIndex + 1,
-          currentIndex - width,
-          currentIndex + width,
-        ];
-
-        neighbors.forEach((neighborIndex) => {
-          if (
-            neighborIndex <= 0
-            || neighborIndex >= pixelCount
-            || visited[neighborIndex]
-            || !candidateMask[neighborIndex]
-          ) {
-            return;
-          }
-
-          const neighborX = neighborIndex % width;
-
-          if (Math.abs(neighborX - x) > 1) {
-            return;
-          }
-
-          visited[neighborIndex] = 1;
-          stack.push(neighborIndex);
-        });
-      }
-
-      const boxWidth = maxX - minX + 1;
-      const boxHeight = maxY - minY + 1;
-      const ratio = boxWidth / boxHeight;
-      const density = area / (boxWidth * boxHeight);
-      const radius = Math.max(9, Math.sqrt(area / Math.PI) * 1.85);
-      const boundingRadius = Math.max(boxWidth, boxHeight) / 2;
-      const circularFill = area / Math.max(1, Math.PI * boundingRadius * boundingRadius);
-      const meanDifference = strength / area;
-      const brownShare = brownPixels / area;
-      const tearShare = tearPixels / area;
-      const component = {
-        x: sumX / area,
-        y: sumY / area,
-        radius,
-        area,
-        boxWidth,
-        boxHeight,
-        density,
-        circularFill,
-        greenShare: greenPixels / area,
-        darkShare: darkPixels / area,
-        brightShare: brightPixels / area,
-        brownShare,
-        tearShare,
-        meanDifference,
-        confidence: Math.min(1, meanDifference / 120) * density,
-      };
-      const patternScore = shotPatternScore(component, width, height);
-      const inDigitCorridor = isInScoreNumberCorridor(component, width, height, template);
-
-      if (
-        area < minArea
-        || area > maxArea
-        || boxWidth > maxBoxSize
-        || boxHeight > maxBoxSize
-        || ratio < 0.45
-        || ratio > 2.25
-        || density < 0.17
-        || circularFill < 0.16
-        || meanDifference < threshold + 5
-        || patternScore < (inDigitCorridor ? 0.7 : 0.42)
-      ) {
-        continue;
-      }
-
-      if (
-        isLikelyPrintedScoreNumber(component, width, height, template)
-        || isLikelyPrintedGuideLine(component, width, height, template)
-      ) {
-        continue;
-      }
-
-      components.push(component);
-    }
-  }
-
-  const mergedComponents: ComponentBox[] = [];
-  const mergeDistance = Math.min(width, height) * 0.026;
-
-  [...components]
-    .sort((firstComponent, secondComponent) => secondComponent.confidence - firstComponent.confidence)
-    .forEach((component) => {
-      const duplicate = mergedComponents.some(
-        (mergedComponent) => Math.hypot(
-          mergedComponent.x - component.x,
-          mergedComponent.y - component.y
-        ) < mergeDistance
-      );
-
-      if (!duplicate) {
-        mergedComponents.push(component);
-      }
-    });
-
-  return {
-    components: mergedComponents
-      .sort((firstComponent, secondComponent) => firstComponent.y - secondComponent.y || firstComponent.x - secondComponent.x),
-    threshold,
-  };
-}
-
 async function analyzeTargetImage(
   file: File,
-  template: TargetTemplate,
-  sensitivity: number
+  template: TargetTemplate
 ): Promise<AnalysisResult> {
   const patternUrl = templateImageSrc(template);
 
@@ -1489,7 +829,7 @@ async function analyzeTargetImage(
     );
     const patternBullseye = detectBullseye(preparedPattern.canvas);
     const alignedTarget = alignCanvasByBullseye(preparedTarget.canvas, patternBullseye);
-    const scoringTemplate = patternBullseye
+    const alignmentTemplate = patternBullseye
       ? {
           ...template,
           centerX: patternBullseye.x / outputSize.width,
@@ -1501,51 +841,15 @@ async function analyzeTargetImage(
     });
 
     if (!targetContext) {
-      throw new Error("Nie udało się przygotować porównania.");
+      throw new Error("Nie udało się przygotować dopasowania.");
     }
 
-    const targetImageData = targetContext.getImageData(0, 0, outputSize.width, outputSize.height);
-    const detection = detectShotComponents(
-      targetImageData,
-      sensitivity,
-      scoringTemplate
-    );
-    const shots = detection.components
-      .filter((component) => pointInScoringArea(
-        component.x,
-        component.y,
-        outputSize.width,
-        outputSize.height,
-        scoringTemplate
-      ))
-      .map((component) => ({
-        x: component.x,
-        y: component.y,
-        radius: component.radius,
-        score: getScoreForPoint(
-          component.x,
-          component.y,
-          outputSize.width,
-          outputSize.height,
-          scoringTemplate
-        ),
-        confidence: component.confidence,
-      }))
-      .filter((shot) => shot.score > 0)
-      .map((shot, index) => ({
-        ...shot,
-        id: index + 1,
-      }));
-
-    drawScoringRings(targetContext, outputSize.width, outputSize.height, scoringTemplate);
+    drawScoringRings(targetContext, outputSize.width, outputSize.height, alignmentTemplate);
 
     return {
       imageUrl: alignedTarget.canvas.toDataURL("image/jpeg", 0.92),
       imageWidth: outputSize.width,
       imageHeight: outputSize.height,
-      shots,
-      totalScore: shots.reduce((sum, shot) => sum + shot.score, 0),
-      threshold: detection.threshold,
       cropDescription: `${preparedTarget.description}; ${alignedTarget.description}`,
     };
   } finally {
@@ -1564,14 +868,11 @@ export default function TargetScoringBeta() {
   const [templateName, setTemplateName] = useState("Własna tarcza");
   const [templateWidth, setTemplateWidth] = useState(500);
   const [templateHeight, setTemplateHeight] = useState(500);
-  const [sensitivity, setSensitivity] = useState(0);
   const [loadingTemplates, setLoadingTemplates] = useState(true);
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [working, setWorking] = useState(false);
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [resultOpen, setResultOpen] = useState(false);
-  const [showShotMarkers, setShowShotMarkers] = useState(true);
-  const [accepted, setAccepted] = useState(false);
   const [message, setMessage] = useState("");
 
   const selectedTemplate = useMemo(
@@ -1643,7 +944,6 @@ export default function TargetScoringBeta() {
     setTargetFileName(file?.name || "");
     setResult(null);
     setResultOpen(false);
-    setAccepted(false);
     setMessage("");
 
     if (file) {
@@ -1725,7 +1025,6 @@ export default function TargetScoringBeta() {
       setSaveMode("selected");
       setResult(null);
       setResultOpen(false);
-      setAccepted(false);
       setMessage("Wzorzec zapisany w systemie.");
     } catch (error) {
       console.error(error);
@@ -1749,28 +1048,25 @@ export default function TargetScoringBeta() {
     const fileToAnalyze = fileOverride || targetFile;
 
     if (!fileToAnalyze) {
-      setMessage("Dodaj zdjęcie tarczy do analizy.");
+      setMessage("Dodaj zdjęcie tarczy do dopasowania.");
       return;
     }
 
     try {
       setWorking(true);
-      setAccepted(false);
       setResultOpen(false);
       setMessage("");
       const nextResult = await analyzeTargetImage(
         fileToAnalyze,
-        selectedTemplate,
-        sensitivity
+        selectedTemplate
       );
 
       setResult(nextResult);
-      setShowShotMarkers(true);
       setResultOpen(true);
-      setMessage("Zdjęcie przycięte, dopasowane do wzorca i przeanalizowane.");
+      setMessage("Zdjęcie przycięte i dopasowane do wzorca.");
     } catch (error) {
       console.error(error);
-      setMessage(error instanceof Error ? error.message : "Nie udało się przeanalizować zdjęcia.");
+      setMessage(error instanceof Error ? error.message : "Nie udało się dopasować zdjęcia.");
     } finally {
       setWorking(false);
     }
@@ -1785,11 +1081,11 @@ export default function TargetScoringBeta() {
               Beta test
             </p>
             <h2 className="mt-2 text-3xl font-black text-white">
-              Zliczanie przestrzelin
+              Kadrowanie i dopasowanie tarczy
             </h2>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 text-sm">
             <div className="rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3">
               <p className="font-bold text-gray-400">Wzorzec</p>
               <p className="mt-1 text-lg font-black text-white">{selectedTemplate?.name || "-"}</p>
@@ -1799,14 +1095,6 @@ export default function TargetScoringBeta() {
               <p className={`mt-1 text-lg font-black ${selectedTemplateHasImage ? "text-green-300" : "text-yellow-300"}`}>
                 {selectedTemplateHasImage ? "zapisany" : "brak"}
               </p>
-            </div>
-            <div className="rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3">
-              <p className="font-bold text-gray-400">Strzały</p>
-              <p className="mt-1 text-lg font-black text-white">{result?.shots.length ?? 0}</p>
-            </div>
-            <div className="rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3">
-              <p className="font-bold text-gray-400">Wynik</p>
-              <p className="mt-1 text-lg font-black text-white">{result?.totalScore ?? "-"}</p>
             </div>
           </div>
         </div>
@@ -1840,7 +1128,6 @@ export default function TargetScoringBeta() {
                     setSaveMode("selected");
                     setResult(null);
                     setResultOpen(false);
-                    setAccepted(false);
                     setMessage("");
                   }}
                   className={`rounded-xl border px-4 py-3 text-left transition ${
@@ -1969,7 +1256,7 @@ export default function TargetScoringBeta() {
 
           <div className="border-t border-zinc-800 pt-5">
             <h3 className="text-xl font-black text-white">
-              Zdjęcie do analizy
+              Zdjęcie do dopasowania
             </h3>
 
             <div className="mt-4 grid gap-4">
@@ -1989,23 +1276,9 @@ export default function TargetScoringBeta() {
 
               {working && (
                 <p className="rounded-xl border border-green-700/40 bg-green-700/10 px-4 py-3 text-sm font-bold text-green-100">
-                  Analizuję zdjęcie...
+                  Dopasowuję zdjęcie...
                 </p>
               )}
-
-              <label>
-                <span className="mb-2 block text-sm font-bold text-gray-300">
-                  Czułość różnicy: {sensitivity}
-                </span>
-                <input
-                  type="range"
-                  min={-25}
-                  max={35}
-                  value={sensitivity}
-                  onChange={(event) => setSensitivity(Number(event.target.value))}
-                  className="w-full accent-red-600"
-                />
-              </label>
 
               <button
                 type="button"
@@ -2013,7 +1286,7 @@ export default function TargetScoringBeta() {
                 disabled={working || !selectedTemplateHasImage || !targetFile}
                 className="ui-button rounded-xl bg-green-700 px-5 py-3 font-black text-white transition hover:bg-green-600 disabled:cursor-not-allowed disabled:bg-zinc-700"
               >
-                {working ? "Dopasowuję..." : "Analizuj ponownie"}
+                {working ? "Dopasowuję..." : "Dopasuj ponownie"}
               </button>
             </div>
           </div>
@@ -2023,11 +1296,11 @@ export default function TargetScoringBeta() {
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h3 className="text-xl font-black text-white">
-                Wynik do akceptacji
+                Podgląd dopasowania
               </h3>
               {result && (
                 <p className="mt-2 text-sm text-gray-400">
-                  Próg różnicy: {result.threshold} · kadr: {result.cropDescription}
+                  Kadr: {result.cropDescription}
                 </p>
               )}
             </div>
@@ -2035,29 +1308,16 @@ export default function TargetScoringBeta() {
             <div className="flex flex-wrap gap-3">
               <button
                 type="button"
-                onClick={() => {
-                  setAccepted(true);
-                  setResultOpen(false);
-                }}
-                disabled={!result}
-                className="ui-button rounded-xl bg-green-700 px-5 py-3 font-bold text-white transition hover:bg-green-600 disabled:cursor-not-allowed disabled:bg-zinc-700"
-              >
-                Akceptuj
-              </button>
-
-              <button
-                type="button"
                 onClick={() => setResultOpen(true)}
                 disabled={!result}
                 className="ui-button rounded-xl bg-red-700 px-5 py-3 font-bold text-white transition hover:bg-red-600 disabled:cursor-not-allowed disabled:bg-zinc-700"
               >
-                Otwórz wynik
+                Otwórz podgląd
               </button>
 
               <button
                 type="button"
                 onClick={() => {
-                  setAccepted(false);
                   setResult(null);
                   setResultOpen(false);
                 }}
@@ -2071,26 +1331,17 @@ export default function TargetScoringBeta() {
           <div className="mt-6 rounded-xl border border-zinc-800 bg-zinc-950 px-5 py-8 text-center">
             {result ? (
               <div className="mx-auto grid max-w-xl gap-3 text-gray-200">
-                <p className="text-3xl font-black text-white">{result.totalScore} pkt</p>
-                <p className="font-bold text-gray-300">
-                  Wykryte przestrzeliny: {result.shots.length}
-                </p>
+                <p className="text-2xl font-black text-white">Kadr dopasowany do wzorca</p>
                 <p className="text-sm text-gray-500">
-                  Wynik otworzył się w pełnym ekranie po analizie. Możesz wrócić do podglądu przyciskiem „Otwórz wynik”.
+                  Moduł zliczania przestrzelin został wyłączony. Ten widok pokazuje tylko przycięcie, dopasowanie i pomocnicze okręgi wzorca.
                 </p>
               </div>
             ) : (
               <div className="flex min-h-[16rem] items-center justify-center px-6 text-center text-gray-500">
-                Brak wyniku analizy.
+                Brak dopasowanego kadru.
               </div>
             )}
           </div>
-
-          {accepted && (
-            <p className="mt-4 rounded-xl border border-green-700/40 bg-green-700/10 px-4 py-3 font-semibold text-green-100">
-              Wynik zaakceptowany w beta teście.
-            </p>
-          )}
         </section>
       </div>
 
@@ -2098,37 +1349,18 @@ export default function TargetScoringBeta() {
         <div
           role="dialog"
           aria-modal="true"
-          aria-label="Wynik do akceptacji"
+          aria-label="Podgląd dopasowania tarczy"
           className="fixed inset-0 z-[1000] flex flex-col bg-zinc-950 text-white"
         >
           <div className="flex flex-col gap-3 border-b border-zinc-800 bg-zinc-950/95 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <h3 className="text-xl font-black">Wynik do akceptacji</h3>
+              <h3 className="text-xl font-black">Podgląd dopasowania</h3>
               <p className="mt-1 text-sm text-gray-400">
-                {result.shots.length} przestrzelin · {result.totalScore} pkt · próg {result.threshold}
+                {result.cropDescription}
               </p>
             </div>
 
             <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => setShowShotMarkers((currentValue) => !currentValue)}
-                className="ui-button rounded-xl bg-zinc-800 px-4 py-3 text-sm font-black text-white transition hover:bg-zinc-700"
-              >
-                {showShotMarkers ? "Ukryj znaczniki" : "Pokaż znaczniki"}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setAccepted(true);
-                  setResultOpen(false);
-                }}
-                className="ui-button rounded-xl bg-green-700 px-4 py-3 text-sm font-black text-white transition hover:bg-green-600"
-              >
-                Akceptuj
-              </button>
-
               <button
                 type="button"
                 onClick={() => setResultOpen(false)}
@@ -2139,7 +1371,7 @@ export default function TargetScoringBeta() {
             </div>
           </div>
 
-          <div className="grid min-h-0 flex-1 gap-4 overflow-hidden p-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
+          <div className="min-h-0 flex-1 overflow-hidden p-4">
             <div className="min-h-0 overflow-auto rounded-xl border border-zinc-800 bg-black p-2">
               <div
                 className="relative mx-auto w-full max-w-full"
@@ -2151,54 +1383,7 @@ export default function TargetScoringBeta() {
                   alt="Zdjęcie tarczy dopasowane do wzorca"
                   className="absolute inset-0 h-full w-full object-contain"
                 />
-
-                {showShotMarkers && result.shots.map((shot) => {
-                  const markerRadius = Math.max(shot.radius, 14);
-
-                  return (
-                    <div key={shot.id}>
-                      <span
-                        className="pointer-events-none absolute rounded-full border-[3px] border-red-500"
-                        style={{
-                          left: `${(shot.x / result.imageWidth) * 100}%`,
-                          top: `${(shot.y / result.imageHeight) * 100}%`,
-                          width: `${((markerRadius * 2) / result.imageWidth) * 100}%`,
-                          aspectRatio: "1 / 1",
-                          transform: "translate(-50%, -50%)",
-                        }}
-                      />
-                      <span
-                        className="pointer-events-none absolute text-lg font-black text-red-500"
-                        style={{
-                          left: `${((shot.x + markerRadius + 8) / result.imageWidth) * 100}%`,
-                          top: `${((shot.y - markerRadius - 8) / result.imageHeight) * 100}%`,
-                        }}
-                      >
-                        {shot.score}
-                      </span>
-                    </div>
-                  );
-                })}
               </div>
-            </div>
-
-            <div className="min-h-0 overflow-auto rounded-xl border border-zinc-800 bg-zinc-900">
-              <div className="sticky top-0 grid grid-cols-[64px_1fr_1fr] border-b border-zinc-800 bg-zinc-900 px-4 py-3 text-sm font-black text-gray-400">
-                <p>Nr</p>
-                <p>Punkt</p>
-                <p>Pewność</p>
-              </div>
-
-              {result.shots.map((shot) => (
-                <div
-                  key={shot.id}
-                  className="grid grid-cols-[64px_1fr_1fr] border-b border-zinc-800 px-4 py-3 text-sm text-gray-200 last:border-b-0"
-                >
-                  <p className="font-black text-white">{shot.id}</p>
-                  <p>{shot.score}</p>
-                  <p>{Math.round(shot.confidence * 100)}%</p>
-                </div>
-              ))}
             </div>
           </div>
         </div>
