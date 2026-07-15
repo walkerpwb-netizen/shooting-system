@@ -64,6 +64,18 @@ type RingAlignment = {
   score: number;
 };
 
+type PaperComponent = {
+  area: number;
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+  topLeft: Point;
+  topRight: Point;
+  bottomRight: Point;
+  bottomLeft: Point;
+};
+
 type AnalysisResult = {
   imageUrl: string;
   imageWidth: number;
@@ -77,6 +89,7 @@ const defaultCustomRings = Array.from({ length: 10 }, (_, index) => ({
 }));
 const maxSourceCanvasSide = 4096;
 const maxAnalysisCanvasSide = 1800;
+const minimumLineCoverage = 0.95;
 
 function apiTemplateToTargetTemplate(template: ApiTargetTemplate): TargetTemplate {
   return {
@@ -173,13 +186,7 @@ function detectPaperQuad(imageData: ImageData, targetAspectRatio: number): Point
     }
   }
 
-  let bestComponent: {
-    area: number;
-    minX: number;
-    maxX: number;
-    minY: number;
-    maxY: number;
-  } | null = null;
+  let bestComponent: PaperComponent | null = null;
   const stack: number[] = [];
 
   for (let startY = 0; startY < sampleHeight; startY += 1) {
@@ -195,6 +202,14 @@ function detectPaperQuad(imageData: ImageData, targetAspectRatio: number): Point
       let maxX = startX;
       let minY = startY;
       let maxY = startY;
+      let topLeftScore = Number.POSITIVE_INFINITY;
+      let topRightScore = Number.NEGATIVE_INFINITY;
+      let bottomRightScore = Number.NEGATIVE_INFINITY;
+      let bottomLeftScore = Number.NEGATIVE_INFINITY;
+      let topLeft = { x: startX * sampleStep, y: startY * sampleStep };
+      let topRight = topLeft;
+      let bottomRight = topLeft;
+      let bottomLeft = topLeft;
 
       visited[startIndex] = 1;
       stack.push(startIndex);
@@ -214,6 +229,35 @@ function detectPaperQuad(imageData: ImageData, targetAspectRatio: number): Point
         maxX = Math.max(maxX, x);
         minY = Math.min(minY, y);
         maxY = Math.max(maxY, y);
+
+        const sourcePoint = {
+          x: Math.min(width - 1, x * sampleStep),
+          y: Math.min(height - 1, y * sampleStep),
+        };
+        const topLeftCandidate = sourcePoint.x + sourcePoint.y;
+        const topRightCandidate = sourcePoint.x - sourcePoint.y;
+        const bottomRightCandidate = sourcePoint.x + sourcePoint.y;
+        const bottomLeftCandidate = sourcePoint.y - sourcePoint.x;
+
+        if (topLeftCandidate < topLeftScore) {
+          topLeftScore = topLeftCandidate;
+          topLeft = sourcePoint;
+        }
+
+        if (topRightCandidate > topRightScore) {
+          topRightScore = topRightCandidate;
+          topRight = sourcePoint;
+        }
+
+        if (bottomRightCandidate > bottomRightScore) {
+          bottomRightScore = bottomRightCandidate;
+          bottomRight = sourcePoint;
+        }
+
+        if (bottomLeftCandidate > bottomLeftScore) {
+          bottomLeftScore = bottomLeftCandidate;
+          bottomLeft = sourcePoint;
+        }
 
         const neighbors = [
           currentIndex - 1,
@@ -264,6 +308,10 @@ function detectPaperQuad(imageData: ImageData, targetAspectRatio: number): Point
           maxX,
           minY,
           maxY,
+          topLeft,
+          topRight,
+          bottomRight,
+          bottomLeft,
         };
       }
     }
@@ -276,6 +324,41 @@ function detectPaperQuad(imageData: ImageData, targetAspectRatio: number): Point
       { x: width - 1, y: height - 1 },
       { x: 0, y: height - 1 },
     ];
+  }
+
+  const rawQuad = [
+    bestComponent.topLeft,
+    bestComponent.topRight,
+    bestComponent.bottomRight,
+    bestComponent.bottomLeft,
+  ];
+  const quadCenter = rawQuad.reduce(
+    (sum, point) => ({ x: sum.x + point.x / 4, y: sum.y + point.y / 4 }),
+    { x: 0, y: 0 }
+  );
+  const cornerPadding = sampleStep * 2;
+  const paddedQuad = rawQuad.map((point) => {
+    const dx = point.x - quadCenter.x;
+    const dy = point.y - quadCenter.y;
+    const length = Math.max(1, Math.hypot(dx, dy));
+
+    return {
+      x: Math.max(0, Math.min(width - 1, point.x + (dx / length) * cornerPadding)),
+      y: Math.max(0, Math.min(height - 1, point.y + (dy / length) * cornerPadding)),
+    };
+  });
+  const topWidth = Math.hypot(paddedQuad[1].x - paddedQuad[0].x, paddedQuad[1].y - paddedQuad[0].y);
+  const bottomWidth = Math.hypot(paddedQuad[2].x - paddedQuad[3].x, paddedQuad[2].y - paddedQuad[3].y);
+  const leftHeight = Math.hypot(paddedQuad[3].x - paddedQuad[0].x, paddedQuad[3].y - paddedQuad[0].y);
+  const rightHeight = Math.hypot(paddedQuad[2].x - paddedQuad[1].x, paddedQuad[2].y - paddedQuad[1].y);
+  const detectedAspectRatio = ((topWidth + bottomWidth) / 2) / Math.max(1, (leftHeight + rightHeight) / 2);
+
+  if (
+    Number.isFinite(detectedAspectRatio)
+    && detectedAspectRatio > targetAspectRatio * 0.68
+    && detectedAspectRatio < targetAspectRatio * 1.46
+  ) {
+    return paddedQuad;
   }
 
   const padding = Math.round(sampleStep * 1.5);
@@ -451,6 +534,37 @@ function lineLikelihood(
   return Math.max(0, Math.min(1, (contrast - 10) / 44 + (greenInk ? 0.2 : 0)));
 }
 
+function lineCoverageAt(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+  x: number,
+  y: number,
+  normalX: number,
+  normalY: number
+) {
+  const searchRadius = Math.max(4, Math.min(width, height) * 0.004);
+  const step = Math.max(1.5, searchRadius / 4);
+  let bestLikelihood = 0;
+
+  for (let offset = -searchRadius; offset <= searchRadius; offset += step) {
+    bestLikelihood = Math.max(
+      bestLikelihood,
+      lineLikelihood(
+        data,
+        width,
+        height,
+        x + normalX * offset,
+        y + normalY * offset,
+        normalX,
+        normalY
+      )
+    );
+  }
+
+  return bestLikelihood >= 0.24 ? 1 : 0;
+}
+
 function scoreRingAlignment(
   imageData: ImageData,
   template: TargetTemplate,
@@ -482,11 +596,7 @@ function scoreRingAlignment(
       const normalY = alignmentSin * ringCos + alignmentCos * ringSin;
       const x = candidate.x + alignmentCos * scaledX - alignmentSin * scaledY;
       const y = candidate.y + alignmentSin * scaledX + alignmentCos * scaledY;
-      const sampleScore = lineLikelihood(data, width, height, x, y, normalX, normalY);
-
-      if (sampleScore > 0) {
-        score += sampleScore;
-      }
+      score += lineCoverageAt(data, width, height, x, y, normalX, normalY);
 
       samples += 1;
     }
@@ -572,7 +682,7 @@ function detectRingAlignment(canvas: HTMLCanvasElement, template: TargetTemplate
 
   const finalAlignment = bestAlignment as RingAlignment | null;
 
-  return finalAlignment && finalAlignment.score >= 0.16 ? finalAlignment : null;
+  return finalAlignment;
 }
 
 function alignCanvasByRings(
@@ -585,6 +695,13 @@ function alignCanvasByRings(
     return {
       canvas: targetCanvas,
       description: "linie nie wykryte",
+    };
+  }
+
+  if (ringAlignment.score < minimumLineCoverage) {
+    return {
+      canvas: targetCanvas,
+      description: `linie niedopasowane, zgodność ${Math.round(ringAlignment.score * 100)}%, wymagane ${Math.round(minimumLineCoverage * 100)}%`,
     };
   }
 
