@@ -921,8 +921,8 @@ function distanceToPrintedScoreNumberZone(
     canvasHeight / template.sheetHeightMm
   );
   const minSide = Math.min(canvasWidth, canvasHeight);
-  const halfWidth = Math.max(18, minSide * 0.018);
-  const halfHeight = Math.max(24, minSide * 0.026);
+  const halfWidth = Math.max(26, minSide * 0.035);
+  const halfHeight = Math.max(30, minSide * 0.042);
 
   return template.rings.reduce((nearestDistance, ring) => {
     const ringRadius = (ring.diameterMm * targetScale) / 2;
@@ -951,7 +951,54 @@ function isInPrintedScoreNumberZone(
   canvasHeight: number,
   template: TargetTemplate
 ) {
-  return distanceToPrintedScoreNumberZone(component, canvasWidth, canvasHeight, template) <= 1.15;
+  return distanceToPrintedScoreNumberZone(component, canvasWidth, canvasHeight, template) <= 1.35;
+}
+
+function isInScoreNumberCorridor(
+  component: ComponentBox,
+  canvasWidth: number,
+  canvasHeight: number,
+  template: TargetTemplate
+) {
+  const centerX = canvasWidth * template.centerX;
+  const centerY = canvasHeight * template.centerY;
+  const targetScale = Math.min(
+    canvasWidth / template.sheetWidthMm,
+    canvasHeight / template.sheetHeightMm
+  );
+  const largestRing = template.rings.reduce(
+    (largest, ring) => Math.max(largest, ring.diameterMm),
+    0
+  );
+  const outerRadius = (largestRing * targetScale) / 2;
+  const distanceFromCenter = Math.hypot(component.x - centerX, component.y - centerY);
+  const minSide = Math.min(canvasWidth, canvasHeight);
+  const axisBand = Math.max(28, minSide * 0.036);
+
+  return (
+    distanceFromCenter > outerRadius * 0.12
+    && distanceFromCenter < outerRadius * 1.02
+    && (
+      Math.abs(component.x - centerX) <= axisBand
+      || Math.abs(component.y - centerY) <= axisBand
+    )
+  );
+}
+
+function hasPaperTearEvidence(component: ComponentBox, canvasWidth: number, canvasHeight: number) {
+  const pixelCount = canvasWidth * canvasHeight;
+  const mixedToneDamage = component.darkShare >= 0.1 && component.brightShare >= 0.075;
+  const largeScar = (
+    component.area >= pixelCount * 0.000075
+    && (component.darkShare >= 0.24 || component.brightShare >= 0.24)
+  );
+
+  return (
+    component.meanDifference >= 42
+    && component.circularFill >= 0.18
+    && component.density >= 0.19
+    && (mixedToneDamage || largeScar)
+  );
 }
 
 function isLikelyPrintedScoreNumber(
@@ -961,8 +1008,9 @@ function isLikelyPrintedScoreNumber(
   template: TargetTemplate
 ) {
   const inNumberZone = isInPrintedScoreNumberZone(component, canvasWidth, canvasHeight, template);
+  const inNumberCorridor = isInScoreNumberCorridor(component, canvasWidth, canvasHeight, template);
 
-  if (!inNumberZone && !isOnPrintedScoreAxis(component, canvasWidth, canvasHeight, template)) {
+  if (!inNumberZone && !inNumberCorridor && !isOnPrintedScoreAxis(component, canvasWidth, canvasHeight, template)) {
     return false;
   }
 
@@ -995,6 +1043,10 @@ function isLikelyPrintedScoreNumber(
       || component.area >= canvasWidth * canvasHeight * 0.00008
     )
   );
+
+  if ((inNumberZone || inNumberCorridor) && !hasPaperTearEvidence(component, canvasWidth, canvasHeight)) {
+    return true;
+  }
 
   return smallPrintedMark && (thinStrokeShape || singlePolarityPrint) && !digitImpactEvidence;
 }
@@ -1103,7 +1155,7 @@ function detectShotComponents(
   }
 
   const sampleWindow = Math.max(18, Math.round(Math.min(width, height) * 0.024));
-  const threshold = Math.max(18, Math.min(58, Math.round(38 - sensitivity * 0.45)));
+  const threshold = Math.max(16, Math.min(54, Math.round(32 - sensitivity * 0.42)));
   const marginX = Math.round(width * 0.025);
   const marginY = Math.round(height * 0.025);
 
@@ -1156,7 +1208,7 @@ function detectShotComponents(
 
   const visited = new Uint8Array(pixelCount);
   const components: ComponentBox[] = [];
-  const minArea = Math.max(14, Math.round(pixelCount * 0.000007));
+  const minArea = Math.max(10, Math.round(pixelCount * 0.000005));
   const maxArea = Math.max(150, Math.round(pixelCount * 0.0014));
   const maxBoxSize = Math.min(width, height) * 0.055;
   const stack: number[] = [];
