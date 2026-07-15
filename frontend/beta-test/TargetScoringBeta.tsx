@@ -69,6 +69,11 @@ type ComponentBox = {
   y: number;
   radius: number;
   area: number;
+  boxWidth: number;
+  boxHeight: number;
+  density: number;
+  circularFill: number;
+  meanDifference: number;
   confidence: number;
 };
 
@@ -831,11 +836,71 @@ function drawScoringRings(
   context.restore();
 }
 
+function isOnPrintedScoreAxis(
+  component: ComponentBox,
+  canvasWidth: number,
+  canvasHeight: number,
+  template: TargetTemplate
+) {
+  const centerX = canvasWidth * template.centerX;
+  const centerY = canvasHeight * template.centerY;
+  const targetScale = Math.min(
+    canvasWidth / template.sheetWidthMm,
+    canvasHeight / template.sheetHeightMm
+  );
+  const largestRing = template.rings.reduce(
+    (largest, ring) => Math.max(largest, ring.diameterMm),
+    0
+  );
+  const outerRadius = (largestRing * targetScale) / 2;
+  const distanceFromCenter = Math.hypot(component.x - centerX, component.y - centerY);
+  const axisBand = Math.max(16, Math.round(Math.min(canvasWidth, canvasHeight) * 0.024));
+
+  return (
+    distanceFromCenter > outerRadius * 0.18
+    && distanceFromCenter < outerRadius * 1.02
+    && (
+      Math.abs(component.x - centerX) <= axisBand
+      || Math.abs(component.y - centerY) <= axisBand
+    )
+  );
+}
+
+function isLikelyPrintedScoreNumber(
+  component: ComponentBox,
+  canvasWidth: number,
+  canvasHeight: number,
+  template: TargetTemplate
+) {
+  if (!isOnPrintedScoreAxis(component, canvasWidth, canvasHeight, template)) {
+    return false;
+  }
+
+  const shorterSide = Math.min(component.boxWidth, component.boxHeight);
+  const longerSide = Math.max(component.boxWidth, component.boxHeight);
+  const elongation = longerSide / Math.max(1, shorterSide);
+  const canvasMinSide = Math.min(canvasWidth, canvasHeight);
+  const smallPrintedMark = (
+    longerSide <= Math.max(38, canvasMinSide * 0.038)
+    && component.area <= canvasWidth * canvasHeight * 0.00016
+  );
+  const thinStrokeShape = (
+    component.density < 0.48
+    && (
+      component.circularFill < 0.5
+      || elongation > 1.45
+      || shorterSide <= Math.max(7, longerSide * 0.48)
+    )
+  );
+
+  return smallPrintedMark && thinStrokeShape;
+}
+
 function detectShotComponents(
   targetImageData: ImageData,
   patternImageData: ImageData,
   sensitivity: number,
-  expectedShots: number
+  template: TargetTemplate
 ): {
   components: ComponentBox[];
   threshold: number;
@@ -950,6 +1015,22 @@ function detectShotComponents(
       const boxHeight = maxY - minY + 1;
       const ratio = boxWidth / boxHeight;
       const density = area / (boxWidth * boxHeight);
+      const radius = Math.max(9, Math.sqrt(area / Math.PI) * 1.85);
+      const boundingRadius = Math.max(boxWidth, boxHeight) / 2;
+      const circularFill = area / Math.max(1, Math.PI * boundingRadius * boundingRadius);
+      const meanDifference = strength / area;
+      const component = {
+        x: sumX / area,
+        y: sumY / area,
+        radius,
+        area,
+        boxWidth,
+        boxHeight,
+        density,
+        circularFill,
+        meanDifference,
+        confidence: Math.min(1, meanDifference / 120) * density,
+      };
 
       if (
         area < minArea
@@ -963,13 +1044,11 @@ function detectShotComponents(
         continue;
       }
 
-      components.push({
-        x: sumX / area,
-        y: sumY / area,
-        radius: Math.max(9, Math.sqrt(area / Math.PI) * 1.85),
-        area,
-        confidence: Math.min(1, (strength / area) / 120) * density,
-      });
+      if (isLikelyPrintedScoreNumber(component, width, height, template)) {
+        continue;
+      }
+
+      components.push(component);
     }
   }
 
@@ -993,7 +1072,6 @@ function detectShotComponents(
 
   return {
     components: mergedComponents
-      .slice(0, Math.max(expectedShots * 5, expectedShots + 12))
       .sort((firstComponent, secondComponent) => firstComponent.y - secondComponent.y || firstComponent.x - secondComponent.x),
     threshold,
   };
@@ -1002,8 +1080,7 @@ function detectShotComponents(
 async function analyzeTargetImage(
   file: File,
   template: TargetTemplate,
-  sensitivity: number,
-  expectedShots: number
+  sensitivity: number
 ): Promise<AnalysisResult> {
   const patternUrl = templateImageSrc(template);
 
@@ -1056,7 +1133,7 @@ async function analyzeTargetImage(
       targetImageData,
       patternImageData,
       sensitivity,
-      expectedShots
+      scoringTemplate
     );
     const shots = detection.components
       .filter((component) => pointInScoringArea(
@@ -1080,7 +1157,6 @@ async function analyzeTargetImage(
         confidence: component.confidence,
       }))
       .filter((shot) => shot.score > 0)
-      .slice(0, expectedShots)
       .map((shot, index) => ({
         ...shot,
         id: index + 1,
@@ -1124,7 +1200,6 @@ export default function TargetScoringBeta() {
   const [templateName, setTemplateName] = useState("Własna tarcza");
   const [templateWidth, setTemplateWidth] = useState(500);
   const [templateHeight, setTemplateHeight] = useState(500);
-  const [expectedShots, setExpectedShots] = useState(10);
   const [sensitivity, setSensitivity] = useState(0);
   const [loadingTemplates, setLoadingTemplates] = useState(true);
   const [savingTemplate, setSavingTemplate] = useState(false);
@@ -1311,8 +1386,7 @@ export default function TargetScoringBeta() {
       const nextResult = await analyzeTargetImage(
         targetFile,
         selectedTemplate,
-        sensitivity,
-        expectedShots
+        sensitivity
       );
 
       setResult(nextResult);
@@ -1533,20 +1607,6 @@ export default function TargetScoringBeta() {
                 {targetFileName && (
                   <span className="mt-2 block text-sm text-green-300">{targetFileName}</span>
                 )}
-              </label>
-
-              <label>
-                <span className="mb-2 block text-sm font-bold text-gray-300">
-                  Liczba przestrzelin
-                </span>
-                <input
-                  type="number"
-                  min={1}
-                  max={30}
-                  value={expectedShots}
-                  onChange={(event) => setExpectedShots(Number(event.target.value))}
-                  className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-white"
-                />
               </label>
 
               <label>
