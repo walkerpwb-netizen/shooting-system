@@ -631,9 +631,10 @@ function detectRingAlignment(canvas: HTMLCanvasElement, template: TargetTemplate
     }
   }
 
-  const coarseCenterStep = minSide * 0.025;
-  const coarseScales = [0.82, 0.9, 0.98, 1.06, 1.14];
-  const coarseAngles = [-5, -2.5, 0, 2.5, 5].map((degrees) => (degrees * Math.PI) / 180);
+  const clampScale = (scale: number) => Math.max(0.55, Math.min(1.55, scale));
+  const coarseCenterStep = minSide * 0.028;
+  const coarseScales = [0.7, 0.82, 0.94, 1.06, 1.18, 1.3];
+  const coarseAngles = [-8, -5, -2, 0, 2, 5, 8].map((degrees) => (degrees * Math.PI) / 180);
 
   for (let offsetY = -3; offsetY <= 3; offsetY += 1) {
     for (let offsetX = -3; offsetX <= 3; offsetX += 1) {
@@ -670,8 +671,8 @@ function detectRingAlignment(canvas: HTMLCanvasElement, template: TargetTemplate
             testCandidate({
               x: seed.x + offsetX * refineCenterStep,
               y: seed.y + offsetY * refineCenterStep,
-              scaleX: Math.max(0.65, Math.min(1.35, seed.scaleX + scaleXStep * refineScaleStep)),
-              scaleY: Math.max(0.65, Math.min(1.35, seed.scaleY + scaleYStep * refineScaleStep)),
+              scaleX: clampScale(seed.scaleX + scaleXStep * refineScaleStep),
+              scaleY: clampScale(seed.scaleY + scaleYStep * refineScaleStep),
               angle: seed.angle + angleStep * refineAngleStep,
             });
           }
@@ -679,6 +680,40 @@ function detectRingAlignment(canvas: HTMLCanvasElement, template: TargetTemplate
       }
     }
   }
+
+  const optimizationSteps = [
+    { center: minSide * 0.009, scale: 0.018, angle: (0.7 * Math.PI) / 180 },
+    { center: minSide * 0.0045, scale: 0.009, angle: (0.35 * Math.PI) / 180 },
+    { center: minSide * 0.002, scale: 0.004, angle: (0.16 * Math.PI) / 180 },
+  ];
+
+  optimizationSteps.forEach((step) => {
+    let improved = true;
+    let iteration = 0;
+
+    while (improved && iteration < 12 && bestAlignment && bestAlignment.score < minimumLineCoverage) {
+      improved = false;
+      iteration += 1;
+
+      const seedAlignment = bestAlignment;
+      const neighbors: Array<Omit<RingAlignment, "score">> = [
+        { ...seedAlignment, x: seedAlignment.x - step.center },
+        { ...seedAlignment, x: seedAlignment.x + step.center },
+        { ...seedAlignment, y: seedAlignment.y - step.center },
+        { ...seedAlignment, y: seedAlignment.y + step.center },
+        { ...seedAlignment, scaleX: clampScale(seedAlignment.scaleX - step.scale) },
+        { ...seedAlignment, scaleX: clampScale(seedAlignment.scaleX + step.scale) },
+        { ...seedAlignment, scaleY: clampScale(seedAlignment.scaleY - step.scale) },
+        { ...seedAlignment, scaleY: clampScale(seedAlignment.scaleY + step.scale) },
+        { ...seedAlignment, angle: seedAlignment.angle - step.angle },
+        { ...seedAlignment, angle: seedAlignment.angle + step.angle },
+      ];
+      const previousScore = bestAlignment.score;
+
+      neighbors.forEach(testCandidate);
+      improved = bestAlignment.score > previousScore + 0.0001;
+    }
+  });
 
   const finalAlignment = bestAlignment as RingAlignment | null;
 
@@ -692,17 +727,11 @@ function alignCanvasByRings(
   const ringAlignment = detectRingAlignment(targetCanvas, template);
 
   if (!ringAlignment) {
-    return {
-      canvas: targetCanvas,
-      description: "linie nie wykryte",
-    };
+    throw new Error("Nie udało się wykryć linii tarczy. Analiza została przerwana.");
   }
 
   if (ringAlignment.score < minimumLineCoverage) {
-    return {
-      canvas: targetCanvas,
-      description: `linie niedopasowane, zgodność ${Math.round(ringAlignment.score * 100)}%, wymagane ${Math.round(minimumLineCoverage * 100)}%`,
-    };
+    throw new Error(`Nie udało się uzyskać wymaganego dopasowania linii. Osiągnięto ${Math.round(ringAlignment.score * 100)}%, wymagane ${Math.round(minimumLineCoverage * 100)}%. Analiza została przerwana.`);
   }
 
   const context = targetCanvas.getContext("2d", {
@@ -714,10 +743,7 @@ function alignCanvasByRings(
   });
 
   if (!context || !outputContext) {
-    return {
-      canvas: targetCanvas,
-      description: "linie bez korekty",
-    };
+    throw new Error("Nie udało się przygotować korekty linii tarczy.");
   }
 
   outputCanvas.width = targetCanvas.width;
@@ -1124,6 +1150,7 @@ export default function TargetScoringBeta() {
 
     try {
       setWorking(true);
+      setResult(null);
       setResultOpen(false);
       setMessage("");
       const nextResult = await analyzeTargetImage(
@@ -1136,6 +1163,8 @@ export default function TargetScoringBeta() {
       setMessage("Zdjęcie przycięte i dopasowane do wzorca.");
     } catch (error) {
       console.error(error);
+      setResult(null);
+      setResultOpen(false);
       setMessage(error instanceof Error ? error.message : "Nie udało się dopasować zdjęcia.");
     } finally {
       setWorking(false);
