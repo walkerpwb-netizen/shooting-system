@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import Image from "next/image";
 import Link from "next/link";
 import type { FormEvent } from "react";
@@ -9,7 +10,6 @@ import { useRouter } from "next/navigation";
 import { apiUrl } from "@/lib/api";
 import { getAccessToken, isAdmin } from "@/lib/auth";
 import { notifyShootingRangeSubmissionsChange } from "@/lib/shootingRangeNotifications";
-import LeafletLocationPicker from "@/app/components/LeafletLocationPicker";
 import QrCodeScanner from "@/components/QrCodeScanner";
 import TargetScoringBeta from "@/beta-test/TargetScoringBeta";
 
@@ -353,6 +353,18 @@ const defaultPremiumSettings: PremiumSettings = {
     ],
   },
 };
+
+const LeafletLocationPicker = dynamic(
+  () => import("@/app/components/LeafletLocationPicker"),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-full items-center justify-center bg-zinc-800 text-sm font-semibold text-gray-300">
+        Ładowanie mapy...
+      </div>
+    ),
+  }
+);
 
 const roles = [
   "user",
