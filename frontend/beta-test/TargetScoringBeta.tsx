@@ -584,6 +584,8 @@ function scoreRingAlignment(
   let samples = 0;
 
   ringRadii.forEach((radius) => {
+    const ringScores: number[] = [];
+
     for (let angleIndex = 0; angleIndex < angleCount; angleIndex += 1) {
       const angle = (Math.PI * 2 * angleIndex) / angleCount;
       const ringCos = Math.cos(angle);
@@ -596,8 +598,15 @@ function scoreRingAlignment(
       const normalY = alignmentSin * ringCos + alignmentCos * ringSin;
       const x = candidate.x + alignmentCos * scaledX - alignmentSin * scaledY;
       const y = candidate.y + alignmentSin * scaledX + alignmentCos * scaledY;
-      score += lineCoverageAt(data, width, height, x, y, normalX, normalY);
+      ringScores.push(lineCoverageAt(data, width, height, x, y, normalX, normalY));
+    }
 
+    ringScores.sort((firstScore, secondScore) => secondScore - firstScore);
+
+    const retainedSamples = Math.max(1, Math.ceil(ringScores.length * 0.7));
+
+    for (let index = 0; index < retainedSamples; index += 1) {
+      score += ringScores[index];
       samples += 1;
     }
   });
