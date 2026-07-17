@@ -134,6 +134,14 @@ function normalizeClubSearch(value: string) {
     .replace(/ł/g, "l");
 }
 
+function positiveIntegerParam(value: string | null) {
+  const parsedValue = Number(value);
+
+  return Number.isInteger(parsedValue) && parsedValue > 0
+    ? parsedValue
+    : null;
+}
+
 function licenseQrPayloadFromProfile(profile: UserProfile) {
   const licenseNumber = profile.no_license ? "" : profile.license_number;
   const club = profile.no_club ? "" : profile.club;
@@ -551,6 +559,13 @@ function profilePhotoCropRect(
 
 export default function ProfilePage() {
   const router = useRouter();
+  const [invitedClubId] = useState(() => {
+    if (typeof window === "undefined") {
+      return null;
+    }
+
+    return positiveIntegerParam(new URLSearchParams(window.location.search).get("club_invite"));
+  });
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -663,6 +678,25 @@ export default function ProfilePage() {
           setRoleJudgeLicenseNumber(data.judge_license_number || "");
           setJudgeLicenseValidUntil(data.judge_license_valid_until || "");
           setEditing(!data.profile_complete);
+
+          const invitedClub = invitedClubId
+            ? verifiedClubsData.find((verifiedClub: VerifiedPzssClub) => verifiedClub.id === invitedClubId)
+            : null;
+
+          if (invitedClub && data.account_type !== "pzss_club") {
+            setClub(invitedClub.short_name);
+            setVerifiedClubId(String(invitedClub.id));
+            setLicenseClubCode(invitedClub.license_number || data.license_club_code || "");
+            setNoClub(false);
+            setClubSuggestionsOpen(false);
+
+            if (data.verified_club_id === invitedClub.id) {
+              setMessage(`Klub ${invitedClub.short_name} jest już wybrany w Twoim profilu.`);
+            } else {
+              setEditing(true);
+              setMessage(`Zaproszenie z klubu ${invitedClub.short_name}: uzupełnij dane i zapisz profil, aby pojawić się na liście klubowiczów.`);
+            }
+          }
         }
       } catch (error) {
         console.error(error);
@@ -678,7 +712,7 @@ export default function ProfilePage() {
     return () => {
       ignore = true;
     };
-  }, [router]);
+  }, [invitedClubId, router]);
 
   useEffect(() => {
     return () => {

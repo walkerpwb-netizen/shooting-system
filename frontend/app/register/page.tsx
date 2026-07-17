@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 
 import { apiUrl } from "@/lib/api";
 import {
@@ -13,6 +13,13 @@ import {
 } from "@/lib/authRedirect";
 
 type RegisterType = "user" | "pzss-club";
+
+type VerifiedPzssClub = {
+  id: number;
+  short_name: string;
+  full_name: string;
+  license_number: string;
+};
 
 const requiredConsents = [
   {
@@ -51,15 +58,27 @@ function validateEmail(email: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
+function positiveIntegerParam(value: string | null) {
+  const parsedValue = Number(value);
+
+  return Number.isInteger(parsedValue) && parsedValue > 0
+    ? parsedValue
+    : null;
+}
+
 function RegisterForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const invitedClubId = positiveIntegerParam(searchParams.get("club_invite"));
   const initialType: RegisterType = searchParams.get("type") === "pzss-club"
     ? "pzss-club"
     : "user";
+  const inviteRedirectPath = invitedClubId ? `/profile?club_invite=${invitedClubId}` : "";
   const redirectPath = safeAuthRedirectPath(searchParams.get("next"))
+    || inviteRedirectPath
     || getStoredAuthRedirectPath();
   const [registerType, setRegisterType] = useState<RegisterType>(initialType);
+  const [invitedClub, setInvitedClub] = useState<VerifiedPzssClub | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [repeatPassword, setRepeatPassword] = useState("");
@@ -75,6 +94,42 @@ function RegisterForm() {
   const [showConsentErrors, setShowConsentErrors] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    if (!invitedClubId) {
+      return;
+    }
+
+    let ignore = false;
+
+    async function loadInvitedClub() {
+      try {
+        const response = await fetch(apiUrl("/pzss-clubs/verified"), {
+          cache: "no-store",
+        });
+        const data: VerifiedPzssClub[] = response.ok
+          ? await response.json()
+          : [];
+
+        if (ignore) {
+          return;
+        }
+
+        setInvitedClub(data.find((club) => club.id === invitedClubId) || null);
+      } catch (error) {
+        console.error(error);
+        if (!ignore) {
+          setInvitedClub(null);
+        }
+      }
+    }
+
+    void loadInvitedClub();
+
+    return () => {
+      ignore = true;
+    };
+  }, [invitedClubId]);
 
   function updateConsent(consentId: ConsentId, checked: boolean) {
     const nextConsents = {
@@ -207,6 +262,7 @@ function RegisterForm() {
   }
 
   const isClubRegistration = registerType === "pzss-club";
+  const visibleInvitedClub = invitedClub?.id === invitedClubId ? invitedClub : null;
 
   return (
     <main className="min-h-screen w-full flex items-center justify-center px-6 py-10">
@@ -238,6 +294,25 @@ function RegisterForm() {
             ? "Konto zostanie aktywowane mailem, a potem ręcznie zweryfikowane przez administratora"
             : "Utwórz nowe konto"}
         </p>
+
+        {!isClubRegistration && visibleInvitedClub && (
+          <div className="mb-6 rounded-2xl border border-green-200 bg-green-50 p-4 text-green-950">
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-green-700">
+              Zaproszenie z klubu
+            </p>
+            <p className="mt-2 text-lg font-black">
+              {visibleInvitedClub.short_name}
+            </p>
+            {visibleInvitedClub.full_name && visibleInvitedClub.full_name !== visibleInvitedClub.short_name && (
+              <p className="mt-1 text-sm font-semibold text-green-800">
+                {visibleInvitedClub.full_name}
+              </p>
+            )}
+            <p className="mt-3 text-sm leading-6 text-green-800">
+              Po aktywacji konta przejdziesz do profilu z automatycznie wybranym klubem. Uzupełnij dane i zapisz profil, aby klub mógł potwierdzić członkostwo.
+            </p>
+          </div>
+        )}
 
         <form
           onSubmit={(event) => {
