@@ -2948,7 +2948,7 @@ export default function AdminClient({
 
   return (
     <main className="min-h-screen px-6 py-6">
-      <div className="max-w-7xl mx-auto">
+      <div className="w-full">
         {message && (
           <p className="bg-zinc-900 border border-zinc-800 text-white rounded-xl p-4 mb-6">
             {message}
