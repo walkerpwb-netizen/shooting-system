@@ -3406,15 +3406,21 @@ export default function AdminClient({
                     </p>
                   </div>
 
-                  <input
-                    value={clubLicenseInputs[club.id] || ""}
-                    onChange={(event) => setClubLicenseInputs((currentInputs) => ({
-                      ...currentInputs,
-                      [club.id]: event.target.value,
-                    }))}
-                    placeholder="nr licencji PZSS"
-                    className="bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
-                  />
+                  {club.status === "approved" ? (
+                    <p className="text-gray-300">
+                      {club.license_number || "brak"}
+                    </p>
+                  ) : (
+                    <input
+                      value={clubLicenseInputs[club.id] || ""}
+                      onChange={(event) => setClubLicenseInputs((currentInputs) => ({
+                        ...currentInputs,
+                        [club.id]: event.target.value,
+                      }))}
+                      placeholder="nr licencji PZSS"
+                      className="bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white placeholder:text-gray-500"
+                    />
+                  )}
 
                   <div className="space-y-1 text-sm">
                     <label className="flex items-center gap-2 text-gray-200">
