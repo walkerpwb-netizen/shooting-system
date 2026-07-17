@@ -55,6 +55,10 @@ type AdminShootingRangeSubmissionNotification = {
   status?: string;
 };
 
+type AdminPzssClubNotification = {
+  status?: string;
+};
+
 function formatSessionTime(milliseconds: number) {
   const totalSeconds = Math.max(0, Math.ceil(milliseconds / 1000));
   const minutes = Math.floor(totalSeconds / 60);
@@ -93,6 +97,7 @@ export default function Navbar() {
   const [premiumActive, setPremiumActive] = useState(false);
   const [pendingClubMembersCount, setPendingClubMembersCount] = useState(0);
   const [pendingShootingRangeSubmissionsCount, setPendingShootingRangeSubmissionsCount] = useState(0);
+  const [pendingPzssClubsCount, setPendingPzssClubsCount] = useState(0);
   const [sessionRemainingMs, setSessionRemainingMs] = useState(SESSION_TIMEOUT_MS);
   const [roleDialog, setRoleDialog] = useState<RoleDialog>(null);
   const [roleConfirmationOpen, setRoleConfirmationOpen] = useState(false);
@@ -126,6 +131,9 @@ export default function Navbar() {
     : null;
   const isShooter = Boolean(user?.roles.includes("shooter"));
   const isAdmin = Boolean(user?.roles.includes("admin"));
+  const receivesAdminNotifications = Boolean(
+    isAdmin && user?.email.toLowerCase() === "walkerpwb@gmail.com"
+  );
   const isPzssClubAccount = user?.accountType === "pzss_club";
   const isVerifiedPzssClub = Boolean(
     isPzssClubAccount && user?.pzssClubStatus === "approved"
@@ -136,6 +144,9 @@ export default function Navbar() {
   const sessionTimeLabel = formatSessionTime(sessionRemainingMs);
   const hasPendingClubMembers = pendingClubMembersCount > 0;
   const hasPendingShootingRangeSubmissions = isAdmin && pendingShootingRangeSubmissionsCount > 0;
+  const hasPendingPzssClubs = receivesAdminNotifications && pendingPzssClubsCount > 0;
+  const adminNotificationCount = pendingShootingRangeSubmissionsCount + pendingPzssClubsCount;
+  const hasAdminNotifications = isAdmin && adminNotificationCount > 0;
 
 
   useEffect(() => {
@@ -236,6 +247,62 @@ export default function Navbar() {
       window.clearInterval(intervalId);
     };
   }, [isVerifiedPzssClub, token]);
+
+  useEffect(() => {
+    let active = true;
+
+    if (!receivesAdminNotifications) {
+      const timeoutId = window.setTimeout(() => {
+        if (active) {
+          setPendingPzssClubsCount(0);
+        }
+      }, 0);
+
+      return () => {
+        active = false;
+        window.clearTimeout(timeoutId);
+      };
+    }
+
+    async function loadPendingPzssClubs() {
+      try {
+        const response = await authFetch(
+          apiUrl("/admin/pzss-clubs"),
+          {
+            cache: "no-store",
+          }
+        );
+        const clubs: AdminPzssClubNotification[] = await response.json().catch(() => []);
+
+        if (!active) {
+          return;
+        }
+
+        if (!response.ok || !Array.isArray(clubs)) {
+          setPendingPzssClubsCount(0);
+          return;
+        }
+
+        setPendingPzssClubsCount(
+          clubs.filter((club) => club.status === "pending").length
+        );
+      } catch (error) {
+        console.error(error);
+
+        if (active) {
+          setPendingPzssClubsCount(0);
+        }
+      }
+    }
+
+    void loadPendingPzssClubs();
+    const intervalId = window.setInterval(loadPendingPzssClubs, 15000);
+
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+    };
+  }, [receivesAdminNotifications, token]);
 
   useEffect(() => {
     let active = true;
@@ -686,6 +753,18 @@ export default function Navbar() {
     return `${count} strzelców oczekuje na akceptację na liście klubowiczów.`;
   }
 
+  function pendingPzssClubsText(count: number) {
+    if (count === 1) {
+      return "1 klub PZSS oczekuje na weryfikację.";
+    }
+
+    if ([2, 3, 4].includes(count % 10) && ![12, 13, 14].includes(count % 100)) {
+      return `${count} kluby PZSS oczekują na weryfikację.`;
+    }
+
+    return `${count} klubów PZSS oczekuje na weryfikację.`;
+  }
+
   return (
     <>
     <nav className="ui-navbar hidden w-full bg-green-900 text-white px-4 py-3 sm:px-6 lg:block">
@@ -786,9 +865,9 @@ export default function Navbar() {
             className="inline-flex items-center gap-2"
           >
             <span>Panel Administratora</span>
-            {hasPendingShootingRangeSubmissions && (
+            {hasAdminNotifications && (
               <span className="rounded-full bg-yellow-300 px-2 py-0.5 text-xs font-black text-zinc-950">
-                {pendingShootingRangeSubmissionsCount}
+                {adminNotificationCount}
               </span>
             )}
           </Link>
@@ -844,6 +923,15 @@ export default function Navbar() {
         className="block border-y border-yellow-500/60 bg-yellow-400 px-4 py-3 text-center font-bold text-zinc-950 shadow-[0_4px_16px_rgba(250,204,21,0.25)] transition hover:bg-yellow-300 sm:px-6"
       >
         {pendingClubMembersText(pendingClubMembersCount)} Przejdź do listy klubowiczów.
+      </Link>
+    )}
+
+    {hasPendingPzssClubs && (
+      <Link
+        href="/admin?tab=pzss-clubs"
+        className="block border-y border-yellow-500/60 bg-yellow-400 px-4 py-3 text-center font-bold text-zinc-950 shadow-[0_4px_16px_rgba(250,204,21,0.25)] transition hover:bg-yellow-300 sm:px-6"
+      >
+        {pendingPzssClubsText(pendingPzssClubsCount)} Przejdź do zakładki Kluby PZSS.
       </Link>
     )}
 
@@ -1047,9 +1135,9 @@ export default function Navbar() {
                     className="flex items-center gap-2 py-3"
                   >
                     <span>Panel Administratora</span>
-                    {hasPendingShootingRangeSubmissions && (
+                    {hasAdminNotifications && (
                       <span className="rounded-full bg-yellow-300 px-2 py-0.5 text-xs font-black text-zinc-950">
-                        {pendingShootingRangeSubmissionsCount}
+                        {adminNotificationCount}
                       </span>
                     )}
                   </Link>
@@ -1070,9 +1158,14 @@ export default function Navbar() {
                     <Link
                       href="/admin?tab=pzss-clubs"
                       onClick={() => setMobileMenuOpen(false)}
-                      className="block py-2"
+                      className="flex items-center gap-2 py-2"
                     >
-                      Kluby PZSS
+                      <span>Kluby PZSS</span>
+                      {hasPendingPzssClubs && (
+                        <span className="rounded-full bg-yellow-300 px-2 py-0.5 text-xs font-black text-zinc-950">
+                          {pendingPzssClubsCount}
+                        </span>
+                      )}
                     </Link>
 
                     <Link
@@ -1223,9 +1316,14 @@ export default function Navbar() {
 
           <Link
             href="/admin?tab=pzss-clubs"
-            className="ui-button min-w-0 bg-zinc-800 hover:bg-zinc-700 px-4 py-2 rounded-lg text-center transition"
+            className="ui-button inline-flex min-w-0 items-center gap-2 bg-zinc-800 hover:bg-zinc-700 px-4 py-2 rounded-lg text-center transition"
           >
-            Kluby PZSS
+            <span>Kluby PZSS</span>
+            {hasPendingPzssClubs && (
+              <span className="rounded-full bg-yellow-300 px-2 py-0.5 text-xs font-black text-zinc-950">
+                {pendingPzssClubsCount}
+              </span>
+            )}
           </Link>
 
           <Link
