@@ -187,6 +187,13 @@ class PzssClubApprovalData(BaseModel):
     license_number: str
 
 
+class AdminPzssClubUpdateData(BaseModel):
+    short_name: str
+    full_name: str
+    phone_number: str = ""
+    license_number: str = ""
+
+
 class AdminCreateUserData(BaseModel):
     email: str
     password: str
@@ -10068,6 +10075,85 @@ def public_pzss_club(user: User):
     }
 
 
+def get_pzss_club_or_404(club_id: int, db):
+    club = (
+        db.query(User)
+        .filter(
+            User.id == club_id,
+            User.account_type == PZSS_CLUB_ACCOUNT_TYPE,
+        )
+        .first()
+    )
+
+    if not club:
+        raise HTTPException(status_code=404, detail="Klub PZSS nie istnieje")
+
+    return club
+
+
+def validate_pzss_club_unique_fields(
+    club: User,
+    license_number: str,
+    organizer_name: str,
+    db,
+):
+    if license_number:
+        duplicate_license = (
+            db.query(User)
+            .filter(
+                User.id != club.id,
+                User.account_type == PZSS_CLUB_ACCOUNT_TYPE,
+                User.pzss_club_license_number == license_number,
+            )
+            .first()
+        )
+
+        if duplicate_license:
+            raise HTTPException(status_code=400, detail="Ten numer licencji klubowej jest już przypisany")
+
+    organizer_name_key = normalize_unique_key(organizer_name)
+
+    if organizer_name_key:
+        duplicate_organizer = (
+            db.query(User)
+            .filter(
+                User.id != club.id,
+                or_(
+                    User.organizer_name_key == organizer_name_key,
+                    func.lower(User.organizer_name) == organizer_name_key,
+                ),
+            )
+            .first()
+        )
+
+        if duplicate_organizer:
+            raise HTTPException(status_code=400, detail="Nazwa organizatora dla tego klubu jest już zajęta")
+
+    return organizer_name_key
+
+
+def admin_context_organizer(user: User, admin_club_id: Optional[int], db):
+    if not admin_club_id:
+        return user
+
+    if not has_role(user, "admin"):
+        raise HTTPException(status_code=403, detail="Brak dostępu")
+
+    return get_pzss_club_or_404(admin_club_id, db)
+
+
+def can_manage_competition(user: User, competition: Competition):
+    return competition.created_by == user.email or has_role(user, "admin")
+
+
+def competition_owner_user(competition: Competition, db):
+    return (
+        db.query(User)
+        .filter(User.email == competition.created_by)
+        .first()
+    )
+
+
 @app.get("/pzss-clubs/verified")
 def get_verified_pzss_clubs(db=Depends(get_db)):
     clubs = (
@@ -10097,6 +10183,52 @@ def admin_get_pzss_clubs(
     )
 
     return [public_pzss_club(club) for club in clubs]
+
+
+@app.put("/admin/pzss-clubs/{club_id}")
+def admin_update_pzss_club(
+    club_id: int,
+    data: AdminPzssClubUpdateData,
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    club = get_pzss_club_or_404(club_id, db)
+    short_name = normalize_text(data.short_name)
+    full_name = normalize_text(data.full_name)
+    phone_number = normalize_text(data.phone_number)
+    license_number = normalize_text(data.license_number)
+
+    if not short_name:
+        raise HTTPException(status_code=400, detail="Podaj nazwę skróconą klubu")
+
+    if not full_name:
+        raise HTTPException(status_code=400, detail="Podaj pełną nazwę klubu")
+
+    if getattr(club, "pzss_club_status", "") == PZSS_CLUB_APPROVED and not license_number:
+        raise HTTPException(status_code=400, detail="Podaj numer licencji klubowej PZSS")
+
+    organizer_name = short_name or full_name
+    organizer_name_key = validate_pzss_club_unique_fields(
+        club,
+        license_number,
+        organizer_name,
+        db,
+    )
+
+    club.pzss_club_short_name = short_name
+    club.pzss_club_full_name = full_name
+    club.phone_number = phone_number
+    club.pzss_club_license_number = license_number
+
+    if getattr(club, "pzss_club_status", "") == PZSS_CLUB_APPROVED:
+        club.club = organizer_name
+        club.organizer_name = organizer_name
+        club.organizer_name_key = organizer_name_key
+
+    db.commit()
+    db.refresh(club)
+
+    return public_pzss_club(club)
 
 
 @app.get("/admin/home-stats")
@@ -11543,10 +11675,12 @@ def reset_password(
 @app.post("/competitions")
 def create_competition(
     data: CompetitionData,
+    admin_club_id: Optional[int] = None,
     user: User = Depends(get_current_organizer),
     db=Depends(get_db),
 ):
     validate_competition_coordinates(data)
+    organizer = admin_context_organizer(user, admin_club_id, db)
 
     if data.participant_limit is not None and data.participant_limit <= 0:
         raise HTTPException(
@@ -11554,19 +11688,19 @@ def create_competition(
             detail="Limit zawodników musi być większy od zera"
         )
 
-    if not has_role(user, "admin") and not normalize_text(user.organizer_name or ""):
+    if not has_role(organizer, "admin") and not normalize_text(organizer.organizer_name or ""):
         raise HTTPException(
             status_code=400,
             detail="Uzupełnij nazwę organizatora w profilu przed utworzeniem zawodów"
         )
 
-    if data.pzss_license_calendar and not is_approved_pzss_club(user):
+    if data.pzss_license_calendar and not is_approved_pzss_club(organizer):
         raise HTTPException(
             status_code=403,
             detail="Tę opcję może zaznaczyć tylko zweryfikowany klub PZSS"
         )
 
-    if not is_approved_pzss_club(user) and data.requires_licensed_judge is None:
+    if not is_approved_pzss_club(organizer) and data.requires_licensed_judge is None:
         raise HTTPException(
             status_code=400,
             detail="Wybierz, czy zawody wymagają licencjonowanego sędziego PZSS"
@@ -11574,7 +11708,7 @@ def create_competition(
 
     requires_licensed_judge = (
         True
-        if is_approved_pzss_club(user)
+        if is_approved_pzss_club(organizer)
         else bool(data.requires_licensed_judge)
     )
     club_discount = normalize_competition_club_discount(data)
@@ -11586,7 +11720,7 @@ def create_competition(
         latitude=data.latitude,
         longitude=data.longitude,
         entry_fee=data.entry_fee,
-        organizer_full_name=organizer_display_name(user),
+        organizer_full_name=organizer_display_name(organizer),
         organizer_logo=data.organizer_logo,
         sponsors=data.sponsors,
         sponsor_logo=data.sponsor_logo,
@@ -11595,7 +11729,7 @@ def create_competition(
         requires_licensed_judge=1 if requires_licensed_judge else 0,
         **club_discount,
         status="draft",
-        created_by=user.email,
+        created_by=organizer.email,
     )
 
     db.add(competition)
@@ -11612,14 +11746,16 @@ def create_competition(
 
 @app.get("/my-competitions")
 def get_my_competitions(
+    admin_club_id: Optional[int] = None,
     user: User = Depends(get_current_organizer),
     db=Depends(get_db),
 ):
     auto_complete_started_competitions(db)
+    organizer = admin_context_organizer(user, admin_club_id, db)
 
     competitions = (
         db.query(Competition)
-        .filter(Competition.created_by == user.email)
+        .filter(Competition.created_by == organizer.email)
         .all()
     )
     competition_ids = [competition.id for competition in competitions]
@@ -11826,10 +11962,12 @@ def get_organizer_competition(
 @app.post("/organizer/competitions/{competition_id}/copy")
 def copy_organizer_competition(
     competition_id: int,
+    admin_club_id: Optional[int] = None,
     user: User = Depends(get_current_organizer),
     db=Depends(get_db),
 ):
     auto_complete_started_competitions(db)
+    organizer = admin_context_organizer(user, admin_club_id, db)
 
     competition = (
         db.query(Competition)
@@ -11843,13 +11981,13 @@ def copy_organizer_competition(
             detail="Zawody nie istnieją"
         )
 
-    if competition.created_by != user.email and not has_role(user, "admin"):
+    if competition.created_by != organizer.email and not has_role(user, "admin"):
         raise HTTPException(
             status_code=403,
             detail="Nie masz dostępu do tych zawodów"
         )
 
-    copied_competition = copy_competition_as_draft(competition, user, db)
+    copied_competition = copy_competition_as_draft(competition, organizer, db)
     db.commit()
     db.refresh(copied_competition)
 
@@ -14152,7 +14290,7 @@ def create_discipline(
             detail="Zawody nie istnieją"
         )
 
-    if competition.created_by != user.email:
+    if not can_manage_competition(user, competition):
         raise HTTPException(
             status_code=403,
             detail="Brak dostępu"
@@ -14253,7 +14391,7 @@ def update_discipline(
             detail="Zawody nie istnieją"
         )
 
-    if competition.created_by != user.email:
+    if not can_manage_competition(user, competition):
         raise HTTPException(
             status_code=403,
             detail="Brak dostępu"
@@ -14357,7 +14495,7 @@ def delete_discipline(
             detail="Zawody nie istnieją"
         )
 
-    if competition.created_by != user.email:
+    if not can_manage_competition(user, competition):
         raise HTTPException(
             status_code=403,
             detail="Brak dostępu"
@@ -15466,7 +15604,7 @@ def delete_competition(
             detail="Zawody nie istnieją"
         )
 
-    if competition.created_by != user.email:
+    if not can_manage_competition(user, competition):
         raise HTTPException(
             status_code=403,
             detail="Brak dostępu"
@@ -15509,7 +15647,7 @@ def update_competition(
             detail="Zawody nie istnieją"
         )
 
-    if competition.created_by != user.email:
+    if not can_manage_competition(user, competition):
         raise HTTPException(
             status_code=403,
             detail="Brak dostępu"
@@ -15527,13 +15665,15 @@ def update_competition(
             detail="Limit zawodników musi być większy od zera"
         )
 
-    if data.pzss_license_calendar and not is_approved_pzss_club(user):
+    organizer = competition_owner_user(competition, db) or user
+
+    if data.pzss_license_calendar and not is_approved_pzss_club(organizer):
         raise HTTPException(
             status_code=403,
             detail="Tę opcję może zaznaczyć tylko zweryfikowany klub PZSS"
         )
 
-    if not is_approved_pzss_club(user) and data.requires_licensed_judge is None:
+    if not is_approved_pzss_club(organizer) and data.requires_licensed_judge is None:
         raise HTTPException(
             status_code=400,
             detail="Wybierz, czy zawody wymagają licencjonowanego sędziego PZSS"
@@ -15545,8 +15685,8 @@ def update_competition(
     competition.latitude = data.latitude
     competition.longitude = data.longitude
     competition.entry_fee = data.entry_fee
-    if normalize_text(user.organizer_name or ""):
-        competition.organizer_full_name = organizer_display_name(user)
+    if normalize_text(organizer.organizer_name or ""):
+        competition.organizer_full_name = organizer_display_name(organizer)
 
     competition.organizer_logo = data.organizer_logo
     competition.sponsors = data.sponsors
@@ -15555,7 +15695,7 @@ def update_competition(
     competition.pzss_license_calendar = 1 if data.pzss_license_calendar else 0
     competition.requires_licensed_judge = (
         1
-        if is_approved_pzss_club(user) or data.requires_licensed_judge
+        if is_approved_pzss_club(organizer) or data.requires_licensed_judge
         else 0
     )
     club_discount = normalize_competition_club_discount(data)
@@ -15593,7 +15733,7 @@ def publish_competition(
             detail="Zawody nie istnieją"
         )
 
-    if competition.created_by != user.email:
+    if not can_manage_competition(user, competition):
         raise HTTPException(
             status_code=403,
             detail="Brak dostępu"
@@ -15617,7 +15757,8 @@ def publish_competition(
             detail="Nie dodano żadnej konkurencji."
         )
 
-    require_organizer_publication_slot(user, competition, db)
+    organizer = competition_owner_user(competition, db) or user
+    require_organizer_publication_slot(organizer, competition, db)
 
     competition.status = "published"
     db.commit()
@@ -15649,7 +15790,7 @@ def unpublish_competition(
             detail="Zawody nie istnieją"
         )
 
-    if competition.created_by != user.email:
+    if not can_manage_competition(user, competition):
         raise HTTPException(
             status_code=403,
             detail="Brak dostępu"
@@ -15709,7 +15850,7 @@ def start_competition(
             detail="Zawody nie istnieją"
         )
 
-    if competition.created_by != user.email:
+    if not can_manage_competition(user, competition):
         raise HTTPException(
             status_code=403,
             detail="Brak dostępu"
@@ -15760,7 +15901,7 @@ def finish_competition(
             detail="Zawody nie istnieją"
         )
 
-    if competition.created_by != user.email:
+    if not can_manage_competition(user, competition):
         raise HTTPException(
             status_code=403,
             detail="Brak dostępu"

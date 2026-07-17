@@ -2,8 +2,8 @@
 
 import Image from "next/image";
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import SocialMediaIcons from "@/components/SocialMediaIcons";
 import { apiUrl } from "@/lib/api";
@@ -371,6 +371,14 @@ function stagePaperTargets(stage: DynamicStage) {
   );
 }
 
+export default function OrganizerPage() {
+  return (
+    <Suspense fallback={null}>
+      <OrganizerContent />
+    </Suspense>
+  );
+}
+
 function stageSteelTargets(stage: DynamicStage) {
   return (
     Number(stage.poppers || 0)
@@ -498,8 +506,13 @@ function isCompetitionDateReached(dateValue: string) {
   return competitionDate <= today;
 }
 
-export default function OrganizerPage() {
+function OrganizerContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const adminClubId = searchParams.get("admin_club_id") || "";
+  const adminClubQuery = adminClubId
+    ? `?admin_club_id=${encodeURIComponent(adminClubId)}`
+    : "";
 
   const [competitions, setCompetitions] = useState<Competition[]>([]);
   const [activeTab, setActiveTab] = useState<OrganizerTab>("current");
@@ -543,7 +556,8 @@ export default function OrganizerPage() {
     () => ""
   );
   const [, , , , accountType, pzssClubStatus] = authSnapshot.split("|");
-  const canMarkPzssLicenseCalendar = accountType === "pzss_club" && pzssClubStatus === "approved";
+  const canMarkPzssLicenseCalendar = Boolean(adminClubId)
+    || (accountType === "pzss_club" && pzssClubStatus === "approved");
   const existingDisciplineCount = disciplines.filter((discipline) => discipline.id).length;
   const visibleCompetitions = useMemo(() => {
     const normalizedFilter = competitionNameFilter.trim().toLowerCase();
@@ -585,14 +599,16 @@ export default function OrganizerPage() {
     return true;
   }
 
-  useEffect(() => {
-    if (!isOrganizer()) {
-      router.push("/");
-      return;
+  const organizerApiUrl = useCallback((path: string) => {
+    if (!adminClubId) {
+      return apiUrl(path);
     }
 
-    fetchOrganizerCompetitions();
-  }, [router]);
+    const url = new URL(apiUrl(path));
+    url.searchParams.set("admin_club_id", adminClubId);
+
+    return url.toString();
+  }, [adminClubId]);
 
   function resetForm() {
     setName("");
@@ -708,7 +724,7 @@ export default function OrganizerPage() {
 
   async function fetchOrganizerCompetitions() {
     try {
-      const response = await authFetch(apiUrl("/my-competitions"));
+      const response = await authFetch(organizerApiUrl("/my-competitions"));
 
       const data = await response.json();
 
@@ -722,6 +738,41 @@ export default function OrganizerPage() {
       console.error(error);
     }
   }
+
+  useEffect(() => {
+    if (!isOrganizer()) {
+      router.push("/");
+      return;
+    }
+
+    let ignore = false;
+
+    async function loadCompetitions() {
+      try {
+        const response = await authFetch(organizerApiUrl("/my-competitions"));
+        const data = await response.json();
+
+        if (ignore) {
+          return;
+        }
+
+        if (!response.ok) {
+          setMessage(data.detail || "Nie udało się pobrać zawodów ❌");
+          return;
+        }
+
+        setCompetitions(data);
+      } catch (error) {
+        console.error(error);
+      }
+    }
+
+    void loadCompetitions();
+
+    return () => {
+      ignore = true;
+    };
+  }, [organizerApiUrl, router]);
 
   async function fetchOrganizerCompetitionDetails(competitionId: number) {
     const response = await authFetch(apiUrl(`/organizer/competitions/${competitionId}`));
@@ -820,7 +871,7 @@ export default function OrganizerPage() {
       setCopyingCompetitionId(copyDialogCompetition.id);
 
       const response = await authFetch(
-        apiUrl(`/organizer/competitions/${copyDialogCompetition.id}/copy`),
+        organizerApiUrl(`/organizer/competitions/${copyDialogCompetition.id}/copy`),
         {
           method: "POST",
         }
@@ -857,7 +908,7 @@ export default function OrganizerPage() {
 
     try {
       const response = await authFetch(
-        apiUrl(`/competitions/${competitionId}`),
+        organizerApiUrl(`/competitions/${competitionId}`),
         {
           method: "DELETE",
         }
@@ -881,7 +932,7 @@ export default function OrganizerPage() {
   async function handlePublishCompetition(competitionId: number) {
     try {
       const response = await authFetch(
-        apiUrl(`/competitions/${competitionId}/publish`),
+        organizerApiUrl(`/competitions/${competitionId}/publish`),
         {
           method: "PUT",
         }
@@ -920,7 +971,7 @@ export default function OrganizerPage() {
 
     try {
       const response = await authFetch(
-        apiUrl(`/competitions/${competitionId}/unpublish`),
+        organizerApiUrl(`/competitions/${competitionId}/unpublish`),
         {
           method: "PUT",
         }
@@ -959,7 +1010,7 @@ export default function OrganizerPage() {
 
     try {
       const response = await authFetch(
-        apiUrl(`/competitions/${competition.id}/start`),
+        organizerApiUrl(`/competitions/${competition.id}/start`),
         {
           method: "PUT",
         }
@@ -991,7 +1042,7 @@ export default function OrganizerPage() {
 
     try {
       const response = await authFetch(
-        apiUrl(`/competitions/${competition.id}/finish`),
+        organizerApiUrl(`/competitions/${competition.id}/finish`),
         {
           method: "PUT",
         }
@@ -1175,7 +1226,7 @@ export default function OrganizerPage() {
       setMessage("");
 
       const response = await authFetch(
-        apiUrl(`/competitions/${editingCompetitionId}/disciplines/${discipline.id}`),
+        organizerApiUrl(`/competitions/${editingCompetitionId}/disciplines/${discipline.id}`),
         {
           method: "DELETE",
         }
@@ -1480,8 +1531,8 @@ export default function OrganizerPage() {
       setLoading(true);
 
       const endpoint = editingCompetitionId
-        ? apiUrl(`/competitions/${editingCompetitionId}`)
-        : apiUrl("/competitions");
+        ? organizerApiUrl(`/competitions/${editingCompetitionId}`)
+        : organizerApiUrl("/competitions");
 
       const method = editingCompetitionId
         ? "PUT"
@@ -1537,8 +1588,8 @@ export default function OrganizerPage() {
       if (disciplines.length > 0) {
         for (const [disciplineIndex, discipline] of disciplines.entries()) {
           const disciplineEndpoint = discipline.id
-            ? apiUrl(`/competitions/${competitionId}/disciplines/${discipline.id}`)
-            : apiUrl(`/competitions/${competitionId}/disciplines`);
+            ? organizerApiUrl(`/competitions/${competitionId}/disciplines/${discipline.id}`)
+            : organizerApiUrl(`/competitions/${competitionId}/disciplines`);
           const disciplineMethod = discipline.id
             ? "PUT"
             : "POST";
@@ -3115,7 +3166,7 @@ export default function OrganizerPage() {
                     <div className="relative z-10 flex flex-wrap gap-2 lg:justify-end">
                       <button
                         type="button"
-                        onClick={() => router.push(`/organizer/${competition.id}`)}
+                        onClick={() => router.push(`/organizer/${competition.id}${adminClubQuery}`)}
                         className="ui-button bg-zinc-700 hover:bg-zinc-600 text-white px-4 py-2 rounded-xl font-semibold"
                       >
                         Szczegóły
@@ -3123,7 +3174,7 @@ export default function OrganizerPage() {
 
                       <button
                         type="button"
-                        onClick={() => router.push(`/organizer/${competition.id}#judges`)}
+                        onClick={() => router.push(`/organizer/${competition.id}${adminClubQuery}#judges`)}
                         className="ui-button bg-emerald-800 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl font-semibold"
                       >
                         Sędziowie
@@ -3202,7 +3253,7 @@ export default function OrganizerPage() {
                       {canViewCompetitionResults(competition.status) && (
                         <button
                           type="button"
-                          onClick={() => router.push(`/organizer/${competition.id}/results`)}
+                          onClick={() => router.push(`/organizer/${competition.id}/results${adminClubQuery}`)}
                           className="ui-button bg-green-800 hover:bg-green-700 text-white px-4 py-2 rounded-xl font-semibold"
                         >
                           Wyniki

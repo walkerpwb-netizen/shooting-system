@@ -49,6 +49,13 @@ type AdminPzssClub = {
   premium_organizer_disabled: boolean;
 };
 
+type PzssClubEditForm = {
+  short_name: string;
+  full_name: string;
+  phone_number: string;
+  license_number: string;
+};
+
 type AdminUserInfoRow = {
   label: string;
   value: string;
@@ -523,6 +530,14 @@ export default function AdminClient({
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [pzssClubs, setPzssClubs] = useState<AdminPzssClub[]>([]);
   const [clubLicenseInputs, setClubLicenseInputs] = useState<Record<number, string>>({});
+  const [editingPzssClub, setEditingPzssClub] = useState<AdminPzssClub | null>(null);
+  const [pzssClubEditForm, setPzssClubEditForm] = useState<PzssClubEditForm>({
+    short_name: "",
+    full_name: "",
+    phone_number: "",
+    license_number: "",
+  });
+  const [pzssClubEditSaving, setPzssClubEditSaving] = useState(false);
   const [competitions, setCompetitions] = useState<AdminCompetition[]>([]);
   const [shootingRangeSubmissions, setShootingRangeSubmissions] = useState<AdminShootingRangeSubmission[]>([]);
   const [shootingRanges, setShootingRanges] = useState<AdminShootingRange[]>([]);
@@ -1406,6 +1421,80 @@ export default function AdminClient({
     } catch (error) {
       console.error(error);
       setMessage("Błąd połączenia z serwerem ❌");
+    }
+  }
+
+  function openPzssClubEdit(club: AdminPzssClub) {
+    setEditingPzssClub(club);
+    setPzssClubEditForm({
+      short_name: club.short_name || "",
+      full_name: club.full_name || "",
+      phone_number: club.phone_number || "",
+      license_number: clubLicenseInputs[club.id] || club.license_number || "",
+    });
+    setMessage("");
+  }
+
+  function updatePzssClubEditField(
+    field: keyof PzssClubEditForm,
+    value: string
+  ) {
+    setPzssClubEditForm((currentForm) => ({
+      ...currentForm,
+      [field]: value,
+    }));
+  }
+
+  async function savePzssClubEdit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!editingPzssClub) {
+      return;
+    }
+
+    const token = getAccessToken();
+
+    try {
+      setPzssClubEditSaving(true);
+      setMessage("");
+
+      const response = await fetch(
+        apiUrl(`/admin/pzss-clubs/${editingPzssClub.id}`),
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            short_name: pzssClubEditForm.short_name,
+            full_name: pzssClubEditForm.full_name,
+            phone_number: pzssClubEditForm.phone_number,
+            license_number: pzssClubEditForm.license_number,
+          }),
+        }
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.detail || "Nie udało się zaktualizować klubu PZSS ❌");
+        return;
+      }
+
+      setPzssClubs((currentClubs) => currentClubs.map((club) => (
+        club.id === editingPzssClub.id ? data : club
+      )));
+      setClubLicenseInputs((currentInputs) => ({
+        ...currentInputs,
+        [editingPzssClub.id]: data.license_number || "",
+      }));
+      setEditingPzssClub(null);
+      setMessage("Klub PZSS zaktualizowany ✅");
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    } finally {
+      setPzssClubEditSaving(false);
     }
   }
 
@@ -2814,6 +2903,88 @@ export default function AdminClient({
           </p>
         )}
 
+        {editingPzssClub && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-8">
+            <form
+              onSubmit={savePzssClubEdit}
+              className="w-full max-w-2xl rounded-2xl border border-zinc-800 bg-zinc-950 p-6 shadow-2xl"
+            >
+              <div className="mb-5">
+                <h2 className="text-2xl font-black text-white">
+                  Edytuj klub PZSS
+                </h2>
+                <p className="mt-1 text-sm text-gray-400">
+                  {editingPzssClub.email}
+                </p>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="space-y-2">
+                  <span className="text-sm font-bold text-gray-300">
+                    Nazwa skrócona
+                  </span>
+                  <input
+                    value={pzssClubEditForm.short_name}
+                    onChange={(event) => updatePzssClubEditField("short_name", event.target.value)}
+                    className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-white"
+                  />
+                </label>
+
+                <label className="space-y-2">
+                  <span className="text-sm font-bold text-gray-300">
+                    Telefon
+                  </span>
+                  <input
+                    value={pzssClubEditForm.phone_number}
+                    onChange={(event) => updatePzssClubEditField("phone_number", event.target.value)}
+                    className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-white"
+                  />
+                </label>
+
+                <label className="space-y-2 md:col-span-2">
+                  <span className="text-sm font-bold text-gray-300">
+                    Nazwa pełna
+                  </span>
+                  <input
+                    value={pzssClubEditForm.full_name}
+                    onChange={(event) => updatePzssClubEditField("full_name", event.target.value)}
+                    className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-white"
+                  />
+                </label>
+
+                <label className="space-y-2 md:col-span-2">
+                  <span className="text-sm font-bold text-gray-300">
+                    Licencja klubowa PZSS
+                  </span>
+                  <input
+                    value={pzssClubEditForm.license_number}
+                    onChange={(event) => updatePzssClubEditField("license_number", event.target.value)}
+                    className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-white"
+                  />
+                </label>
+              </div>
+
+              <div className="mt-6 flex flex-wrap justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setEditingPzssClub(null)}
+                  className="bg-zinc-800 hover:bg-zinc-700 text-white px-5 py-3 rounded-xl font-semibold transition"
+                >
+                  Anuluj
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={pzssClubEditSaving}
+                  className="bg-blue-700 hover:bg-blue-600 disabled:bg-zinc-700 disabled:cursor-not-allowed text-white px-5 py-3 rounded-xl font-semibold transition"
+                >
+                  {pzssClubEditSaving ? "Zapisuję..." : "Zapisz"}
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+
         {loading ? (
           <p className="text-gray-400">
             Ładowanie panelu administratora...
@@ -3202,9 +3373,12 @@ export default function AdminClient({
                   }`}
                 >
                   <div>
-                    <p className="text-white font-bold">
+                    <Link
+                      href={`/organizer?admin_club_id=${club.id}`}
+                      className="text-white font-bold underline decoration-zinc-600 underline-offset-4 transition hover:text-green-300 hover:decoration-green-500"
+                    >
                       {club.short_name || "brak"}
-                    </p>
+                    </Link>
                     <p className="text-sm text-gray-500">
                       ID {club.id}
                     </p>
@@ -3265,22 +3439,34 @@ export default function AdminClient({
                   </div>
 
                   <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => approvePzssClub(club.id)}
-                      disabled={!club.is_active}
-                      title={!club.is_active ? "Klub musi najpierw aktywować konto linkiem z e-maila" : undefined}
-                      className="bg-green-700 hover:bg-green-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-3 py-2 rounded-lg text-sm font-semibold transition"
-                    >
-                      Zatwierdź
-                    </button>
+                    {club.status !== "approved" && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => approvePzssClub(club.id)}
+                          disabled={!club.is_active}
+                          title={!club.is_active ? "Klub musi najpierw aktywować konto linkiem z e-maila" : undefined}
+                          className="bg-green-700 hover:bg-green-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-3 py-2 rounded-lg text-sm font-semibold transition"
+                        >
+                          Zatwierdź
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => rejectPzssClub(club.id)}
+                          className="bg-zinc-700 hover:bg-zinc-600 text-white px-3 py-2 rounded-lg text-sm font-semibold transition"
+                        >
+                          Odrzuć
+                        </button>
+                      </>
+                    )}
 
                     <button
                       type="button"
-                      onClick={() => rejectPzssClub(club.id)}
-                      className="bg-zinc-700 hover:bg-zinc-600 text-white px-3 py-2 rounded-lg text-sm font-semibold transition"
+                      onClick={() => openPzssClubEdit(club)}
+                      className="bg-blue-700 hover:bg-blue-600 text-white px-3 py-2 rounded-lg text-sm font-semibold transition"
                     >
-                      Odrzuć
+                      Edytuj
                     </button>
 
                     <button
