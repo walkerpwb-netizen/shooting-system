@@ -176,10 +176,6 @@ export default function ClubMembersPage() {
     ? `/register?club_invite=${clubProfile.id}&next=${encodeURIComponent(`/profile?club_invite=${clubProfile.id}`)}`
     : "";
   const inviteLink = siteOrigin && invitePath ? `${siteOrigin}${invitePath}` : invitePath;
-  const existingAccountPath = clubProfile
-    ? `/login?next=${encodeURIComponent(`/profile?club_invite=${clubProfile.id}`)}`
-    : "";
-  const existingAccountLink = siteOrigin && existingAccountPath ? `${siteOrigin}${existingAccountPath}` : existingAccountPath;
 
   return (
     <main className="min-h-screen px-6 py-10">
@@ -236,7 +232,7 @@ export default function ClubMembersPage() {
                   </div>
                 </div>
 
-                <div className="mt-5 grid gap-3 lg:grid-cols-[1fr_auto]">
+                <div className="mt-5">
                   <input
                     value={inviteLink}
                     readOnly
@@ -244,12 +240,6 @@ export default function ClubMembersPage() {
                     className="w-full rounded-xl border border-green-500/50 bg-black/35 px-4 py-3 font-mono text-sm text-green-50 outline-none"
                     aria-label="Link zaproszeniowy dla klubowiczów"
                   />
-                  <a
-                    href={existingAccountLink}
-                    className="inline-flex items-center justify-center rounded-xl bg-zinc-800 px-5 py-3 text-sm font-bold text-white transition hover:bg-zinc-700"
-                  >
-                    Mam już konto
-                  </a>
                 </div>
               </section>
             )}
