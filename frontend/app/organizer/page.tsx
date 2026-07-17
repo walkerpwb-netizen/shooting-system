@@ -1716,14 +1716,27 @@ function OrganizerContent() {
 
           </div>
 
-          <button
-            onClick={handleToggleForm}
-            className="ui-button w-full md:w-auto bg-green-700 hover:bg-green-600 text-white px-6 py-4 rounded-2xl font-bold transition"
-          >
-            {showCreateForm
-              ? "Zamknij"
-              : "Nowe zawody"}
-          </button>
+          <div className="flex w-full flex-col gap-3 md:w-auto md:flex-row">
+            {adminClubId && (
+              <button
+                type="button"
+                onClick={() => router.push("/admin?tab=pzss-clubs")}
+                className="ui-button w-full md:w-auto bg-zinc-700 hover:bg-zinc-600 text-white px-6 py-4 rounded-2xl font-bold transition"
+              >
+                Wróć do klubów PZSS
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={handleToggleForm}
+              className="ui-button w-full md:w-auto bg-green-700 hover:bg-green-600 text-white px-6 py-4 rounded-2xl font-bold transition"
+            >
+              {showCreateForm
+                ? "Zamknij"
+                : "Nowe zawody"}
+            </button>
+          </div>
 
         </div>
 
