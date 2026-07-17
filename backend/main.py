@@ -10237,7 +10237,16 @@ def admin_home_stats(
     beta_user: User = Depends(get_current_beta_tester),
     db=Depends(get_db),
 ):
-    users_count = db.query(User).count()
+    users_count = (
+        db.query(User)
+        .filter(
+            or_(
+                User.account_type != PZSS_CLUB_ACCOUNT_TYPE,
+                User.account_type.is_(None),
+            )
+        )
+        .count()
+    )
     verified_pzss_clubs_count = (
         db.query(User)
         .filter(
