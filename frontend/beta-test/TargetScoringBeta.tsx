@@ -526,12 +526,57 @@ function lineLikelihood(
     return 0;
   }
 
-  const neighborAverage = (inner + outer) / 2;
-  const contrast = Math.abs(center - neighborAverage);
-  const pixel = samplePixel(data, width, height, x, y);
-  const greenInk = pixel[1] > 88 && pixel[1] - pixel[0] > 8 && pixel[1] - pixel[2] > 6;
+  const edgeContrast = Math.min(Math.abs(center - inner), Math.abs(center - outer));
+  const sideAgreementPenalty = Math.abs(inner - outer) * 0.35;
 
-  return Math.max(0, Math.min(1, (contrast - 10) / 44 + (greenInk ? 0.2 : 0)));
+  return Math.max(0, Math.min(1, (edgeContrast - sideAgreementPenalty - 12) / 42));
+}
+
+function sampleGrayValues(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+  points: Point[]
+) {
+  return points
+    .map((point) => grayAt(data, width, height, point.x, point.y))
+    .filter((value): value is number => value !== null);
+}
+
+function isOccludingMark(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+  x: number,
+  y: number,
+  normalX: number,
+  normalY: number
+) {
+  const tangentX = -normalY;
+  const tangentY = normalX;
+  const points: Point[] = [];
+
+  for (let normalOffset = -8; normalOffset <= 8; normalOffset += 4) {
+    for (let tangentOffset = -8; tangentOffset <= 8; tangentOffset += 4) {
+      points.push({
+        x: x + normalX * normalOffset + tangentX * tangentOffset,
+        y: y + normalY * normalOffset + tangentY * tangentOffset,
+      });
+    }
+  }
+
+  const values = sampleGrayValues(data, width, height, points);
+
+  if (values.length < points.length * 0.75) {
+    return false;
+  }
+
+  const minValue = Math.min(...values);
+  const maxValue = Math.max(...values);
+  const average = values.reduce((sum, value) => sum + value, 0) / values.length;
+  const strongOutliers = values.filter((value) => Math.abs(value - average) > 55).length;
+
+  return maxValue - minValue > 82 && strongOutliers >= 4;
 }
 
 function lineCoverageAt(
@@ -548,21 +593,30 @@ function lineCoverageAt(
   let bestLikelihood = 0;
 
   for (let offset = -searchRadius; offset <= searchRadius; offset += step) {
+    const sampleX = x + normalX * offset;
+    const sampleY = y + normalY * offset;
+
     bestLikelihood = Math.max(
       bestLikelihood,
       lineLikelihood(
         data,
         width,
         height,
-        x + normalX * offset,
-        y + normalY * offset,
+        sampleX,
+        sampleY,
         normalX,
         normalY
       )
     );
   }
 
-  return bestLikelihood >= 0.24 ? 1 : 0;
+  if (bestLikelihood >= 0.42) {
+    return 1;
+  }
+
+  const occluded = isOccludingMark(data, width, height, x, y, normalX, normalY);
+
+  return occluded ? null : 0;
 }
 
 function scoreRingAlignment(
@@ -598,12 +652,20 @@ function scoreRingAlignment(
       const normalY = alignmentSin * ringCos + alignmentCos * ringSin;
       const x = candidate.x + alignmentCos * scaledX - alignmentSin * scaledY;
       const y = candidate.y + alignmentSin * scaledX + alignmentCos * scaledY;
-      ringScores.push(lineCoverageAt(data, width, height, x, y, normalX, normalY));
+      const sampleScore = lineCoverageAt(data, width, height, x, y, normalX, normalY);
+
+      if (sampleScore !== null) {
+        ringScores.push(sampleScore);
+      }
+    }
+
+    if (ringScores.length < angleCount * 0.45) {
+      return;
     }
 
     ringScores.sort((firstScore, secondScore) => secondScore - firstScore);
 
-    const retainedSamples = Math.max(1, Math.ceil(ringScores.length * 0.7));
+    const retainedSamples = Math.max(1, Math.ceil(ringScores.length * 0.85));
 
     for (let index = 0; index < retainedSamples; index += 1) {
       score += ringScores[index];
