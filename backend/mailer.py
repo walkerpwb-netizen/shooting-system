@@ -286,3 +286,48 @@ def send_password_reset_email(to_email: str, reset_link: str) -> None:
     """
 
     send_email(to_email, subject, text_body, html_body)
+
+
+def send_pzss_club_approved_email(
+    to_email: str,
+    club_name: str,
+    license_number: str,
+) -> None:
+    login_url = f"{settings.frontend_url}/login"
+    safe_club_name = club_name or "Twój klub"
+    subject = "Konto klubu PZSS zostało zatwierdzone"
+    text_body = (
+        "Dzień dobry,\n\n"
+        f"Konto klubu {safe_club_name} w Systemie Strzeleckim zostało zatwierdzone przez administratora.\n"
+        "Możesz już zalogować się na swoje konto i korzystać z panelu organizatora:\n"
+        f"{login_url}\n\n"
+        f"Numer licencji klubowej PZSS: {license_number}\n\n"
+        "Po zalogowaniu możesz przygotowywać zawody, publikować je i zarządzać zgłoszeniami.\n\n"
+        "To wiadomość automatyczna. W razie pytań skontaktuj się z administratorem Systemu Strzeleckiego.\n\n"
+        "Pozdrawiamy,\n"
+        "System Strzelecki\n"
+    )
+    html_body = f"""
+    <p>Dzień dobry,</p>
+    <p>
+      Konto klubu <strong>{escape(safe_club_name)}</strong> w Systemie Strzeleckim
+      zostało zatwierdzone przez administratora.
+    </p>
+    <p>
+      Możesz już zalogować się na swoje konto i korzystać z panelu organizatora:
+      <br>
+      <a href="{escape(login_url, quote=True)}">{escape(login_url)}</a>
+    </p>
+    <p>
+      Numer licencji klubowej PZSS:
+      <strong>{escape(license_number)}</strong>
+    </p>
+    <p>Po zalogowaniu możesz przygotowywać zawody, publikować je i zarządzać zgłoszeniami.</p>
+    <p>
+      To wiadomość automatyczna. W razie pytań skontaktuj się z administratorem
+      Systemu Strzeleckiego.
+    </p>
+    <p>Pozdrawiamy,<br>System Strzelecki</p>
+    """
+
+    send_email(to_email, subject, text_body, html_body)

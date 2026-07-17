@@ -1379,7 +1379,11 @@ export default function AdminClient({
         ...currentInputs,
         [clubId]: data.license_number || licenseNumber,
       }));
-      setMessage("Klub PZSS zatwierdzony ✅");
+      setMessage(
+        data.approval_email_sent === false
+          ? "Klub PZSS zatwierdzony, ale nie udało się wysłać e-maila z potwierdzeniem ⚠️"
+          : "Klub PZSS zatwierdzony, e-mail z potwierdzeniem wysłany ✅"
+      );
     } catch (error) {
       console.error(error);
       setMessage("Błąd połączenia z serwerem ❌");

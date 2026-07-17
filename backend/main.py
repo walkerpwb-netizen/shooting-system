@@ -17,6 +17,7 @@ from mailer import (
     default_activation_email_template,
     send_activation_email,
     send_password_reset_email,
+    send_pzss_club_approved_email,
 )
 
 from models import (
@@ -10328,7 +10329,25 @@ def admin_approve_pzss_club(
     db.commit()
     db.refresh(club)
 
-    return public_pzss_club(club)
+    approval_email_sent = True
+    approval_email_error = ""
+
+    try:
+        send_pzss_club_approved_email(
+            club.email,
+            pzss_club_display_name(club),
+            license_number,
+        )
+    except (MailConfigurationError, MailDeliveryError) as exc:
+        approval_email_sent = False
+        approval_email_error = str(exc)
+        print(f"Failed to send PZSS club approval e-mail to {club.email}: {exc}")
+
+    response = public_pzss_club(club)
+    response["approval_email_sent"] = approval_email_sent
+    response["approval_email_error"] = approval_email_error
+
+    return response
 
 
 @app.put("/admin/pzss-clubs/{club_id}/reject")
