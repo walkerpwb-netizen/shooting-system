@@ -11,19 +11,19 @@ export default function manifest(): MetadataRoute.Manifest {
     theme_color: "#14532d",
     icons: [
       {
-        src: "/icons/system-strzelecki-192.png",
+        src: "/icons/system-strzelecki-192.png?v=20260717",
         sizes: "192x192",
         type: "image/png",
         purpose: "any",
       },
       {
-        src: "/icons/system-strzelecki-512.png",
+        src: "/icons/system-strzelecki-512.png?v=20260717",
         sizes: "512x512",
         type: "image/png",
         purpose: "any",
       },
       {
-        src: "/icons/system-strzelecki-512.png",
+        src: "/icons/system-strzelecki-512.png?v=20260717",
         sizes: "512x512",
         type: "image/png",
         purpose: "maskable",
