@@ -2717,6 +2717,7 @@ def public_user(user: User):
         "role": primary_role(roles),
         "roles": roles,
         "is_active": bool(user.is_active),
+        "created_at": getattr(user, "created_at", "") or "",
         "first_name": user.first_name or "",
         "last_name": user.last_name or "",
         "club": user.club or "",
@@ -10488,6 +10489,7 @@ def admin_create_user(
         role="user",
         roles="user",
         is_active=1,
+        created_at=utc_now_iso(),
         activation_token=None,
         password_reset_token=None,
         password_reset_expires_at=None,
@@ -10617,6 +10619,32 @@ def admin_update_user_role(
 
     set_user_roles(target_user, normalized_roles)
     target_user.requested_role = None
+    db.commit()
+    db.refresh(target_user)
+
+    return public_user(target_user)
+
+
+@app.put("/admin/users/{user_id}/activate")
+def admin_activate_user(
+    user_id: int,
+    admin: User = Depends(get_current_admin),
+    db=Depends(get_db),
+):
+    target_user = (
+        db.query(User)
+        .filter(User.id == user_id)
+        .first()
+    )
+
+    if not target_user:
+        raise HTTPException(
+            status_code=404,
+            detail="Użytkownik nie istnieje"
+        )
+
+    target_user.is_active = 1
+    target_user.activation_token = None
     db.commit()
     db.refresh(target_user)
 
@@ -11281,6 +11309,7 @@ def register(
         role="user",
         roles="user",
         is_active=0,
+        created_at=utc_now_iso(),
         activation_token=activation_token,
         premium_until=premium_end_of_year_iso(),
     )
@@ -11370,6 +11399,7 @@ def register_pzss_club(
         role="user",
         roles="user",
         is_active=0,
+        created_at=utc_now_iso(),
         activation_token=activation_token,
         premium_until=premium_end_of_year_iso(),
         account_type=PZSS_CLUB_ACCOUNT_TYPE,

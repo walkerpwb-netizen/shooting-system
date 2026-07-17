@@ -14,7 +14,7 @@ import QrCodeScanner from "@/components/QrCodeScanner";
 import TargetScoringBeta from "@/beta-test/TargetScoringBeta";
 
 type AdminTab = "users" | "pzss-clubs" | "competitions" | "shooting-ranges" | "settings" | "premium" | "ads" | "monitoring" | "qr-scanner" | "pdf-test" | "test-data" | "beta-test";
-type UserSortField = "name" | "status" | "role" | "account" | "phone";
+type UserSortField = "name" | "status" | "role" | "club" | "account" | "phone";
 type SortDirection = "asc" | "desc";
 
 type AdminUser = {
@@ -23,6 +23,7 @@ type AdminUser = {
   role: string;
   roles: string[];
   is_active: boolean;
+  created_at: string;
   first_name: string;
   last_name: string;
   club: string;
@@ -992,6 +993,43 @@ export default function AdminClient({
         )
       );
       setMessage("Rola użytkownika zaktualizowana ✅");
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    }
+  }
+
+  async function activateUserManually(userId: number) {
+    const token = getAccessToken();
+
+    try {
+      setMessage("");
+
+      const response = await fetch(
+        apiUrl(`/admin/users/${userId}/activate`),
+        {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.detail || "Nie udało się aktywować konta ❌");
+        return;
+      }
+
+      setUsers((currentUsers) =>
+        currentUsers.map((user) =>
+          user.id === userId
+            ? data
+            : user
+        )
+      );
+      setMessage("Konto aktywowane ręcznie ✅");
     } catch (error) {
       console.error(error);
       setMessage("Błąd połączenia z serwerem ❌");
@@ -2578,6 +2616,10 @@ export default function AdminClient({
       return getRoleNames(user);
     }
 
+    if (field === "club") {
+      return user.club || "";
+    }
+
     if (field === "account") {
       return user.is_active
         ? "aktywne"
@@ -2670,13 +2712,19 @@ export default function AdminClient({
       return "brak";
     }
 
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+      return value;
+    }
+
     return new Intl.DateTimeFormat(
       "pl-PL",
       {
         dateStyle: "short",
         timeStyle: "medium",
       }
-    ).format(new Date(value));
+    ).format(date);
   }
 
   function formatNumber(value: number) {
@@ -3108,7 +3156,7 @@ export default function AdminClient({
             </div>
 
             <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-x-auto">
-              <div className="grid min-w-[1280px] grid-cols-[1.4fr_0.7fr_1fr_0.8fr_1fr_0.9fr_1.1fr_1.1fr] gap-4 px-5 py-4 text-sm font-bold text-gray-400 border-b border-zinc-800">
+              <div className="grid min-w-[1440px] grid-cols-[1.4fr_0.7fr_1fr_1fr_0.9fr_1fr_0.9fr_1.1fr_1.1fr] gap-4 px-5 py-4 text-sm font-bold text-gray-400 border-b border-zinc-800">
                 <button
                   type="button"
                   onClick={() => sortUsers("name")}
@@ -3131,6 +3179,14 @@ export default function AdminClient({
                   className="text-left hover:text-white transition"
                 >
                   Rola {getSortMark("role")}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => sortUsers("club")}
+                  className="text-left hover:text-white transition"
+                >
+                  Klub {getSortMark("club")}
                 </button>
 
                 <button
@@ -3163,7 +3219,7 @@ export default function AdminClient({
             ) : filteredUsers.map((user) => (
               <div
                 key={user.id}
-                className={`grid min-w-[1280px] grid-cols-[1.4fr_0.7fr_1fr_0.8fr_1fr_0.9fr_1.1fr_1.1fr] gap-4 px-5 py-4 items-center border-b border-zinc-800 last:border-b-0 ${
+                className={`grid min-w-[1440px] grid-cols-[1.4fr_0.7fr_1fr_1fr_0.9fr_1fr_0.9fr_1.1fr_1.1fr] gap-4 px-5 py-4 items-center border-b border-zinc-800 last:border-b-0 ${
                   user.requested_role
                     ? "bg-yellow-950/20"
                     : ""
@@ -3180,12 +3236,6 @@ export default function AdminClient({
                   <p className="text-gray-400 text-sm">
                     {user.email}
                   </p>
-
-                  {user.club && (
-                    <p className="text-gray-500 text-sm">
-                      {user.club}
-                    </p>
-                  )}
                 </div>
 
                 <div>
@@ -3237,13 +3287,35 @@ export default function AdminClient({
                   })}
                 </div>
 
-                <p className={user.is_active ? "text-green-400" : "text-red-400"}>
-                  {user.password_reset_required
-                    ? "reset hasła"
-                    : user.is_active
-                      ? "aktywne"
-                      : "nieaktywne"}
+                <p className="text-gray-300">
+                  {user.club || "brak"}
                 </p>
+
+                <div className="space-y-2">
+                  <p className={user.is_active ? "text-green-400" : "text-red-400"}>
+                    {user.password_reset_required
+                      ? "reset hasła"
+                      : user.is_active
+                        ? "aktywne"
+                        : "nieaktywne"}
+                  </p>
+
+                  {!user.is_active && (
+                    <>
+                      <p className="text-xs text-gray-500">
+                        Założone: {formatDateTime(user.created_at)}
+                      </p>
+
+                      <button
+                        type="button"
+                        onClick={() => activateUserManually(user.id)}
+                        className="bg-green-700 hover:bg-green-600 text-white px-3 py-2 rounded-lg text-xs font-semibold transition"
+                      >
+                        Aktywuj ręcznie
+                      </button>
+                    </>
+                  )}
+                </div>
 
                 <div className="space-y-1 text-sm">
                   <label className="flex items-center gap-2 text-gray-200">

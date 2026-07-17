@@ -37,6 +37,11 @@ class User(Base):
         default=0,
     )
 
+    created_at = Column(
+        String,
+        nullable=True,
+    )
+
     activation_token = Column(
         String,
         nullable=True,
