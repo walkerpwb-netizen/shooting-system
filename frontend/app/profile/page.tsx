@@ -1283,7 +1283,7 @@ export default function ProfilePage() {
             </>
           )}
 
-          <div className="mx-auto w-full max-w-[1800px] px-6 py-8 sm:px-10 lg:px-14">
+          <div className="w-full px-6 py-8 sm:px-10 lg:px-14">
           {!isPzssClubProfile && !profile.profile_complete && (
             <p className="mb-8 max-w-2xl rounded-lg border border-yellow-500/50 bg-yellow-400/10 px-4 py-3 text-yellow-900 dark:text-yellow-100">
               Uzupełnij profil, aby otrzymać status Strzelca i móc dołączyć do zawodów.

@@ -230,7 +230,7 @@ export default function ParticipantProfilePage() {
           Ładowanie profilu...
         </p>
       ) : profile ? (
-        <div className="mx-auto w-full max-w-[1800px]">
+        <div className="w-full">
           <section className="mb-8 rounded-2xl border border-zinc-200 bg-zinc-50/80 p-5 dark:border-red-950 dark:bg-zinc-950/70 sm:p-6">
             <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
               <div className="flex flex-col gap-5 sm:flex-row sm:items-center">

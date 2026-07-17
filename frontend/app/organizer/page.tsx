@@ -1700,7 +1700,7 @@ function OrganizerContent() {
   return (
     <main className="min-h-screen px-4 py-8 md:p-10">
 
-      <div className="max-w-6xl mx-auto">
+      <div className="w-full">
 
         <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between mb-10">
 

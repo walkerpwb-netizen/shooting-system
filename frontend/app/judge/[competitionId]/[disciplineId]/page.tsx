@@ -3159,7 +3159,7 @@ export default function JudgeDisciplinePage() {
         </div>
       )}
 
-      <div className="mx-auto w-full max-w-5xl min-w-0">
+      <div className="w-full min-w-0">
         <div className="mb-6 min-w-0">
           <Link
             href={backHref}

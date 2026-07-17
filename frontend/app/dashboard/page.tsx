@@ -76,7 +76,7 @@ export default function DashboardPage() {
   return (
     <main className="min-h-screen">
 
-      <div className="max-w-6xl mx-auto px-6 py-10">
+      <div className="w-full px-6 py-10">
 
         <div className="flex items-center justify-between mb-10">
 

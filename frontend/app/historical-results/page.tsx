@@ -76,7 +76,7 @@ export default function HistoricalResultsPage() {
 
   return (
     <main className="min-h-screen px-6 py-10">
-      <div className="mx-auto max-w-6xl">
+      <div className="w-full">
         <div className="mb-8">
           <p className="mb-3 inline-flex rounded-full border border-zinc-200 bg-zinc-100 px-4 py-2 text-sm font-bold text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
             Archiwum

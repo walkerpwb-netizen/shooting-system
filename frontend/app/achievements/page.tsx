@@ -112,7 +112,7 @@ export default function AchievementsPage() {
 
   return (
     <main className="min-h-screen bg-white px-6 py-8 text-zinc-950 dark:bg-black dark:text-red-400 sm:px-10 lg:px-14">
-      <div className="mx-auto w-full max-w-5xl">
+      <div className="w-full">
         <h1 className="text-4xl font-bold text-red-400 sm:text-5xl">
           Odznaczenia
         </h1>

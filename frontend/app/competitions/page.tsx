@@ -138,7 +138,7 @@ export default async function CompetitionsPage({
 
   return (
     <main className="min-h-screen px-6 py-10">
-      <div className="max-w-6xl mx-auto">
+      <div className="w-full">
         <div className="mb-10">
           <h1 className="text-5xl font-bold text-zinc-950 dark:text-white mb-2">
             {activeTab.title}

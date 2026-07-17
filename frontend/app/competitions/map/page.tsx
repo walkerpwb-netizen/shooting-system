@@ -95,7 +95,7 @@ export default async function CompetitionsMapPage({
 
   return (
     <main className="min-h-screen px-6 py-10">
-      <div className="mx-auto max-w-6xl">
+      <div className="w-full">
         <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
             <h1 className="mb-2 text-4xl font-bold text-zinc-950 dark:text-white md:text-5xl">

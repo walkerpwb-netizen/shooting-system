@@ -135,7 +135,7 @@ export default function StartHistoryPage() {
 
   return (
     <main className="min-h-screen bg-white px-6 py-8 text-zinc-950 dark:bg-black dark:text-red-400 sm:px-10 lg:px-14">
-      <div className="mx-auto w-full max-w-6xl">
+      <div className="w-full">
         <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <p className="text-sm font-bold uppercase tracking-[0.2em] text-red-700 dark:text-red-300">

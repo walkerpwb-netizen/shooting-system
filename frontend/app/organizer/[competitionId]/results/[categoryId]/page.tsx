@@ -138,7 +138,7 @@ export default function OrganizerLeaderboardPage() {
 
   return (
     <main className="min-h-screen px-6 py-10">
-      <div className="mx-auto max-w-7xl">
+      <div className="w-full">
         <Link
           href={`/organizer/${competitionId}/results`}
           className="ui-button mb-6 inline-flex rounded-xl bg-red-700 px-5 py-3 font-bold text-white transition hover:bg-red-600"

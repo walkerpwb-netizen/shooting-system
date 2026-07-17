@@ -134,7 +134,7 @@ export default function ClubMembersPage() {
 
   return (
     <main className="min-h-screen px-6 py-10">
-      <div className="mx-auto max-w-6xl">
+      <div className="w-full">
         <div className="mb-8">
           <h1 className="text-5xl font-bold text-zinc-950 dark:text-white mb-2">
             Lista klubowiczów

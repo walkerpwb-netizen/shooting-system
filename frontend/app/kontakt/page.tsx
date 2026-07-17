@@ -38,7 +38,7 @@ export default function ContactPage() {
         backgroundSize: "cover",
       }}
     >
-      <div className="mx-auto w-full max-w-6xl px-5 py-12 sm:px-8 sm:py-16">
+      <div className="w-full px-5 py-12 sm:px-8 sm:py-16">
         <section className="rounded-3xl border border-emerald-200/25 bg-black/35 p-6 shadow-2xl backdrop-blur-sm sm:p-10">
           <p className="text-sm font-bold uppercase tracking-[0.24em] text-emerald-200">
             Jesteśmy do Twojej dyspozycji
