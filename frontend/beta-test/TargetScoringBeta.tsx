@@ -1,7 +1,7 @@
 "use client";
 
 import type { ChangeEvent, FormEvent } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { apiUrl } from "@/lib/api";
 import { getAccessToken } from "@/lib/auth";
@@ -970,6 +970,8 @@ export default function TargetScoringBeta() {
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [resultOpen, setResultOpen] = useState(false);
   const [message, setMessage] = useState("");
+  const [analysisError, setAnalysisError] = useState("");
+  const targetInputRef = useRef<HTMLInputElement | null>(null);
 
   const selectedTemplate = useMemo(
     () => templates.find((template) => template.id === selectedTemplateId) || templates[0],
@@ -1041,6 +1043,7 @@ export default function TargetScoringBeta() {
     setResult(null);
     setResultOpen(false);
     setMessage("");
+    setAnalysisError("");
 
     if (file) {
       void runAnalysis(file);
@@ -1122,6 +1125,7 @@ export default function TargetScoringBeta() {
       setResult(null);
       setResultOpen(false);
       setMessage("Wzorzec zapisany w systemie.");
+      setAnalysisError("");
     } catch (error) {
       console.error(error);
       setMessage("Błąd połączenia przy zapisie wzorca.");
@@ -1153,6 +1157,7 @@ export default function TargetScoringBeta() {
       setResult(null);
       setResultOpen(false);
       setMessage("");
+      setAnalysisError("");
       const nextResult = await analyzeTargetImage(
         fileToAnalyze,
         selectedTemplate
@@ -1161,13 +1166,31 @@ export default function TargetScoringBeta() {
       setResult(nextResult);
       setResultOpen(true);
       setMessage("Zdjęcie przycięte i dopasowane do wzorca.");
+      setAnalysisError("");
     } catch (error) {
       console.error(error);
       setResult(null);
       setResultOpen(false);
-      setMessage(error instanceof Error ? error.message : "Nie udało się dopasować zdjęcia.");
+      setTargetFile(null);
+      setTargetFileName("");
+      setMessage("");
+      setAnalysisError(error instanceof Error ? error.message : "Nie udało się dopasować zdjęcia.");
     } finally {
       setWorking(false);
+    }
+  }
+
+  function requestNewTargetPhoto() {
+    setAnalysisError("");
+    setMessage("");
+    setResult(null);
+    setResultOpen(false);
+    setTargetFile(null);
+    setTargetFileName("");
+
+    if (targetInputRef.current) {
+      targetInputRef.current.value = "";
+      targetInputRef.current.click();
     }
   }
 
@@ -1228,6 +1251,7 @@ export default function TargetScoringBeta() {
                     setResult(null);
                     setResultOpen(false);
                     setMessage("");
+                    setAnalysisError("");
                   }}
                   className={`rounded-xl border px-4 py-3 text-left transition ${
                     selectedTemplate?.id === template.id
@@ -1362,6 +1386,7 @@ export default function TargetScoringBeta() {
               <label className="block rounded-xl border border-dashed border-zinc-700 bg-zinc-950 px-4 py-4 text-gray-200">
                 <span className="block font-bold">Zdjęcie tarczy</span>
                 <input
+                  ref={targetInputRef}
                   type="file"
                   accept="image/*"
                   capture="environment"
@@ -1483,6 +1508,45 @@ export default function TargetScoringBeta() {
                   className="absolute inset-0 h-full w-full object-contain"
                 />
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {analysisError && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Nie udało się dopasować tarczy"
+          className="fixed inset-0 z-[1100] flex items-end bg-black/80 px-4 py-5 text-white sm:items-center sm:justify-center"
+        >
+          <div className="w-full max-w-lg rounded-2xl border border-red-500/40 bg-zinc-950 p-6 shadow-2xl shadow-black/60">
+            <p className="text-sm font-black uppercase tracking-wide text-red-300">
+              Dopasowanie przerwane
+            </p>
+            <h3 className="mt-2 text-2xl font-black">
+              Nie udało się dopasować tarczy
+            </h3>
+            <p className="mt-4 rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3 text-base font-bold leading-relaxed text-gray-100">
+              {analysisError}
+            </p>
+
+            <div className="mt-6 grid gap-3 sm:grid-cols-[1fr_auto]">
+              <button
+                type="button"
+                onClick={requestNewTargetPhoto}
+                disabled={working}
+                className="ui-button rounded-xl bg-green-700 px-5 py-4 font-black text-white transition hover:bg-green-600 disabled:cursor-not-allowed disabled:bg-zinc-700"
+              >
+                Zrób nowe zdjęcie
+              </button>
+              <button
+                type="button"
+                onClick={() => setAnalysisError("")}
+                className="ui-button rounded-xl bg-zinc-800 px-5 py-4 font-black text-white transition hover:bg-zinc-700"
+              >
+                Zamknij
+              </button>
             </div>
           </div>
         </div>
