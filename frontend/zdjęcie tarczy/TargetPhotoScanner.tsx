@@ -518,7 +518,7 @@ function detectClosedEdgeContour(imageData: ImageData, width: number, height: nu
   let bestScore = 0;
 
   for (let startPixel = 0; startPixel < visited.length; startPixel += 1) {
-    if (outside[startPixel] || barrier[startPixel] || visited[startPixel]) {
+    if (outside[startPixel] || visited[startPixel]) {
       continue;
     }
 
@@ -594,7 +594,6 @@ function detectClosedEdgeContour(imageData: ImageData, width: number, height: nu
           || neighbor >= visited.length
           || visited[neighbor]
           || outside[neighbor]
-          || barrier[neighbor]
           || stackLength >= stack.length - 1
         ) {
           return;
