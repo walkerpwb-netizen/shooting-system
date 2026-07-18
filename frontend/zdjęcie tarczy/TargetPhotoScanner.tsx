@@ -234,6 +234,134 @@ function findLongestRun(mask: Uint8Array, offset: number, length: number) {
   };
 }
 
+function findLargestPaperComponent(mask: Uint8Array, width: number, height: number): PaperBounds | null {
+  const visited = new Uint8Array(mask.length);
+  const stack = new Int32Array(mask.length);
+  let bestBounds: PaperBounds | null = null;
+  let bestScore = 0;
+  const minArea = width * height * 0.035;
+
+  for (let startPixel = 0; startPixel < mask.length; startPixel += 1) {
+    if (!mask[startPixel] || visited[startPixel]) {
+      continue;
+    }
+
+    let stackLength = 0;
+    let area = 0;
+    let minX = width;
+    let minY = height;
+    let maxX = 0;
+    let maxY = 0;
+    let edgeTouches = 0;
+
+    stack[stackLength] = startPixel;
+    stackLength += 1;
+    visited[startPixel] = 1;
+
+    while (stackLength > 0) {
+      stackLength -= 1;
+      const pixel = stack[stackLength];
+      const x = pixel % width;
+      const y = Math.floor(pixel / width);
+
+      area += 1;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+
+      if (x <= 1 || y <= 1 || x >= width - 2 || y >= height - 2) {
+        edgeTouches += 1;
+      }
+
+      const neighbors = [
+        pixel - 1,
+        pixel + 1,
+        pixel - width,
+        pixel + width,
+        pixel - width - 1,
+        pixel - width + 1,
+        pixel + width - 1,
+        pixel + width + 1,
+      ];
+
+      neighbors.forEach((neighbor) => {
+        if (
+          neighbor < 0
+          || neighbor >= mask.length
+          || visited[neighbor]
+          || !mask[neighbor]
+          || stackLength >= stack.length - 1
+        ) {
+          return;
+        }
+
+        const neighborX = neighbor % width;
+
+        if (Math.abs(neighborX - x) > 1) {
+          return;
+        }
+
+        visited[neighbor] = 1;
+        stack[stackLength] = neighbor;
+        stackLength += 1;
+      });
+    }
+
+    if (area < minArea) {
+      continue;
+    }
+
+    const componentWidth = maxX - minX + 1;
+    const componentHeight = maxY - minY + 1;
+    const boundingArea = componentWidth * componentHeight;
+    const fillRatio = area / Math.max(1, boundingArea);
+    const aspectRatio = componentWidth / Math.max(1, componentHeight);
+    const imageCoverage = boundingArea / (width * height);
+    const edgeTouchRatio = edgeTouches / Math.max(1, area);
+
+    if (
+      componentWidth < width * 0.24
+      || componentHeight < height * 0.14
+      || aspectRatio < 0.45
+      || aspectRatio > 2.5
+      || fillRatio < 0.24
+      || imageCoverage > 0.9
+      || edgeTouchRatio > 0.06
+    ) {
+      continue;
+    }
+
+    const centeredness = 1 - Math.min(
+      1,
+      Math.hypot(
+        (minX + componentWidth / 2 - width / 2) / width,
+        (minY + componentHeight / 2 - height / 2) / height
+      ) * 1.8
+    );
+    const score = area * (0.72 + fillRatio * 0.22 + centeredness * 0.18);
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestBounds = {
+        x: minX,
+        y: minY,
+        width: componentWidth,
+        height: componentHeight,
+        confidence: clamp(fillRatio * 0.55 + centeredness * 0.35 + Math.min(1, imageCoverage / 0.2) * 0.1, 0, 1),
+        polygon: [
+          { x: minX, y: minY },
+          { x: maxX, y: minY },
+          { x: maxX, y: maxY },
+          { x: minX, y: maxY },
+        ],
+      };
+    }
+  }
+
+  return bestBounds;
+}
+
 function makePaperMask(imageData: ImageData, width: number, height: number) {
   const histogram = Array.from({ length: 256 }, () => 0);
   const pixelCount = width * height;
@@ -248,8 +376,12 @@ function makePaperMask(imageData: ImageData, width: number, height: number) {
   }
 
   const p50 = getPercentileFromHistogram(histogram, pixelCount, 0.5);
-  const p82 = getPercentileFromHistogram(histogram, pixelCount, 0.82);
-  const paperThreshold = Math.max(88, Math.min(185, Math.round((p50 + p82) / 2 - 18)));
+  const p78 = getPercentileFromHistogram(histogram, pixelCount, 0.78);
+  const p92 = getPercentileFromHistogram(histogram, pixelCount, 0.92);
+  const paperThreshold = Math.max(
+    112,
+    Math.min(218, Math.round(Math.max(p78 - 24, p50 + 18, p92 - 58)))
+  );
   const mask = new Uint8Array(pixelCount);
 
   for (let index = 0, pixel = 0; index < imageData.data.length; index += 4, pixel += 1) {
@@ -261,9 +393,9 @@ function makePaperMask(imageData: ImageData, width: number, height: number) {
     const chroma = max - min;
     const luma = red * 0.2126 + green * 0.7152 + blue * 0.0722;
     const yellowCast = red + green - blue * 2;
-    const neutralEnough = chroma <= 72 && yellowCast <= 118;
-    const whiteEnough = red >= paperThreshold && green >= paperThreshold && blue >= paperThreshold - 18;
-    const shadowPaper = luma >= paperThreshold - 18 && chroma <= 46 && yellowCast <= 84;
+    const neutralEnough = chroma <= 64 && yellowCast <= 120;
+    const whiteEnough = red >= paperThreshold && green >= paperThreshold && blue >= paperThreshold - 22;
+    const shadowPaper = luma >= paperThreshold - 22 && chroma <= 42 && yellowCast <= 92;
 
     if ((whiteEnough && neutralEnough) || shadowPaper) {
       mask[pixel] = 1;
@@ -295,6 +427,38 @@ function detectPaperBounds(canvas: HTMLCanvasElement, maxAnalysisSide = 900): Pa
 
   const imageData = analysisContext.getImageData(0, 0, width, height);
   const mask = makePaperMask(imageData, width, height);
+  const componentBounds = findLargestPaperComponent(mask, width, height);
+
+  if (componentBounds && componentBounds.confidence >= 0.28) {
+    const marginX = Math.round(componentBounds.width * 0.018);
+    const marginY = Math.round(componentBounds.height * 0.018);
+    const scaledX = Math.max(0, componentBounds.x - marginX);
+    const scaledY = Math.max(0, componentBounds.y - marginY);
+    const scaledMaxX = Math.min(width - 1, componentBounds.x + componentBounds.width - 1 + marginX);
+    const scaledMaxY = Math.min(height - 1, componentBounds.y + componentBounds.height - 1 + marginY);
+
+    function scalePoint(point: PaperPoint): PaperPoint {
+      return {
+        x: Math.round(point.x / scale),
+        y: Math.round(point.y / scale),
+      };
+    }
+
+    return {
+      x: Math.round(scaledX / scale),
+      y: Math.round(scaledY / scale),
+      width: Math.round((scaledMaxX - scaledX + 1) / scale),
+      height: Math.round((scaledMaxY - scaledY + 1) / scale),
+      confidence: componentBounds.confidence,
+      polygon: [
+        scalePoint({ x: scaledX, y: scaledY }),
+        scalePoint({ x: scaledMaxX, y: scaledY }),
+        scalePoint({ x: scaledMaxX, y: scaledMaxY }),
+        scalePoint({ x: scaledX, y: scaledMaxY }),
+      ],
+    };
+  }
+
   const rowEdges: Array<{
     y: number;
     left: number;
