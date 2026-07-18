@@ -968,6 +968,285 @@ function findLargestPaperComponent(mask: Uint8Array, width: number, height: numb
   return bestBounds;
 }
 
+function colorBin(red: number, green: number, blue: number) {
+  return ((red >> 4) << 8) | ((green >> 4) << 4) | (blue >> 4);
+}
+
+function isCommonBackgroundBin(
+  histogram: Uint32Array,
+  red: number,
+  green: number,
+  blue: number,
+  threshold: number
+) {
+  const redBin = red >> 4;
+  const greenBin = green >> 4;
+  const blueBin = blue >> 4;
+
+  for (let redOffset = -1; redOffset <= 1; redOffset += 1) {
+    for (let greenOffset = -1; greenOffset <= 1; greenOffset += 1) {
+      for (let blueOffset = -1; blueOffset <= 1; blueOffset += 1) {
+        const nextRed = redBin + redOffset;
+        const nextGreen = greenBin + greenOffset;
+        const nextBlue = blueBin + blueOffset;
+
+        if (
+          nextRed < 0
+          || nextRed > 15
+          || nextGreen < 0
+          || nextGreen > 15
+          || nextBlue < 0
+          || nextBlue > 15
+        ) {
+          continue;
+        }
+
+        if (histogram[(nextRed << 8) | (nextGreen << 4) | nextBlue] >= threshold) {
+          return true;
+        }
+      }
+    }
+  }
+
+  return false;
+}
+
+function morphMask(mask: Uint8Array, width: number, height: number, mode: "dilate" | "erode") {
+  const nextMask = new Uint8Array(mask.length);
+
+  for (let y = 1; y < height - 1; y += 1) {
+    for (let x = 1; x < width - 1; x += 1) {
+      const pixel = y * width + x;
+      let hits = 0;
+
+      for (let offsetY = -1; offsetY <= 1; offsetY += 1) {
+        for (let offsetX = -1; offsetX <= 1; offsetX += 1) {
+          hits += mask[pixel + offsetY * width + offsetX];
+        }
+      }
+
+      if (
+        (mode === "dilate" && hits > 0)
+        || (mode === "erode" && hits >= 6)
+      ) {
+        nextMask[pixel] = 1;
+      }
+    }
+  }
+
+  return nextMask;
+}
+
+function detectDocumentByBackgroundSeparation(
+  imageData: ImageData,
+  width: number,
+  height: number
+): PaperBounds | null {
+  const margin = Math.max(8, Math.round(Math.min(width, height) * 0.06));
+  const histogram = new Uint32Array(4096);
+  let borderSamples = 0;
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      if (
+        x > margin
+        && x < width - margin
+        && y > margin
+        && y < height - margin
+      ) {
+        continue;
+      }
+
+      const index = (y * width + x) * 4;
+
+      histogram[colorBin(imageData.data[index], imageData.data[index + 1], imageData.data[index + 2])] += 1;
+      borderSamples += 1;
+    }
+  }
+
+  const backgroundThreshold = Math.max(3, Math.round(borderSamples * 0.00022));
+  const mask = new Uint8Array(width * height);
+
+  for (let index = 0, pixel = 0; index < imageData.data.length; index += 4, pixel += 1) {
+    if (
+      !isCommonBackgroundBin(
+        histogram,
+        imageData.data[index],
+        imageData.data[index + 1],
+        imageData.data[index + 2],
+        backgroundThreshold
+      )
+    ) {
+      mask[pixel] = 1;
+    }
+  }
+
+  const closedMask = morphMask(
+    morphMask(
+      morphMask(mask, width, height, "dilate"),
+      width,
+      height,
+      "dilate"
+    ),
+    width,
+    height,
+    "erode"
+  );
+  const visited = new Uint8Array(width * height);
+  const stack = new Int32Array(width * height);
+  const minArea = width * height * 0.08;
+  let bestBounds: PaperBounds | null = null;
+  let bestScore = 0;
+
+  for (let startPixel = 0; startPixel < closedMask.length; startPixel += 1) {
+    if (!closedMask[startPixel] || visited[startPixel]) {
+      continue;
+    }
+
+    let stackLength = 0;
+    let area = 0;
+    let minX = width;
+    let minY = height;
+    let maxX = 0;
+    let maxY = 0;
+    let edgeTouches = 0;
+    let topLeft: PaperPoint | null = null;
+    let topRight: PaperPoint | null = null;
+    let bottomRight: PaperPoint | null = null;
+    let bottomLeft: PaperPoint | null = null;
+    let topLeftScore = Number.POSITIVE_INFINITY;
+    let topRightScore = Number.NEGATIVE_INFINITY;
+    let bottomRightScore = Number.NEGATIVE_INFINITY;
+    let bottomLeftScore = Number.POSITIVE_INFINITY;
+
+    stack[stackLength] = startPixel;
+    stackLength += 1;
+    visited[startPixel] = 1;
+
+    while (stackLength > 0) {
+      stackLength -= 1;
+      const pixel = stack[stackLength];
+      const x = pixel % width;
+      const y = Math.floor(pixel / width);
+
+      area += 1;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+
+      if (x <= 1 || y <= 1 || x >= width - 2 || y >= height - 2) {
+        edgeTouches += 1;
+      }
+
+      const sumScore = x + y;
+      const differenceScore = x - y;
+
+      if (sumScore < topLeftScore) {
+        topLeftScore = sumScore;
+        topLeft = { x, y };
+      }
+
+      if (differenceScore > topRightScore) {
+        topRightScore = differenceScore;
+        topRight = { x, y };
+      }
+
+      if (sumScore > bottomRightScore) {
+        bottomRightScore = sumScore;
+        bottomRight = { x, y };
+      }
+
+      if (differenceScore < bottomLeftScore) {
+        bottomLeftScore = differenceScore;
+        bottomLeft = { x, y };
+      }
+
+      const neighbors = [
+        pixel - 1,
+        pixel + 1,
+        pixel - width,
+        pixel + width,
+        pixel - width - 1,
+        pixel - width + 1,
+        pixel + width - 1,
+        pixel + width + 1,
+      ];
+
+      neighbors.forEach((neighbor) => {
+        if (
+          neighbor < 0
+          || neighbor >= closedMask.length
+          || visited[neighbor]
+          || !closedMask[neighbor]
+          || stackLength >= stack.length - 1
+        ) {
+          return;
+        }
+
+        const neighborX = neighbor % width;
+
+        if (Math.abs(neighborX - x) > 1) {
+          return;
+        }
+
+        visited[neighbor] = 1;
+        stack[stackLength] = neighbor;
+        stackLength += 1;
+      });
+    }
+
+    if (area < minArea || !topLeft || !topRight || !bottomRight || !bottomLeft) {
+      continue;
+    }
+
+    const componentWidth = maxX - minX + 1;
+    const componentHeight = maxY - minY + 1;
+    const aspectRatio = componentWidth / Math.max(1, componentHeight);
+    const areaRatio = area / (width * height);
+    const edgeTouchRatio = edgeTouches / Math.max(1, area);
+
+    if (
+      componentWidth < width * 0.28
+      || componentHeight < height * 0.22
+      || aspectRatio < 0.46
+      || aspectRatio > 2.2
+      || areaRatio > 0.88
+      || edgeTouchRatio > 0.08
+    ) {
+      continue;
+    }
+
+    const polygon = [topLeft, topRight, bottomRight, bottomLeft] as PaperBounds["polygon"];
+    const polygonAreaRatio = polygonArea(polygon) / (width * height);
+    const fillRatio = area / Math.max(1, componentWidth * componentHeight);
+    const score = area * (0.74 + Math.min(1, polygonAreaRatio / 0.28) * 0.16 + fillRatio * 0.1);
+
+    if (score <= bestScore || polygonAreaRatio < 0.1) {
+      continue;
+    }
+
+    bestScore = score;
+    bestBounds = {
+      x: minX,
+      y: minY,
+      width: componentWidth,
+      height: componentHeight,
+      confidence: clamp(
+        Math.min(1, polygonAreaRatio / 0.28) * 0.42
+        + Math.min(1, fillRatio / 0.55) * 0.26
+        + Math.min(1, areaRatio / 0.26) * 0.22
+        + (1 - edgeTouchRatio) * 0.1,
+        0,
+        1
+      ),
+      polygon,
+    };
+  }
+
+  return bestBounds;
+}
+
 function makePaperMask(imageData: ImageData, width: number, height: number) {
   const histogram = Array.from({ length: 256 }, () => 0);
   const pixelCount = width * height;
@@ -1032,6 +1311,32 @@ function detectPaperBounds(canvas: HTMLCanvasElement, maxAnalysisSide = DOCUMENT
   analysisContext.drawImage(canvas, 0, 0, width, height);
 
   const imageData = analysisContext.getImageData(0, 0, width, height);
+  const backgroundBounds = detectDocumentByBackgroundSeparation(imageData, width, height);
+
+  if (backgroundBounds && backgroundBounds.confidence >= 0.5) {
+    function scalePoint(point: PaperPoint): PaperPoint {
+      return {
+        x: Math.round(point.x / scale),
+        y: Math.round(point.y / scale),
+      };
+    }
+
+    const polygon = backgroundBounds.polygon.map(scalePoint) as PaperBounds["polygon"];
+    const minX = Math.max(0, Math.floor(Math.min(...polygon.map((point) => point.x))));
+    const minY = Math.max(0, Math.floor(Math.min(...polygon.map((point) => point.y))));
+    const maxX = Math.min(canvas.width, Math.ceil(Math.max(...polygon.map((point) => point.x))));
+    const maxY = Math.min(canvas.height, Math.ceil(Math.max(...polygon.map((point) => point.y))));
+
+    return {
+      x: minX,
+      y: minY,
+      width: Math.max(1, maxX - minX),
+      height: Math.max(1, maxY - minY),
+      confidence: backgroundBounds.confidence,
+      polygon,
+    };
+  }
+
   const closedContourBounds = detectClosedEdgeContour(imageData, width, height);
 
   if (closedContourBounds && closedContourBounds.confidence >= 0.48) {
