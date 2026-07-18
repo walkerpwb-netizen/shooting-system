@@ -15,6 +15,26 @@ type CropResult = {
   croppedHeight: number;
 };
 
+type CameraCapabilities = MediaTrackCapabilities & {
+  focusMode?: string[];
+  torch?: boolean;
+  zoom?: {
+    min: number;
+    max: number;
+    step?: number;
+  };
+};
+
+type CameraConstraintSet = MediaTrackConstraintSet & {
+  focusMode?: string;
+  pointsOfInterest?: {
+    x: number;
+    y: number;
+  }[];
+  torch?: boolean;
+  zoom?: number;
+};
+
 function scoreCameraDevice(device: CameraDevice, index: number) {
   const label = device.label.toLowerCase();
   const isFront = /front|przedni/.test(label);
@@ -91,6 +111,85 @@ function getPercentileFromHistogram(histogram: number[], total: number, percenti
   return 255;
 }
 
+function closePaperMask(mask: Uint8Array, width: number, height: number) {
+  const dilated = new Uint8Array(mask.length);
+  const closed = new Uint8Array(mask.length);
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const index = y * width + x;
+
+      if (mask[index]) {
+        dilated[index] = 1;
+        continue;
+      }
+
+      let found = false;
+
+      for (let dy = -2; dy <= 2 && !found; dy += 1) {
+        const nextY = y + dy;
+
+        if (nextY < 0 || nextY >= height) {
+          continue;
+        }
+
+        for (let dx = -2; dx <= 2; dx += 1) {
+          const nextX = x + dx;
+
+          if (nextX < 0 || nextX >= width) {
+            continue;
+          }
+
+          if (mask[nextY * width + nextX]) {
+            found = true;
+            break;
+          }
+        }
+      }
+
+      if (found) {
+        dilated[index] = 1;
+      }
+    }
+  }
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const index = y * width + x;
+
+      if (!dilated[index]) {
+        continue;
+      }
+
+      let keep = true;
+
+      for (let dy = -2; dy <= 2 && keep; dy += 1) {
+        const nextY = y + dy;
+
+        if (nextY < 0 || nextY >= height) {
+          keep = false;
+          break;
+        }
+
+        for (let dx = -2; dx <= 2; dx += 1) {
+          const nextX = x + dx;
+
+          if (nextX < 0 || nextX >= width || !dilated[nextY * width + nextX]) {
+            keep = false;
+            break;
+          }
+        }
+      }
+
+      if (keep) {
+        closed[index] = 1;
+      }
+    }
+  }
+
+  return closed;
+}
+
 function findPaperBounds(canvas: HTMLCanvasElement) {
   const maxAnalysisSide = 1100;
   const scale = Math.min(
@@ -130,9 +229,9 @@ function findPaperBounds(canvas: HTMLCanvasElement) {
     histogram[luma] += 1;
   }
 
-  const p65 = getPercentileFromHistogram(histogram, pixelCount, 0.65);
-  const p90 = getPercentileFromHistogram(histogram, pixelCount, 0.9);
-  const threshold = Math.max(135, Math.min(210, Math.round((p65 + p90) / 2 - 12)));
+  const p55 = getPercentileFromHistogram(histogram, pixelCount, 0.55);
+  const p88 = getPercentileFromHistogram(histogram, pixelCount, 0.88);
+  const threshold = Math.max(92, Math.min(190, Math.round((p55 + p88) / 2 - 26)));
   const mask = new Uint8Array(pixelCount);
   const visited = new Uint8Array(pixelCount);
 
@@ -142,13 +241,18 @@ function findPaperBounds(canvas: HTMLCanvasElement) {
     const blue = imageData.data[index + 2];
     const max = Math.max(red, green, blue);
     const min = Math.min(red, green, blue);
-    const saturation = max - min;
+    const chroma = max - min;
     const luma = red * 0.2126 + green * 0.7152 + blue * 0.0722;
+    const blueDeficit = Math.max(red - blue, green - blue);
+    const neutralPaper = chroma <= 58 && blueDeficit <= 52;
+    const shadowedPaper = chroma <= 42 && luma >= threshold - 14;
 
-    if ((luma >= threshold && saturation <= 80) || luma >= threshold + 24) {
+    if ((luma >= threshold && neutralPaper) || shadowedPaper) {
       mask[pixel] = 1;
     }
   }
+
+  const paperMask = closePaperMask(mask, width, height);
 
   let bestArea = 0;
   let bestMinX = 0;
@@ -158,7 +262,7 @@ function findPaperBounds(canvas: HTMLCanvasElement) {
   const stack: number[] = [];
 
   for (let start = 0; start < pixelCount; start += 1) {
-    if (!mask[start] || visited[start]) {
+    if (!paperMask[start] || visited[start]) {
       continue;
     }
 
@@ -188,22 +292,22 @@ function findPaperBounds(canvas: HTMLCanvasElement) {
       const top = current - width;
       const bottom = current + width;
 
-      if (x > 0 && mask[left] && !visited[left]) {
+      if (x > 0 && paperMask[left] && !visited[left]) {
         visited[left] = 1;
         stack.push(left);
       }
 
-      if (x < width - 1 && mask[right] && !visited[right]) {
+      if (x < width - 1 && paperMask[right] && !visited[right]) {
         visited[right] = 1;
         stack.push(right);
       }
 
-      if (y > 0 && mask[top] && !visited[top]) {
+      if (y > 0 && paperMask[top] && !visited[top]) {
         visited[top] = 1;
         stack.push(top);
       }
 
-      if (y < height - 1 && mask[bottom] && !visited[bottom]) {
+      if (y < height - 1 && paperMask[bottom] && !visited[bottom]) {
         visited[bottom] = 1;
         stack.push(bottom);
       }
@@ -227,8 +331,8 @@ function findPaperBounds(canvas: HTMLCanvasElement) {
     };
   }
 
-  const marginX = Math.round((bestMaxX - bestMinX + 1) * 0.015);
-  const marginY = Math.round((bestMaxY - bestMinY + 1) * 0.015);
+  const marginX = Math.round((bestMaxX - bestMinX + 1) * 0.006);
+  const marginY = Math.round((bestMaxY - bestMinY + 1) * 0.006);
   const scaledX = Math.max(0, bestMinX - marginX);
   const scaledY = Math.max(0, bestMinY - marginY);
   const scaledMaxX = Math.min(width - 1, bestMaxX + marginX);
@@ -289,10 +393,21 @@ export default function TargetPhotoScanner() {
   const [starting, setStarting] = useState(false);
   const [message, setMessage] = useState("");
   const [result, setResult] = useState<CropResult | null>(null);
+  const [cameras, setCameras] = useState<CameraDevice[]>([]);
+  const [selectedCameraId, setSelectedCameraId] = useState("");
+  const [torchSupported, setTorchSupported] = useState(false);
+  const [torchEnabled, setTorchEnabled] = useState(false);
+  const [cameraZoomRange, setCameraZoomRange] = useState<CameraCapabilities["zoom"] | null>(null);
+  const [cameraZoom, setCameraZoom] = useState(1);
+  const [digitalZoom, setDigitalZoom] = useState(1);
 
   function stopCamera() {
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
+    setTorchSupported(false);
+    setTorchEnabled(false);
+    setCameraZoomRange(null);
+    setCameraZoom(1);
 
     if (videoRef.current) {
       videoRef.current.srcObject = null;
@@ -330,6 +445,58 @@ export default function TargetPhotoScanner() {
     return navigator.mediaDevices.getUserMedia(constraints);
   }
 
+  async function applyCameraFeatures(stream: MediaStream) {
+    const [videoTrack] = stream.getVideoTracks();
+
+    if (!videoTrack) {
+      return;
+    }
+
+    const capabilities = videoTrack.getCapabilities() as CameraCapabilities;
+    const advanced: CameraConstraintSet[] = [];
+
+    setTorchSupported(Boolean(capabilities.torch));
+    setTorchEnabled(false);
+
+    if (capabilities.focusMode?.includes("continuous")) {
+      advanced.push({
+        focusMode: "continuous",
+      });
+    }
+
+    if (capabilities.zoom) {
+      const initialZoom = Math.max(
+        capabilities.zoom.min,
+        Math.min(capabilities.zoom.max, 1)
+      );
+
+      setCameraZoomRange(capabilities.zoom);
+      setCameraZoom(initialZoom);
+      advanced.push({
+        zoom: initialZoom,
+      });
+    } else {
+      setCameraZoomRange(null);
+      setCameraZoom(1);
+    }
+
+    if (advanced.length > 0) {
+      await videoTrack.applyConstraints({
+        advanced,
+      } as MediaTrackConstraints).catch(() => undefined);
+    }
+  }
+
+  async function attachStream(stream: MediaStream) {
+    streamRef.current = stream;
+    await applyCameraFeatures(stream);
+
+    if (videoRef.current) {
+      videoRef.current.srcObject = stream;
+      await videoRef.current.play();
+    }
+  }
+
   async function openCamera() {
     if (!navigator.mediaDevices?.getUserMedia) {
       setMessage("Ta przeglądarka nie udostępnia aparatu.");
@@ -348,6 +515,8 @@ export default function TargetPhotoScanner() {
       const preferredAfterPermission = pickPreferredCamera(devicesAfterPermission);
       const activeDeviceId = stream.getVideoTracks()[0]?.getSettings().deviceId || "";
 
+      setCameras(devicesAfterPermission);
+
       if (
         preferredAfterPermission?.deviceId
         && preferredAfterPermission.deviceId !== activeDeviceId
@@ -356,12 +525,8 @@ export default function TargetPhotoScanner() {
         stream = await startStream(preferredAfterPermission.deviceId);
       }
 
-      streamRef.current = stream;
-
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
+      setSelectedCameraId(stream.getVideoTracks()[0]?.getSettings().deviceId || "");
+      await attachStream(stream);
     } catch {
       setMessage("Nie udało się uruchomić aparatu. Sprawdź uprawnienia kamery.");
       setCameraOpen(false);
@@ -375,6 +540,88 @@ export default function TargetPhotoScanner() {
     stopCamera();
     setCameraOpen(false);
     setStarting(false);
+  }
+
+  async function changeCamera(deviceId: string) {
+    setSelectedCameraId(deviceId);
+    setStarting(true);
+    setMessage("");
+
+    try {
+      stopCamera();
+      const stream = await startStream(deviceId);
+      await attachStream(stream);
+    } catch {
+      setMessage("Nie udało się przełączyć aparatu.");
+    } finally {
+      setStarting(false);
+    }
+  }
+
+  async function toggleTorch() {
+    const [videoTrack] = streamRef.current?.getVideoTracks() || [];
+
+    if (!videoTrack || !torchSupported) {
+      return;
+    }
+
+    const nextTorchState = !torchEnabled;
+
+    await videoTrack.applyConstraints({
+      advanced: [
+        {
+          torch: nextTorchState,
+        } as CameraConstraintSet,
+      ],
+    } as MediaTrackConstraints).then(() => {
+      setTorchEnabled(nextTorchState);
+    }).catch(() => {
+      setMessage("Ten aparat nie pozwolił włączyć lampy w przeglądarce.");
+    });
+  }
+
+  async function updateCameraZoom(value: number) {
+    const [videoTrack] = streamRef.current?.getVideoTracks() || [];
+
+    if (!videoTrack || !cameraZoomRange) {
+      return;
+    }
+
+    const nextZoom = Math.max(
+      cameraZoomRange.min,
+      Math.min(cameraZoomRange.max, value)
+    );
+
+    setCameraZoom(nextZoom);
+    await videoTrack.applyConstraints({
+      advanced: [
+        {
+          zoom: nextZoom,
+        } as CameraConstraintSet,
+      ],
+    } as MediaTrackConstraints).catch(() => undefined);
+  }
+
+  async function focusAtCenter() {
+    const [videoTrack] = streamRef.current?.getVideoTracks() || [];
+
+    if (!videoTrack) {
+      return;
+    }
+
+    await videoTrack.applyConstraints({
+      advanced: [
+        {
+          focusMode: "single-shot",
+          pointsOfInterest: [
+            {
+              x: 0.5,
+              y: 0.5,
+            },
+          ],
+        } as CameraConstraintSet,
+      ],
+    } as MediaTrackConstraints).catch(() => undefined);
   }
 
   function captureTargetPhoto() {
@@ -399,7 +646,23 @@ export default function TargetPhotoScanner() {
 
     canvas.width = width;
     canvas.height = height;
-    context.drawImage(video, 0, 0, width, height);
+
+    const sourceWidth = width / digitalZoom;
+    const sourceHeight = height / digitalZoom;
+    const sourceX = (width - sourceWidth) / 2;
+    const sourceY = (height - sourceHeight) / 2;
+
+    context.drawImage(
+      video,
+      sourceX,
+      sourceY,
+      sourceWidth,
+      sourceHeight,
+      0,
+      0,
+      width,
+      height
+    );
     setResult(cropPaperFromCanvas(canvas));
     closeCamera();
   }
@@ -470,17 +733,111 @@ export default function TargetPhotoScanner() {
               ref={videoRef}
               muted
               playsInline
-              className="h-full w-full object-contain"
+              style={{
+                transform: `scale(${digitalZoom})`,
+              }}
+              className="h-full w-full object-contain transition-transform"
+            />
+
+            <button
+              type="button"
+              onClick={() => {
+                void focusAtCenter();
+              }}
+              className="absolute inset-0 z-10"
+              aria-label="Ustaw ostrość na środku kadru"
             />
 
             {starting && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black/80 text-lg font-bold text-gray-200">
+              <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/80 text-lg font-bold text-gray-200">
                 Uruchamianie aparatu...
               </div>
             )}
           </div>
 
-          <div className="border-t border-white/10 px-4 py-4">
+          <div className="space-y-4 border-t border-white/10 px-4 py-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block">
+                <span className="mb-1 block text-sm font-bold text-gray-300">
+                  Aparat
+                </span>
+
+                <select
+                  value={selectedCameraId}
+                  onChange={(event) => {
+                    void changeCamera(event.target.value);
+                  }}
+                  disabled={starting || cameras.length === 0}
+                  className="w-full rounded-xl border border-white/10 bg-zinc-900 px-4 py-3 font-bold text-white disabled:opacity-50"
+                >
+                  {cameras.length === 0 ? (
+                    <option value="">
+                      Kamera aktywna
+                    </option>
+                  ) : (
+                    cameras.map((camera) => (
+                      <option
+                        key={camera.deviceId}
+                        value={camera.deviceId}
+                      >
+                        {camera.label}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </label>
+
+              <button
+                type="button"
+                onClick={() => {
+                  void toggleTorch();
+                }}
+                disabled={starting || !torchSupported}
+                className="ui-button self-end rounded-xl bg-zinc-800 px-4 py-3 font-black text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-45"
+              >
+                {torchSupported
+                  ? torchEnabled ? "Flesz: włączony" : "Flesz: wyłączony"
+                  : "Flesz niedostępny"}
+              </button>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block rounded-xl border border-white/10 bg-zinc-950 px-4 py-3">
+                <span className="mb-2 block text-sm font-bold text-gray-300">
+                  Zoom kadru x{digitalZoom.toFixed(1)}
+                </span>
+
+                <input
+                  type="range"
+                  min={1}
+                  max={4}
+                  step={0.1}
+                  value={digitalZoom}
+                  onChange={(event) => setDigitalZoom(Number(event.target.value))}
+                  className="w-full accent-green-500"
+                />
+              </label>
+
+              <label className="block rounded-xl border border-white/10 bg-zinc-950 px-4 py-3">
+                <span className="mb-2 block text-sm font-bold text-gray-300">
+                  Zoom aparatu {cameraZoomRange ? `x${cameraZoom.toFixed(1)}` : "niedostępny"}
+                </span>
+
+                <input
+                  type="range"
+                  min={cameraZoomRange?.min || 1}
+                  max={cameraZoomRange?.max || 1}
+                  step={cameraZoomRange?.step || 0.1}
+                  value={cameraZoom}
+                  onChange={(event) => {
+                    void updateCameraZoom(Number(event.target.value));
+                  }}
+                  disabled={!cameraZoomRange}
+                  className="w-full accent-green-500 disabled:opacity-40"
+                />
+              </label>
+            </div>
+
             <button
               type="button"
               onClick={captureTargetPhoto}
