@@ -16,6 +16,31 @@ type CropResult = {
   paperDetected: boolean;
 };
 
+type TargetGeometry = {
+  centerX: number;
+  centerY: number;
+  outerRadius: number;
+  zoneWidth: number;
+  confidence: number;
+};
+
+type DetectedShot = {
+  x: number;
+  y: number;
+  radius: number;
+  score: number;
+  confidence: number;
+};
+
+type ScanResult = {
+  imageUrl: string;
+  width: number;
+  height: number;
+  shots: DetectedShot[];
+  totalScore: number;
+  geometryConfidence: number;
+};
+
 type PaperPoint = {
   x: number;
   y: number;
@@ -51,6 +76,12 @@ type CameraConstraintSet = MediaTrackConstraintSet & {
 };
 
 const FOCUS_SETTLE_MS = 450;
+const TARGET_SAMPLE_ANGLES = 144;
+const SHOT_COMPONENT_SCAN_LIMIT = 90_000;
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
 
 function scoreCameraDevice(device: CameraDevice, index: number) {
   const label = device.label.toLowerCase();
@@ -402,6 +433,527 @@ function cropPaperFromCanvas(sourceCanvas: HTMLCanvasElement): CropResult {
   };
 }
 
+function loadImage(source: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Nie udało się wczytać obrazu."));
+    image.src = source;
+  });
+}
+
+async function createCanvasFromImage(source: string) {
+  const image = await loadImage(source);
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d", {
+    willReadFrequently: true,
+  });
+
+  if (!context) {
+    throw new Error("Nie udało się przygotować płótna obrazu.");
+  }
+
+  canvas.width = image.naturalWidth || image.width;
+  canvas.height = image.naturalHeight || image.height;
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+  return canvas;
+}
+
+function getLumaFromData(imageData: ImageData, width: number, height: number, x: number, y: number) {
+  const safeX = clamp(Math.round(x), 0, width - 1);
+  const safeY = clamp(Math.round(y), 0, height - 1);
+  const index = (safeY * width + safeX) * 4;
+  const red = imageData.data[index];
+  const green = imageData.data[index + 1];
+  const blue = imageData.data[index + 2];
+
+  return red * 0.2126 + green * 0.7152 + blue * 0.0722;
+}
+
+function detectTargetGeometry(canvas: HTMLCanvasElement): TargetGeometry {
+  const context = canvas.getContext("2d", {
+    willReadFrequently: true,
+  });
+  const fallbackRadius = Math.min(canvas.width, canvas.height) * 0.47;
+
+  if (!context) {
+    return {
+      centerX: canvas.width / 2,
+      centerY: canvas.height / 2,
+      outerRadius: fallbackRadius,
+      zoneWidth: fallbackRadius / 10,
+      confidence: 0,
+    };
+  }
+
+  const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+  const centerX = canvas.width / 2;
+  const centerY = canvas.height / 2;
+  const maxRadius = Math.min(canvas.width, canvas.height) * 0.49;
+  const radialDarkness = Array.from(
+    { length: Math.max(2, Math.floor(maxRadius) + 1) },
+    () => 0
+  );
+  const angles = Array.from({ length: TARGET_SAMPLE_ANGLES }, (_, index) => {
+    const angle = (Math.PI * 2 * index) / TARGET_SAMPLE_ANGLES;
+
+    return {
+      sin: Math.sin(angle),
+      cos: Math.cos(angle),
+    };
+  });
+
+  for (let radius = 4; radius < maxRadius; radius += 1) {
+    let darkSamples = 0;
+    let validSamples = 0;
+
+    angles.forEach((angle) => {
+      const x = centerX + angle.cos * radius;
+      const y = centerY + angle.sin * radius;
+
+      if (x <= 1 || y <= 1 || x >= canvas.width - 2 || y >= canvas.height - 2) {
+        return;
+      }
+
+      const luma = getLumaFromData(imageData, canvas.width, canvas.height, x, y);
+
+      validSamples += 1;
+
+      if (luma < 160) {
+        darkSamples += 1;
+      }
+    });
+
+    radialDarkness[radius] = validSamples > 0 ? darkSamples / validSamples : 0;
+  }
+
+  const smoothedDarkness = radialDarkness.map((_, radius) => {
+    let sum = 0;
+    let count = 0;
+
+    for (
+      let neighborRadius = Math.max(0, radius - 2);
+      neighborRadius <= Math.min(radialDarkness.length - 1, radius + 2);
+      neighborRadius += 1
+    ) {
+      sum += radialDarkness[neighborRadius];
+      count += 1;
+    }
+
+    return sum / Math.max(1, count);
+  });
+  let outerRadius = fallbackRadius;
+  let confidence = 0;
+  const minSearchRadius = Math.round(maxRadius * 0.35);
+  const maxSearchRadius = Math.round(maxRadius * 0.99);
+
+  for (let radius = minSearchRadius; radius <= maxSearchRadius; radius += 1) {
+    const signal = smoothedDarkness[radius] || 0;
+    const before = smoothedDarkness[Math.max(0, radius - 4)] || 0;
+    const after = smoothedDarkness[Math.min(smoothedDarkness.length - 1, radius + 4)] || 0;
+    const isPeak = signal >= before && signal >= after && signal >= 0.075;
+
+    if (isPeak && radius > outerRadius * 0.68) {
+      outerRadius = radius;
+      confidence = Math.max(confidence, signal);
+    }
+  }
+
+  return {
+    centerX,
+    centerY,
+    outerRadius,
+    zoneWidth: outerRadius / 10,
+    confidence: clamp(confidence / 0.38, 0, 1),
+  };
+}
+
+function pointScore(geometry: TargetGeometry, x: number, y: number) {
+  const distanceFromCenter = Math.hypot(x - geometry.centerX, y - geometry.centerY);
+
+  if (distanceFromCenter > geometry.outerRadius) {
+    return 0;
+  }
+
+  return clamp(10 - Math.floor(distanceFromCenter / geometry.zoneWidth), 1, 10);
+}
+
+function buildShotMask(
+  imageData: ImageData,
+  width: number,
+  height: number,
+  geometry: TargetGeometry
+) {
+  const sampledLumas: number[] = [];
+  const sampleStep = Math.max(2, Math.round(Math.min(width, height) / 420));
+
+  for (let y = 0; y < height; y += sampleStep) {
+    for (let x = 0; x < width; x += sampleStep) {
+      if (pointScore(geometry, x, y) === 0) {
+        continue;
+      }
+
+      sampledLumas.push(getLumaFromData(imageData, width, height, x, y));
+    }
+  }
+
+  const p35 = percentile(sampledLumas, 0.35);
+  const p70 = percentile(sampledLumas, 0.7);
+  const darkThreshold = clamp(p35 - 28, 55, 132);
+  const brightTearThreshold = clamp(p70 + 34, 138, 232);
+  const blackFieldRadius = geometry.outerRadius * 0.43;
+  const mask = new Uint8Array(width * height);
+
+  for (let pixel = 0, dataIndex = 0; pixel < width * height; pixel += 1, dataIndex += 4) {
+    const x = pixel % width;
+    const y = Math.floor(pixel / width);
+    const distanceFromCenter = Math.hypot(x - geometry.centerX, y - geometry.centerY);
+
+    if (distanceFromCenter > geometry.outerRadius) {
+      continue;
+    }
+
+    const red = imageData.data[dataIndex];
+    const green = imageData.data[dataIndex + 1];
+    const blue = imageData.data[dataIndex + 2];
+    const max = Math.max(red, green, blue);
+    const min = Math.min(red, green, blue);
+    const chroma = max - min;
+    const luma = red * 0.2126 + green * 0.7152 + blue * 0.0722;
+    const inBlackField = distanceFromCenter <= blackFieldRadius;
+    const brownPaperCore = red + green > blue * 2.08 && red > 54 && green > 42 && luma < 175;
+    const grayTear = chroma <= 34 && luma >= 55 && luma <= 178;
+    const darkDamage = !inBlackField && (luma <= darkThreshold || (luma <= 112 && grayTear));
+    const brightTearOnBlack = inBlackField && luma >= brightTearThreshold;
+
+    if (darkDamage || (!inBlackField && brownPaperCore) || brightTearOnBlack) {
+      mask[pixel] = 1;
+    }
+  }
+
+  return {
+    mask,
+    darkThreshold,
+    brightTearThreshold,
+  };
+}
+
+function scoreShotTexture(
+  imageData: ImageData,
+  width: number,
+  height: number,
+  geometry: TargetGeometry,
+  centerX: number,
+  centerY: number,
+  componentWidth: number,
+  componentHeight: number,
+  darkThreshold: number,
+  brightTearThreshold: number
+) {
+  const patchRadius = Math.round(Math.max(
+    componentWidth,
+    componentHeight,
+    geometry.zoneWidth * 0.2,
+    12
+  ));
+  const sectors = Array.from({ length: 16 }, () => false);
+  let texturePixels = 0;
+  let patchPixels = 0;
+  let darkPixels = 0;
+  let brownOrGrayPixels = 0;
+  let brightTearPixels = 0;
+  const blackFieldRadius = geometry.outerRadius * 0.43;
+
+  for (
+    let y = Math.max(0, Math.round(centerY - patchRadius));
+    y <= Math.min(height - 1, Math.round(centerY + patchRadius));
+    y += 1
+  ) {
+    for (
+      let x = Math.max(0, Math.round(centerX - patchRadius));
+      x <= Math.min(width - 1, Math.round(centerX + patchRadius));
+      x += 1
+    ) {
+      const localDistance = Math.hypot(x - centerX, y - centerY);
+
+      if (localDistance > patchRadius) {
+        continue;
+      }
+
+      const dataIndex = (y * width + x) * 4;
+      const red = imageData.data[dataIndex];
+      const green = imageData.data[dataIndex + 1];
+      const blue = imageData.data[dataIndex + 2];
+      const max = Math.max(red, green, blue);
+      const min = Math.min(red, green, blue);
+      const chroma = max - min;
+      const luma = red * 0.2126 + green * 0.7152 + blue * 0.0722;
+      const targetDistance = Math.hypot(x - geometry.centerX, y - geometry.centerY);
+      const inBlackField = targetDistance <= blackFieldRadius;
+      const brownish = red + green > blue * 2.06 && red > 50 && green > 38 && luma < 182;
+      const grayTear = chroma <= 38 && luma >= 58 && luma <= 184;
+      const dark = !inBlackField && (luma <= darkThreshold || luma <= 82);
+      const brightOnBlack = inBlackField && luma >= brightTearThreshold;
+      const damaged = dark || brownish || (!inBlackField && grayTear) || brightOnBlack;
+
+      patchPixels += 1;
+
+      if (dark) {
+        darkPixels += 1;
+      }
+
+      if (brownish || grayTear) {
+        brownOrGrayPixels += 1;
+      }
+
+      if (brightOnBlack) {
+        brightTearPixels += 1;
+      }
+
+      if (damaged) {
+        texturePixels += 1;
+
+        if (localDistance > 1) {
+          const angle = Math.atan2(y - centerY, x - centerX);
+          const sector = Math.floor(((angle + Math.PI) / (Math.PI * 2)) * sectors.length);
+
+          sectors[clamp(sector, 0, sectors.length - 1)] = true;
+        }
+      }
+    }
+  }
+
+  const radialSpread = sectors.filter(Boolean).length / sectors.length;
+  const textureRatio = texturePixels / Math.max(1, patchPixels);
+  const coreRatio = darkPixels / Math.max(1, patchPixels);
+  const tearRatio = (brownOrGrayPixels + brightTearPixels) / Math.max(1, patchPixels);
+
+  return clamp(
+    radialSpread * 0.45 + textureRatio * 1.45 + tearRatio * 1.9 + Math.min(coreRatio, 0.18) * 0.7,
+    0,
+    1
+  );
+}
+
+function detectShots(canvas: HTMLCanvasElement, geometry: TargetGeometry): DetectedShot[] {
+  const context = canvas.getContext("2d", {
+    willReadFrequently: true,
+  });
+
+  if (!context) {
+    return [];
+  }
+
+  const width = canvas.width;
+  const height = canvas.height;
+  const imageData = context.getImageData(0, 0, width, height);
+  const { mask, darkThreshold, brightTearThreshold } = buildShotMask(
+    imageData,
+    width,
+    height,
+    geometry
+  );
+  const visited = new Uint8Array(width * height);
+  const stack = new Int32Array(SHOT_COMPONENT_SCAN_LIMIT);
+  const minBox = Math.max(5, Math.round(geometry.zoneWidth * 0.035));
+  const maxBox = Math.max(22, Math.round(geometry.zoneWidth * 0.62));
+  const minArea = Math.max(14, Math.round(minBox * minBox * 0.55));
+  const maxArea = Math.round(maxBox * maxBox * 1.55);
+  const candidates: DetectedShot[] = [];
+
+  for (let startPixel = 0; startPixel < mask.length; startPixel += 1) {
+    if (!mask[startPixel] || visited[startPixel]) {
+      continue;
+    }
+
+    let stackLength = 0;
+    let area = 0;
+    let sumX = 0;
+    let sumY = 0;
+    let minX = width;
+    let minY = height;
+    let maxX = 0;
+    let maxY = 0;
+
+    stack[stackLength] = startPixel;
+    stackLength += 1;
+    visited[startPixel] = 1;
+
+    while (stackLength > 0) {
+      stackLength -= 1;
+      const pixel = stack[stackLength];
+      const x = pixel % width;
+      const y = Math.floor(pixel / width);
+
+      area += 1;
+      sumX += x;
+      sumY += y;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+
+      if (area > maxArea * 3 || stackLength >= SHOT_COMPONENT_SCAN_LIMIT - 5) {
+        continue;
+      }
+
+      const neighbors = [
+        pixel - 1,
+        pixel + 1,
+        pixel - width,
+        pixel + width,
+      ];
+
+      neighbors.forEach((neighbor) => {
+        if (
+          neighbor < 0
+          || neighbor >= mask.length
+          || visited[neighbor]
+          || !mask[neighbor]
+          || stackLength >= SHOT_COMPONENT_SCAN_LIMIT - 1
+        ) {
+          return;
+        }
+
+        const neighborX = neighbor % width;
+
+        if (Math.abs(neighborX - x) > 1) {
+          return;
+        }
+
+        visited[neighbor] = 1;
+        stack[stackLength] = neighbor;
+        stackLength += 1;
+      });
+    }
+
+    const componentWidth = maxX - minX + 1;
+    const componentHeight = maxY - minY + 1;
+    const aspectRatio = componentWidth / Math.max(1, componentHeight);
+    const boxArea = componentWidth * componentHeight;
+    const fillRatio = area / Math.max(1, boxArea);
+
+    if (
+      area < minArea
+      || area > maxArea
+      || componentWidth < minBox
+      || componentHeight < minBox
+      || componentWidth > maxBox * 1.9
+      || componentHeight > maxBox * 1.9
+      || aspectRatio < 0.38
+      || aspectRatio > 2.65
+      || fillRatio < 0.08
+    ) {
+      continue;
+    }
+
+    const centerX = sumX / area;
+    const centerY = sumY / area;
+    const score = pointScore(geometry, centerX, centerY);
+
+    if (score === 0) {
+      continue;
+    }
+
+    const textureScore = scoreShotTexture(
+      imageData,
+      width,
+      height,
+      geometry,
+      centerX,
+      centerY,
+      componentWidth,
+      componentHeight,
+      darkThreshold,
+      brightTearThreshold
+    );
+    const circularity = clamp(
+      Math.min(componentWidth, componentHeight) / Math.max(componentWidth, componentHeight),
+      0,
+      1
+    );
+    const sizeScore = clamp(
+      Math.min(componentWidth, componentHeight) / Math.max(1, geometry.zoneWidth * 0.12),
+      0,
+      1
+    );
+    const confidence = clamp(textureScore * 0.68 + circularity * 0.18 + sizeScore * 0.14, 0, 1);
+
+    if (confidence < 0.34) {
+      continue;
+    }
+
+    candidates.push({
+      x: centerX,
+      y: centerY,
+      radius: clamp(Math.max(componentWidth, componentHeight) * 0.72, 10, geometry.zoneWidth * 0.34),
+      score,
+      confidence,
+    });
+  }
+
+  return candidates
+    .sort((left, right) => right.confidence - left.confidence)
+    .reduce<DetectedShot[]>((acceptedShots, shot) => {
+      const isDuplicate = acceptedShots.some((acceptedShot) => (
+        Math.hypot(acceptedShot.x - shot.x, acceptedShot.y - shot.y) < geometry.zoneWidth * 0.2
+      ));
+
+      if (!isDuplicate) {
+        acceptedShots.push(shot);
+      }
+
+      return acceptedShots;
+    }, [])
+    .sort((left, right) => {
+      if (right.score !== left.score) {
+        return right.score - left.score;
+      }
+
+      return right.confidence - left.confidence;
+    });
+}
+
+async function analyzeCroppedTarget(source: string): Promise<ScanResult> {
+  const canvas = await createCanvasFromImage(source);
+  const context = canvas.getContext("2d");
+
+  if (!context) {
+    throw new Error("Nie udało się przygotować analizy.");
+  }
+
+  const geometry = detectTargetGeometry(canvas);
+  const shots = detectShots(canvas, geometry);
+  const markerRadius = clamp(Math.min(canvas.width, canvas.height) * 0.012, 12, 32);
+
+  context.lineWidth = clamp(Math.min(canvas.width, canvas.height) * 0.004, 4, 10);
+  context.strokeStyle = "#ef233c";
+  context.fillStyle = "#ef233c";
+  context.font = `900 ${Math.round(markerRadius * 1.45)}px Arial, sans-serif`;
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+
+  shots.forEach((shot, index) => {
+    const displayRadius = Math.max(markerRadius, shot.radius);
+
+    context.beginPath();
+    context.arc(shot.x, shot.y, displayRadius, 0, Math.PI * 2);
+    context.stroke();
+    context.fillText(String(index + 1), shot.x + displayRadius * 1.25, shot.y - displayRadius * 1.25);
+  });
+
+  return {
+    imageUrl: canvas.toDataURL("image/jpeg", 0.92),
+    width: canvas.width,
+    height: canvas.height,
+    shots,
+    totalScore: shots.reduce((sum, shot) => sum + shot.score, 0),
+    geometryConfidence: geometry.confidence,
+  };
+}
+
 export default function TargetPhotoScanner() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const digitalZoomRef = useRef(1);
@@ -412,6 +964,9 @@ export default function TargetPhotoScanner() {
   const [capturing, setCapturing] = useState(false);
   const [message, setMessage] = useState("");
   const [result, setResult] = useState<CropResult | null>(null);
+  const [scanResult, setScanResult] = useState<ScanResult | null>(null);
+  const [scanMessage, setScanMessage] = useState("");
+  const [scanning, setScanning] = useState(false);
   const [cameras, setCameras] = useState<CameraDevice[]>([]);
   const [selectedCameraId, setSelectedCameraId] = useState("");
   const [torchSupported, setTorchSupported] = useState(false);
@@ -557,6 +1112,8 @@ export default function TargetPhotoScanner() {
     setCameraOpen(true);
     setStarting(true);
     setMessage("");
+    setScanResult(null);
+    setScanMessage("");
     setControlsOpen(false);
 
     try {
@@ -750,12 +1307,39 @@ export default function TargetPhotoScanner() {
     }
 
     setResult(cropPaperFromCanvas(canvas));
+    setScanResult(null);
+    setScanMessage("");
 
     if (flashOnCapture && torchSupported) {
       await setTorchState(false);
     }
 
     closeCamera();
+  }
+
+  async function scanCroppedTarget() {
+    if (!result || scanning) {
+      return;
+    }
+
+    setScanning(true);
+    setScanMessage("");
+
+    try {
+      const nextScanResult = await analyzeCroppedTarget(result.imageUrl);
+
+      setScanResult(nextScanResult);
+      setScanMessage(
+        nextScanResult.shots.length === 0
+          ? "Nie wykryto przestrzelin w obszarze punktowym."
+          : ""
+      );
+    } catch {
+      setScanMessage("Nie udało się przeanalizować wykadrowanego obrazu.");
+      setScanResult(null);
+    } finally {
+      setScanning(false);
+    }
   }
 
   useEffect(() => () => {
@@ -802,6 +1386,83 @@ export default function TargetPhotoScanner() {
             {" "}
             {result.paperDetected ? "Krawędzie wykryte." : "Krawędzie niepewne."}
           </p>
+
+          <button
+            type="button"
+            onClick={() => {
+              void scanCroppedTarget();
+            }}
+            disabled={scanning}
+            className="ui-button mt-5 w-full rounded-xl bg-green-700 px-6 py-4 text-lg font-black text-white transition hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+          >
+            {scanning ? "Skanowanie..." : "Skanuj"}
+          </button>
+
+          {scanMessage && (
+            <p className="mt-4 rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 font-semibold text-gray-200">
+              {scanMessage}
+            </p>
+          )}
+        </section>
+      )}
+
+      {scanResult && (
+        <section className="ui-block rounded-2xl border border-zinc-800 bg-zinc-900 p-6">
+          <h2 className="mb-2 text-2xl font-black text-white">
+            Wynik skanowania
+          </h2>
+
+          <p className="mb-4 text-sm font-semibold text-gray-400">
+            {scanResult.shots.length} przestrzelin · {scanResult.totalScore} pkt · geometria stref {Math.round(scanResult.geometryConfidence * 100)}%
+          </p>
+
+          <div className="overflow-hidden rounded-xl border border-zinc-800 bg-black">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={scanResult.imageUrl}
+              alt="Zdjęcie tarczy po analizie przestrzelin"
+              className="h-auto w-full"
+            />
+          </div>
+
+          {scanResult.shots.length > 0 && (
+            <div className="mt-5 overflow-hidden rounded-xl border border-zinc-800">
+              <table className="w-full border-collapse text-left text-sm text-gray-200">
+                <thead className="bg-zinc-950 text-xs uppercase text-gray-400">
+                  <tr>
+                    <th className="px-4 py-3">
+                      Nr
+                    </th>
+                    <th className="px-4 py-3">
+                      Punkt
+                    </th>
+                    <th className="px-4 py-3">
+                      Pewność
+                    </th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {scanResult.shots.map((shot, index) => (
+                    <tr
+                      key={`${Math.round(shot.x)}-${Math.round(shot.y)}-${index}`}
+                      className="border-t border-zinc-800"
+                    >
+                      <td className="px-4 py-3 font-bold">
+                        {index + 1}
+                      </td>
+                      <td className="px-4 py-3 font-bold">
+                        {shot.score}
+                      </td>
+                      <td className="px-4 py-3">
+                        {Math.round(shot.confidence * 100)}%
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </section>
       )}
 
