@@ -84,6 +84,7 @@ type CameraConstraintSet = MediaTrackConstraintSet & {
 const FOCUS_SETTLE_MS = 450;
 const TARGET_SAMPLE_ANGLES = 144;
 const SHOT_COMPONENT_SCAN_LIMIT = 90_000;
+const MAX_DETECTED_SHOTS = 24;
 const DOCUMENT_ANALYSIS_SIDE = 900;
 const DOCUMENT_RHO_STEP = 4;
 const MIN_WARP_CONFIDENCE = 0.42;
@@ -254,8 +255,17 @@ function pointInsideImage(point: PaperPoint, width: number, height: number, marg
   );
 }
 
+function angleDistance(firstAngle: number, secondAngle: number) {
+  const difference = Math.abs(firstAngle - secondAngle) % Math.PI;
+
+  return Math.min(difference, Math.PI - difference);
+}
+
 function isNearExistingLine(lines: LineCandidate[], nextLine: LineCandidate, minRhoDistance: number) {
-  return lines.some((line) => Math.abs(line.rho - nextLine.rho) < minRhoDistance);
+  return lines.some((line) => (
+    angleDistance(line.theta, nextLine.theta) < (3 * Math.PI) / 180
+    && Math.abs(line.rho - nextLine.rho) < minRhoDistance
+  ));
 }
 
 function createLumaAndEdges(imageData: ImageData, width: number, height: number) {
@@ -684,8 +694,8 @@ function detectDocumentByEdges(imageData: ImageData, width: number, height: numb
     return null;
   }
 
-  const verticalLines = collectLineCandidates(edgePixels, width, height, -24, 24, 16);
-  const horizontalLines = collectLineCandidates(edgePixels, width, height, 66, 114, 16);
+  const verticalLines = collectLineCandidates(edgePixels, width, height, -48, 48, 24);
+  const horizontalLines = collectLineCandidates(edgePixels, width, height, 42, 138, 24);
   let bestBounds: PaperBounds | null = null;
   let bestScore = 0;
 
@@ -1312,8 +1322,12 @@ function detectPaperBounds(canvas: HTMLCanvasElement, maxAnalysisSide = DOCUMENT
 
   const imageData = analysisContext.getImageData(0, 0, width, height);
   const backgroundBounds = detectDocumentByBackgroundSeparation(imageData, width, height);
+  const documentBounds = detectDocumentByEdges(imageData, width, height);
+  const perspectiveBounds = [backgroundBounds, documentBounds]
+    .filter((bounds): bounds is PaperBounds => bounds !== null && bounds.confidence >= MIN_WARP_CONFIDENCE)
+    .sort((left, right) => right.confidence - left.confidence)[0];
 
-  if (backgroundBounds && backgroundBounds.confidence >= 0.5) {
+  if (perspectiveBounds) {
     function scalePoint(point: PaperPoint): PaperPoint {
       return {
         x: Math.round(point.x / scale),
@@ -1321,7 +1335,7 @@ function detectPaperBounds(canvas: HTMLCanvasElement, maxAnalysisSide = DOCUMENT
       };
     }
 
-    const polygon = backgroundBounds.polygon.map(scalePoint) as PaperBounds["polygon"];
+    const polygon = perspectiveBounds.polygon.map(scalePoint) as PaperBounds["polygon"];
     const minX = Math.max(0, Math.floor(Math.min(...polygon.map((point) => point.x))));
     const minY = Math.max(0, Math.floor(Math.min(...polygon.map((point) => point.y))));
     const maxX = Math.min(canvas.width, Math.ceil(Math.max(...polygon.map((point) => point.x))));
@@ -1332,7 +1346,7 @@ function detectPaperBounds(canvas: HTMLCanvasElement, maxAnalysisSide = DOCUMENT
       y: minY,
       width: Math.max(1, maxX - minX),
       height: Math.max(1, maxY - minY),
-      confidence: backgroundBounds.confidence,
+      confidence: perspectiveBounds.confidence,
       polygon,
     };
   }
@@ -1359,32 +1373,6 @@ function detectPaperBounds(canvas: HTMLCanvasElement, maxAnalysisSide = DOCUMENT
       width: Math.max(1, maxX - minX),
       height: Math.max(1, maxY - minY),
       confidence: closedContourBounds.confidence,
-      polygon,
-    };
-  }
-
-  const documentBounds = detectDocumentByEdges(imageData, width, height);
-
-  if (documentBounds && documentBounds.confidence >= MIN_WARP_CONFIDENCE) {
-    function scalePoint(point: PaperPoint): PaperPoint {
-      return {
-        x: Math.round(point.x / scale),
-        y: Math.round(point.y / scale),
-      };
-    }
-
-    const polygon = documentBounds.polygon.map(scalePoint) as PaperBounds["polygon"];
-    const minX = Math.max(0, Math.floor(Math.min(...polygon.map((point) => point.x))));
-    const minY = Math.max(0, Math.floor(Math.min(...polygon.map((point) => point.y))));
-    const maxX = Math.min(canvas.width, Math.ceil(Math.max(...polygon.map((point) => point.x))));
-    const maxY = Math.min(canvas.height, Math.ceil(Math.max(...polygon.map((point) => point.y))));
-
-    return {
-      x: minX,
-      y: minY,
-      width: Math.max(1, maxX - minX),
-      height: Math.max(1, maxY - minY),
-      confidence: documentBounds.confidence,
       polygon,
     };
   }
@@ -1922,12 +1910,23 @@ function buildShotMask(
     const chroma = max - min;
     const luma = red * 0.2126 + green * 0.7152 + blue * 0.0722;
     const inBlackField = distanceFromCenter <= blackFieldRadius;
-    const brownPaperCore = red + green > blue * 2.08 && red > 54 && green > 42 && luma < 175;
-    const grayTear = chroma <= 34 && luma >= 55 && luma <= 178;
-    const darkDamage = !inBlackField && (luma <= darkThreshold || (luma <= 112 && grayTear));
-    const brightTearOnBlack = inBlackField && luma >= brightTearThreshold;
+    const brownPaperCore = red + green > blue * 2.15
+      && red > 58
+      && green > 42
+      && luma < 170
+      && chroma > 18;
+    const darkPaperCore = !inBlackField
+      && luma <= darkThreshold
+      && chroma > 22
+      && red + green > blue * 1.8;
+    const warmTearOnBlack = inBlackField
+      && red + green > blue * 2.02
+      && red > 48
+      && green > 36
+      && luma < 176
+      && chroma > 16;
 
-    if (darkDamage || (!inBlackField && brownPaperCore) || brightTearOnBlack) {
+    if (brownPaperCore || darkPaperCore || warmTearOnBlack) {
       mask[pixel] = 1;
     }
   }
@@ -1991,11 +1990,22 @@ function scoreShotTexture(
       const luma = red * 0.2126 + green * 0.7152 + blue * 0.0722;
       const targetDistance = Math.hypot(x - geometry.centerX, y - geometry.centerY);
       const inBlackField = targetDistance <= blackFieldRadius;
-      const brownish = red + green > blue * 2.06 && red > 50 && green > 38 && luma < 182;
-      const grayTear = chroma <= 38 && luma >= 58 && luma <= 184;
-      const dark = !inBlackField && (luma <= darkThreshold || luma <= 82);
-      const brightOnBlack = inBlackField && luma >= brightTearThreshold;
-      const damaged = dark || brownish || (!inBlackField && grayTear) || brightOnBlack;
+      const brownish = red + green > blue * 2.12
+        && red > 54
+        && green > 40
+        && luma < 176
+        && chroma > 16;
+      const dark = !inBlackField
+        && luma <= darkThreshold
+        && chroma > 22
+        && red + green > blue * 1.8;
+      const warmOnBlack = inBlackField
+        && red + green > blue * 2.02
+        && red > 48
+        && green > 36
+        && luma < Math.max(176, brightTearThreshold)
+        && chroma > 16;
+      const damaged = dark || brownish || warmOnBlack;
 
       patchPixels += 1;
 
@@ -2003,11 +2013,11 @@ function scoreShotTexture(
         darkPixels += 1;
       }
 
-      if (brownish || grayTear) {
+      if (brownish || dark) {
         brownOrGrayPixels += 1;
       }
 
-      if (brightOnBlack) {
+      if (warmOnBlack) {
         brightTearPixels += 1;
       }
 
@@ -2180,7 +2190,7 @@ function detectShots(canvas: HTMLCanvasElement, geometry: TargetGeometry): Detec
     );
     const confidence = clamp(textureScore * 0.68 + circularity * 0.18 + sizeScore * 0.14, 0, 1);
 
-    if (confidence < 0.34) {
+    if (confidence < 0.56) {
       continue;
     }
 
@@ -2193,11 +2203,15 @@ function detectShots(canvas: HTMLCanvasElement, geometry: TargetGeometry): Detec
     });
   }
 
+  if (candidates.length > MAX_DETECTED_SHOTS * 4) {
+    return [];
+  }
+
   return candidates
     .sort((left, right) => right.confidence - left.confidence)
     .reduce<DetectedShot[]>((acceptedShots, shot) => {
       const isDuplicate = acceptedShots.some((acceptedShot) => (
-        Math.hypot(acceptedShot.x - shot.x, acceptedShot.y - shot.y) < geometry.zoneWidth * 0.2
+        Math.hypot(acceptedShot.x - shot.x, acceptedShot.y - shot.y) < geometry.zoneWidth * 0.32
       ));
 
       if (!isDuplicate) {
@@ -2212,7 +2226,8 @@ function detectShots(canvas: HTMLCanvasElement, geometry: TargetGeometry): Detec
       }
 
       return right.confidence - left.confidence;
-    });
+    })
+    .slice(0, MAX_DETECTED_SHOTS);
 }
 
 async function analyzeCroppedTarget(source: string): Promise<ScanResult> {
