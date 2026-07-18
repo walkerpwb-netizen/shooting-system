@@ -86,6 +86,8 @@ type LineCandidate = {
   score: number;
 };
 
+type ShotCandidateSource = "edge" | "core";
+
 type CameraCapabilities = MediaTrackCapabilities & {
   focusMode?: string[];
   torch?: boolean;
@@ -112,8 +114,9 @@ const SHOT_COMPONENT_SCAN_LIMIT = 90_000;
 const MAX_DETECTED_SHOTS = 24;
 const DOCUMENT_ANALYSIS_SIDE = 900;
 const DOCUMENT_RHO_STEP = 4;
-const MIN_WARP_CONFIDENCE = 0.42;
-const MIN_CONFIDENT_CROP = 0.5;
+const MIN_WARP_CONFIDENCE = 0.62;
+const MIN_CONFIDENT_CROP = 0.68;
+const MIN_CONFIDENT_CROP_AREA_RATIO = 0.2;
 const APPROVED_SHOT_PATTERN_COUNT = 51;
 const SHOT_TEAR_PROFILE: ShotTearPattern = {
   edgeDensity: 0.2275,
@@ -1346,6 +1349,36 @@ function makePaperMask(imageData: ImageData, width: number, height: number) {
   return mask;
 }
 
+function paperBoundsAreaRatio(bounds: PaperBounds, width: number, height: number) {
+  return polygonArea(bounds.polygon) / Math.max(1, width * height);
+}
+
+function isUsablePaperCrop(bounds: PaperBounds, width: number, height: number) {
+  const areaRatio = paperBoundsAreaRatio(bounds, width, height);
+  const boxRatio = (bounds.width * bounds.height) / Math.max(1, width * height);
+  const widthCoverage = bounds.width / Math.max(1, width);
+  const heightCoverage = bounds.height / Math.max(1, height);
+  const [topLeft, topRight, bottomRight, bottomLeft] = bounds.polygon;
+  const topWidth = distanceBetweenPoints(topLeft, topRight);
+  const bottomWidth = distanceBetweenPoints(bottomLeft, bottomRight);
+  const leftHeight = distanceBetweenPoints(topLeft, bottomLeft);
+  const rightHeight = distanceBetweenPoints(topRight, bottomRight);
+  const oppositeWidthRatio = Math.min(topWidth, bottomWidth) / Math.max(1, Math.max(topWidth, bottomWidth));
+  const oppositeHeightRatio = Math.min(leftHeight, rightHeight) / Math.max(1, Math.max(leftHeight, rightHeight));
+  const balancedEnough = oppositeWidthRatio >= 0.5 && oppositeHeightRatio >= 0.5;
+  const largeEnough = areaRatio >= MIN_CONFIDENT_CROP_AREA_RATIO
+    || (areaRatio >= 0.14 && bounds.confidence >= 0.86);
+
+  return (
+    bounds.confidence >= MIN_CONFIDENT_CROP
+    && largeEnough
+    && boxRatio >= MIN_CONFIDENT_CROP_AREA_RATIO * 0.9
+    && widthCoverage >= 0.22
+    && heightCoverage >= 0.22
+    && balancedEnough
+  );
+}
+
 function detectPaperBounds(canvas: HTMLCanvasElement, maxAnalysisSide = DOCUMENT_ANALYSIS_SIDE): PaperBounds {
   const scale = Math.min(
     1,
@@ -1367,10 +1400,14 @@ function detectPaperBounds(canvas: HTMLCanvasElement, maxAnalysisSide = DOCUMENT
   analysisContext.drawImage(canvas, 0, 0, width, height);
 
   const imageData = analysisContext.getImageData(0, 0, width, height);
-  const backgroundBounds = detectDocumentByBackgroundSeparation(imageData, width, height);
   const documentBounds = detectDocumentByEdges(imageData, width, height);
-  const perspectiveBounds = [backgroundBounds, documentBounds]
-    .filter((bounds): bounds is PaperBounds => bounds !== null && bounds.confidence >= MIN_WARP_CONFIDENCE)
+  const backgroundBounds = detectDocumentByBackgroundSeparation(imageData, width, height);
+  const perspectiveBounds = [documentBounds, backgroundBounds]
+    .filter((bounds): bounds is PaperBounds => (
+      bounds !== null
+      && bounds.confidence >= MIN_WARP_CONFIDENCE
+      && isUsablePaperCrop(bounds, width, height)
+    ))
     .sort((left, right) => right.confidence - left.confidence)[0];
 
   if (perspectiveBounds) {
@@ -1399,7 +1436,11 @@ function detectPaperBounds(canvas: HTMLCanvasElement, maxAnalysisSide = DOCUMENT
 
   const closedContourBounds = detectClosedEdgeContour(imageData, width, height);
 
-  if (closedContourBounds && closedContourBounds.confidence >= 0.48) {
+  if (
+    closedContourBounds
+    && closedContourBounds.confidence >= MIN_WARP_CONFIDENCE
+    && isUsablePaperCrop(closedContourBounds, width, height)
+  ) {
     function scalePoint(point: PaperPoint): PaperPoint {
       return {
         x: Math.round(point.x / scale),
@@ -1426,7 +1467,11 @@ function detectPaperBounds(canvas: HTMLCanvasElement, maxAnalysisSide = DOCUMENT
   const mask = makePaperMask(imageData, width, height);
   const componentBounds = findLargestPaperComponent(mask, width, height);
 
-  if (componentBounds && componentBounds.confidence >= MIN_WARP_CONFIDENCE) {
+  if (
+    componentBounds
+    && componentBounds.confidence >= MIN_WARP_CONFIDENCE
+    && isUsablePaperCrop(componentBounds, width, height)
+  ) {
     const marginX = Math.round(componentBounds.width * 0.018);
     const marginY = Math.round(componentBounds.height * 0.018);
     const scaledX = Math.max(0, componentBounds.x - marginX);
@@ -1543,7 +1588,7 @@ function detectPaperBounds(canvas: HTMLCanvasElement, maxAnalysisSide = DOCUMENT
     };
   }
 
-  return {
+  const rowBounds: PaperBounds = {
     x: Math.round(scaledX / scale),
     y: Math.round(scaledY / scale),
     width: Math.round((scaledMaxX - scaledX + 1) / scale),
@@ -1556,6 +1601,12 @@ function detectPaperBounds(canvas: HTMLCanvasElement, maxAnalysisSide = DOCUMENT
       scalePoint({ x: bottomLeftX, y: bottomY }),
     ],
   };
+
+  if (!isUsablePaperCrop(rowBounds, canvas.width, canvas.height)) {
+    return fallbackPaperBounds(canvas.width, canvas.height);
+  }
+
+  return rowBounds;
 }
 
 function solveLinearSystem(matrix: number[][], values: number[]) {
@@ -1711,7 +1762,8 @@ function warpPerspectiveFromBounds(sourceCanvas: HTMLCanvasElement, bounds: Pape
 
 function cropPaperFromCanvas(sourceCanvas: HTMLCanvasElement): CropResult {
   const bounds = detectPaperBounds(sourceCanvas, 1200);
-  const warpedCanvas = bounds.confidence >= MIN_WARP_CONFIDENCE
+  const usableCrop = isUsablePaperCrop(bounds, sourceCanvas.width, sourceCanvas.height);
+  const warpedCanvas = usableCrop && bounds.confidence >= MIN_WARP_CONFIDENCE
     ? warpPerspectiveFromBounds(sourceCanvas, bounds)
     : null;
 
@@ -1722,7 +1774,18 @@ function cropPaperFromCanvas(sourceCanvas: HTMLCanvasElement): CropResult {
       originalHeight: sourceCanvas.height,
       croppedWidth: warpedCanvas.width,
       croppedHeight: warpedCanvas.height,
-      paperDetected: bounds.confidence >= MIN_CONFIDENT_CROP,
+      paperDetected: true,
+    };
+  }
+
+  if (!usableCrop) {
+    return {
+      imageUrl: sourceCanvas.toDataURL("image/jpeg", 0.92),
+      originalWidth: sourceCanvas.width,
+      originalHeight: sourceCanvas.height,
+      croppedWidth: sourceCanvas.width,
+      croppedHeight: sourceCanvas.height,
+      paperDetected: false,
     };
   }
 
@@ -1762,7 +1825,7 @@ function cropPaperFromCanvas(sourceCanvas: HTMLCanvasElement): CropResult {
     originalHeight: sourceCanvas.height,
     croppedWidth: cropWidth,
     croppedHeight: cropHeight,
-    paperDetected: bounds.confidence >= MIN_CONFIDENT_CROP,
+    paperDetected: true,
   };
 }
 
@@ -2241,7 +2304,8 @@ function detectShots(canvas: HTMLCanvasElement, geometry: TargetGeometry): Detec
     centerY: number,
     componentWidth: number,
     componentHeight: number,
-    radiusMultiplier: number
+    radiusMultiplier: number,
+    source: ShotCandidateSource
   ) => {
     const score = pointScore(geometry, centerX, centerY);
 
@@ -2271,16 +2335,19 @@ function detectShots(canvas: HTMLCanvasElement, geometry: TargetGeometry): Detec
       1
     );
     const confidence = clamp(shapeScore.confidence * 0.74 + circularity * 0.14 + sizeScore * 0.12, 0, 1);
+    const isCoreSeed = source === "core";
 
     if (
-      confidence < 0.64
-      || shapeScore.edgeDensity < 0.1
-      || shapeScore.radialCoverage < 0.54
-      || shapeScore.lineDominance > 0.24
-      || shapeScore.ringDominance > 0.42
-      || shapeScore.spokeCount < 13
-      || shapeScore.annulusComplexity < 0.12
-      || shapeScore.edgeMean < 46
+      confidence < (isCoreSeed ? 0.76 : 0.68)
+      || shapeScore.edgeDensity < (isCoreSeed ? 0.16 : 0.12)
+      || shapeScore.radialCoverage < (isCoreSeed ? 0.68 : 0.58)
+      || shapeScore.lineDominance > (isCoreSeed ? 0.18 : 0.22)
+      || shapeScore.ringDominance > (isCoreSeed ? 0.3 : 0.36)
+      || shapeScore.spokeCount < (isCoreSeed ? 16 : 14)
+      || shapeScore.coreComplexity < (isCoreSeed ? 0.22 : 0.16)
+      || shapeScore.annulusComplexity < (isCoreSeed ? 0.16 : 0.13)
+      || shapeScore.edgeMean < (isCoreSeed ? 74 : 58)
+      || shapeScore.centerRange < (isCoreSeed ? 42 : 34)
     ) {
       return;
     }
@@ -2383,7 +2450,7 @@ function detectShots(canvas: HTMLCanvasElement, geometry: TargetGeometry): Detec
     const centerX = sumX / area;
     const centerY = sumY / area;
 
-    addCandidate(centerX, centerY, componentWidth, componentHeight, 0.72);
+    addCandidate(centerX, centerY, componentWidth, componentHeight, 0.72, "edge");
   }
 
   const coreRadius = clamp(geometry.zoneWidth * 0.11, 5, 24);
@@ -2403,14 +2470,14 @@ function detectShots(canvas: HTMLCanvasElement, geometry: TargetGeometry): Detec
       const contrast = localCoreContrast(luma, width, height, x, y, coreRadius, ringRadius);
 
       if (
-        contrast.darkness < 18
-        || contrast.coreRange < 24
-        || contrast.coreMean > 170
+        contrast.darkness < 24
+        || contrast.coreRange < 36
+        || contrast.coreMean > 164
       ) {
         continue;
       }
 
-      addCandidate(x, y, coreRadius * 2.8, coreRadius * 2.8, 1.15);
+      addCandidate(x, y, coreRadius * 2.8, coreRadius * 2.8, 1.15, "core");
     }
   }
 
@@ -2847,6 +2914,11 @@ export default function TargetPhotoScanner() {
       return;
     }
 
+    if (!result.paperDetected) {
+      setScanMessage("Najpierw wykonaj nowe zdjęcie z pewnie wykrytymi krawędziami tarczy.");
+      return;
+    }
+
     setScanning(true);
     setScanMessage("");
 
@@ -2917,7 +2989,7 @@ export default function TargetPhotoScanner() {
             onClick={() => {
               void scanCroppedTarget();
             }}
-            disabled={scanning}
+            disabled={scanning || !result.paperDetected}
             className="ui-button mt-5 w-full rounded-xl bg-green-700 px-6 py-4 text-lg font-black text-white transition hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
           >
             {scanning ? "Skanowanie..." : "Skanuj"}
