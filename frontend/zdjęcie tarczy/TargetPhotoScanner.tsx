@@ -53,6 +53,15 @@ type CameraConstraintSet = MediaTrackConstraintSet & {
 const AUTO_CAPTURE_CONFIDENCE = 0.8;
 const AUTO_CAPTURE_STABLE_FRAMES = 4;
 const AUTO_CAPTURE_GEOMETRY_TOLERANCE = 0.035;
+const PREVIEW_SCAN_INTERVAL_MS = 160;
+const PREVIEW_ANALYSIS_SIDE = 480;
+const PREVIEW_MIN_CONFIDENCE = 0.28;
+const PREVIEW_SWITCH_CONFIDENCE = 0.68;
+const PREVIEW_SWITCH_STABLE_FRAMES = 3;
+const PREVIEW_GEOMETRY_TOLERANCE = 0.08;
+const PREVIEW_CANDIDATE_TOLERANCE = 0.055;
+const PREVIEW_SMOOTHING = 0.28;
+const PREVIEW_HOLD_MS = 700;
 
 function scoreCameraDevice(device: CameraDevice, index: number) {
   const label = device.label.toLowerCase();
@@ -404,7 +413,11 @@ function cropPaperFromCanvas(sourceCanvas: HTMLCanvasElement): CropResult {
   };
 }
 
-function hasStablePaperGeometry(previousBounds: PaperBounds | null, nextBounds: PaperBounds) {
+function hasSimilarPaperGeometry(
+  previousBounds: PaperBounds | null,
+  nextBounds: PaperBounds,
+  tolerance: number
+) {
   if (!previousBounds) {
     return false;
   }
@@ -425,8 +438,39 @@ function hasStablePaperGeometry(previousBounds: PaperBounds | null, nextBounds: 
     Math.abs(previousBounds.height - nextBounds.height)
   ) / maxSide;
 
-  return positionDelta <= AUTO_CAPTURE_GEOMETRY_TOLERANCE
-    && sizeDelta <= AUTO_CAPTURE_GEOMETRY_TOLERANCE;
+  return positionDelta <= tolerance && sizeDelta <= tolerance;
+}
+
+function hasStablePaperGeometry(previousBounds: PaperBounds | null, nextBounds: PaperBounds) {
+  return hasSimilarPaperGeometry(
+    previousBounds,
+    nextBounds,
+    AUTO_CAPTURE_GEOMETRY_TOLERANCE
+  );
+}
+
+function blendNumber(previousValue: number, nextValue: number, alpha: number) {
+  return previousValue + (nextValue - previousValue) * alpha;
+}
+
+function blendPoint(previousPoint: PaperPoint, nextPoint: PaperPoint, alpha: number): PaperPoint {
+  return {
+    x: blendNumber(previousPoint.x, nextPoint.x, alpha),
+    y: blendNumber(previousPoint.y, nextPoint.y, alpha),
+  };
+}
+
+function blendPaperBounds(previousBounds: PaperBounds, nextBounds: PaperBounds, alpha: number): PaperBounds {
+  return {
+    x: Math.round(blendNumber(previousBounds.x, nextBounds.x, alpha)),
+    y: Math.round(blendNumber(previousBounds.y, nextBounds.y, alpha)),
+    width: Math.round(blendNumber(previousBounds.width, nextBounds.width, alpha)),
+    height: Math.round(blendNumber(previousBounds.height, nextBounds.height, alpha)),
+    confidence: Math.max(nextBounds.confidence, previousBounds.confidence * 0.96),
+    polygon: previousBounds.polygon.map((point, index) => (
+      blendPoint(point, nextBounds.polygon[index], alpha)
+    )) as [PaperPoint, PaperPoint, PaperPoint, PaperPoint],
+  };
 }
 
 export default function TargetPhotoScanner() {
@@ -439,6 +483,10 @@ export default function TargetPhotoScanner() {
   const lastAutoCaptureBoundsRef = useRef<PaperBounds | null>(null);
   const stableAutoCaptureFramesRef = useRef(0);
   const autoCaptureInProgressRef = useRef(false);
+  const smoothedPreviewBoundsRef = useRef<PaperBounds | null>(null);
+  const candidatePreviewBoundsRef = useRef<PaperBounds | null>(null);
+  const candidatePreviewFramesRef = useRef(0);
+  const lastGoodPreviewAtRef = useRef(0);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [starting, setStarting] = useState(false);
   const [message, setMessage] = useState("");
@@ -479,6 +527,10 @@ export default function TargetPhotoScanner() {
     stableAutoCaptureFramesRef.current = 0;
     lastAutoCaptureBoundsRef.current = null;
     autoCaptureInProgressRef.current = false;
+    smoothedPreviewBoundsRef.current = null;
+    candidatePreviewBoundsRef.current = null;
+    candidatePreviewFramesRef.current = 0;
+    lastGoodPreviewAtRef.current = 0;
 
     if (videoRef.current) {
       videoRef.current.srcObject = null;
@@ -742,6 +794,91 @@ export default function TargetPhotoScanner() {
     void captureTargetPhoto();
   }
 
+  function stabilizePaperPreview(rawBounds: PaperBounds | null) {
+    const now = Date.now();
+    const previousBounds = smoothedPreviewBoundsRef.current;
+
+    if (!rawBounds || rawBounds.confidence < PREVIEW_MIN_CONFIDENCE) {
+      candidatePreviewBoundsRef.current = null;
+      candidatePreviewFramesRef.current = 0;
+
+      if (previousBounds && now - lastGoodPreviewAtRef.current <= PREVIEW_HOLD_MS) {
+        return {
+          ...previousBounds,
+          confidence: Math.min(previousBounds.confidence, 0.44),
+        };
+      }
+
+      smoothedPreviewBoundsRef.current = null;
+      return null;
+    }
+
+    if (!previousBounds) {
+      smoothedPreviewBoundsRef.current = rawBounds;
+      candidatePreviewBoundsRef.current = null;
+      candidatePreviewFramesRef.current = 0;
+      lastGoodPreviewAtRef.current = now;
+      return rawBounds;
+    }
+
+    if (hasSimilarPaperGeometry(previousBounds, rawBounds, PREVIEW_GEOMETRY_TOLERANCE)) {
+      const smoothedBounds = blendPaperBounds(
+        previousBounds,
+        rawBounds,
+        PREVIEW_SMOOTHING
+      );
+
+      smoothedPreviewBoundsRef.current = smoothedBounds;
+      candidatePreviewBoundsRef.current = null;
+      candidatePreviewFramesRef.current = 0;
+      lastGoodPreviewAtRef.current = now;
+      return smoothedBounds;
+    }
+
+    if (rawBounds.confidence < PREVIEW_SWITCH_CONFIDENCE) {
+      candidatePreviewBoundsRef.current = null;
+      candidatePreviewFramesRef.current = 0;
+      return {
+        ...previousBounds,
+        confidence: Math.min(previousBounds.confidence, 0.65),
+      };
+    }
+
+    if (
+      candidatePreviewBoundsRef.current
+      && hasSimilarPaperGeometry(
+        candidatePreviewBoundsRef.current,
+        rawBounds,
+        PREVIEW_CANDIDATE_TOLERANCE
+      )
+    ) {
+      candidatePreviewFramesRef.current += 1;
+      candidatePreviewBoundsRef.current = blendPaperBounds(
+        candidatePreviewBoundsRef.current,
+        rawBounds,
+        0.5
+      );
+    } else {
+      candidatePreviewBoundsRef.current = rawBounds;
+      candidatePreviewFramesRef.current = 1;
+    }
+
+    if (candidatePreviewFramesRef.current >= PREVIEW_SWITCH_STABLE_FRAMES) {
+      const nextBounds = candidatePreviewBoundsRef.current;
+
+      smoothedPreviewBoundsRef.current = nextBounds;
+      candidatePreviewBoundsRef.current = null;
+      candidatePreviewFramesRef.current = 0;
+      lastGoodPreviewAtRef.current = now;
+      return nextBounds;
+    }
+
+    return {
+      ...previousBounds,
+      confidence: Math.min(previousBounds.confidence, 0.65),
+    };
+  }
+
   function drawVideoFrameToCanvas() {
     const video = videoRef.current;
 
@@ -870,7 +1007,10 @@ export default function TargetPhotoScanner() {
             height
           );
 
-          nextBounds = detectPaperBounds(canvas, 520);
+          nextBounds = stabilizePaperPreview(detectPaperBounds(
+            canvas,
+            PREVIEW_ANALYSIS_SIDE
+          ));
           setPaperPreview(nextBounds);
           drawPaperPreview(nextBounds, width, height);
           evaluateAutoCapture(nextBounds);
@@ -884,11 +1024,14 @@ export default function TargetPhotoScanner() {
       }
 
       if (streamRef.current && !autoCaptureInProgressRef.current) {
-        previewTimerRef.current = window.setTimeout(scan, 260);
+        previewTimerRef.current = window.setTimeout(
+          scan,
+          PREVIEW_SCAN_INTERVAL_MS
+        );
       }
     };
 
-    previewTimerRef.current = window.setTimeout(scan, 300);
+    previewTimerRef.current = window.setTimeout(scan, 180);
   }
 
   async function captureTargetPhoto() {
