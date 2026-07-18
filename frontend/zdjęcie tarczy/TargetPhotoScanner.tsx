@@ -50,6 +50,10 @@ type CameraConstraintSet = MediaTrackConstraintSet & {
   zoom?: number;
 };
 
+const AUTO_CAPTURE_CONFIDENCE = 0.8;
+const AUTO_CAPTURE_STABLE_FRAMES = 4;
+const AUTO_CAPTURE_GEOMETRY_TOLERANCE = 0.035;
+
 function scoreCameraDevice(device: CameraDevice, index: number) {
   const label = device.label.toLowerCase();
   const isFront = /front|przedni/.test(label);
@@ -400,6 +404,31 @@ function cropPaperFromCanvas(sourceCanvas: HTMLCanvasElement): CropResult {
   };
 }
 
+function hasStablePaperGeometry(previousBounds: PaperBounds | null, nextBounds: PaperBounds) {
+  if (!previousBounds) {
+    return false;
+  }
+
+  const maxSide = Math.max(
+    previousBounds.width,
+    previousBounds.height,
+    nextBounds.width,
+    nextBounds.height,
+    1
+  );
+  const positionDelta = Math.max(
+    Math.abs(previousBounds.x - nextBounds.x),
+    Math.abs(previousBounds.y - nextBounds.y)
+  ) / maxSide;
+  const sizeDelta = Math.max(
+    Math.abs(previousBounds.width - nextBounds.width),
+    Math.abs(previousBounds.height - nextBounds.height)
+  ) / maxSide;
+
+  return positionDelta <= AUTO_CAPTURE_GEOMETRY_TOLERANCE
+    && sizeDelta <= AUTO_CAPTURE_GEOMETRY_TOLERANCE;
+}
+
 export default function TargetPhotoScanner() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -407,6 +436,9 @@ export default function TargetPhotoScanner() {
   const previewTimerRef = useRef<number | null>(null);
   const digitalZoomRef = useRef(1);
   const streamRef = useRef<MediaStream | null>(null);
+  const lastAutoCaptureBoundsRef = useRef<PaperBounds | null>(null);
+  const stableAutoCaptureFramesRef = useRef(0);
+  const autoCaptureInProgressRef = useRef(false);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [starting, setStarting] = useState(false);
   const [message, setMessage] = useState("");
@@ -421,6 +453,7 @@ export default function TargetPhotoScanner() {
   const [paperPreview, setPaperPreview] = useState<PaperBounds | null>(null);
   const [flashOnCapture, setFlashOnCapture] = useState(false);
   const [controlsOpen, setControlsOpen] = useState(false);
+  const [autoCaptureStatus, setAutoCaptureStatus] = useState("");
 
   function updateDigitalZoom(value: number) {
     const nextZoom = Math.max(1, Math.min(4, value));
@@ -442,6 +475,10 @@ export default function TargetPhotoScanner() {
     setCameraZoomRange(null);
     setCameraZoom(1);
     setPaperPreview(null);
+    setAutoCaptureStatus("");
+    stableAutoCaptureFramesRef.current = 0;
+    lastAutoCaptureBoundsRef.current = null;
+    autoCaptureInProgressRef.current = false;
 
     if (videoRef.current) {
       videoRef.current.srcObject = null;
@@ -666,6 +703,45 @@ export default function TargetPhotoScanner() {
     } as MediaTrackConstraints).catch(() => undefined);
   }
 
+  function evaluateAutoCapture(bounds: PaperBounds | null) {
+    if (
+      !bounds
+      || bounds.confidence < AUTO_CAPTURE_CONFIDENCE
+      || autoCaptureInProgressRef.current
+    ) {
+      stableAutoCaptureFramesRef.current = 0;
+      lastAutoCaptureBoundsRef.current = bounds;
+      setAutoCaptureStatus("");
+      return;
+    }
+
+    const isStable = hasStablePaperGeometry(lastAutoCaptureBoundsRef.current, bounds);
+
+    lastAutoCaptureBoundsRef.current = bounds;
+
+    if (!isStable) {
+      stableAutoCaptureFramesRef.current = 1;
+      setAutoCaptureStatus("Trzymaj nieruchomo");
+      return;
+    }
+
+    stableAutoCaptureFramesRef.current += 1;
+
+    const framesLeft = Math.max(
+      0,
+      AUTO_CAPTURE_STABLE_FRAMES - stableAutoCaptureFramesRef.current
+    );
+
+    if (framesLeft > 0) {
+      setAutoCaptureStatus(`Automatyczne zdjęcie za ${framesLeft}`);
+      return;
+    }
+
+    autoCaptureInProgressRef.current = true;
+    setAutoCaptureStatus("Robię zdjęcie");
+    void captureTargetPhoto();
+  }
+
   function drawVideoFrameToCanvas() {
     const video = videoRef.current;
 
@@ -797,15 +873,17 @@ export default function TargetPhotoScanner() {
           nextBounds = detectPaperBounds(canvas, 520);
           setPaperPreview(nextBounds);
           drawPaperPreview(nextBounds, width, height);
+          evaluateAutoCapture(nextBounds);
         }
       }
 
       if (!nextBounds) {
         setPaperPreview(null);
         drawPaperPreview(null, 1, 1);
+        evaluateAutoCapture(null);
       }
 
-      if (streamRef.current) {
+      if (streamRef.current && !autoCaptureInProgressRef.current) {
         previewTimerRef.current = window.setTimeout(scan, 260);
       }
     };
@@ -814,6 +892,12 @@ export default function TargetPhotoScanner() {
   }
 
   async function captureTargetPhoto() {
+    if (autoCaptureInProgressRef.current && !streamRef.current) {
+      return;
+    }
+
+    autoCaptureInProgressRef.current = true;
+
     if (flashOnCapture && torchSupported && !torchEnabled) {
       await setTorchState(true);
       await new Promise((resolve) => {
@@ -828,6 +912,7 @@ export default function TargetPhotoScanner() {
       if (flashOnCapture && torchSupported) {
         await setTorchState(false);
       }
+      autoCaptureInProgressRef.current = false;
       return;
     }
 
@@ -957,6 +1042,14 @@ export default function TargetPhotoScanner() {
                     : "Ustaw kartkę w kadrze"}
               </span>
             </div>
+
+            {autoCaptureStatus && (
+              <div className="mt-2 flex justify-center">
+                <span className="rounded-full bg-white/90 px-4 py-2 text-sm font-black text-zinc-950 shadow-lg backdrop-blur">
+                  {autoCaptureStatus}
+                </span>
+              </div>
+            )}
 
             {controlsOpen && (
               <div className="pointer-events-auto mt-3 space-y-3 rounded-2xl border border-white/10 bg-black/75 p-4 shadow-2xl backdrop-blur">
