@@ -501,10 +501,10 @@ function detectDocumentByEdges(imageData: ImageData, width: number, height: numb
           const oppositeHeightRatio = Math.min(leftHeight, rightHeight) / Math.max(leftHeight, rightHeight);
 
           if (
-            areaRatio < 0.09
+            areaRatio < 0.14
             || areaRatio > 0.86
-            || aspectRatio < 0.52
-            || aspectRatio > 2.25
+            || aspectRatio < 0.76
+            || aspectRatio > 1.32
             || oppositeWidthRatio < 0.56
             || oppositeHeightRatio < 0.56
           ) {
@@ -529,7 +529,13 @@ function detectDocumentByEdges(imageData: ImageData, width: number, height: numb
             + orderedHorizontals[0].score
             + orderedHorizontals[1].score
           ) / 4;
-          const score = edgeSupport * 3.3 + centeredness * 0.65 + Math.min(1, areaRatio / 0.18) * 0.45 + lineScore / 30_000;
+          const squareScore = 1 - clamp(Math.abs(1 - aspectRatio) / 0.32, 0, 1);
+          const sizeScore = clamp(areaRatio / 0.32, 0, 1);
+          const score = edgeSupport * 2.4
+            + squareScore * 1.35
+            + sizeScore * 1.15
+            + centeredness * 0.55
+            + lineScore / 60_000;
 
           if (edgeSupport < 0.22 || score <= bestScore) {
             continue;
@@ -547,7 +553,7 @@ function detectDocumentByEdges(imageData: ImageData, width: number, height: numb
               height,
               Math.ceil(Math.max(...polygon.map((point) => point.y)) - Math.min(...polygon.map((point) => point.y)))
             ),
-            confidence: clamp(edgeSupport * 0.72 + centeredness * 0.18 + Math.min(1, areaRatio / 0.22) * 0.1, 0, 1),
+            confidence: clamp(edgeSupport * 0.5 + squareScore * 0.28 + sizeScore * 0.14 + centeredness * 0.08, 0, 1),
             polygon,
           };
         }
@@ -679,8 +685,8 @@ function findLargestPaperComponent(mask: Uint8Array, width: number, height: numb
     if (
       componentWidth < width * 0.24
       || componentHeight < height * 0.14
-      || aspectRatio < 0.45
-      || aspectRatio > 2.5
+      || aspectRatio < 0.76
+      || aspectRatio > 1.32
       || fillRatio < 0.24
       || imageCoverage > 0.9
       || edgeTouchRatio > 0.06
@@ -898,8 +904,14 @@ function detectPaperBounds(canvas: HTMLCanvasElement, maxAnalysisSide = DOCUMENT
   const maxX = Math.max(rightX, topRightX, bottomRightX);
   const paperWidth = maxX - minX + 1;
   const paperHeight = bottomY - topY + 1;
+  const paperAspectRatio = paperWidth / Math.max(1, paperHeight);
 
-  if (paperWidth < width * 0.22 || paperHeight < height * 0.22) {
+  if (
+    paperWidth < width * 0.22
+    || paperHeight < height * 0.22
+    || paperAspectRatio < 0.76
+    || paperAspectRatio > 1.32
+  ) {
     return fallbackPaperBounds(canvas.width, canvas.height);
   }
 
