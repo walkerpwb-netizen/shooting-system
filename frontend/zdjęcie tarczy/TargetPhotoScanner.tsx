@@ -13,6 +13,21 @@ type CropResult = {
   originalHeight: number;
   croppedWidth: number;
   croppedHeight: number;
+  paperDetected: boolean;
+};
+
+type PaperPoint = {
+  x: number;
+  y: number;
+};
+
+type PaperBounds = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  confidence: number;
+  polygon: [PaperPoint, PaperPoint, PaperPoint, PaperPoint];
 };
 
 type CameraCapabilities = MediaTrackCapabilities & {
@@ -111,112 +126,82 @@ function getPercentileFromHistogram(histogram: number[], total: number, percenti
   return 255;
 }
 
-function closePaperMask(mask: Uint8Array, width: number, height: number) {
-  const dilated = new Uint8Array(mask.length);
-  const closed = new Uint8Array(mask.length);
-
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const index = y * width + x;
-
-      if (mask[index]) {
-        dilated[index] = 1;
-        continue;
-      }
-
-      let found = false;
-
-      for (let dy = -2; dy <= 2 && !found; dy += 1) {
-        const nextY = y + dy;
-
-        if (nextY < 0 || nextY >= height) {
-          continue;
-        }
-
-        for (let dx = -2; dx <= 2; dx += 1) {
-          const nextX = x + dx;
-
-          if (nextX < 0 || nextX >= width) {
-            continue;
-          }
-
-          if (mask[nextY * width + nextX]) {
-            found = true;
-            break;
-          }
-        }
-      }
-
-      if (found) {
-        dilated[index] = 1;
-      }
-    }
+function median(values: number[]) {
+  if (values.length === 0) {
+    return 0;
   }
 
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const index = y * width + x;
+  const sortedValues = [...values].sort((left, right) => left - right);
+  const middleIndex = Math.floor(sortedValues.length / 2);
 
-      if (!dilated[index]) {
-        continue;
-      }
-
-      let keep = true;
-
-      for (let dy = -2; dy <= 2 && keep; dy += 1) {
-        const nextY = y + dy;
-
-        if (nextY < 0 || nextY >= height) {
-          keep = false;
-          break;
-        }
-
-        for (let dx = -2; dx <= 2; dx += 1) {
-          const nextX = x + dx;
-
-          if (nextX < 0 || nextX >= width || !dilated[nextY * width + nextX]) {
-            keep = false;
-            break;
-          }
-        }
-      }
-
-      if (keep) {
-        closed[index] = 1;
-      }
-    }
-  }
-
-  return closed;
+  return sortedValues.length % 2 === 0
+    ? (sortedValues[middleIndex - 1] + sortedValues[middleIndex]) / 2
+    : sortedValues[middleIndex];
 }
 
-function findPaperBounds(canvas: HTMLCanvasElement) {
-  const maxAnalysisSide = 1100;
-  const scale = Math.min(
-    1,
-    maxAnalysisSide / Math.max(canvas.width, canvas.height)
-  );
-  const width = Math.max(1, Math.round(canvas.width * scale));
-  const height = Math.max(1, Math.round(canvas.height * scale));
-  const analysisCanvas = document.createElement("canvas");
-  const analysisContext = analysisCanvas.getContext("2d", {
-    willReadFrequently: true,
-  });
-
-  if (!analysisContext) {
-    return {
-      x: 0,
-      y: 0,
-      width: canvas.width,
-      height: canvas.height,
-    };
+function percentile(values: number[], fraction: number) {
+  if (values.length === 0) {
+    return 0;
   }
 
-  analysisCanvas.width = width;
-  analysisCanvas.height = height;
-  analysisContext.drawImage(canvas, 0, 0, width, height);
+  const sortedValues = [...values].sort((left, right) => left - right);
+  const index = Math.min(
+    sortedValues.length - 1,
+    Math.max(0, Math.round((sortedValues.length - 1) * fraction))
+  );
 
-  const imageData = analysisContext.getImageData(0, 0, width, height);
+  return sortedValues[index];
+}
+
+function fallbackPaperBounds(width: number, height: number): PaperBounds {
+  return {
+    x: 0,
+    y: 0,
+    width,
+    height,
+    confidence: 0,
+    polygon: [
+      { x: 0, y: 0 },
+      { x: width, y: 0 },
+      { x: width, y: height },
+      { x: 0, y: height },
+    ],
+  };
+}
+
+function findLongestRun(mask: Uint8Array, offset: number, length: number) {
+  let bestStart = -1;
+  let bestEnd = -1;
+  let currentStart = -1;
+
+  for (let index = 0; index < length; index += 1) {
+    if (mask[offset + index]) {
+      if (currentStart < 0) {
+        currentStart = index;
+      }
+    } else if (currentStart >= 0) {
+      if (index - currentStart > bestEnd - bestStart) {
+        bestStart = currentStart;
+        bestEnd = index - 1;
+      }
+
+      currentStart = -1;
+    }
+  }
+
+  if (currentStart >= 0 && length - currentStart > bestEnd - bestStart) {
+    bestStart = currentStart;
+    bestEnd = length - 1;
+  }
+
+  return {
+    start: bestStart,
+    end: bestEnd,
+    length: bestStart < 0 ? 0 : bestEnd - bestStart + 1,
+  };
+}
+
+function makePaperMask(imageData: ImageData, width: number, height: number) {
   const histogram = Array.from({ length: 256 }, () => 0);
   const pixelCount = width * height;
 
@@ -229,11 +214,10 @@ function findPaperBounds(canvas: HTMLCanvasElement) {
     histogram[luma] += 1;
   }
 
-  const p55 = getPercentileFromHistogram(histogram, pixelCount, 0.55);
-  const p88 = getPercentileFromHistogram(histogram, pixelCount, 0.88);
-  const threshold = Math.max(92, Math.min(190, Math.round((p55 + p88) / 2 - 26)));
+  const p50 = getPercentileFromHistogram(histogram, pixelCount, 0.5);
+  const p82 = getPercentileFromHistogram(histogram, pixelCount, 0.82);
+  const paperThreshold = Math.max(88, Math.min(185, Math.round((p50 + p82) / 2 - 18)));
   const mask = new Uint8Array(pixelCount);
-  const visited = new Uint8Array(pixelCount);
 
   for (let index = 0, pixel = 0; index < imageData.data.length; index += 4, pixel += 1) {
     const red = imageData.data[index];
@@ -243,111 +227,139 @@ function findPaperBounds(canvas: HTMLCanvasElement) {
     const min = Math.min(red, green, blue);
     const chroma = max - min;
     const luma = red * 0.2126 + green * 0.7152 + blue * 0.0722;
-    const blueDeficit = Math.max(red - blue, green - blue);
-    const neutralPaper = chroma <= 58 && blueDeficit <= 52;
-    const shadowedPaper = chroma <= 42 && luma >= threshold - 14;
+    const yellowCast = red + green - blue * 2;
+    const neutralEnough = chroma <= 72 && yellowCast <= 118;
+    const whiteEnough = red >= paperThreshold && green >= paperThreshold && blue >= paperThreshold - 18;
+    const shadowPaper = luma >= paperThreshold - 18 && chroma <= 46 && yellowCast <= 84;
 
-    if ((luma >= threshold && neutralPaper) || shadowedPaper) {
+    if ((whiteEnough && neutralEnough) || shadowPaper) {
       mask[pixel] = 1;
     }
   }
 
-  const paperMask = closePaperMask(mask, width, height);
+  return mask;
+}
 
-  let bestArea = 0;
-  let bestMinX = 0;
-  let bestMinY = 0;
-  let bestMaxX = width - 1;
-  let bestMaxY = height - 1;
-  const stack: number[] = [];
+function detectPaperBounds(canvas: HTMLCanvasElement, maxAnalysisSide = 900): PaperBounds {
+  const scale = Math.min(
+    1,
+    maxAnalysisSide / Math.max(canvas.width, canvas.height)
+  );
+  const width = Math.max(1, Math.round(canvas.width * scale));
+  const height = Math.max(1, Math.round(canvas.height * scale));
+  const analysisCanvas = document.createElement("canvas");
+  const analysisContext = analysisCanvas.getContext("2d", {
+    willReadFrequently: true,
+  });
 
-  for (let start = 0; start < pixelCount; start += 1) {
-    if (!paperMask[start] || visited[start]) {
-      continue;
-    }
+  if (!analysisContext) {
+    return fallbackPaperBounds(canvas.width, canvas.height);
+  }
 
-    visited[start] = 1;
-    stack.length = 0;
-    stack.push(start);
+  analysisCanvas.width = width;
+  analysisCanvas.height = height;
+  analysisContext.drawImage(canvas, 0, 0, width, height);
 
-    let area = 0;
-    let minX = width;
-    let minY = height;
-    let maxX = 0;
-    let maxY = 0;
+  const imageData = analysisContext.getImageData(0, 0, width, height);
+  const mask = makePaperMask(imageData, width, height);
+  const rowEdges: Array<{
+    y: number;
+    left: number;
+    right: number;
+    runLength: number;
+  }> = [];
+  const minRunLength = Math.round(width * 0.22);
 
-    while (stack.length > 0) {
-      const current = stack.pop() as number;
-      const x = current % width;
-      const y = Math.floor(current / width);
+  for (let y = 0; y < height; y += 1) {
+    const run = findLongestRun(mask, y * width, width);
 
-      area += 1;
-      minX = Math.min(minX, x);
-      maxX = Math.max(maxX, x);
-      minY = Math.min(minY, y);
-      maxY = Math.max(maxY, y);
-
-      const left = current - 1;
-      const right = current + 1;
-      const top = current - width;
-      const bottom = current + width;
-
-      if (x > 0 && paperMask[left] && !visited[left]) {
-        visited[left] = 1;
-        stack.push(left);
-      }
-
-      if (x < width - 1 && paperMask[right] && !visited[right]) {
-        visited[right] = 1;
-        stack.push(right);
-      }
-
-      if (y > 0 && paperMask[top] && !visited[top]) {
-        visited[top] = 1;
-        stack.push(top);
-      }
-
-      if (y < height - 1 && paperMask[bottom] && !visited[bottom]) {
-        visited[bottom] = 1;
-        stack.push(bottom);
-      }
-    }
-
-    if (area > bestArea) {
-      bestArea = area;
-      bestMinX = minX;
-      bestMinY = minY;
-      bestMaxX = maxX;
-      bestMaxY = maxY;
+    if (run.length >= minRunLength) {
+      rowEdges.push({
+        y,
+        left: run.start,
+        right: run.end,
+        runLength: run.length,
+      });
     }
   }
 
-  if (bestArea < pixelCount * 0.05) {
+  if (rowEdges.length < height * 0.12) {
+    return fallbackPaperBounds(canvas.width, canvas.height);
+  }
+
+  const rowLengths = rowEdges.map((row) => row.runLength);
+  const strongRunLength = Math.max(
+    minRunLength,
+    percentile(rowLengths, 0.55) * 0.72
+  );
+  const strongRows = rowEdges.filter((row) => row.runLength >= strongRunLength);
+
+  if (strongRows.length < height * 0.08) {
+    return fallbackPaperBounds(canvas.width, canvas.height);
+  }
+
+  const topY = percentile(strongRows.map((row) => row.y), 0.02);
+  const bottomY = percentile(strongRows.map((row) => row.y), 0.98);
+  const verticalSpan = Math.max(1, bottomY - topY);
+  const topBand = strongRows.filter((row) => Math.abs(row.y - topY) <= Math.max(8, verticalSpan * 0.08));
+  const bottomBand = strongRows.filter((row) => Math.abs(row.y - bottomY) <= Math.max(8, verticalSpan * 0.08));
+  const centerRows = strongRows.filter((row) => row.y >= topY + verticalSpan * 0.18 && row.y <= bottomY - verticalSpan * 0.18);
+
+  if (centerRows.length < 6) {
+    return fallbackPaperBounds(canvas.width, canvas.height);
+  }
+
+  const leftX = percentile(centerRows.map((row) => row.left), 0.12);
+  const rightX = percentile(centerRows.map((row) => row.right), 0.88);
+  const topLeftX = median(topBand.map((row) => row.left)) || leftX;
+  const topRightX = median(topBand.map((row) => row.right)) || rightX;
+  const bottomLeftX = median(bottomBand.map((row) => row.left)) || leftX;
+  const bottomRightX = median(bottomBand.map((row) => row.right)) || rightX;
+  const minX = Math.min(leftX, topLeftX, bottomLeftX);
+  const maxX = Math.max(rightX, topRightX, bottomRightX);
+  const paperWidth = maxX - minX + 1;
+  const paperHeight = bottomY - topY + 1;
+
+  if (paperWidth < width * 0.22 || paperHeight < height * 0.22) {
+    return fallbackPaperBounds(canvas.width, canvas.height);
+  }
+
+  const marginX = Math.round(paperWidth * 0.01);
+  const marginY = Math.round(paperHeight * 0.01);
+  const scaledX = Math.max(0, minX - marginX);
+  const scaledY = Math.max(0, topY - marginY);
+  const scaledMaxX = Math.min(width - 1, maxX + marginX);
+  const scaledMaxY = Math.min(height - 1, bottomY + marginY);
+  const areaRatio = (paperWidth * paperHeight) / (width * height);
+  const confidence = Math.min(
+    1,
+    Math.max(0, strongRows.length / Math.max(1, paperHeight)) * Math.min(1, areaRatio / 0.22)
+  );
+
+  function scalePoint(point: PaperPoint): PaperPoint {
     return {
-      x: 0,
-      y: 0,
-      width: canvas.width,
-      height: canvas.height,
+      x: Math.round(point.x / scale),
+      y: Math.round(point.y / scale),
     };
   }
-
-  const marginX = Math.round((bestMaxX - bestMinX + 1) * 0.006);
-  const marginY = Math.round((bestMaxY - bestMinY + 1) * 0.006);
-  const scaledX = Math.max(0, bestMinX - marginX);
-  const scaledY = Math.max(0, bestMinY - marginY);
-  const scaledMaxX = Math.min(width - 1, bestMaxX + marginX);
-  const scaledMaxY = Math.min(height - 1, bestMaxY + marginY);
 
   return {
     x: Math.round(scaledX / scale),
     y: Math.round(scaledY / scale),
     width: Math.round((scaledMaxX - scaledX + 1) / scale),
     height: Math.round((scaledMaxY - scaledY + 1) / scale),
+    confidence,
+    polygon: [
+      scalePoint({ x: topLeftX, y: topY }),
+      scalePoint({ x: topRightX, y: topY }),
+      scalePoint({ x: bottomRightX, y: bottomY }),
+      scalePoint({ x: bottomLeftX, y: bottomY }),
+    ],
   };
 }
 
 function cropPaperFromCanvas(sourceCanvas: HTMLCanvasElement): CropResult {
-  const bounds = findPaperBounds(sourceCanvas);
+  const bounds = detectPaperBounds(sourceCanvas, 1200);
   const cropCanvas = document.createElement("canvas");
   const cropContext = cropCanvas.getContext("2d");
   const cropWidth = Math.max(1, Math.min(sourceCanvas.width - bounds.x, bounds.width));
@@ -360,6 +372,7 @@ function cropPaperFromCanvas(sourceCanvas: HTMLCanvasElement): CropResult {
       originalHeight: sourceCanvas.height,
       croppedWidth: sourceCanvas.width,
       croppedHeight: sourceCanvas.height,
+      paperDetected: false,
     };
   }
 
@@ -383,11 +396,16 @@ function cropPaperFromCanvas(sourceCanvas: HTMLCanvasElement): CropResult {
     originalHeight: sourceCanvas.height,
     croppedWidth: cropWidth,
     croppedHeight: cropHeight,
+    paperDetected: bounds.confidence >= 0.35,
   };
 }
 
 export default function TargetPhotoScanner() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const previewTimerRef = useRef<number | null>(null);
+  const digitalZoomRef = useRef(1);
   const streamRef = useRef<MediaStream | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [starting, setStarting] = useState(false);
@@ -400,14 +418,30 @@ export default function TargetPhotoScanner() {
   const [cameraZoomRange, setCameraZoomRange] = useState<CameraCapabilities["zoom"] | null>(null);
   const [cameraZoom, setCameraZoom] = useState(1);
   const [digitalZoom, setDigitalZoom] = useState(1);
+  const [paperPreview, setPaperPreview] = useState<PaperBounds | null>(null);
+  const [flashOnCapture, setFlashOnCapture] = useState(false);
+  const [controlsOpen, setControlsOpen] = useState(false);
+
+  function updateDigitalZoom(value: number) {
+    const nextZoom = Math.max(1, Math.min(4, value));
+
+    digitalZoomRef.current = nextZoom;
+    setDigitalZoom(nextZoom);
+  }
 
   function stopCamera() {
+    if (previewTimerRef.current !== null) {
+      window.clearTimeout(previewTimerRef.current);
+      previewTimerRef.current = null;
+    }
+
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     setTorchSupported(false);
     setTorchEnabled(false);
     setCameraZoomRange(null);
     setCameraZoom(1);
+    setPaperPreview(null);
 
     if (videoRef.current) {
       videoRef.current.srcObject = null;
@@ -443,6 +477,25 @@ export default function TargetPhotoScanner() {
     };
 
     return navigator.mediaDevices.getUserMedia(constraints);
+  }
+
+  async function setTorchState(enabled: boolean) {
+    const [videoTrack] = streamRef.current?.getVideoTracks() || [];
+
+    if (!videoTrack || !torchSupported) {
+      return false;
+    }
+
+    return videoTrack.applyConstraints({
+      advanced: [
+        {
+          torch: enabled,
+        } as CameraConstraintSet,
+      ],
+    } as MediaTrackConstraints).then(() => {
+      setTorchEnabled(enabled);
+      return true;
+    }).catch(() => false);
   }
 
   async function applyCameraFeatures(stream: MediaStream) {
@@ -506,6 +559,7 @@ export default function TargetPhotoScanner() {
     setCameraOpen(true);
     setStarting(true);
     setMessage("");
+    setControlsOpen(false);
 
     try {
       const devicesBeforePermission = await listVideoInputs().catch(() => []);
@@ -527,6 +581,7 @@ export default function TargetPhotoScanner() {
 
       setSelectedCameraId(stream.getVideoTracks()[0]?.getSettings().deviceId || "");
       await attachStream(stream);
+      startPaperPreview();
     } catch {
       setMessage("Nie udało się uruchomić aparatu. Sprawdź uprawnienia kamery.");
       setCameraOpen(false);
@@ -551,6 +606,7 @@ export default function TargetPhotoScanner() {
       stopCamera();
       const stream = await startStream(deviceId);
       await attachStream(stream);
+      startPaperPreview();
     } catch {
       setMessage("Nie udało się przełączyć aparatu.");
     } finally {
@@ -559,25 +615,11 @@ export default function TargetPhotoScanner() {
   }
 
   async function toggleTorch() {
-    const [videoTrack] = streamRef.current?.getVideoTracks() || [];
+    const changed = await setTorchState(!torchEnabled);
 
-    if (!videoTrack || !torchSupported) {
-      return;
-    }
-
-    const nextTorchState = !torchEnabled;
-
-    await videoTrack.applyConstraints({
-      advanced: [
-        {
-          torch: nextTorchState,
-        } as CameraConstraintSet,
-      ],
-    } as MediaTrackConstraints).then(() => {
-      setTorchEnabled(nextTorchState);
-    }).catch(() => {
+    if (!changed) {
       setMessage("Ten aparat nie pozwolił włączyć lampy w przeglądarce.");
-    });
+    }
   }
 
   async function updateCameraZoom(value: number) {
@@ -624,12 +666,11 @@ export default function TargetPhotoScanner() {
     } as MediaTrackConstraints).catch(() => undefined);
   }
 
-  function captureTargetPhoto() {
+  function drawVideoFrameToCanvas() {
     const video = videoRef.current;
 
     if (!video || video.readyState < video.HAVE_CURRENT_DATA) {
-      setMessage("Aparat nie jest jeszcze gotowy.");
-      return;
+      return null;
     }
 
     const width = video.videoWidth || 1920;
@@ -640,15 +681,14 @@ export default function TargetPhotoScanner() {
     });
 
     if (!context) {
-      setMessage("Nie udało się przygotować obrazu.");
-      return;
+      return null;
     }
 
     canvas.width = width;
     canvas.height = height;
 
-    const sourceWidth = width / digitalZoom;
-    const sourceHeight = height / digitalZoom;
+    const sourceWidth = width / digitalZoomRef.current;
+    const sourceHeight = height / digitalZoomRef.current;
     const sourceX = (width - sourceWidth) / 2;
     const sourceY = (height - sourceHeight) / 2;
 
@@ -663,7 +703,140 @@ export default function TargetPhotoScanner() {
       width,
       height
     );
+    return canvas;
+  }
+
+  function drawPaperPreview(bounds: PaperBounds | null, sourceWidth: number, sourceHeight: number) {
+    const canvas = overlayCanvasRef.current;
+    const video = videoRef.current;
+    const context = canvas?.getContext("2d");
+
+    if (!canvas || !video || !context) {
+      return;
+    }
+
+    const rect = video.getBoundingClientRect();
+    const displayWidth = Math.max(1, Math.round(rect.width));
+    const displayHeight = Math.max(1, Math.round(rect.height));
+
+    if (canvas.width !== displayWidth || canvas.height !== displayHeight) {
+      canvas.width = displayWidth;
+      canvas.height = displayHeight;
+    }
+
+    context.clearRect(0, 0, displayWidth, displayHeight);
+
+    if (!bounds || bounds.confidence < 0.28) {
+      return;
+    }
+
+    const coverScale = Math.max(displayWidth / sourceWidth, displayHeight / sourceHeight) * digitalZoomRef.current;
+    const renderedWidth = sourceWidth * coverScale;
+    const renderedHeight = sourceHeight * coverScale;
+    const offsetX = (displayWidth - renderedWidth) / 2;
+    const offsetY = (displayHeight - renderedHeight) / 2;
+
+    const points = bounds.polygon.map((point) => ({
+      x: point.x * coverScale + offsetX,
+      y: point.y * coverScale + offsetY,
+    }));
+
+    context.lineWidth = Math.max(3, displayWidth * 0.006);
+    context.strokeStyle = bounds.confidence >= 0.45
+      ? "rgba(34, 197, 94, 0.96)"
+      : "rgba(250, 204, 21, 0.96)";
+    context.fillStyle = "rgba(34, 197, 94, 0.10)";
+    context.beginPath();
+    context.moveTo(points[0].x, points[0].y);
+    points.slice(1).forEach((point) => context.lineTo(point.x, point.y));
+    context.closePath();
+    context.fill();
+    context.stroke();
+  }
+
+  function startPaperPreview() {
+    if (previewTimerRef.current !== null) {
+      window.clearTimeout(previewTimerRef.current);
+    }
+
+    const scan = () => {
+      const video = videoRef.current;
+      let nextBounds: PaperBounds | null = null;
+
+      if (video && video.readyState >= video.HAVE_CURRENT_DATA) {
+        const width = video.videoWidth || 1920;
+        const height = video.videoHeight || 1080;
+        const canvas = previewCanvasRef.current || document.createElement("canvas");
+        const context = canvas.getContext("2d", {
+          willReadFrequently: true,
+        });
+
+        previewCanvasRef.current = canvas;
+
+        if (context) {
+          canvas.width = width;
+          canvas.height = height;
+
+          const sourceWidth = width / digitalZoomRef.current;
+          const sourceHeight = height / digitalZoomRef.current;
+          const sourceX = (width - sourceWidth) / 2;
+          const sourceY = (height - sourceHeight) / 2;
+
+          context.drawImage(
+            video,
+            sourceX,
+            sourceY,
+            sourceWidth,
+            sourceHeight,
+            0,
+            0,
+            width,
+            height
+          );
+
+          nextBounds = detectPaperBounds(canvas, 520);
+          setPaperPreview(nextBounds);
+          drawPaperPreview(nextBounds, width, height);
+        }
+      }
+
+      if (!nextBounds) {
+        setPaperPreview(null);
+        drawPaperPreview(null, 1, 1);
+      }
+
+      if (streamRef.current) {
+        previewTimerRef.current = window.setTimeout(scan, 260);
+      }
+    };
+
+    previewTimerRef.current = window.setTimeout(scan, 300);
+  }
+
+  async function captureTargetPhoto() {
+    if (flashOnCapture && torchSupported && !torchEnabled) {
+      await setTorchState(true);
+      await new Promise((resolve) => {
+        window.setTimeout(resolve, 220);
+      });
+    }
+
+    const canvas = drawVideoFrameToCanvas();
+
+    if (!canvas) {
+      setMessage("Nie udało się przygotować obrazu.");
+      if (flashOnCapture && torchSupported) {
+        await setTorchState(false);
+      }
+      return;
+    }
+
     setResult(cropPaperFromCanvas(canvas));
+
+    if (flashOnCapture && torchSupported) {
+      await setTorchState(false);
+    }
+
     closeCamera();
   }
 
@@ -708,27 +881,15 @@ export default function TargetPhotoScanner() {
 
           <p className="mt-4 text-sm font-semibold text-gray-400">
             Zdjęcie {result.originalWidth} x {result.originalHeight} px, przycięte do {result.croppedWidth} x {result.croppedHeight} px.
+            {" "}
+            {result.paperDetected ? "Krawędzie wykryte." : "Krawędzie niepewne."}
           </p>
         </section>
       )}
 
       {cameraOpen && (
-        <div className="fixed inset-0 z-[80] flex flex-col bg-black text-white">
-          <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
-            <h2 className="text-lg font-black">
-              Zdjęcie tarczy
-            </h2>
-
-            <button
-              type="button"
-              onClick={closeCamera}
-              className="ui-button rounded-lg bg-zinc-800 px-4 py-2 font-bold transition hover:bg-zinc-700"
-            >
-              Zamknij
-            </button>
-          </div>
-
-          <div className="relative min-h-0 flex-1 bg-black">
+        <div className="fixed inset-0 z-[100] overflow-hidden bg-black text-white">
+          <div className="absolute inset-0 bg-black">
             <video
               ref={videoRef}
               muted
@@ -736,7 +897,12 @@ export default function TargetPhotoScanner() {
               style={{
                 transform: `scale(${digitalZoom})`,
               }}
-              className="h-full w-full object-contain transition-transform"
+              className="h-full w-full object-cover transition-transform"
+            />
+
+            <canvas
+              ref={overlayCanvasRef}
+              className="pointer-events-none absolute inset-0 z-20 h-full w-full"
             />
 
             <button
@@ -755,97 +921,166 @@ export default function TargetPhotoScanner() {
             )}
           </div>
 
-          <div className="space-y-4 border-t border-white/10 px-4 py-4">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="block">
-                <span className="mb-1 block text-sm font-bold text-gray-300">
-                  Aparat
-                </span>
-
-                <select
-                  value={selectedCameraId}
-                  onChange={(event) => {
-                    void changeCamera(event.target.value);
-                  }}
-                  disabled={starting || cameras.length === 0}
-                  className="w-full rounded-xl border border-white/10 bg-zinc-900 px-4 py-3 font-bold text-white disabled:opacity-50"
-                >
-                  {cameras.length === 0 ? (
-                    <option value="">
-                      Kamera aktywna
-                    </option>
-                  ) : (
-                    cameras.map((camera) => (
-                      <option
-                        key={camera.deviceId}
-                        value={camera.deviceId}
-                      >
-                        {camera.label}
-                      </option>
-                    ))
-                  )}
-                </select>
-              </label>
+          <div className="pointer-events-none absolute inset-x-0 top-0 z-40 px-4 pb-3 pt-[max(1rem,env(safe-area-inset-top))]">
+            <div className="flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={closeCamera}
+                className="pointer-events-auto ui-button rounded-full bg-black/55 px-4 py-2 text-sm font-black text-white shadow-lg backdrop-blur transition hover:bg-black/70"
+              >
+                Zamknij
+              </button>
 
               <button
                 type="button"
                 onClick={() => {
-                  void toggleTorch();
+                  setControlsOpen((currentValue) => !currentValue);
                 }}
-                disabled={starting || !torchSupported}
-                className="ui-button self-end rounded-xl bg-zinc-800 px-4 py-3 font-black text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-45"
+                className="pointer-events-auto ui-button rounded-full bg-black/55 px-4 py-2 text-sm font-black text-white shadow-lg backdrop-blur transition hover:bg-black/70"
               >
-                {torchSupported
-                  ? torchEnabled ? "Flesz: włączony" : "Flesz: wyłączony"
-                  : "Flesz niedostępny"}
+                Ustawienia
               </button>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="block rounded-xl border border-white/10 bg-zinc-950 px-4 py-3">
-                <span className="mb-2 block text-sm font-bold text-gray-300">
-                  Zoom kadru x{digitalZoom.toFixed(1)}
-                </span>
-
-                <input
-                  type="range"
-                  min={1}
-                  max={4}
-                  step={0.1}
-                  value={digitalZoom}
-                  onChange={(event) => setDigitalZoom(Number(event.target.value))}
-                  className="w-full accent-green-500"
-                />
-              </label>
-
-              <label className="block rounded-xl border border-white/10 bg-zinc-950 px-4 py-3">
-                <span className="mb-2 block text-sm font-bold text-gray-300">
-                  Zoom aparatu {cameraZoomRange ? `x${cameraZoom.toFixed(1)}` : "niedostępny"}
-                </span>
-
-                <input
-                  type="range"
-                  min={cameraZoomRange?.min || 1}
-                  max={cameraZoomRange?.max || 1}
-                  step={cameraZoomRange?.step || 0.1}
-                  value={cameraZoom}
-                  onChange={(event) => {
-                    void updateCameraZoom(Number(event.target.value));
-                  }}
-                  disabled={!cameraZoomRange}
-                  className="w-full accent-green-500 disabled:opacity-40"
-                />
-              </label>
+            <div className="mt-3 flex justify-center">
+              <span className={`rounded-full px-4 py-2 text-sm font-black shadow-lg backdrop-blur ${
+                paperPreview && paperPreview.confidence >= 0.45
+                  ? "bg-green-600/80 text-white"
+                  : paperPreview && paperPreview.confidence >= 0.28
+                    ? "bg-yellow-400/85 text-zinc-950"
+                    : "bg-black/55 text-white"
+              }`}>
+                {paperPreview && paperPreview.confidence >= 0.45
+                  ? "Krawędzie wykryte"
+                  : paperPreview && paperPreview.confidence >= 0.28
+                    ? "Krawędzie niepewne"
+                    : "Ustaw kartkę w kadrze"}
+              </span>
             </div>
 
-            <button
-              type="button"
-              onClick={captureTargetPhoto}
-              disabled={starting}
-              className="ui-button w-full rounded-xl bg-green-700 px-6 py-4 text-xl font-black text-white transition hover:bg-green-600 disabled:cursor-not-allowed disabled:bg-zinc-700"
-            >
-              Zrób zdjęcie
-            </button>
+            {controlsOpen && (
+              <div className="pointer-events-auto mt-3 space-y-3 rounded-2xl border border-white/10 bg-black/75 p-4 shadow-2xl backdrop-blur">
+                <label className="block">
+                  <span className="mb-1 block text-xs font-bold uppercase tracking-wide text-gray-300">
+                    Aparat
+                  </span>
+
+                  <select
+                    value={selectedCameraId}
+                    onChange={(event) => {
+                      void changeCamera(event.target.value);
+                    }}
+                    disabled={starting || cameras.length === 0}
+                    className="w-full rounded-xl border border-white/10 bg-zinc-900 px-4 py-3 font-bold text-white disabled:opacity-50"
+                  >
+                    {cameras.length === 0 ? (
+                      <option value="">
+                        Kamera aktywna
+                      </option>
+                    ) : (
+                      cameras.map((camera) => (
+                        <option
+                          key={camera.deviceId}
+                          value={camera.deviceId}
+                        >
+                          {camera.label}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </label>
+
+                <label className="block">
+                  <span className="mb-2 block text-xs font-bold uppercase tracking-wide text-gray-300">
+                    Zoom kadru x{digitalZoom.toFixed(1)}
+                  </span>
+
+                  <input
+                    type="range"
+                    min={1}
+                    max={4}
+                    step={0.1}
+                    value={digitalZoom}
+                    onChange={(event) => updateDigitalZoom(Number(event.target.value))}
+                    className="w-full accent-green-500"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-2 block text-xs font-bold uppercase tracking-wide text-gray-300">
+                    Zoom aparatu {cameraZoomRange ? `x${cameraZoom.toFixed(1)}` : "niedostępny"}
+                  </span>
+
+                  <input
+                    type="range"
+                    min={cameraZoomRange?.min || 1}
+                    max={cameraZoomRange?.max || 1}
+                    step={cameraZoomRange?.step || 0.1}
+                    value={cameraZoom}
+                    onChange={(event) => {
+                      void updateCameraZoom(Number(event.target.value));
+                    }}
+                    disabled={!cameraZoomRange}
+                    className="w-full accent-green-500 disabled:opacity-40"
+                  />
+                </label>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void toggleTorch();
+                    }}
+                    disabled={starting || !torchSupported}
+                    className="ui-button rounded-xl bg-zinc-800 px-4 py-3 text-sm font-black text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    {torchSupported
+                      ? torchEnabled ? "Światło: on" : "Światło: off"
+                      : "Światło niedostępne"}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setFlashOnCapture((currentValue) => !currentValue)}
+                    disabled={!torchSupported}
+                    className="ui-button rounded-xl bg-zinc-800 px-4 py-3 text-sm font-black text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    {flashOnCapture ? "Błysk: auto" : "Błysk: off"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 z-40 px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-5">
+            <div className="flex items-center justify-center">
+              <button
+                type="button"
+                onClick={() => {
+                  void captureTargetPhoto();
+                }}
+                disabled={starting}
+                className="pointer-events-auto h-20 w-20 rounded-full border-4 border-white bg-white shadow-[0_0_0_6px_rgba(255,255,255,0.22)] transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+                aria-label="Zrób zdjęcie"
+              />
+            </div>
+
+            <div className="mt-5 flex items-center justify-center gap-2">
+              {[1, 1.5, 2, 3].map((zoomValue) => (
+                <button
+                  key={zoomValue}
+                  type="button"
+                  onClick={() => updateDigitalZoom(zoomValue)}
+                  className={`pointer-events-auto rounded-full px-3 py-2 text-sm font-black backdrop-blur transition ${
+                    Math.abs(digitalZoom - zoomValue) < 0.05
+                      ? "bg-white text-zinc-950"
+                      : "bg-black/55 text-white hover:bg-black/70"
+                  }`}
+                >
+                  {zoomValue}x
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       )}
