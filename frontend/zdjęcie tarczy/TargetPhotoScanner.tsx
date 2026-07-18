@@ -55,6 +55,12 @@ type PaperBounds = {
   polygon: [PaperPoint, PaperPoint, PaperPoint, PaperPoint];
 };
 
+type LineCandidate = {
+  theta: number;
+  rho: number;
+  score: number;
+};
+
 type CameraCapabilities = MediaTrackCapabilities & {
   focusMode?: string[];
   torch?: boolean;
@@ -78,6 +84,8 @@ type CameraConstraintSet = MediaTrackConstraintSet & {
 const FOCUS_SETTLE_MS = 450;
 const TARGET_SAMPLE_ANGLES = 144;
 const SHOT_COMPONENT_SCAN_LIMIT = 90_000;
+const DOCUMENT_ANALYSIS_SIDE = 900;
+const DOCUMENT_RHO_STEP = 4;
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
@@ -200,6 +208,354 @@ function fallbackPaperBounds(width: number, height: number): PaperBounds {
       { x: 0, y: height },
     ],
   };
+}
+
+function lineIntersection(firstLine: LineCandidate, secondLine: LineCandidate): PaperPoint | null {
+  const firstCos = Math.cos(firstLine.theta);
+  const firstSin = Math.sin(firstLine.theta);
+  const secondCos = Math.cos(secondLine.theta);
+  const secondSin = Math.sin(secondLine.theta);
+  const determinant = firstCos * secondSin - secondCos * firstSin;
+
+  if (Math.abs(determinant) < 0.0001) {
+    return null;
+  }
+
+  return {
+    x: (firstLine.rho * secondSin - secondLine.rho * firstSin) / determinant,
+    y: (firstCos * secondLine.rho - secondCos * firstLine.rho) / determinant,
+  };
+}
+
+function distanceBetweenPoints(firstPoint: PaperPoint, secondPoint: PaperPoint) {
+  return Math.hypot(firstPoint.x - secondPoint.x, firstPoint.y - secondPoint.y);
+}
+
+function polygonArea(points: PaperBounds["polygon"]) {
+  let area = 0;
+
+  points.forEach((point, index) => {
+    const nextPoint = points[(index + 1) % points.length];
+
+    area += point.x * nextPoint.y - nextPoint.x * point.y;
+  });
+
+  return Math.abs(area) / 2;
+}
+
+function pointInsideImage(point: PaperPoint, width: number, height: number, margin: number) {
+  return (
+    point.x >= -margin
+    && point.y >= -margin
+    && point.x <= width + margin
+    && point.y <= height + margin
+  );
+}
+
+function isNearExistingLine(lines: LineCandidate[], nextLine: LineCandidate, minRhoDistance: number) {
+  return lines.some((line) => Math.abs(line.rho - nextLine.rho) < minRhoDistance);
+}
+
+function createLumaAndEdges(imageData: ImageData, width: number, height: number) {
+  const luma = new Float32Array(width * height);
+
+  for (let index = 0, pixel = 0; index < imageData.data.length; index += 4, pixel += 1) {
+    const red = imageData.data[index];
+    const green = imageData.data[index + 1];
+    const blue = imageData.data[index + 2];
+
+    luma[pixel] = red * 0.2126 + green * 0.7152 + blue * 0.0722;
+  }
+
+  const magnitudes = new Float32Array(width * height);
+  const histogram = Array.from({ length: 256 }, () => 0);
+
+  for (let y = 1; y < height - 1; y += 1) {
+    for (let x = 1; x < width - 1; x += 1) {
+      const pixel = y * width + x;
+      const topLeft = luma[pixel - width - 1];
+      const top = luma[pixel - width];
+      const topRight = luma[pixel - width + 1];
+      const left = luma[pixel - 1];
+      const right = luma[pixel + 1];
+      const bottomLeft = luma[pixel + width - 1];
+      const bottom = luma[pixel + width];
+      const bottomRight = luma[pixel + width + 1];
+      const gradientX = -topLeft - 2 * left - bottomLeft + topRight + 2 * right + bottomRight;
+      const gradientY = -topLeft - 2 * top - topRight + bottomLeft + 2 * bottom + bottomRight;
+      const magnitude = Math.min(255, Math.round(Math.hypot(gradientX, gradientY) / 4));
+
+      magnitudes[pixel] = magnitude;
+      histogram[magnitude] += 1;
+    }
+  }
+
+  const threshold = clamp(
+    getPercentileFromHistogram(histogram, Math.max(1, (width - 2) * (height - 2)), 0.88),
+    28,
+    92
+  );
+  const edgePixels: Array<{
+    x: number;
+    y: number;
+    weight: number;
+  }> = [];
+  const maxEdgePixels = 24_000;
+  const samplingStep = Math.max(1, Math.ceil((width * height) / 650_000));
+
+  for (let y = 2; y < height - 2; y += samplingStep) {
+    for (let x = 2; x < width - 2; x += samplingStep) {
+      const pixel = y * width + x;
+      const magnitude = magnitudes[pixel];
+
+      if (magnitude >= threshold) {
+        edgePixels.push({
+          x,
+          y,
+          weight: magnitude,
+        });
+
+        if (edgePixels.length >= maxEdgePixels) {
+          return {
+            luma,
+            magnitudes,
+            edgePixels,
+          };
+        }
+      }
+    }
+  }
+
+  return {
+    luma,
+    magnitudes,
+    edgePixels,
+  };
+}
+
+function collectLineCandidates(
+  edgePixels: Array<{ x: number; y: number; weight: number }>,
+  width: number,
+  height: number,
+  angleStart: number,
+  angleEnd: number,
+  maxLines: number
+) {
+  const diagonal = Math.hypot(width, height);
+  const rhoBins = Math.ceil((diagonal * 2) / DOCUMENT_RHO_STEP) + 1;
+  const candidates: LineCandidate[] = [];
+
+  for (let degrees = angleStart; degrees <= angleEnd; degrees += 2) {
+    const theta = (degrees * Math.PI) / 180;
+    const cos = Math.cos(theta);
+    const sin = Math.sin(theta);
+    const accumulator = new Float32Array(rhoBins);
+
+    edgePixels.forEach((edgePixel) => {
+      const rho = edgePixel.x * cos + edgePixel.y * sin;
+      const rhoIndex = Math.round((rho + diagonal) / DOCUMENT_RHO_STEP);
+
+      if (rhoIndex >= 0 && rhoIndex < rhoBins) {
+        accumulator[rhoIndex] += edgePixel.weight;
+      }
+    });
+
+    for (let rhoIndex = 1; rhoIndex < rhoBins - 1; rhoIndex += 1) {
+      const score = accumulator[rhoIndex];
+
+      if (
+        score > accumulator[rhoIndex - 1]
+        && score >= accumulator[rhoIndex + 1]
+        && score > 2200
+      ) {
+        candidates.push({
+          theta,
+          rho: rhoIndex * DOCUMENT_RHO_STEP - diagonal,
+          score,
+        });
+      }
+    }
+  }
+
+  return candidates
+    .sort((left, right) => right.score - left.score)
+    .reduce<LineCandidate[]>((lines, line) => {
+      if (lines.length >= maxLines) {
+        return lines;
+      }
+
+      if (!isNearExistingLine(lines, line, Math.min(width, height) * 0.04)) {
+        lines.push(line);
+      }
+
+      return lines;
+    }, []);
+}
+
+function lineSupport(
+  magnitudes: Float32Array,
+  width: number,
+  height: number,
+  startPoint: PaperPoint,
+  endPoint: PaperPoint
+) {
+  const length = distanceBetweenPoints(startPoint, endPoint);
+  const samples = Math.max(24, Math.round(length / 8));
+  let support = 0;
+  let checked = 0;
+
+  for (let index = 0; index <= samples; index += 1) {
+    const fraction = index / samples;
+    const x = Math.round(startPoint.x + (endPoint.x - startPoint.x) * fraction);
+    const y = Math.round(startPoint.y + (endPoint.y - startPoint.y) * fraction);
+    let bestMagnitude = 0;
+
+    for (let offsetY = -2; offsetY <= 2; offsetY += 1) {
+      for (let offsetX = -2; offsetX <= 2; offsetX += 1) {
+        const sampleX = x + offsetX;
+        const sampleY = y + offsetY;
+
+        if (sampleX <= 0 || sampleY <= 0 || sampleX >= width - 1 || sampleY >= height - 1) {
+          continue;
+        }
+
+        bestMagnitude = Math.max(bestMagnitude, magnitudes[sampleY * width + sampleX]);
+      }
+    }
+
+    checked += 1;
+
+    if (bestMagnitude >= 34) {
+      support += 1;
+    }
+  }
+
+  return support / Math.max(1, checked);
+}
+
+function detectDocumentByEdges(imageData: ImageData, width: number, height: number): PaperBounds | null {
+  const { magnitudes, edgePixels } = createLumaAndEdges(imageData, width, height);
+
+  if (edgePixels.length < 800) {
+    return null;
+  }
+
+  const verticalLines = collectLineCandidates(edgePixels, width, height, -24, 24, 16);
+  const horizontalLines = collectLineCandidates(edgePixels, width, height, 66, 114, 16);
+  let bestBounds: PaperBounds | null = null;
+  let bestScore = 0;
+
+  for (let leftIndex = 0; leftIndex < verticalLines.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < verticalLines.length; rightIndex += 1) {
+      const firstVertical = verticalLines[leftIndex];
+      const secondVertical = verticalLines[rightIndex];
+      const verticalDelta = Math.abs(firstVertical.rho - secondVertical.rho);
+
+      if (verticalDelta < width * 0.22 || verticalDelta > width * 0.96) {
+        continue;
+      }
+
+      const orderedVerticals = firstVertical.rho < secondVertical.rho
+        ? [firstVertical, secondVertical]
+        : [secondVertical, firstVertical];
+
+      for (let topIndex = 0; topIndex < horizontalLines.length; topIndex += 1) {
+        for (let bottomIndex = topIndex + 1; bottomIndex < horizontalLines.length; bottomIndex += 1) {
+          const firstHorizontal = horizontalLines[topIndex];
+          const secondHorizontal = horizontalLines[bottomIndex];
+          const horizontalDelta = Math.abs(firstHorizontal.rho - secondHorizontal.rho);
+
+          if (horizontalDelta < height * 0.16 || horizontalDelta > height * 0.96) {
+            continue;
+          }
+
+          const orderedHorizontals = firstHorizontal.rho < secondHorizontal.rho
+            ? [firstHorizontal, secondHorizontal]
+            : [secondHorizontal, firstHorizontal];
+          const topLeft = lineIntersection(orderedVerticals[0], orderedHorizontals[0]);
+          const topRight = lineIntersection(orderedVerticals[1], orderedHorizontals[0]);
+          const bottomRight = lineIntersection(orderedVerticals[1], orderedHorizontals[1]);
+          const bottomLeft = lineIntersection(orderedVerticals[0], orderedHorizontals[1]);
+
+          if (!topLeft || !topRight || !bottomRight || !bottomLeft) {
+            continue;
+          }
+
+          const polygon = [topLeft, topRight, bottomRight, bottomLeft] as PaperBounds["polygon"];
+          const margin = Math.min(width, height) * 0.08;
+
+          if (!polygon.every((point) => pointInsideImage(point, width, height, margin))) {
+            continue;
+          }
+
+          const topWidth = distanceBetweenPoints(topLeft, topRight);
+          const bottomWidth = distanceBetweenPoints(bottomLeft, bottomRight);
+          const leftHeight = distanceBetweenPoints(topLeft, bottomLeft);
+          const rightHeight = distanceBetweenPoints(topRight, bottomRight);
+          const averageWidth = (topWidth + bottomWidth) / 2;
+          const averageHeight = (leftHeight + rightHeight) / 2;
+          const aspectRatio = averageWidth / Math.max(1, averageHeight);
+          const area = polygonArea(polygon);
+          const areaRatio = area / (width * height);
+          const oppositeWidthRatio = Math.min(topWidth, bottomWidth) / Math.max(topWidth, bottomWidth);
+          const oppositeHeightRatio = Math.min(leftHeight, rightHeight) / Math.max(leftHeight, rightHeight);
+
+          if (
+            areaRatio < 0.09
+            || areaRatio > 0.86
+            || aspectRatio < 0.52
+            || aspectRatio > 2.25
+            || oppositeWidthRatio < 0.56
+            || oppositeHeightRatio < 0.56
+          ) {
+            continue;
+          }
+
+          const edgeSupport = (
+            lineSupport(magnitudes, width, height, topLeft, topRight)
+            + lineSupport(magnitudes, width, height, topRight, bottomRight)
+            + lineSupport(magnitudes, width, height, bottomRight, bottomLeft)
+            + lineSupport(magnitudes, width, height, bottomLeft, topLeft)
+          ) / 4;
+          const centerX = (topLeft.x + topRight.x + bottomRight.x + bottomLeft.x) / 4;
+          const centerY = (topLeft.y + topRight.y + bottomRight.y + bottomLeft.y) / 4;
+          const centeredness = 1 - Math.min(
+            1,
+            Math.hypot((centerX - width / 2) / width, (centerY - height / 2) / height) * 1.5
+          );
+          const lineScore = (
+            orderedVerticals[0].score
+            + orderedVerticals[1].score
+            + orderedHorizontals[0].score
+            + orderedHorizontals[1].score
+          ) / 4;
+          const score = edgeSupport * 3.3 + centeredness * 0.65 + Math.min(1, areaRatio / 0.18) * 0.45 + lineScore / 30_000;
+
+          if (edgeSupport < 0.22 || score <= bestScore) {
+            continue;
+          }
+
+          bestScore = score;
+          bestBounds = {
+            x: Math.max(0, Math.floor(Math.min(...polygon.map((point) => point.x)))),
+            y: Math.max(0, Math.floor(Math.min(...polygon.map((point) => point.y)))),
+            width: Math.min(
+              width,
+              Math.ceil(Math.max(...polygon.map((point) => point.x)) - Math.min(...polygon.map((point) => point.x)))
+            ),
+            height: Math.min(
+              height,
+              Math.ceil(Math.max(...polygon.map((point) => point.y)) - Math.min(...polygon.map((point) => point.y)))
+            ),
+            confidence: clamp(edgeSupport * 0.72 + centeredness * 0.18 + Math.min(1, areaRatio / 0.22) * 0.1, 0, 1),
+            polygon,
+          };
+        }
+      }
+    }
+  }
+
+  return bestBounds;
 }
 
 function findLongestRun(mask: Uint8Array, offset: number, length: number) {
@@ -405,7 +761,7 @@ function makePaperMask(imageData: ImageData, width: number, height: number) {
   return mask;
 }
 
-function detectPaperBounds(canvas: HTMLCanvasElement, maxAnalysisSide = 900): PaperBounds {
+function detectPaperBounds(canvas: HTMLCanvasElement, maxAnalysisSide = DOCUMENT_ANALYSIS_SIDE): PaperBounds {
   const scale = Math.min(
     1,
     maxAnalysisSide / Math.max(canvas.width, canvas.height)
@@ -426,6 +782,32 @@ function detectPaperBounds(canvas: HTMLCanvasElement, maxAnalysisSide = 900): Pa
   analysisContext.drawImage(canvas, 0, 0, width, height);
 
   const imageData = analysisContext.getImageData(0, 0, width, height);
+  const documentBounds = detectDocumentByEdges(imageData, width, height);
+
+  if (documentBounds && documentBounds.confidence >= 0.28) {
+    function scalePoint(point: PaperPoint): PaperPoint {
+      return {
+        x: Math.round(point.x / scale),
+        y: Math.round(point.y / scale),
+      };
+    }
+
+    const polygon = documentBounds.polygon.map(scalePoint) as PaperBounds["polygon"];
+    const minX = Math.max(0, Math.floor(Math.min(...polygon.map((point) => point.x))));
+    const minY = Math.max(0, Math.floor(Math.min(...polygon.map((point) => point.y))));
+    const maxX = Math.min(canvas.width, Math.ceil(Math.max(...polygon.map((point) => point.x))));
+    const maxY = Math.min(canvas.height, Math.ceil(Math.max(...polygon.map((point) => point.y))));
+
+    return {
+      x: minX,
+      y: minY,
+      width: Math.max(1, maxX - minX),
+      height: Math.max(1, maxY - minY),
+      confidence: documentBounds.confidence,
+      polygon,
+    };
+  }
+
   const mask = makePaperMask(imageData, width, height);
   const componentBounds = findLargestPaperComponent(mask, width, height);
 
@@ -555,8 +937,174 @@ function detectPaperBounds(canvas: HTMLCanvasElement, maxAnalysisSide = 900): Pa
   };
 }
 
+function solveLinearSystem(matrix: number[][], values: number[]) {
+  const size = values.length;
+  const augmented = matrix.map((row, index) => [...row, values[index]]);
+
+  for (let column = 0; column < size; column += 1) {
+    let pivotRow = column;
+
+    for (let row = column + 1; row < size; row += 1) {
+      if (Math.abs(augmented[row][column]) > Math.abs(augmented[pivotRow][column])) {
+        pivotRow = row;
+      }
+    }
+
+    if (Math.abs(augmented[pivotRow][column]) < 1e-8) {
+      return null;
+    }
+
+    [augmented[column], augmented[pivotRow]] = [augmented[pivotRow], augmented[column]];
+
+    const pivot = augmented[column][column];
+
+    for (let cell = column; cell <= size; cell += 1) {
+      augmented[column][cell] /= pivot;
+    }
+
+    for (let row = 0; row < size; row += 1) {
+      if (row === column) {
+        continue;
+      }
+
+      const factor = augmented[row][column];
+
+      for (let cell = column; cell <= size; cell += 1) {
+        augmented[row][cell] -= factor * augmented[column][cell];
+      }
+    }
+  }
+
+  return augmented.map((row) => row[size]);
+}
+
+function perspectiveCoefficients(
+  sourcePoints: PaperBounds["polygon"],
+  destinationPoints: PaperBounds["polygon"]
+) {
+  const matrix: number[][] = [];
+  const values: number[] = [];
+
+  sourcePoints.forEach((sourcePoint, index) => {
+    const destinationPoint = destinationPoints[index];
+
+    matrix.push([
+      sourcePoint.x,
+      sourcePoint.y,
+      1,
+      0,
+      0,
+      0,
+      -destinationPoint.x * sourcePoint.x,
+      -destinationPoint.x * sourcePoint.y,
+    ]);
+    values.push(destinationPoint.x);
+
+    matrix.push([
+      0,
+      0,
+      0,
+      sourcePoint.x,
+      sourcePoint.y,
+      1,
+      -destinationPoint.y * sourcePoint.x,
+      -destinationPoint.y * sourcePoint.y,
+    ]);
+    values.push(destinationPoint.y);
+  });
+
+  return solveLinearSystem(matrix, values);
+}
+
+function warpPerspectiveFromBounds(sourceCanvas: HTMLCanvasElement, bounds: PaperBounds) {
+  const [topLeft, topRight, bottomRight, bottomLeft] = bounds.polygon;
+  const targetWidth = Math.max(
+    1,
+    Math.round((distanceBetweenPoints(topLeft, topRight) + distanceBetweenPoints(bottomLeft, bottomRight)) / 2)
+  );
+  const targetHeight = Math.max(
+    1,
+    Math.round((distanceBetweenPoints(topLeft, bottomLeft) + distanceBetweenPoints(topRight, bottomRight)) / 2)
+  );
+  const destinationPoints = [
+    { x: 0, y: 0 },
+    { x: targetWidth - 1, y: 0 },
+    { x: targetWidth - 1, y: targetHeight - 1 },
+    { x: 0, y: targetHeight - 1 },
+  ] as PaperBounds["polygon"];
+  const coefficients = perspectiveCoefficients(destinationPoints, bounds.polygon);
+
+  if (!coefficients) {
+    return null;
+  }
+
+  const sourceContext = sourceCanvas.getContext("2d", {
+    willReadFrequently: true,
+  });
+  const targetCanvas = document.createElement("canvas");
+  const targetContext = targetCanvas.getContext("2d");
+
+  if (!sourceContext || !targetContext) {
+    return null;
+  }
+
+  const sourceData = sourceContext.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
+  const targetImageData = targetContext.createImageData(targetWidth, targetHeight);
+  const [a, b, c, d, e, f, g, h] = coefficients;
+
+  targetCanvas.width = targetWidth;
+  targetCanvas.height = targetHeight;
+
+  for (let y = 0; y < targetHeight; y += 1) {
+    for (let x = 0; x < targetWidth; x += 1) {
+      const divisor = g * x + h * y + 1;
+      const sourceX = clamp((a * x + b * y + c) / divisor, 0, sourceCanvas.width - 1);
+      const sourceY = clamp((d * x + e * y + f) / divisor, 0, sourceCanvas.height - 1);
+      const x0 = Math.floor(sourceX);
+      const y0 = Math.floor(sourceY);
+      const x1 = Math.min(sourceCanvas.width - 1, x0 + 1);
+      const y1 = Math.min(sourceCanvas.height - 1, y0 + 1);
+      const wx = sourceX - x0;
+      const wy = sourceY - y0;
+      const targetIndex = (y * targetWidth + x) * 4;
+      const topLeftIndex = (y0 * sourceCanvas.width + x0) * 4;
+      const topRightIndex = (y0 * sourceCanvas.width + x1) * 4;
+      const bottomLeftIndex = (y1 * sourceCanvas.width + x0) * 4;
+      const bottomRightIndex = (y1 * sourceCanvas.width + x1) * 4;
+
+      for (let channel = 0; channel < 4; channel += 1) {
+        const top = sourceData.data[topLeftIndex + channel] * (1 - wx)
+          + sourceData.data[topRightIndex + channel] * wx;
+        const bottom = sourceData.data[bottomLeftIndex + channel] * (1 - wx)
+          + sourceData.data[bottomRightIndex + channel] * wx;
+
+        targetImageData.data[targetIndex + channel] = top * (1 - wy) + bottom * wy;
+      }
+    }
+  }
+
+  targetContext.putImageData(targetImageData, 0, 0);
+
+  return targetCanvas;
+}
+
 function cropPaperFromCanvas(sourceCanvas: HTMLCanvasElement): CropResult {
   const bounds = detectPaperBounds(sourceCanvas, 1200);
+  const warpedCanvas = bounds.confidence >= 0.28
+    ? warpPerspectiveFromBounds(sourceCanvas, bounds)
+    : null;
+
+  if (warpedCanvas) {
+    return {
+      imageUrl: warpedCanvas.toDataURL("image/jpeg", 0.92),
+      originalWidth: sourceCanvas.width,
+      originalHeight: sourceCanvas.height,
+      croppedWidth: warpedCanvas.width,
+      croppedHeight: warpedCanvas.height,
+      paperDetected: bounds.confidence >= 0.35,
+    };
+  }
+
   const cropCanvas = document.createElement("canvas");
   const cropContext = cropCanvas.getContext("2d");
   const cropWidth = Math.max(1, Math.min(sourceCanvas.width - bounds.x, bounds.width));
