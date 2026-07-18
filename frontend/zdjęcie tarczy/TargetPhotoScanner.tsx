@@ -46,6 +46,7 @@ type ShotTearPattern = {
   edgeDensity: number;
   radialCoverage: number;
   lineDominance: number;
+  ringDominance: number;
   coreComplexity: number;
   annulusComplexity: number;
   edgeMean: number;
@@ -58,6 +59,7 @@ type ShotShapeScore = {
   radialCoverage: number;
   spokeCount: number;
   lineDominance: number;
+  ringDominance: number;
   coreComplexity: number;
   annulusComplexity: number;
   edgeMean: number;
@@ -117,6 +119,7 @@ const SHOT_TEAR_PROFILE: ShotTearPattern = {
   edgeDensity: 0.2275,
   radialCoverage: 0.7917,
   lineDominance: 0.0951,
+  ringDominance: 0.1962,
   coreComplexity: 0.3552,
   annulusComplexity: 0.1993,
   edgeMean: 121.5439,
@@ -126,6 +129,7 @@ const SHOT_TEAR_TOLERANCE: ShotTearPattern = {
   edgeDensity: 0.105,
   radialCoverage: 0.28,
   lineDominance: 0.085,
+  ringDominance: 0.14,
   coreComplexity: 0.34,
   annulusComplexity: 0.095,
   edgeMean: 105,
@@ -1965,6 +1969,8 @@ function shotProfileDistance(score: Omit<ShotShapeScore, "confidence">) {
     / SHOT_TEAR_TOLERANCE.radialCoverage;
   const lineDominanceDistance = Math.max(0, score.lineDominance - SHOT_TEAR_PROFILE.lineDominance)
     / SHOT_TEAR_TOLERANCE.lineDominance;
+  const ringDominanceDistance = Math.max(0, score.ringDominance - SHOT_TEAR_PROFILE.ringDominance)
+    / SHOT_TEAR_TOLERANCE.ringDominance;
   const coreComplexityDistance = Math.max(0, SHOT_TEAR_PROFILE.coreComplexity - score.coreComplexity)
     / SHOT_TEAR_TOLERANCE.coreComplexity;
   const annulusComplexityDistance = Math.abs(score.annulusComplexity - SHOT_TEAR_PROFILE.annulusComplexity)
@@ -1978,6 +1984,7 @@ function shotProfileDistance(score: Omit<ShotShapeScore, "confidence">) {
     edgeDensityDistance,
     radialCoverageDistance,
     lineDominanceDistance,
+    ringDominanceDistance,
     coreComplexityDistance,
     annulusComplexityDistance,
     edgeMeanDistance,
@@ -2004,6 +2011,7 @@ function scoreShotShape(
   ));
   const sectorCount = 24;
   const sectors = Array.from({ length: sectorCount }, () => 0);
+  const radialRings = Array.from({ length: 8 }, () => 0);
   const localMagnitudes: number[] = [];
   const coreLuma: number[] = [];
   let edgePixels = 0;
@@ -2093,6 +2101,7 @@ function scoreShotShape(
           const sector = Math.floor(((angle + Math.PI) / (Math.PI * 2)) * sectorCount);
 
           sectors[clamp(sector, 0, sectorCount - 1)] += 1;
+          radialRings[clamp(Math.floor((localDistance / patchRadius) * radialRings.length), 0, radialRings.length - 1)] += 1;
         }
       }
     }
@@ -2101,9 +2110,11 @@ function scoreShotShape(
   const spokeThreshold = Math.max(2, Math.round(edgePixels / 28));
   const activeSectors = sectors.filter((sector) => sector >= spokeThreshold).length;
   const maxSector = Math.max(...sectors, 0);
+  const maxRadialRing = Math.max(...radialRings, 0);
   const edgeDensity = edgePixels / Math.max(1, patchPixels);
   const radialCoverage = activeSectors / sectorCount;
   const lineDominance = maxSector / Math.max(1, edgePixels);
+  const ringDominance = maxRadialRing / Math.max(1, edgePixels);
   const coreComplexity = coreEdgePixels / Math.max(1, corePixels);
   const annulusComplexity = annulusEdgePixels / Math.max(1, annulusPixels);
   const edgeMean = edgeMagnitudeSum / Math.max(1, edgePixels);
@@ -2113,6 +2124,7 @@ function scoreShotShape(
     radialCoverage,
     spokeCount: activeSectors,
     lineDominance,
+    ringDominance,
     coreComplexity,
     annulusComplexity,
     edgeMean,
@@ -2123,7 +2135,8 @@ function scoreShotShape(
     Math.min(1, radialCoverage / 0.62) * 0.22
     + Math.min(1, activeSectors / 14) * 0.16
     + (1 - Math.min(1, lineDominance / 0.22)) * 0.18
-    + Math.min(1, edgeDensity / 0.16) * 0.12
+    + (1 - Math.min(1, ringDominance / 0.42)) * 0.08
+    + Math.min(1, edgeDensity / 0.16) * 0.1
     + Math.min(1, coreComplexity / 0.18) * 0.12
     + Math.min(1, annulusComplexity / 0.14) * 0.1
     + Math.min(1, edgeMean / 85) * 0.06
@@ -2139,10 +2152,62 @@ function scoreShotShape(
     radialCoverage,
     spokeCount: activeSectors,
     lineDominance,
+    ringDominance,
     coreComplexity,
     annulusComplexity,
     edgeMean,
     centerRange,
+  };
+}
+
+function localCoreContrast(
+  luma: Float32Array,
+  width: number,
+  height: number,
+  centerX: number,
+  centerY: number,
+  coreRadius: number,
+  ringRadius: number
+) {
+  let coreSum = 0;
+  let coreCount = 0;
+  let ringSum = 0;
+  let ringCount = 0;
+  const coreValues: number[] = [];
+  const sampleStep = ringRadius > 28 ? 2 : 1;
+
+  for (
+    let y = Math.max(0, Math.round(centerY - ringRadius));
+    y <= Math.min(height - 1, Math.round(centerY + ringRadius));
+    y += sampleStep
+  ) {
+    for (
+      let x = Math.max(0, Math.round(centerX - ringRadius));
+      x <= Math.min(width - 1, Math.round(centerX + ringRadius));
+      x += sampleStep
+    ) {
+      const distanceFromCenter = Math.hypot(x - centerX, y - centerY);
+      const value = luma[y * width + x];
+
+      if (distanceFromCenter <= coreRadius) {
+        coreSum += value;
+        coreCount += 1;
+        coreValues.push(value);
+      } else if (distanceFromCenter <= ringRadius && distanceFromCenter >= coreRadius * 1.8) {
+        ringSum += value;
+        ringCount += 1;
+      }
+    }
+  }
+
+  const coreMean = coreSum / Math.max(1, coreCount);
+  const ringMean = ringSum / Math.max(1, ringCount);
+
+  return {
+    coreMean,
+    ringMean,
+    darkness: ringMean - coreMean,
+    coreRange: percentile(coreValues, 0.9) - percentile(coreValues, 0.1),
   };
 }
 
@@ -2171,6 +2236,63 @@ function detectShots(canvas: HTMLCanvasElement, geometry: TargetGeometry): Detec
   const minArea = Math.max(14, Math.round(minBox * minBox * 0.55));
   const maxArea = Math.round(maxBox * maxBox * 1.55);
   const candidates: DetectedShot[] = [];
+  const addCandidate = (
+    centerX: number,
+    centerY: number,
+    componentWidth: number,
+    componentHeight: number,
+    radiusMultiplier: number
+  ) => {
+    const score = pointScore(geometry, centerX, centerY);
+
+    if (score === 0) {
+      return;
+    }
+
+    const shapeScore = scoreShotShape(
+      luma,
+      magnitudes,
+      width,
+      height,
+      centerX,
+      centerY,
+      componentWidth,
+      componentHeight,
+      edgeThreshold
+    );
+    const circularity = clamp(
+      Math.min(componentWidth, componentHeight) / Math.max(componentWidth, componentHeight),
+      0,
+      1
+    );
+    const sizeScore = clamp(
+      Math.min(componentWidth, componentHeight) / Math.max(1, geometry.zoneWidth * 0.12),
+      0,
+      1
+    );
+    const confidence = clamp(shapeScore.confidence * 0.74 + circularity * 0.14 + sizeScore * 0.12, 0, 1);
+
+    if (
+      confidence < 0.64
+      || shapeScore.edgeDensity < 0.1
+      || shapeScore.radialCoverage < 0.54
+      || shapeScore.lineDominance > 0.24
+      || shapeScore.ringDominance > 0.42
+      || shapeScore.spokeCount < 13
+      || shapeScore.annulusComplexity < 0.12
+      || shapeScore.edgeMean < 46
+    ) {
+      return;
+    }
+
+    candidates.push({
+      x: centerX,
+      y: centerY,
+      radius: clamp(Math.max(componentWidth, componentHeight) * radiusMultiplier, 10, geometry.zoneWidth * 0.34),
+      score,
+      confidence,
+    });
+  };
 
   for (let startPixel = 0; startPixel < mask.length; startPixel += 1) {
     if (!mask[startPixel] || visited[startPixel]) {
@@ -2260,62 +2382,43 @@ function detectShots(canvas: HTMLCanvasElement, geometry: TargetGeometry): Detec
 
     const centerX = sumX / area;
     const centerY = sumY / area;
-    const score = pointScore(geometry, centerX, centerY);
 
-    if (score === 0) {
-      continue;
-    }
-
-    const shapeScore = scoreShotShape(
-      luma,
-      magnitudes,
-      width,
-      height,
-      centerX,
-      centerY,
-      componentWidth,
-      componentHeight,
-      edgeThreshold
-    );
-    const circularity = clamp(
-      Math.min(componentWidth, componentHeight) / Math.max(componentWidth, componentHeight),
-      0,
-      1
-    );
-    const sizeScore = clamp(
-      Math.min(componentWidth, componentHeight) / Math.max(1, geometry.zoneWidth * 0.12),
-      0,
-      1
-    );
-    const confidence = clamp(shapeScore.confidence * 0.74 + circularity * 0.14 + sizeScore * 0.12, 0, 1);
-
-    if (
-      confidence < 0.64
-      || shapeScore.edgeDensity < 0.1
-      || shapeScore.radialCoverage < 0.54
-      || shapeScore.lineDominance > 0.24
-      || shapeScore.spokeCount < 13
-      || shapeScore.annulusComplexity < 0.12
-      || shapeScore.edgeMean < 46
-    ) {
-      continue;
-    }
-
-    candidates.push({
-      x: centerX,
-      y: centerY,
-      radius: clamp(Math.max(componentWidth, componentHeight) * 0.72, 10, geometry.zoneWidth * 0.34),
-      score,
-      confidence,
-    });
+    addCandidate(centerX, centerY, componentWidth, componentHeight, 0.72);
   }
 
-  if (candidates.length > MAX_DETECTED_SHOTS * 4) {
-    return [];
+  const coreRadius = clamp(geometry.zoneWidth * 0.11, 5, 24);
+  const ringRadius = coreRadius * 3.2;
+  const seedStep = Math.max(6, Math.round(coreRadius * 1.35));
+  const scanMinX = Math.max(2, Math.round(geometry.centerX - geometry.outerRadius));
+  const scanMaxX = Math.min(width - 3, Math.round(geometry.centerX + geometry.outerRadius));
+  const scanMinY = Math.max(2, Math.round(geometry.centerY - geometry.outerRadius));
+  const scanMaxY = Math.min(height - 3, Math.round(geometry.centerY + geometry.outerRadius));
+
+  for (let y = scanMinY; y <= scanMaxY; y += seedStep) {
+    for (let x = scanMinX; x <= scanMaxX; x += seedStep) {
+      if (pointScore(geometry, x, y) === 0) {
+        continue;
+      }
+
+      const contrast = localCoreContrast(luma, width, height, x, y, coreRadius, ringRadius);
+
+      if (
+        contrast.darkness < 18
+        || contrast.coreRange < 24
+        || contrast.coreMean > 170
+      ) {
+        continue;
+      }
+
+      addCandidate(x, y, coreRadius * 2.8, coreRadius * 2.8, 1.15);
+    }
   }
 
-  return candidates
+  const rankedCandidates = candidates
     .sort((left, right) => right.confidence - left.confidence)
+    .slice(0, MAX_DETECTED_SHOTS * 8);
+
+  return rankedCandidates
     .reduce<DetectedShot[]>((acceptedShots, shot) => {
       const isDuplicate = acceptedShots.some((acceptedShot) => (
         Math.hypot(acceptedShot.x - shot.x, acceptedShot.y - shot.y) < geometry.zoneWidth * 0.32
