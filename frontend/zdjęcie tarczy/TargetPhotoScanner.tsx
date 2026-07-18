@@ -86,6 +86,7 @@ const TARGET_SAMPLE_ANGLES = 144;
 const SHOT_COMPONENT_SCAN_LIMIT = 90_000;
 const DOCUMENT_ANALYSIS_SIDE = 900;
 const DOCUMENT_RHO_STEP = 4;
+const TARGET_PAPER_HALF_RATIO = 1.1;
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
@@ -330,6 +331,300 @@ function createLumaAndEdges(imageData: ImageData, width: number, height: number)
     luma,
     magnitudes,
     edgePixels,
+  };
+}
+
+function findDarkTargetCenter(luma: Float32Array, width: number, height: number) {
+  const sampledLumas: number[] = [];
+  const sampleStep = Math.max(1, Math.round(Math.min(width, height) / 360));
+
+  for (let pixel = 0; pixel < luma.length; pixel += sampleStep) {
+    sampledLumas.push(luma[pixel]);
+  }
+
+  const threshold = clamp(percentile(sampledLumas, 0.18) + 12, 42, 142);
+  const mask = new Uint8Array(width * height);
+
+  for (let pixel = 0; pixel < luma.length; pixel += 1) {
+    if (luma[pixel] <= threshold) {
+      mask[pixel] = 1;
+    }
+  }
+
+  const visited = new Uint8Array(mask.length);
+  const stack = new Int32Array(mask.length);
+  const minArea = width * height * 0.0025;
+  const maxArea = width * height * 0.22;
+  let bestCenter: PaperPoint | null = null;
+  let bestScore = 0;
+
+  for (let startPixel = 0; startPixel < mask.length; startPixel += 1) {
+    if (!mask[startPixel] || visited[startPixel]) {
+      continue;
+    }
+
+    let stackLength = 0;
+    let area = 0;
+    let sumX = 0;
+    let sumY = 0;
+    let minX = width;
+    let minY = height;
+    let maxX = 0;
+    let maxY = 0;
+    let edgeTouches = 0;
+
+    stack[stackLength] = startPixel;
+    stackLength += 1;
+    visited[startPixel] = 1;
+
+    while (stackLength > 0) {
+      stackLength -= 1;
+      const pixel = stack[stackLength];
+      const x = pixel % width;
+      const y = Math.floor(pixel / width);
+
+      area += 1;
+      sumX += x;
+      sumY += y;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+
+      if (x <= 1 || y <= 1 || x >= width - 2 || y >= height - 2) {
+        edgeTouches += 1;
+      }
+
+      const neighbors = [
+        pixel - 1,
+        pixel + 1,
+        pixel - width,
+        pixel + width,
+      ];
+
+      neighbors.forEach((neighbor) => {
+        if (
+          neighbor < 0
+          || neighbor >= mask.length
+          || visited[neighbor]
+          || !mask[neighbor]
+          || stackLength >= stack.length - 1
+        ) {
+          return;
+        }
+
+        const neighborX = neighbor % width;
+
+        if (Math.abs(neighborX - x) > 1) {
+          return;
+        }
+
+        visited[neighbor] = 1;
+        stack[stackLength] = neighbor;
+        stackLength += 1;
+      });
+    }
+
+    if (area < minArea || area > maxArea) {
+      continue;
+    }
+
+    const componentWidth = maxX - minX + 1;
+    const componentHeight = maxY - minY + 1;
+    const aspectRatio = componentWidth / Math.max(1, componentHeight);
+    const fillRatio = area / Math.max(1, componentWidth * componentHeight);
+    const edgeTouchRatio = edgeTouches / Math.max(1, area);
+
+    if (
+      componentWidth < width * 0.04
+      || componentHeight < height * 0.04
+      || aspectRatio < 0.55
+      || aspectRatio > 1.85
+      || fillRatio < 0.22
+      || edgeTouchRatio > 0.04
+    ) {
+      continue;
+    }
+
+    const centerX = sumX / area;
+    const centerY = sumY / area;
+    const centeredness = 1 - Math.min(
+      1,
+      Math.hypot((centerX - width / 2) / width, (centerY - height / 2) / height) * 1.6
+    );
+    const compactness = Math.min(componentWidth, componentHeight) / Math.max(componentWidth, componentHeight);
+    const score = area * (0.62 + compactness * 0.22 + centeredness * 0.16);
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestCenter = {
+        x: centerX,
+        y: centerY,
+      };
+    }
+  }
+
+  return bestCenter;
+}
+
+function radialRingSignals(
+  magnitudes: Float32Array,
+  width: number,
+  height: number,
+  center: PaperPoint
+) {
+  const maxRadius = Math.max(
+    1,
+    Math.min(
+      center.x,
+      center.y,
+      width - center.x - 1,
+      height - center.y - 1
+    ) * 0.98
+  );
+  const angles = Array.from({ length: TARGET_SAMPLE_ANGLES }, (_, index) => {
+    const angle = (Math.PI * 2 * index) / TARGET_SAMPLE_ANGLES;
+
+    return {
+      sin: Math.sin(angle),
+      cos: Math.cos(angle),
+    };
+  });
+  const signals: number[] = [];
+
+  for (let radius = 8; radius <= maxRadius; radius += 1) {
+    let edgeHits = 0;
+    let validSamples = 0;
+
+    angles.forEach((angle) => {
+      const x = Math.round(center.x + angle.cos * radius);
+      const y = Math.round(center.y + angle.sin * radius);
+
+      if (x <= 1 || y <= 1 || x >= width - 1 || y >= height - 1) {
+        return;
+      }
+
+      validSamples += 1;
+
+      if (magnitudes[y * width + x] >= 32) {
+        edgeHits += 1;
+      }
+    });
+
+    signals[radius] = validSamples > 0 ? edgeHits / validSamples : 0;
+  }
+
+  return {
+    maxRadius,
+    signals,
+  };
+}
+
+function detectTargetPrintBounds(imageData: ImageData, width: number, height: number): PaperBounds | null {
+  const { luma, magnitudes } = createLumaAndEdges(imageData, width, height);
+  const center = findDarkTargetCenter(luma, width, height) || {
+    x: width / 2,
+    y: height / 2,
+  };
+  const { maxRadius, signals } = radialRingSignals(magnitudes, width, height, center);
+  const smoothedSignals = signals.map((_, radius) => {
+    let sum = 0;
+    let count = 0;
+
+    for (
+      let neighborRadius = Math.max(0, radius - 2);
+      neighborRadius <= Math.min(signals.length - 1, radius + 2);
+      neighborRadius += 1
+    ) {
+      sum += signals[neighborRadius] || 0;
+      count += 1;
+    }
+
+    return sum / Math.max(1, count);
+  });
+  const peaks: Array<{
+    radius: number;
+    signal: number;
+  }> = [];
+
+  for (let radius = Math.max(10, Math.round(maxRadius * 0.08)); radius < maxRadius; radius += 1) {
+    const signal = smoothedSignals[radius] || 0;
+    const previousSignal = smoothedSignals[radius - 3] || 0;
+    const nextSignal = smoothedSignals[radius + 3] || 0;
+
+    if (signal >= 0.05 && signal >= previousSignal && signal >= nextSignal) {
+      const previousPeak = peaks[peaks.length - 1];
+
+      if (previousPeak && radius - previousPeak.radius < Math.max(6, maxRadius * 0.018)) {
+        if (signal > previousPeak.signal) {
+          previousPeak.radius = radius;
+          previousPeak.signal = signal;
+        }
+      } else {
+        peaks.push({
+          radius,
+          signal,
+        });
+      }
+    }
+  }
+
+  if (peaks.length < 5) {
+    return null;
+  }
+
+  const outerPeak = [...peaks]
+    .filter((peak) => peak.radius >= maxRadius * 0.36)
+    .sort((left, right) => right.radius - left.radius)[0];
+
+  if (!outerPeak) {
+    return null;
+  }
+
+  const nearbyPeaks = peaks.filter((peak) => peak.radius <= outerPeak.radius && peak.radius >= outerPeak.radius * 0.22);
+  const halfSize = outerPeak.radius * TARGET_PAPER_HALF_RATIO;
+  const minX = center.x - halfSize;
+  const minY = center.y - halfSize;
+  const maxX = center.x + halfSize;
+  const maxY = center.y + halfSize;
+  const clippedMinX = clamp(minX, 0, width - 1);
+  const clippedMinY = clamp(minY, 0, height - 1);
+  const clippedMaxX = clamp(maxX, 0, width - 1);
+  const clippedMaxY = clamp(maxY, 0, height - 1);
+  const clippedWidth = clippedMaxX - clippedMinX + 1;
+  const clippedHeight = clippedMaxY - clippedMinY + 1;
+  const clippingLoss = 1 - (
+    clippedWidth * clippedHeight
+  ) / Math.max(1, (halfSize * 2) * (halfSize * 2));
+
+  if (
+    clippedWidth < width * 0.28
+    || clippedHeight < height * 0.2
+    || clippingLoss > 0.42
+  ) {
+    return null;
+  }
+
+  const ringStrength = nearbyPeaks.reduce((sum, peak) => sum + peak.signal, 0) / Math.max(1, nearbyPeaks.length);
+  const ringCountScore = clamp(nearbyPeaks.length / 8, 0, 1);
+  const confidence = clamp(ringStrength * 3.4 + ringCountScore * 0.42 - clippingLoss * 0.35, 0, 1);
+
+  if (confidence < 0.32) {
+    return null;
+  }
+
+  return {
+    x: Math.round(clippedMinX),
+    y: Math.round(clippedMinY),
+    width: Math.round(clippedWidth),
+    height: Math.round(clippedHeight),
+    confidence,
+    polygon: [
+      { x: clippedMinX, y: clippedMinY },
+      { x: clippedMaxX, y: clippedMinY },
+      { x: clippedMaxX, y: clippedMaxY },
+      { x: clippedMinX, y: clippedMaxY },
+    ],
   };
 }
 
@@ -788,6 +1083,28 @@ function detectPaperBounds(canvas: HTMLCanvasElement, maxAnalysisSide = DOCUMENT
   analysisContext.drawImage(canvas, 0, 0, width, height);
 
   const imageData = analysisContext.getImageData(0, 0, width, height);
+  const targetPrintBounds = detectTargetPrintBounds(imageData, width, height);
+
+  if (targetPrintBounds) {
+    function scalePoint(point: PaperPoint): PaperPoint {
+      return {
+        x: Math.round(point.x / scale),
+        y: Math.round(point.y / scale),
+      };
+    }
+
+    const polygon = targetPrintBounds.polygon.map(scalePoint) as PaperBounds["polygon"];
+
+    return {
+      x: Math.round(targetPrintBounds.x / scale),
+      y: Math.round(targetPrintBounds.y / scale),
+      width: Math.round(targetPrintBounds.width / scale),
+      height: Math.round(targetPrintBounds.height / scale),
+      confidence: targetPrintBounds.confidence,
+      polygon,
+    };
+  }
+
   const documentBounds = detectDocumentByEdges(imageData, width, height);
 
   if (documentBounds && documentBounds.confidence >= 0.28) {
