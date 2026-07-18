@@ -39,16 +39,17 @@ type ScanResult = {
   shots: DetectedShot[];
   totalScore: number;
   geometryConfidence: number;
+  patternCount: number;
 };
 
 type ShotTearPattern = {
-  minEdgeDensity: number;
-  maxEdgeDensity: number;
-  minRadialCoverage: number;
-  minSpokeCount: number;
-  maxLineDominance: number;
-  minCoreComplexity: number;
-  minAnnulusComplexity: number;
+  edgeDensity: number;
+  radialCoverage: number;
+  lineDominance: number;
+  coreComplexity: number;
+  annulusComplexity: number;
+  edgeMean: number;
+  centerRange: number;
 };
 
 type ShotShapeScore = {
@@ -59,6 +60,8 @@ type ShotShapeScore = {
   lineDominance: number;
   coreComplexity: number;
   annulusComplexity: number;
+  edgeMean: number;
+  centerRange: number;
 };
 
 type PaperPoint = {
@@ -109,35 +112,25 @@ const DOCUMENT_ANALYSIS_SIDE = 900;
 const DOCUMENT_RHO_STEP = 4;
 const MIN_WARP_CONFIDENCE = 0.42;
 const MIN_CONFIDENT_CROP = 0.5;
-const SHOT_TEAR_PATTERNS: ShotTearPattern[] = [
-  {
-    minEdgeDensity: 0.075,
-    maxEdgeDensity: 0.42,
-    minRadialCoverage: 0.38,
-    minSpokeCount: 5,
-    maxLineDominance: 0.42,
-    minCoreComplexity: 0.16,
-    minAnnulusComplexity: 0.12,
-  },
-  {
-    minEdgeDensity: 0.065,
-    maxEdgeDensity: 0.46,
-    minRadialCoverage: 0.34,
-    minSpokeCount: 4,
-    maxLineDominance: 0.46,
-    minCoreComplexity: 0.14,
-    minAnnulusComplexity: 0.1,
-  },
-  {
-    minEdgeDensity: 0.06,
-    maxEdgeDensity: 0.5,
-    minRadialCoverage: 0.42,
-    minSpokeCount: 6,
-    maxLineDominance: 0.48,
-    minCoreComplexity: 0.18,
-    minAnnulusComplexity: 0.14,
-  },
-];
+const APPROVED_SHOT_PATTERN_COUNT = 51;
+const SHOT_TEAR_PROFILE: ShotTearPattern = {
+  edgeDensity: 0.2275,
+  radialCoverage: 0.7917,
+  lineDominance: 0.0951,
+  coreComplexity: 0.3552,
+  annulusComplexity: 0.1993,
+  edgeMean: 121.5439,
+  centerRange: 85,
+};
+const SHOT_TEAR_TOLERANCE: ShotTearPattern = {
+  edgeDensity: 0.105,
+  radialCoverage: 0.28,
+  lineDominance: 0.085,
+  coreComplexity: 0.34,
+  annulusComplexity: 0.095,
+  edgeMean: 105,
+  centerRange: 98,
+};
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
@@ -1922,7 +1915,7 @@ function buildShotMask(
   height: number,
   geometry: TargetGeometry
 ) {
-  const { magnitudes } = createLumaAndEdges(imageData, width, height);
+  const { luma, magnitudes } = createLumaAndEdges(imageData, width, height);
   const sampledMagnitudes: number[] = [];
   const sampleStep = Math.max(2, Math.round(Math.min(width, height) / 420));
 
@@ -1959,12 +1952,41 @@ function buildShotMask(
 
   return {
     mask: morphMask(mask, width, height, "dilate"),
+    luma,
     magnitudes,
     edgeThreshold,
   };
 }
 
+function shotProfileDistance(score: Omit<ShotShapeScore, "confidence">) {
+  const edgeDensityDistance = Math.abs(score.edgeDensity - SHOT_TEAR_PROFILE.edgeDensity)
+    / SHOT_TEAR_TOLERANCE.edgeDensity;
+  const radialCoverageDistance = Math.max(0, SHOT_TEAR_PROFILE.radialCoverage - score.radialCoverage)
+    / SHOT_TEAR_TOLERANCE.radialCoverage;
+  const lineDominanceDistance = Math.max(0, score.lineDominance - SHOT_TEAR_PROFILE.lineDominance)
+    / SHOT_TEAR_TOLERANCE.lineDominance;
+  const coreComplexityDistance = Math.max(0, SHOT_TEAR_PROFILE.coreComplexity - score.coreComplexity)
+    / SHOT_TEAR_TOLERANCE.coreComplexity;
+  const annulusComplexityDistance = Math.abs(score.annulusComplexity - SHOT_TEAR_PROFILE.annulusComplexity)
+    / SHOT_TEAR_TOLERANCE.annulusComplexity;
+  const edgeMeanDistance = Math.max(0, SHOT_TEAR_PROFILE.edgeMean - score.edgeMean)
+    / SHOT_TEAR_TOLERANCE.edgeMean;
+  const centerRangeDistance = Math.max(0, SHOT_TEAR_PROFILE.centerRange - score.centerRange)
+    / SHOT_TEAR_TOLERANCE.centerRange;
+
+  return Math.hypot(
+    edgeDensityDistance,
+    radialCoverageDistance,
+    lineDominanceDistance,
+    coreComplexityDistance,
+    annulusComplexityDistance,
+    edgeMeanDistance,
+    centerRangeDistance
+  );
+}
+
 function scoreShotShape(
+  luma: Float32Array,
   magnitudes: Float32Array,
   width: number,
   height: number,
@@ -1980,9 +2002,12 @@ function scoreShotShape(
     Math.min(width, height) * 0.012,
     12
   ));
-  const sectorCount = 16;
+  const sectorCount = 24;
   const sectors = Array.from({ length: sectorCount }, () => 0);
+  const localMagnitudes: number[] = [];
+  const coreLuma: number[] = [];
   let edgePixels = 0;
+  let edgeMagnitudeSum = 0;
   let patchPixels = 0;
   let coreEdgePixels = 0;
   let corePixels = 0;
@@ -2005,13 +2030,46 @@ function scoreShotShape(
         continue;
       }
 
-      const magnitude = magnitudes[y * width + x];
-      const hasEdge = magnitude >= edgeThreshold;
+      const pixel = y * width + x;
+      const magnitude = magnitudes[pixel];
+
+      localMagnitudes.push(magnitude);
 
       patchPixels += 1;
 
       if (localDistance <= patchRadius * 0.35) {
         corePixels += 1;
+        coreLuma.push(luma[pixel]);
+      }
+    }
+  }
+
+  const localEdgeThreshold = clamp(
+    Math.max(edgeThreshold * 0.76, percentile(localMagnitudes, 0.82)),
+    18,
+    145
+  );
+
+  for (
+    let y = Math.max(0, Math.round(centerY - patchRadius));
+    y <= Math.min(height - 1, Math.round(centerY + patchRadius));
+    y += 1
+  ) {
+    for (
+      let x = Math.max(0, Math.round(centerX - patchRadius));
+      x <= Math.min(width - 1, Math.round(centerX + patchRadius));
+      x += 1
+    ) {
+      const localDistance = Math.hypot(x - centerX, y - centerY);
+
+      if (localDistance > patchRadius) {
+        continue;
+      }
+
+      const magnitude = magnitudes[y * width + x];
+      const hasEdge = magnitude >= localEdgeThreshold;
+
+      if (localDistance <= patchRadius * 0.35) {
 
         if (hasEdge) {
           coreEdgePixels += 1;
@@ -2028,6 +2086,7 @@ function scoreShotShape(
 
       if (hasEdge) {
         edgePixels += 1;
+        edgeMagnitudeSum += magnitude;
 
         if (localDistance > 1) {
           const angle = Math.atan2(y - centerY, x - centerX);
@@ -2041,49 +2100,49 @@ function scoreShotShape(
 
   const spokeThreshold = Math.max(2, Math.round(edgePixels / 28));
   const activeSectors = sectors.filter((sector) => sector >= spokeThreshold).length;
-  const oppositePairs = Array.from({ length: sectorCount / 2 }, (_, index) => (
-    sectors[index] + sectors[index + sectorCount / 2]
-  ));
-  const maxPair = Math.max(...oppositePairs, 0);
+  const maxSector = Math.max(...sectors, 0);
   const edgeDensity = edgePixels / Math.max(1, patchPixels);
   const radialCoverage = activeSectors / sectorCount;
-  const lineDominance = maxPair / Math.max(1, edgePixels);
+  const lineDominance = maxSector / Math.max(1, edgePixels);
   const coreComplexity = coreEdgePixels / Math.max(1, corePixels);
   const annulusComplexity = annulusEdgePixels / Math.max(1, annulusPixels);
-  const bestPatternScore = SHOT_TEAR_PATTERNS.reduce((bestScore, pattern) => {
-    if (
-      edgeDensity < pattern.minEdgeDensity
-      || edgeDensity > pattern.maxEdgeDensity
-      || radialCoverage < pattern.minRadialCoverage
-      || activeSectors < pattern.minSpokeCount
-      || lineDominance > pattern.maxLineDominance
-      || coreComplexity < pattern.minCoreComplexity
-      || annulusComplexity < pattern.minAnnulusComplexity
-    ) {
-      return bestScore;
-    }
-
-    const score = clamp(
-      radialCoverage * 0.34
-      + (activeSectors / sectorCount) * 0.18
-      + (1 - lineDominance) * 0.22
-      + Math.min(1, coreComplexity / 0.28) * 0.14
-      + Math.min(1, annulusComplexity / 0.22) * 0.12,
-      0,
-      1
-    );
-
-    return Math.max(bestScore, score);
-  }, 0);
-
-  return {
-    confidence: bestPatternScore,
+  const edgeMean = edgeMagnitudeSum / Math.max(1, edgePixels);
+  const centerRange = percentile(coreLuma, 0.9) - percentile(coreLuma, 0.1);
+  const profileDistance = shotProfileDistance({
     edgeDensity,
     radialCoverage,
     spokeCount: activeSectors,
     lineDominance,
     coreComplexity,
     annulusComplexity,
+    edgeMean,
+    centerRange,
+  });
+  const learnedPatternScore = clamp(1 - profileDistance / 3.8, 0, 1);
+  const gateScore = clamp(
+    Math.min(1, radialCoverage / 0.62) * 0.22
+    + Math.min(1, activeSectors / 14) * 0.16
+    + (1 - Math.min(1, lineDominance / 0.22)) * 0.18
+    + Math.min(1, edgeDensity / 0.16) * 0.12
+    + Math.min(1, coreComplexity / 0.18) * 0.12
+    + Math.min(1, annulusComplexity / 0.14) * 0.1
+    + Math.min(1, edgeMean / 85) * 0.06
+    + Math.min(1, centerRange / 40) * 0.04,
+    0,
+    1
+  );
+  const confidence = clamp(learnedPatternScore * 0.68 + gateScore * 0.32, 0, 1);
+
+  return {
+    confidence,
+    edgeDensity,
+    radialCoverage,
+    spokeCount: activeSectors,
+    lineDominance,
+    coreComplexity,
+    annulusComplexity,
+    edgeMean,
+    centerRange,
   };
 }
 
@@ -2099,7 +2158,7 @@ function detectShots(canvas: HTMLCanvasElement, geometry: TargetGeometry): Detec
   const width = canvas.width;
   const height = canvas.height;
   const imageData = context.getImageData(0, 0, width, height);
-  const { mask, magnitudes, edgeThreshold } = buildShotMask(
+  const { mask, luma, magnitudes, edgeThreshold } = buildShotMask(
     imageData,
     width,
     height,
@@ -2208,6 +2267,7 @@ function detectShots(canvas: HTMLCanvasElement, geometry: TargetGeometry): Detec
     }
 
     const shapeScore = scoreShotShape(
+      luma,
       magnitudes,
       width,
       height,
@@ -2230,9 +2290,13 @@ function detectShots(canvas: HTMLCanvasElement, geometry: TargetGeometry): Detec
     const confidence = clamp(shapeScore.confidence * 0.74 + circularity * 0.14 + sizeScore * 0.12, 0, 1);
 
     if (
-      confidence < 0.58
-      || shapeScore.lineDominance > 0.5
-      || shapeScore.spokeCount < 4
+      confidence < 0.64
+      || shapeScore.edgeDensity < 0.1
+      || shapeScore.radialCoverage < 0.54
+      || shapeScore.lineDominance > 0.24
+      || shapeScore.spokeCount < 13
+      || shapeScore.annulusComplexity < 0.12
+      || shapeScore.edgeMean < 46
     ) {
       continue;
     }
@@ -2308,6 +2372,7 @@ async function analyzeCroppedTarget(source: string): Promise<ScanResult> {
     shots,
     totalScore: shots.reduce((sum, shot) => sum + shot.score, 0),
     geometryConfidence: geometry.confidence,
+    patternCount: APPROVED_SHOT_PATTERN_COUNT,
   };
 }
 
@@ -2770,7 +2835,7 @@ export default function TargetPhotoScanner() {
           </h2>
 
           <p className="mb-4 text-sm font-semibold text-gray-400">
-            {scanResult.shots.length} przestrzelin · {scanResult.totalScore} pkt · geometria stref {Math.round(scanResult.geometryConfidence * 100)}%
+            {scanResult.shots.length} przestrzelin · {scanResult.totalScore} pkt · geometria stref {Math.round(scanResult.geometryConfidence * 100)}% · wzorce {scanResult.patternCount}
           </p>
 
           <div className="overflow-hidden rounded-xl border border-zinc-800 bg-black">
