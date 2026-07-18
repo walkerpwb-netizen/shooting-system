@@ -41,6 +41,26 @@ type ScanResult = {
   geometryConfidence: number;
 };
 
+type ShotTearPattern = {
+  minEdgeDensity: number;
+  maxEdgeDensity: number;
+  minRadialCoverage: number;
+  minSpokeCount: number;
+  maxLineDominance: number;
+  minCoreComplexity: number;
+  minAnnulusComplexity: number;
+};
+
+type ShotShapeScore = {
+  confidence: number;
+  edgeDensity: number;
+  radialCoverage: number;
+  spokeCount: number;
+  lineDominance: number;
+  coreComplexity: number;
+  annulusComplexity: number;
+};
+
 type PaperPoint = {
   x: number;
   y: number;
@@ -89,6 +109,35 @@ const DOCUMENT_ANALYSIS_SIDE = 900;
 const DOCUMENT_RHO_STEP = 4;
 const MIN_WARP_CONFIDENCE = 0.42;
 const MIN_CONFIDENT_CROP = 0.5;
+const SHOT_TEAR_PATTERNS: ShotTearPattern[] = [
+  {
+    minEdgeDensity: 0.075,
+    maxEdgeDensity: 0.42,
+    minRadialCoverage: 0.38,
+    minSpokeCount: 5,
+    maxLineDominance: 0.42,
+    minCoreComplexity: 0.16,
+    minAnnulusComplexity: 0.12,
+  },
+  {
+    minEdgeDensity: 0.065,
+    maxEdgeDensity: 0.46,
+    minRadialCoverage: 0.34,
+    minSpokeCount: 4,
+    maxLineDominance: 0.46,
+    minCoreComplexity: 0.14,
+    minAnnulusComplexity: 0.1,
+  },
+  {
+    minEdgeDensity: 0.06,
+    maxEdgeDensity: 0.5,
+    minRadialCoverage: 0.42,
+    minSpokeCount: 6,
+    maxLineDominance: 0.48,
+    minCoreComplexity: 0.18,
+    minAnnulusComplexity: 0.14,
+  },
+];
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
@@ -1873,7 +1922,8 @@ function buildShotMask(
   height: number,
   geometry: TargetGeometry
 ) {
-  const sampledLumas: number[] = [];
+  const { magnitudes } = createLumaAndEdges(imageData, width, height);
+  const sampledMagnitudes: number[] = [];
   const sampleStep = Math.max(2, Math.round(Math.min(width, height) / 420));
 
   for (let y = 0; y < height; y += sampleStep) {
@@ -1882,87 +1932,62 @@ function buildShotMask(
         continue;
       }
 
-      sampledLumas.push(getLumaFromData(imageData, width, height, x, y));
+      sampledMagnitudes.push(magnitudes[y * width + x]);
     }
   }
 
-  const p35 = percentile(sampledLumas, 0.35);
-  const p70 = percentile(sampledLumas, 0.7);
-  const darkThreshold = clamp(p35 - 28, 55, 132);
-  const brightTearThreshold = clamp(p70 + 34, 138, 232);
-  const blackFieldRadius = geometry.outerRadius * 0.43;
+  const edgeThreshold = clamp(percentile(sampledMagnitudes, 0.94), 30, 86);
   const mask = new Uint8Array(width * height);
 
-  for (let pixel = 0, dataIndex = 0; pixel < width * height; pixel += 1, dataIndex += 4) {
+  for (let pixel = 0; pixel < width * height; pixel += 1) {
     const x = pixel % width;
     const y = Math.floor(pixel / width);
-    const distanceFromCenter = Math.hypot(x - geometry.centerX, y - geometry.centerY);
 
-    if (distanceFromCenter > geometry.outerRadius) {
+    if (
+      x <= 1
+      || y <= 1
+      || x >= width - 2
+      || y >= height - 2
+      || pointScore(geometry, x, y) === 0
+      || magnitudes[pixel] < edgeThreshold
+    ) {
       continue;
     }
 
-    const red = imageData.data[dataIndex];
-    const green = imageData.data[dataIndex + 1];
-    const blue = imageData.data[dataIndex + 2];
-    const max = Math.max(red, green, blue);
-    const min = Math.min(red, green, blue);
-    const chroma = max - min;
-    const luma = red * 0.2126 + green * 0.7152 + blue * 0.0722;
-    const inBlackField = distanceFromCenter <= blackFieldRadius;
-    const brownPaperCore = red + green > blue * 2.15
-      && red > 58
-      && green > 42
-      && luma < 170
-      && chroma > 18;
-    const darkPaperCore = !inBlackField
-      && luma <= darkThreshold
-      && chroma > 22
-      && red + green > blue * 1.8;
-    const warmTearOnBlack = inBlackField
-      && red + green > blue * 2.02
-      && red > 48
-      && green > 36
-      && luma < 176
-      && chroma > 16;
-
-    if (brownPaperCore || darkPaperCore || warmTearOnBlack) {
-      mask[pixel] = 1;
-    }
+    mask[pixel] = 1;
   }
 
   return {
-    mask,
-    darkThreshold,
-    brightTearThreshold,
+    mask: morphMask(mask, width, height, "dilate"),
+    magnitudes,
+    edgeThreshold,
   };
 }
 
-function scoreShotTexture(
-  imageData: ImageData,
+function scoreShotShape(
+  magnitudes: Float32Array,
   width: number,
   height: number,
-  geometry: TargetGeometry,
   centerX: number,
   centerY: number,
   componentWidth: number,
   componentHeight: number,
-  darkThreshold: number,
-  brightTearThreshold: number
-) {
+  edgeThreshold: number
+): ShotShapeScore {
   const patchRadius = Math.round(Math.max(
     componentWidth,
     componentHeight,
-    geometry.zoneWidth * 0.2,
+    Math.min(width, height) * 0.012,
     12
   ));
-  const sectors = Array.from({ length: 16 }, () => false);
-  let texturePixels = 0;
+  const sectorCount = 16;
+  const sectors = Array.from({ length: sectorCount }, () => 0);
+  let edgePixels = 0;
   let patchPixels = 0;
-  let darkPixels = 0;
-  let brownOrGrayPixels = 0;
-  let brightTearPixels = 0;
-  const blackFieldRadius = geometry.outerRadius * 0.43;
+  let coreEdgePixels = 0;
+  let corePixels = 0;
+  let annulusEdgePixels = 0;
+  let annulusPixels = 0;
 
   for (
     let y = Math.max(0, Math.round(centerY - patchRadius));
@@ -1980,70 +2005,86 @@ function scoreShotTexture(
         continue;
       }
 
-      const dataIndex = (y * width + x) * 4;
-      const red = imageData.data[dataIndex];
-      const green = imageData.data[dataIndex + 1];
-      const blue = imageData.data[dataIndex + 2];
-      const max = Math.max(red, green, blue);
-      const min = Math.min(red, green, blue);
-      const chroma = max - min;
-      const luma = red * 0.2126 + green * 0.7152 + blue * 0.0722;
-      const targetDistance = Math.hypot(x - geometry.centerX, y - geometry.centerY);
-      const inBlackField = targetDistance <= blackFieldRadius;
-      const brownish = red + green > blue * 2.12
-        && red > 54
-        && green > 40
-        && luma < 176
-        && chroma > 16;
-      const dark = !inBlackField
-        && luma <= darkThreshold
-        && chroma > 22
-        && red + green > blue * 1.8;
-      const warmOnBlack = inBlackField
-        && red + green > blue * 2.02
-        && red > 48
-        && green > 36
-        && luma < Math.max(176, brightTearThreshold)
-        && chroma > 16;
-      const damaged = dark || brownish || warmOnBlack;
+      const magnitude = magnitudes[y * width + x];
+      const hasEdge = magnitude >= edgeThreshold;
 
       patchPixels += 1;
 
-      if (dark) {
-        darkPixels += 1;
+      if (localDistance <= patchRadius * 0.35) {
+        corePixels += 1;
+
+        if (hasEdge) {
+          coreEdgePixels += 1;
+        }
       }
 
-      if (brownish || dark) {
-        brownOrGrayPixels += 1;
+      if (localDistance > patchRadius * 0.35 && localDistance <= patchRadius) {
+        annulusPixels += 1;
+
+        if (hasEdge) {
+          annulusEdgePixels += 1;
+        }
       }
 
-      if (warmOnBlack) {
-        brightTearPixels += 1;
-      }
-
-      if (damaged) {
-        texturePixels += 1;
+      if (hasEdge) {
+        edgePixels += 1;
 
         if (localDistance > 1) {
           const angle = Math.atan2(y - centerY, x - centerX);
-          const sector = Math.floor(((angle + Math.PI) / (Math.PI * 2)) * sectors.length);
+          const sector = Math.floor(((angle + Math.PI) / (Math.PI * 2)) * sectorCount);
 
-          sectors[clamp(sector, 0, sectors.length - 1)] = true;
+          sectors[clamp(sector, 0, sectorCount - 1)] += 1;
         }
       }
     }
   }
 
-  const radialSpread = sectors.filter(Boolean).length / sectors.length;
-  const textureRatio = texturePixels / Math.max(1, patchPixels);
-  const coreRatio = darkPixels / Math.max(1, patchPixels);
-  const tearRatio = (brownOrGrayPixels + brightTearPixels) / Math.max(1, patchPixels);
+  const spokeThreshold = Math.max(2, Math.round(edgePixels / 28));
+  const activeSectors = sectors.filter((sector) => sector >= spokeThreshold).length;
+  const oppositePairs = Array.from({ length: sectorCount / 2 }, (_, index) => (
+    sectors[index] + sectors[index + sectorCount / 2]
+  ));
+  const maxPair = Math.max(...oppositePairs, 0);
+  const edgeDensity = edgePixels / Math.max(1, patchPixels);
+  const radialCoverage = activeSectors / sectorCount;
+  const lineDominance = maxPair / Math.max(1, edgePixels);
+  const coreComplexity = coreEdgePixels / Math.max(1, corePixels);
+  const annulusComplexity = annulusEdgePixels / Math.max(1, annulusPixels);
+  const bestPatternScore = SHOT_TEAR_PATTERNS.reduce((bestScore, pattern) => {
+    if (
+      edgeDensity < pattern.minEdgeDensity
+      || edgeDensity > pattern.maxEdgeDensity
+      || radialCoverage < pattern.minRadialCoverage
+      || activeSectors < pattern.minSpokeCount
+      || lineDominance > pattern.maxLineDominance
+      || coreComplexity < pattern.minCoreComplexity
+      || annulusComplexity < pattern.minAnnulusComplexity
+    ) {
+      return bestScore;
+    }
 
-  return clamp(
-    radialSpread * 0.45 + textureRatio * 1.45 + tearRatio * 1.9 + Math.min(coreRatio, 0.18) * 0.7,
-    0,
-    1
-  );
+    const score = clamp(
+      radialCoverage * 0.34
+      + (activeSectors / sectorCount) * 0.18
+      + (1 - lineDominance) * 0.22
+      + Math.min(1, coreComplexity / 0.28) * 0.14
+      + Math.min(1, annulusComplexity / 0.22) * 0.12,
+      0,
+      1
+    );
+
+    return Math.max(bestScore, score);
+  }, 0);
+
+  return {
+    confidence: bestPatternScore,
+    edgeDensity,
+    radialCoverage,
+    spokeCount: activeSectors,
+    lineDominance,
+    coreComplexity,
+    annulusComplexity,
+  };
 }
 
 function detectShots(canvas: HTMLCanvasElement, geometry: TargetGeometry): DetectedShot[] {
@@ -2058,7 +2099,7 @@ function detectShots(canvas: HTMLCanvasElement, geometry: TargetGeometry): Detec
   const width = canvas.width;
   const height = canvas.height;
   const imageData = context.getImageData(0, 0, width, height);
-  const { mask, darkThreshold, brightTearThreshold } = buildShotMask(
+  const { mask, magnitudes, edgeThreshold } = buildShotMask(
     imageData,
     width,
     height,
@@ -2166,17 +2207,15 @@ function detectShots(canvas: HTMLCanvasElement, geometry: TargetGeometry): Detec
       continue;
     }
 
-    const textureScore = scoreShotTexture(
-      imageData,
+    const shapeScore = scoreShotShape(
+      magnitudes,
       width,
       height,
-      geometry,
       centerX,
       centerY,
       componentWidth,
       componentHeight,
-      darkThreshold,
-      brightTearThreshold
+      edgeThreshold
     );
     const circularity = clamp(
       Math.min(componentWidth, componentHeight) / Math.max(componentWidth, componentHeight),
@@ -2188,9 +2227,13 @@ function detectShots(canvas: HTMLCanvasElement, geometry: TargetGeometry): Detec
       0,
       1
     );
-    const confidence = clamp(textureScore * 0.68 + circularity * 0.18 + sizeScore * 0.14, 0, 1);
+    const confidence = clamp(shapeScore.confidence * 0.74 + circularity * 0.14 + sizeScore * 0.12, 0, 1);
 
-    if (confidence < 0.56) {
+    if (
+      confidence < 0.58
+      || shapeScore.lineDominance > 0.5
+      || shapeScore.spokeCount < 4
+    ) {
       continue;
     }
 
