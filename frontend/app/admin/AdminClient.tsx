@@ -11,9 +11,8 @@ import { apiUrl } from "@/lib/api";
 import { getAccessToken, isAdmin } from "@/lib/auth";
 import { notifyShootingRangeSubmissionsChange } from "@/lib/shootingRangeNotifications";
 import QrCodeScanner from "@/components/QrCodeScanner";
-import TargetScoringBeta from "@/beta-test/TargetScoringBeta";
 
-type AdminTab = "users" | "pzss-clubs" | "competitions" | "shooting-ranges" | "settings" | "premium" | "ads" | "monitoring" | "qr-scanner" | "pdf-test" | "test-data" | "beta-test";
+type AdminTab = "users" | "pzss-clubs" | "competitions" | "shooting-ranges" | "settings" | "premium" | "ads" | "monitoring" | "qr-scanner" | "pdf-test" | "test-data";
 type UserSortField = "name" | "status" | "role" | "club" | "account" | "phone";
 type SortDirection = "asc" | "desc";
 
@@ -5028,8 +5027,6 @@ export default function AdminClient({
               </>
             )}
           </section>
-        ) : activeTab === "beta-test" ? (
-          <TargetScoringBeta />
         ) : activeTab === "qr-scanner" ? (
           <QrCodeScanner />
         ) : activeTab === "pdf-test" ? (
