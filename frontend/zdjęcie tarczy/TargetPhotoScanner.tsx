@@ -50,18 +50,7 @@ type CameraConstraintSet = MediaTrackConstraintSet & {
   zoom?: number;
 };
 
-const AUTO_CAPTURE_CONFIDENCE = 0.8;
-const AUTO_CAPTURE_STABLE_FRAMES = 4;
-const AUTO_CAPTURE_GEOMETRY_TOLERANCE = 0.035;
-const PREVIEW_SCAN_INTERVAL_MS = 160;
-const PREVIEW_ANALYSIS_SIDE = 480;
-const PREVIEW_MIN_CONFIDENCE = 0.28;
-const PREVIEW_SWITCH_CONFIDENCE = 0.68;
-const PREVIEW_SWITCH_STABLE_FRAMES = 3;
-const PREVIEW_GEOMETRY_TOLERANCE = 0.08;
-const PREVIEW_CANDIDATE_TOLERANCE = 0.055;
-const PREVIEW_SMOOTHING = 0.28;
-const PREVIEW_HOLD_MS = 700;
+const FOCUS_SETTLE_MS = 450;
 
 function scoreCameraDevice(device: CameraDevice, index: number) {
   const label = device.label.toLowerCase();
@@ -413,82 +402,14 @@ function cropPaperFromCanvas(sourceCanvas: HTMLCanvasElement): CropResult {
   };
 }
 
-function hasSimilarPaperGeometry(
-  previousBounds: PaperBounds | null,
-  nextBounds: PaperBounds,
-  tolerance: number
-) {
-  if (!previousBounds) {
-    return false;
-  }
-
-  const maxSide = Math.max(
-    previousBounds.width,
-    previousBounds.height,
-    nextBounds.width,
-    nextBounds.height,
-    1
-  );
-  const positionDelta = Math.max(
-    Math.abs(previousBounds.x - nextBounds.x),
-    Math.abs(previousBounds.y - nextBounds.y)
-  ) / maxSide;
-  const sizeDelta = Math.max(
-    Math.abs(previousBounds.width - nextBounds.width),
-    Math.abs(previousBounds.height - nextBounds.height)
-  ) / maxSide;
-
-  return positionDelta <= tolerance && sizeDelta <= tolerance;
-}
-
-function hasStablePaperGeometry(previousBounds: PaperBounds | null, nextBounds: PaperBounds) {
-  return hasSimilarPaperGeometry(
-    previousBounds,
-    nextBounds,
-    AUTO_CAPTURE_GEOMETRY_TOLERANCE
-  );
-}
-
-function blendNumber(previousValue: number, nextValue: number, alpha: number) {
-  return previousValue + (nextValue - previousValue) * alpha;
-}
-
-function blendPoint(previousPoint: PaperPoint, nextPoint: PaperPoint, alpha: number): PaperPoint {
-  return {
-    x: blendNumber(previousPoint.x, nextPoint.x, alpha),
-    y: blendNumber(previousPoint.y, nextPoint.y, alpha),
-  };
-}
-
-function blendPaperBounds(previousBounds: PaperBounds, nextBounds: PaperBounds, alpha: number): PaperBounds {
-  return {
-    x: Math.round(blendNumber(previousBounds.x, nextBounds.x, alpha)),
-    y: Math.round(blendNumber(previousBounds.y, nextBounds.y, alpha)),
-    width: Math.round(blendNumber(previousBounds.width, nextBounds.width, alpha)),
-    height: Math.round(blendNumber(previousBounds.height, nextBounds.height, alpha)),
-    confidence: Math.max(nextBounds.confidence, previousBounds.confidence * 0.96),
-    polygon: previousBounds.polygon.map((point, index) => (
-      blendPoint(point, nextBounds.polygon[index], alpha)
-    )) as [PaperPoint, PaperPoint, PaperPoint, PaperPoint],
-  };
-}
-
 export default function TargetPhotoScanner() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const previewTimerRef = useRef<number | null>(null);
   const digitalZoomRef = useRef(1);
   const streamRef = useRef<MediaStream | null>(null);
-  const lastAutoCaptureBoundsRef = useRef<PaperBounds | null>(null);
-  const stableAutoCaptureFramesRef = useRef(0);
-  const autoCaptureInProgressRef = useRef(false);
-  const smoothedPreviewBoundsRef = useRef<PaperBounds | null>(null);
-  const candidatePreviewBoundsRef = useRef<PaperBounds | null>(null);
-  const candidatePreviewFramesRef = useRef(0);
-  const lastGoodPreviewAtRef = useRef(0);
+  const capturingRef = useRef(false);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [capturing, setCapturing] = useState(false);
   const [message, setMessage] = useState("");
   const [result, setResult] = useState<CropResult | null>(null);
   const [cameras, setCameras] = useState<CameraDevice[]>([]);
@@ -498,10 +419,9 @@ export default function TargetPhotoScanner() {
   const [cameraZoomRange, setCameraZoomRange] = useState<CameraCapabilities["zoom"] | null>(null);
   const [cameraZoom, setCameraZoom] = useState(1);
   const [digitalZoom, setDigitalZoom] = useState(1);
-  const [paperPreview, setPaperPreview] = useState<PaperBounds | null>(null);
   const [flashOnCapture, setFlashOnCapture] = useState(false);
   const [controlsOpen, setControlsOpen] = useState(false);
-  const [autoCaptureStatus, setAutoCaptureStatus] = useState("");
+  const [captureStatus, setCaptureStatus] = useState("");
 
   function updateDigitalZoom(value: number) {
     const nextZoom = Math.max(1, Math.min(4, value));
@@ -511,26 +431,15 @@ export default function TargetPhotoScanner() {
   }
 
   function stopCamera() {
-    if (previewTimerRef.current !== null) {
-      window.clearTimeout(previewTimerRef.current);
-      previewTimerRef.current = null;
-    }
-
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     setTorchSupported(false);
     setTorchEnabled(false);
     setCameraZoomRange(null);
     setCameraZoom(1);
-    setPaperPreview(null);
-    setAutoCaptureStatus("");
-    stableAutoCaptureFramesRef.current = 0;
-    lastAutoCaptureBoundsRef.current = null;
-    autoCaptureInProgressRef.current = false;
-    smoothedPreviewBoundsRef.current = null;
-    candidatePreviewBoundsRef.current = null;
-    candidatePreviewFramesRef.current = 0;
-    lastGoodPreviewAtRef.current = 0;
+    capturingRef.current = false;
+    setCapturing(false);
+    setCaptureStatus("");
 
     if (videoRef.current) {
       videoRef.current.srcObject = null;
@@ -670,7 +579,6 @@ export default function TargetPhotoScanner() {
 
       setSelectedCameraId(stream.getVideoTracks()[0]?.getSettings().deviceId || "");
       await attachStream(stream);
-      startPaperPreview();
     } catch {
       setMessage("Nie udało się uruchomić aparatu. Sprawdź uprawnienia kamery.");
       setCameraOpen(false);
@@ -695,7 +603,6 @@ export default function TargetPhotoScanner() {
       stopCamera();
       const stream = await startStream(deviceId);
       await attachStream(stream);
-      startPaperPreview();
     } catch {
       setMessage("Nie udało się przełączyć aparatu.");
     } finally {
@@ -740,10 +647,21 @@ export default function TargetPhotoScanner() {
       return;
     }
 
+    const capabilities = videoTrack.getCapabilities() as CameraCapabilities;
+    const focusMode = capabilities.focusMode?.includes("single-shot")
+      ? "single-shot"
+      : capabilities.focusMode?.includes("continuous")
+        ? "continuous"
+        : undefined;
+
+    if (!focusMode) {
+      return;
+    }
+
     await videoTrack.applyConstraints({
       advanced: [
         {
-          focusMode: "single-shot",
+          focusMode,
           pointsOfInterest: [
             {
               x: 0.5,
@@ -753,130 +671,6 @@ export default function TargetPhotoScanner() {
         } as CameraConstraintSet,
       ],
     } as MediaTrackConstraints).catch(() => undefined);
-  }
-
-  function evaluateAutoCapture(bounds: PaperBounds | null) {
-    if (
-      !bounds
-      || bounds.confidence < AUTO_CAPTURE_CONFIDENCE
-      || autoCaptureInProgressRef.current
-    ) {
-      stableAutoCaptureFramesRef.current = 0;
-      lastAutoCaptureBoundsRef.current = bounds;
-      setAutoCaptureStatus("");
-      return;
-    }
-
-    const isStable = hasStablePaperGeometry(lastAutoCaptureBoundsRef.current, bounds);
-
-    lastAutoCaptureBoundsRef.current = bounds;
-
-    if (!isStable) {
-      stableAutoCaptureFramesRef.current = 1;
-      setAutoCaptureStatus("Trzymaj nieruchomo");
-      return;
-    }
-
-    stableAutoCaptureFramesRef.current += 1;
-
-    const framesLeft = Math.max(
-      0,
-      AUTO_CAPTURE_STABLE_FRAMES - stableAutoCaptureFramesRef.current
-    );
-
-    if (framesLeft > 0) {
-      setAutoCaptureStatus(`Automatyczne zdjęcie za ${framesLeft}`);
-      return;
-    }
-
-    autoCaptureInProgressRef.current = true;
-    setAutoCaptureStatus("Robię zdjęcie");
-    void captureTargetPhoto();
-  }
-
-  function stabilizePaperPreview(rawBounds: PaperBounds | null) {
-    const now = Date.now();
-    const previousBounds = smoothedPreviewBoundsRef.current;
-
-    if (!rawBounds || rawBounds.confidence < PREVIEW_MIN_CONFIDENCE) {
-      candidatePreviewBoundsRef.current = null;
-      candidatePreviewFramesRef.current = 0;
-
-      if (previousBounds && now - lastGoodPreviewAtRef.current <= PREVIEW_HOLD_MS) {
-        return {
-          ...previousBounds,
-          confidence: Math.min(previousBounds.confidence, 0.44),
-        };
-      }
-
-      smoothedPreviewBoundsRef.current = null;
-      return null;
-    }
-
-    if (!previousBounds) {
-      smoothedPreviewBoundsRef.current = rawBounds;
-      candidatePreviewBoundsRef.current = null;
-      candidatePreviewFramesRef.current = 0;
-      lastGoodPreviewAtRef.current = now;
-      return rawBounds;
-    }
-
-    if (hasSimilarPaperGeometry(previousBounds, rawBounds, PREVIEW_GEOMETRY_TOLERANCE)) {
-      const smoothedBounds = blendPaperBounds(
-        previousBounds,
-        rawBounds,
-        PREVIEW_SMOOTHING
-      );
-
-      smoothedPreviewBoundsRef.current = smoothedBounds;
-      candidatePreviewBoundsRef.current = null;
-      candidatePreviewFramesRef.current = 0;
-      lastGoodPreviewAtRef.current = now;
-      return smoothedBounds;
-    }
-
-    if (rawBounds.confidence < PREVIEW_SWITCH_CONFIDENCE) {
-      candidatePreviewBoundsRef.current = null;
-      candidatePreviewFramesRef.current = 0;
-      return {
-        ...previousBounds,
-        confidence: Math.min(previousBounds.confidence, 0.65),
-      };
-    }
-
-    if (
-      candidatePreviewBoundsRef.current
-      && hasSimilarPaperGeometry(
-        candidatePreviewBoundsRef.current,
-        rawBounds,
-        PREVIEW_CANDIDATE_TOLERANCE
-      )
-    ) {
-      candidatePreviewFramesRef.current += 1;
-      candidatePreviewBoundsRef.current = blendPaperBounds(
-        candidatePreviewBoundsRef.current,
-        rawBounds,
-        0.5
-      );
-    } else {
-      candidatePreviewBoundsRef.current = rawBounds;
-      candidatePreviewFramesRef.current = 1;
-    }
-
-    if (candidatePreviewFramesRef.current >= PREVIEW_SWITCH_STABLE_FRAMES) {
-      const nextBounds = candidatePreviewBoundsRef.current;
-
-      smoothedPreviewBoundsRef.current = nextBounds;
-      candidatePreviewBoundsRef.current = null;
-      candidatePreviewFramesRef.current = 0;
-      lastGoodPreviewAtRef.current = now;
-      return nextBounds;
-    }
-
-    return {
-      ...previousBounds,
-      confidence: Math.min(previousBounds.confidence, 0.65),
-    };
   }
 
   function drawVideoFrameToCanvas() {
@@ -919,127 +713,21 @@ export default function TargetPhotoScanner() {
     return canvas;
   }
 
-  function drawPaperPreview(bounds: PaperBounds | null, sourceWidth: number, sourceHeight: number) {
-    const canvas = overlayCanvasRef.current;
-    const video = videoRef.current;
-    const context = canvas?.getContext("2d");
-
-    if (!canvas || !video || !context) {
-      return;
-    }
-
-    const rect = video.getBoundingClientRect();
-    const displayWidth = Math.max(1, Math.round(rect.width));
-    const displayHeight = Math.max(1, Math.round(rect.height));
-
-    if (canvas.width !== displayWidth || canvas.height !== displayHeight) {
-      canvas.width = displayWidth;
-      canvas.height = displayHeight;
-    }
-
-    context.clearRect(0, 0, displayWidth, displayHeight);
-
-    if (!bounds || bounds.confidence < 0.28) {
-      return;
-    }
-
-    const coverScale = Math.max(displayWidth / sourceWidth, displayHeight / sourceHeight) * digitalZoomRef.current;
-    const renderedWidth = sourceWidth * coverScale;
-    const renderedHeight = sourceHeight * coverScale;
-    const offsetX = (displayWidth - renderedWidth) / 2;
-    const offsetY = (displayHeight - renderedHeight) / 2;
-
-    const points = bounds.polygon.map((point) => ({
-      x: point.x * coverScale + offsetX,
-      y: point.y * coverScale + offsetY,
-    }));
-
-    context.lineWidth = Math.max(3, displayWidth * 0.006);
-    context.strokeStyle = bounds.confidence >= 0.45
-      ? "rgba(34, 197, 94, 0.96)"
-      : "rgba(250, 204, 21, 0.96)";
-    context.fillStyle = "rgba(34, 197, 94, 0.10)";
-    context.beginPath();
-    context.moveTo(points[0].x, points[0].y);
-    points.slice(1).forEach((point) => context.lineTo(point.x, point.y));
-    context.closePath();
-    context.fill();
-    context.stroke();
-  }
-
-  function startPaperPreview() {
-    if (previewTimerRef.current !== null) {
-      window.clearTimeout(previewTimerRef.current);
-    }
-
-    const scan = () => {
-      const video = videoRef.current;
-      let nextBounds: PaperBounds | null = null;
-
-      if (video && video.readyState >= video.HAVE_CURRENT_DATA) {
-        const width = video.videoWidth || 1920;
-        const height = video.videoHeight || 1080;
-        const canvas = previewCanvasRef.current || document.createElement("canvas");
-        const context = canvas.getContext("2d", {
-          willReadFrequently: true,
-        });
-
-        previewCanvasRef.current = canvas;
-
-        if (context) {
-          canvas.width = width;
-          canvas.height = height;
-
-          const sourceWidth = width / digitalZoomRef.current;
-          const sourceHeight = height / digitalZoomRef.current;
-          const sourceX = (width - sourceWidth) / 2;
-          const sourceY = (height - sourceHeight) / 2;
-
-          context.drawImage(
-            video,
-            sourceX,
-            sourceY,
-            sourceWidth,
-            sourceHeight,
-            0,
-            0,
-            width,
-            height
-          );
-
-          nextBounds = stabilizePaperPreview(detectPaperBounds(
-            canvas,
-            PREVIEW_ANALYSIS_SIDE
-          ));
-          setPaperPreview(nextBounds);
-          drawPaperPreview(nextBounds, width, height);
-          evaluateAutoCapture(nextBounds);
-        }
-      }
-
-      if (!nextBounds) {
-        setPaperPreview(null);
-        drawPaperPreview(null, 1, 1);
-        evaluateAutoCapture(null);
-      }
-
-      if (streamRef.current && !autoCaptureInProgressRef.current) {
-        previewTimerRef.current = window.setTimeout(
-          scan,
-          PREVIEW_SCAN_INTERVAL_MS
-        );
-      }
-    };
-
-    previewTimerRef.current = window.setTimeout(scan, 180);
-  }
-
   async function captureTargetPhoto() {
-    if (autoCaptureInProgressRef.current && !streamRef.current) {
+    if (capturingRef.current) {
       return;
     }
 
-    autoCaptureInProgressRef.current = true;
+    capturingRef.current = true;
+    setCapturing(true);
+    setCaptureStatus("Ustawiam ostrość");
+
+    await focusAtCenter();
+    await new Promise((resolve) => {
+      window.setTimeout(resolve, FOCUS_SETTLE_MS);
+    });
+
+    setCaptureStatus("Robię zdjęcie");
 
     if (flashOnCapture && torchSupported && !torchEnabled) {
       await setTorchState(true);
@@ -1055,7 +743,9 @@ export default function TargetPhotoScanner() {
       if (flashOnCapture && torchSupported) {
         await setTorchState(false);
       }
-      autoCaptureInProgressRef.current = false;
+      capturingRef.current = false;
+      setCapturing(false);
+      setCaptureStatus("");
       return;
     }
 
@@ -1128,11 +818,6 @@ export default function TargetPhotoScanner() {
               className="h-full w-full object-cover transition-transform"
             />
 
-            <canvas
-              ref={overlayCanvasRef}
-              className="pointer-events-none absolute inset-0 z-20 h-full w-full"
-            />
-
             <button
               type="button"
               onClick={() => {
@@ -1170,26 +855,10 @@ export default function TargetPhotoScanner() {
               </button>
             </div>
 
-            <div className="mt-3 flex justify-center">
-              <span className={`rounded-full px-4 py-2 text-sm font-black shadow-lg backdrop-blur ${
-                paperPreview && paperPreview.confidence >= 0.45
-                  ? "bg-green-600/80 text-white"
-                  : paperPreview && paperPreview.confidence >= 0.28
-                    ? "bg-yellow-400/85 text-zinc-950"
-                    : "bg-black/55 text-white"
-              }`}>
-                {paperPreview && paperPreview.confidence >= 0.45
-                  ? "Krawędzie wykryte"
-                  : paperPreview && paperPreview.confidence >= 0.28
-                    ? "Krawędzie niepewne"
-                    : "Ustaw kartkę w kadrze"}
-              </span>
-            </div>
-
-            {autoCaptureStatus && (
-              <div className="mt-2 flex justify-center">
+            {captureStatus && (
+              <div className="mt-3 flex justify-center">
                 <span className="rounded-full bg-white/90 px-4 py-2 text-sm font-black text-zinc-950 shadow-lg backdrop-blur">
-                  {autoCaptureStatus}
+                  {captureStatus}
                 </span>
               </div>
             )}
@@ -1295,9 +964,9 @@ export default function TargetPhotoScanner() {
                 onClick={() => {
                   void captureTargetPhoto();
                 }}
-                disabled={starting}
+                disabled={starting || capturing}
                 className="pointer-events-auto h-20 w-20 rounded-full border-4 border-white bg-white shadow-[0_0_0_6px_rgba(255,255,255,0.22)] transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
-                aria-label="Zrób zdjęcie"
+                aria-label={capturing ? "Ustawianie ostrości" : "Zrób zdjęcie"}
               />
             </div>
 
