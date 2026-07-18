@@ -86,7 +86,7 @@ type LineCandidate = {
   score: number;
 };
 
-type ShotCandidateSource = "edge" | "core";
+type ShotCandidateSource = "edge" | "core" | "dark";
 
 type CameraCapabilities = MediaTrackCapabilities & {
   focusMode?: string[];
@@ -2299,6 +2299,10 @@ function detectShots(canvas: HTMLCanvasElement, geometry: TargetGeometry): Detec
   const minArea = Math.max(14, Math.round(minBox * minBox * 0.55));
   const maxArea = Math.round(maxBox * maxBox * 1.55);
   const candidates: DetectedShot[] = [];
+  const scanMinX = Math.max(2, Math.round(geometry.centerX - geometry.outerRadius));
+  const scanMaxX = Math.min(width - 3, Math.round(geometry.centerX + geometry.outerRadius));
+  const scanMinY = Math.max(2, Math.round(geometry.centerY - geometry.outerRadius));
+  const scanMaxY = Math.min(height - 3, Math.round(geometry.centerY + geometry.outerRadius));
   const addCandidate = (
     centerX: number,
     centerY: number,
@@ -2336,18 +2340,19 @@ function detectShots(canvas: HTMLCanvasElement, geometry: TargetGeometry): Detec
     );
     const confidence = clamp(shapeScore.confidence * 0.74 + circularity * 0.14 + sizeScore * 0.12, 0, 1);
     const isCoreSeed = source === "core";
+    const isDarkSpot = source === "dark";
 
     if (
-      confidence < (isCoreSeed ? 0.76 : 0.68)
-      || shapeScore.edgeDensity < (isCoreSeed ? 0.16 : 0.12)
-      || shapeScore.radialCoverage < (isCoreSeed ? 0.68 : 0.58)
-      || shapeScore.lineDominance > (isCoreSeed ? 0.18 : 0.22)
-      || shapeScore.ringDominance > (isCoreSeed ? 0.3 : 0.36)
-      || shapeScore.spokeCount < (isCoreSeed ? 16 : 14)
-      || shapeScore.coreComplexity < (isCoreSeed ? 0.22 : 0.16)
-      || shapeScore.annulusComplexity < (isCoreSeed ? 0.16 : 0.13)
-      || shapeScore.edgeMean < (isCoreSeed ? 74 : 58)
-      || shapeScore.centerRange < (isCoreSeed ? 42 : 34)
+      confidence < (isCoreSeed ? 0.76 : isDarkSpot ? 0.52 : 0.68)
+      || shapeScore.edgeDensity < (isCoreSeed ? 0.16 : isDarkSpot ? 0.065 : 0.12)
+      || shapeScore.radialCoverage < (isCoreSeed ? 0.68 : isDarkSpot ? 0.36 : 0.58)
+      || shapeScore.lineDominance > (isCoreSeed ? 0.18 : isDarkSpot ? 0.36 : 0.22)
+      || shapeScore.ringDominance > (isCoreSeed ? 0.3 : isDarkSpot ? 0.48 : 0.36)
+      || shapeScore.spokeCount < (isCoreSeed ? 16 : isDarkSpot ? 8 : 14)
+      || shapeScore.coreComplexity < (isCoreSeed ? 0.22 : isDarkSpot ? 0.08 : 0.16)
+      || shapeScore.annulusComplexity < (isCoreSeed ? 0.16 : isDarkSpot ? 0.055 : 0.13)
+      || shapeScore.edgeMean < (isCoreSeed ? 74 : isDarkSpot ? 28 : 58)
+      || shapeScore.centerRange < (isCoreSeed ? 42 : isDarkSpot ? 16 : 34)
     ) {
       return;
     }
@@ -2453,13 +2458,173 @@ function detectShots(canvas: HTMLCanvasElement, geometry: TargetGeometry): Detec
     addCandidate(centerX, centerY, componentWidth, componentHeight, 0.72, "edge");
   }
 
+  const scoringLumaSamples: number[] = [];
+  const lumaSampleStep = Math.max(2, Math.round(Math.min(width, height) / 560));
+
+  for (let y = scanMinY; y <= scanMaxY; y += lumaSampleStep) {
+    for (let x = scanMinX; x <= scanMaxX; x += lumaSampleStep) {
+      if (pointScore(geometry, x, y) === 0) {
+        continue;
+      }
+
+      scoringLumaSamples.push(luma[y * width + x]);
+    }
+  }
+
+  const localDarkThreshold = clamp(
+    Math.min(
+      percentile(scoringLumaSamples, 0.18),
+      percentile(scoringLumaSamples, 0.5) - 34
+    ),
+    42,
+    146
+  );
+  const darkMask = new Uint8Array(width * height);
+
+  for (let pixel = 0; pixel < darkMask.length; pixel += 1) {
+    const x = pixel % width;
+    const y = Math.floor(pixel / width);
+
+    if (
+      x <= 1
+      || y <= 1
+      || x >= width - 2
+      || y >= height - 2
+      || pointScore(geometry, x, y) === 0
+      || luma[pixel] > localDarkThreshold
+    ) {
+      continue;
+    }
+
+    darkMask[pixel] = 1;
+  }
+
+  const darkVisited = new Uint8Array(width * height);
+  const darkStack = new Int32Array(width * height);
+  const minDarkBox = Math.max(3, Math.round(geometry.zoneWidth * 0.03));
+  const maxDarkBox = Math.max(16, Math.round(geometry.zoneWidth * 0.34));
+  const minDarkArea = Math.max(7, Math.round(geometry.zoneWidth * geometry.zoneWidth * 0.0035));
+  const maxDarkArea = Math.max(80, Math.round(geometry.zoneWidth * geometry.zoneWidth * 0.032));
+
+  for (let startPixel = 0; startPixel < darkMask.length; startPixel += 1) {
+    if (!darkMask[startPixel] || darkVisited[startPixel]) {
+      continue;
+    }
+
+    let stackLength = 0;
+    let area = 0;
+    let sumX = 0;
+    let sumY = 0;
+    let darkSum = 0;
+    let minX = width;
+    let minY = height;
+    let maxX = 0;
+    let maxY = 0;
+
+    darkStack[stackLength] = startPixel;
+    stackLength += 1;
+    darkVisited[startPixel] = 1;
+
+    while (stackLength > 0) {
+      stackLength -= 1;
+      const pixel = darkStack[stackLength];
+      const x = pixel % width;
+      const y = Math.floor(pixel / width);
+
+      area += 1;
+      sumX += x;
+      sumY += y;
+      darkSum += luma[pixel];
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+
+      if (area > maxDarkArea * 4 || stackLength >= darkStack.length - 5) {
+        continue;
+      }
+
+      const neighbors = [
+        pixel - 1,
+        pixel + 1,
+        pixel - width,
+        pixel + width,
+        pixel - width - 1,
+        pixel - width + 1,
+        pixel + width - 1,
+        pixel + width + 1,
+      ];
+
+      neighbors.forEach((neighbor) => {
+        if (
+          neighbor < 0
+          || neighbor >= darkMask.length
+          || darkVisited[neighbor]
+          || !darkMask[neighbor]
+          || stackLength >= darkStack.length - 1
+        ) {
+          return;
+        }
+
+        const neighborX = neighbor % width;
+
+        if (Math.abs(neighborX - x) > 1) {
+          return;
+        }
+
+        darkVisited[neighbor] = 1;
+        darkStack[stackLength] = neighbor;
+        stackLength += 1;
+      });
+    }
+
+    const componentWidth = maxX - minX + 1;
+    const componentHeight = maxY - minY + 1;
+    const aspectRatio = componentWidth / Math.max(1, componentHeight);
+    const fillRatio = area / Math.max(1, componentWidth * componentHeight);
+    const darkMean = darkSum / Math.max(1, area);
+
+    if (
+      area < minDarkArea
+      || area > maxDarkArea
+      || componentWidth < minDarkBox
+      || componentHeight < minDarkBox
+      || componentWidth > maxDarkBox
+      || componentHeight > maxDarkBox
+      || aspectRatio < 0.55
+      || aspectRatio > 1.82
+      || fillRatio < 0.16
+      || fillRatio > 0.84
+      || darkMean > localDarkThreshold - 2
+    ) {
+      continue;
+    }
+
+    const centerX = sumX / area;
+    const centerY = sumY / area;
+    const contrast = localCoreContrast(
+      luma,
+      width,
+      height,
+      centerX,
+      centerY,
+      Math.max(3, Math.min(componentWidth, componentHeight) * 0.58),
+      Math.max(8, Math.max(componentWidth, componentHeight) * 2.4)
+    );
+
+    if (
+      contrast.darkness < 8
+      || contrast.coreRange < 10
+    ) {
+      continue;
+    }
+
+    addCandidate(centerX, centerY, componentWidth, componentHeight, 1.35, "dark");
+  }
+
   const coreRadius = clamp(geometry.zoneWidth * 0.11, 5, 24);
   const ringRadius = coreRadius * 3.2;
   const seedStep = Math.max(6, Math.round(coreRadius * 1.35));
-  const scanMinX = Math.max(2, Math.round(geometry.centerX - geometry.outerRadius));
-  const scanMaxX = Math.min(width - 3, Math.round(geometry.centerX + geometry.outerRadius));
-  const scanMinY = Math.max(2, Math.round(geometry.centerY - geometry.outerRadius));
-  const scanMaxY = Math.min(height - 3, Math.round(geometry.centerY + geometry.outerRadius));
 
   for (let y = scanMinY; y <= scanMaxY; y += seedStep) {
     for (let x = scanMinX; x <= scanMaxX; x += seedStep) {
