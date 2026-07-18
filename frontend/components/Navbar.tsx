@@ -1230,6 +1230,14 @@ export default function Navbar() {
                     </Link>
 
                     <Link
+                      href="/admin?tab=target-photo"
+                      onClick={() => setMobileMenuOpen(false)}
+                      className="block py-2"
+                    >
+                      Zdjęcie tarczy
+                    </Link>
+
+                    <Link
                       href="/admin?tab=pdf-test"
                       onClick={() => setMobileMenuOpen(false)}
                       className="block py-2"
@@ -1370,6 +1378,13 @@ export default function Navbar() {
             className="ui-button min-w-0 bg-zinc-800 hover:bg-zinc-700 px-4 py-2 rounded-lg text-center transition"
           >
             QR skaner
+          </Link>
+
+          <Link
+            href="/admin?tab=target-photo"
+            className="ui-button min-w-0 bg-zinc-800 hover:bg-zinc-700 px-4 py-2 rounded-lg text-center transition"
+          >
+            Zdjęcie tarczy
           </Link>
 
           <Link
