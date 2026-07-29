@@ -133,6 +133,7 @@ type DynamicStage = {
   mini_popper_points: number;
   plate_points: number;
   mini_plate_points: number;
+  paper_required_hits: number;
   penalty_miss: string;
   penalty_no_shoot: string;
   penalty_procedural: string;
@@ -324,7 +325,7 @@ function isDynamicStageDiscipline(discipline: Discipline) {
 }
 
 function createBlankStage(stageNumber: number, source?: DynamicStage): DynamicStage {
-  return {
+  const stage = {
     id: undefined,
     stage_number: stageNumber,
     name: source?.name || `Stage ${stageNumber}`,
@@ -348,6 +349,7 @@ function createBlankStage(stageNumber: number, source?: DynamicStage): DynamicSt
     mini_popper_points: source?.mini_popper_points ?? 5,
     plate_points: source?.plate_points ?? 5,
     mini_plate_points: source?.mini_plate_points ?? 5,
+    paper_required_hits: 0,
     penalty_miss: source?.penalty_miss || "-10",
     penalty_no_shoot: source?.penalty_no_shoot || "-10",
     penalty_procedural: source?.penalty_procedural || "-10",
@@ -357,6 +359,11 @@ function createBlankStage(stageNumber: number, source?: DynamicStage): DynamicSt
     custom_penalties: source?.custom_penalties?.length
       ? source.custom_penalties.map((penalty) => ({ ...penalty }))
       : [{ name: "", value: "-10" }],
+  };
+
+  return {
+    ...stage,
+    paper_required_hits: source?.paper_required_hits ?? stageDefaultPaperHits(stage),
   };
 }
 
@@ -369,6 +376,10 @@ function stagePaperTargets(stage: DynamicStage) {
     + Number(stage.swingers || 0)
     + Number(stage.drop_turners || 0)
   );
+}
+
+function stageDefaultPaperHits(stage: DynamicStage) {
+  return stagePaperTargets(stage) * 2;
 }
 
 export default function OrganizerPage() {
@@ -388,8 +399,23 @@ function stageSteelTargets(stage: DynamicStage) {
   );
 }
 
+const paperTargetStageFields = new Set<keyof DynamicStage>([
+  "paper_targets",
+  "mini_paper_targets",
+  "classic_targets",
+  "moving_targets",
+  "swingers",
+  "drop_turners",
+]);
+
 function stageRequiredPaperHits(stage: DynamicStage) {
-  return stagePaperTargets(stage) * 2;
+  const configuredHits = Number(stage.paper_required_hits);
+
+  if (Number.isFinite(configuredHits) && configuredHits > 0) {
+    return Math.floor(configuredHits);
+  }
+
+  return stageDefaultPaperHits(stage);
 }
 
 function stageComputedMinRounds(stage: DynamicStage) {
@@ -1265,11 +1291,27 @@ function OrganizerContent() {
 
         return {
           ...discipline,
-          stages: discipline.stages.map((stage, currentStageIndex) =>
-            currentStageIndex === stageIndex
-              ? { ...stage, [field]: value }
-              : stage
-          ),
+          stages: discipline.stages.map((stage, currentStageIndex) => {
+            if (currentStageIndex !== stageIndex) {
+              return stage;
+            }
+
+            const nextStage = { ...stage, [field]: value };
+
+            if (paperTargetStageFields.has(field)) {
+              const currentRequiredHits = Number(stage.paper_required_hits || 0);
+              const currentDefaultHits = stageDefaultPaperHits(stage);
+
+              if (currentRequiredHits <= 0 || currentRequiredHits === currentDefaultHits) {
+                return {
+                  ...nextStage,
+                  paper_required_hits: stageDefaultPaperHits(nextStage),
+                };
+              }
+            }
+
+            return nextStage;
+          }),
         };
       })
     );
@@ -1471,6 +1513,10 @@ function OrganizerContent() {
         if (!stageHasScoredTarget(stage)) {
           return `discipline-${index}-stage-${stageIndex}-paper-targets`;
         }
+
+        if (stagePaperTargets(stage) > 0 && stageRequiredPaperHits(stage) <= 0) {
+          return `discipline-${index}-stage-${stageIndex}-paper-required-hits`;
+        }
       }
 
       if (!dynamicStageDiscipline && practicalShotgunDiscipline && !isPositiveNumber(discipline.shots_count)) {
@@ -1658,6 +1704,7 @@ function OrganizerContent() {
                       ...stage,
                       stage_number: stageIndex + 1,
                       min_rounds: stage.min_rounds || stageComputedMinRounds(stage),
+                      paper_required_hits: stageRequiredPaperHits(stage),
                       custom_penalties: stage.custom_penalties.filter((penalty) =>
                         hasText(penalty.name)
                       ),
@@ -2784,10 +2831,23 @@ function OrganizerContent() {
                                         className="w-full rounded-xl border border-zinc-700 bg-zinc-900 p-4 text-white"
                                       />
                                     </label>
-                                    <div className={requiredContainerClass(true)}>
-                                      <p className="text-sm font-bold text-emerald-100">Trafienia papierowe</p>
-                                      <p className="mt-1 text-2xl font-black">{stageRequiredPaperHits(stage)}</p>
-                                    </div>
+                                    <label>
+                                      <span className="mb-2 block text-sm font-semibold text-white">Wymagane trafienia papierowe</span>
+                                      <input
+                                        id={`discipline-${index}-stage-${stageIndex}-paper-required-hits`}
+                                        type="number"
+                                        min={stagePaperTargets(stage) > 0 ? "1" : "0"}
+                                        value={stage.paper_required_hits || ""}
+                                        placeholder={String(stageDefaultPaperHits(stage))}
+                                        onChange={(event) => updateStageField(
+                                          index,
+                                          stageIndex,
+                                          "paper_required_hits",
+                                          Number(event.target.value) as never
+                                        )}
+                                        className={requiredFieldClass(stagePaperTargets(stage) <= 0 || stageRequiredPaperHits(stage) > 0)}
+                                      />
+                                    </label>
                                     <div className={requiredContainerClass(true)}>
                                       <p className="text-sm font-bold text-emerald-100">Maks. punkty Stage</p>
                                       <p className="mt-1 text-2xl font-black">{maxPoints}</p>

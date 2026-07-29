@@ -241,6 +241,14 @@ type StageScoreCounterField = keyof Pick<
   | "extra_hits"
 >;
 
+const derivedMissCounterFields = new Set<StageScoreCounterField>([
+  "paper_misses",
+  "popper_misses",
+  "mini_popper_misses",
+  "plate_misses",
+  "mini_plate_misses",
+]);
+
 type TrapHistoryEntry = {
   participantId: number;
   scoreIndex: number;
@@ -895,19 +903,19 @@ function stageScoreCounterMax(
 
   switch (field) {
     case "popper_hits":
-      return Math.max(Number(stage.poppers || 0) - (missFieldsEnabled ? Number(input.popper_misses || 0) : 0), 0);
+      return Math.max(Number(stage.poppers || 0), 0);
     case "popper_misses":
       return missFieldsEnabled ? Math.max(Number(stage.poppers || 0) - Number(input.popper_hits || 0), 0) : 0;
     case "mini_popper_hits":
-      return Math.max(Number(stage.mini_poppers || 0) - (missFieldsEnabled ? Number(input.mini_popper_misses || 0) : 0), 0);
+      return Math.max(Number(stage.mini_poppers || 0), 0);
     case "mini_popper_misses":
       return missFieldsEnabled ? Math.max(Number(stage.mini_poppers || 0) - Number(input.mini_popper_hits || 0), 0) : 0;
     case "plate_hits":
-      return Math.max(Number(stage.plates || 0) - (missFieldsEnabled ? Number(input.plate_misses || 0) : 0), 0);
+      return Math.max(Number(stage.plates || 0), 0);
     case "plate_misses":
       return missFieldsEnabled ? Math.max(Number(stage.plates || 0) - Number(input.plate_hits || 0), 0) : 0;
     case "mini_plate_hits":
-      return Math.max(Number(stage.mini_plates || 0) - (missFieldsEnabled ? Number(input.mini_plate_misses || 0) : 0), 0);
+      return Math.max(Number(stage.mini_plates || 0), 0);
     case "mini_plate_misses":
       return missFieldsEnabled ? Math.max(Number(stage.mini_plates || 0) - Number(input.mini_plate_hits || 0), 0) : 0;
     case "no_shoots":
@@ -933,7 +941,7 @@ function clampStageScoreCounters(stage: CompetitionStage, input: StageScoreInput
     next.hits_a = clampCounterValue(next.hits_a, paperLimit);
     next.hits_c = clampCounterValue(next.hits_c, paperLimit - next.hits_a);
     next.hits_d = clampCounterValue(next.hits_d, paperLimit - next.hits_a - next.hits_c);
-    next.paper_misses = clampCounterValue(next.paper_misses, paperLimit - next.hits_a - next.hits_c - next.hits_d);
+    next.paper_misses = Math.max(paperLimit - next.hits_a - next.hits_c - next.hits_d, 0);
   } else {
     next.hits_a = 0;
     next.hits_c = 0;
@@ -942,21 +950,13 @@ function clampStageScoreCounters(stage: CompetitionStage, input: StageScoreInput
   }
 
   next.popper_hits = clampCounterValue(next.popper_hits, popperLimit);
-  next.popper_misses = missFieldsEnabled
-    ? clampCounterValue(next.popper_misses, popperLimit - next.popper_hits)
-    : 0;
+  next.popper_misses = missFieldsEnabled ? Math.max(popperLimit - next.popper_hits, 0) : 0;
   next.mini_popper_hits = clampCounterValue(next.mini_popper_hits, miniPopperLimit);
-  next.mini_popper_misses = missFieldsEnabled
-    ? clampCounterValue(next.mini_popper_misses, miniPopperLimit - next.mini_popper_hits)
-    : 0;
+  next.mini_popper_misses = missFieldsEnabled ? Math.max(miniPopperLimit - next.mini_popper_hits, 0) : 0;
   next.plate_hits = clampCounterValue(next.plate_hits, plateLimit);
-  next.plate_misses = missFieldsEnabled
-    ? clampCounterValue(next.plate_misses, plateLimit - next.plate_hits)
-    : 0;
+  next.plate_misses = missFieldsEnabled ? Math.max(plateLimit - next.plate_hits, 0) : 0;
   next.mini_plate_hits = clampCounterValue(next.mini_plate_hits, miniPlateLimit);
-  next.mini_plate_misses = missFieldsEnabled
-    ? clampCounterValue(next.mini_plate_misses, miniPlateLimit - next.mini_plate_hits)
-    : 0;
+  next.mini_plate_misses = missFieldsEnabled ? Math.max(miniPlateLimit - next.mini_plate_hits, 0) : 0;
   next.no_shoots = hasNoShoots ? clampCounterValue(next.no_shoots, noShootLimit) : 0;
   next.procedurals = 0;
   next.ftsa = 0;
@@ -2239,6 +2239,10 @@ export default function JudgeDisciplinePage() {
     field: StageScoreCounterField,
     value: number
   ) {
+    if (derivedMissCounterFields.has(field)) {
+      return;
+    }
+
     updateStageScoreInput(participantId, stage.id, (input) => ({
       ...input,
       [field]: clampCounterValue(value, stageScoreCounterMax(stage, input, field)),
@@ -2251,6 +2255,10 @@ export default function JudgeDisciplinePage() {
     field: StageScoreCounterField,
     delta: number
   ) {
+    if (derivedMissCounterFields.has(field)) {
+      return;
+    }
+
     updateStageScoreInput(participantId, stage.id, (input) => ({
       ...input,
       [field]: clampCounterValue(
@@ -3489,16 +3497,19 @@ export default function JudgeDisciplinePage() {
                         {counterFields.map((counter) => {
                           const counterMax = stageScoreCounterMax(activeStage, displayInput, counter.field);
                           const counterValue = displayInput[counter.field];
+                          const derivedMissCounter = derivedMissCounterFields.has(counter.field);
 
                           return (
                             <div
                               key={counter.field}
-                              className="grid min-w-0 grid-cols-[48px_minmax(0,1fr)_48px] overflow-hidden rounded-2xl border border-zinc-700 bg-zinc-900 sm:grid-cols-[58px_minmax(0,1fr)_58px]"
+                              className={`grid min-w-0 grid-cols-[48px_minmax(0,1fr)_48px] overflow-hidden rounded-2xl border border-zinc-700 sm:grid-cols-[58px_minmax(0,1fr)_58px] ${
+                                derivedMissCounter ? "bg-zinc-950" : "bg-zinc-900"
+                              }`}
                             >
                               <button
                                 type="button"
                                 onClick={() => adjustStageScoreCounter(shooter.participant_id, activeStage, counter.field, -1)}
-                                disabled={counterValue <= 0}
+                                disabled={derivedMissCounter || counterValue <= 0}
                                 className="bg-zinc-800 text-3xl font-black text-white disabled:text-zinc-600"
                               >
                                 -
@@ -3513,19 +3524,23 @@ export default function JudgeDisciplinePage() {
                                   max={counterMax ?? undefined}
                                   inputMode="numeric"
                                   value={counterValue}
+                                  readOnly={derivedMissCounter}
+                                  disabled={derivedMissCounter}
                                   onChange={(event) => setStageScoreCounter(
                                     shooter.participant_id,
                                     activeStage,
                                     counter.field,
                                     Number(event.target.value || 0)
                                   )}
-                                  className="w-full min-w-0 bg-transparent px-2 pb-3 text-center text-2xl font-black text-white outline-none sm:text-3xl"
+                                  className={`w-full min-w-0 bg-transparent px-2 pb-3 text-center text-2xl font-black outline-none sm:text-3xl ${
+                                    derivedMissCounter ? "text-gray-300 disabled:opacity-100" : "text-white"
+                                  }`}
                                 />
                               </label>
                               <button
                                 type="button"
                                 onClick={() => adjustStageScoreCounter(shooter.participant_id, activeStage, counter.field, 1)}
-                                disabled={counterMax !== null && counterValue >= counterMax}
+                                disabled={derivedMissCounter || (counterMax !== null && counterValue >= counterMax)}
                                 className="bg-green-700 text-3xl font-black text-white disabled:bg-zinc-700 disabled:text-zinc-500"
                               >
                                 +

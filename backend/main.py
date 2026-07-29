@@ -344,6 +344,7 @@ class CompetitionStageData(BaseModel):
     mini_popper_points: int = 5
     plate_points: int = 5
     mini_plate_points: int = 5
+    paper_required_hits: int = 0
     penalty_miss: str = "-10"
     penalty_no_shoot: str = "-10"
     penalty_procedural: str = "-10"
@@ -5297,6 +5298,11 @@ def stage_steel_targets_count(stage):
 
 
 def stage_required_paper_hits(stage):
+    configured_hits = int(getattr(stage, "paper_required_hits", 0) or 0)
+
+    if configured_hits > 0:
+        return configured_hits
+
     return stage_paper_targets_count(stage) * 2
 
 
@@ -5326,8 +5332,8 @@ def stage_steel_points_from_counts(stage):
     )
 
 
-def stage_max_points_from_values(paper_targets: int, steel_points: int):
-    return paper_targets * 2 * 5 + steel_points
+def stage_max_points_from_values(required_paper_hits: int, steel_points: int):
+    return required_paper_hits * 5 + steel_points
 
 
 def normalize_custom_penalties(custom_penalties):
@@ -5418,7 +5424,19 @@ def normalize_stage_payloads(stages: list[CompetitionStageData]):
         if paper_targets + steel_targets <= 0:
             raise HTTPException(status_code=400, detail=f"Stage {stage_number} musi mieć przynajmniej jeden cel punktowany")
 
-        computed_min_rounds = paper_targets * 2 + steel_targets
+        default_paper_hits = paper_targets * 2
+        paper_required_hits = parse_non_negative_int(
+            getattr(stage, "paper_required_hits", 0),
+            "liczba wymaganych trafień papierowych",
+        )
+
+        if paper_targets > 0 and paper_required_hits <= 0:
+            paper_required_hits = default_paper_hits
+
+        if paper_targets <= 0:
+            paper_required_hits = 0
+
+        computed_min_rounds = paper_required_hits + steel_targets
         computed_steel_points = (
             counts["poppers"] * steel_points["popper_points"]
             + counts["mini_poppers"] * steel_points["mini_popper_points"]
@@ -5437,7 +5455,8 @@ def normalize_stage_payloads(stages: list[CompetitionStageData]):
             "briefing": stage.briefing or "",
             "notes": stage.notes or "",
             "min_rounds": min_rounds,
-            "max_points": stage_max_points_from_values(paper_targets, computed_steel_points),
+            "max_points": stage_max_points_from_values(paper_required_hits, computed_steel_points),
+            "paper_required_hits": paper_required_hits,
             **counts,
             **steel_points,
             "penalty_miss": normalize_penalty_value(stage.penalty_miss, "Miss"),

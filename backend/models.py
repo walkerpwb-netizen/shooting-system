@@ -941,6 +941,7 @@ class CompetitionStage(Base):
     mini_popper_points = Column(Integer, nullable=False, default=5, server_default="5")
     plate_points = Column(Integer, nullable=False, default=5, server_default="5")
     mini_plate_points = Column(Integer, nullable=False, default=5, server_default="5")
+    paper_required_hits = Column(Integer, nullable=False, default=0, server_default="0")
     penalty_miss = Column(String, nullable=False, default="-10", server_default="-10")
     penalty_no_shoot = Column(String, nullable=False, default="-10", server_default="-10")
     penalty_procedural = Column(String, nullable=False, default="-10", server_default="-10")
