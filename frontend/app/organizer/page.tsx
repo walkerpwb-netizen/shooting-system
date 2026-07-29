@@ -399,7 +399,17 @@ function stageSteelTargets(stage: DynamicStage) {
   );
 }
 
-const paperTargetStageFields = new Set<keyof DynamicStage>([
+const paperTargetFieldOptions: Array<[keyof DynamicStage, string]> = [
+  ["paper_targets", "Pełne tarcze IPSC"],
+  ["mini_paper_targets", "Mini tarcze IPSC"],
+  ["classic_targets", "Tarcze klasyczne / inne"],
+  ["paper_no_shoots", "No Shoot papierowe"],
+  ["moving_targets", "Cele ruchome"],
+  ["swingers", "Swingery"],
+  ["drop_turners", "Drop turnery"],
+];
+
+const scoredPaperTargetStageFields = new Set<keyof DynamicStage>([
   "paper_targets",
   "mini_paper_targets",
   "classic_targets",
@@ -416,6 +426,22 @@ function stageRequiredPaperHits(stage: DynamicStage) {
   }
 
   return stageDefaultPaperHits(stage);
+}
+
+function stagePaperShotsPerTarget(stage: DynamicStage) {
+  const paperTargets = stagePaperTargets(stage);
+
+  if (paperTargets <= 0) {
+    return 0;
+  }
+
+  return Math.max(Math.floor(stageRequiredPaperHits(stage) / paperTargets), 1);
+}
+
+function firstActiveScoredPaperTargetField(stage: DynamicStage) {
+  return paperTargetFieldOptions.find(([field]) =>
+    scoredPaperTargetStageFields.has(field) && Number(stage[field] || 0) > 0
+  )?.[0] || "";
 }
 
 function stageComputedMinRounds(stage: DynamicStage) {
@@ -1298,16 +1324,13 @@ function OrganizerContent() {
 
             const nextStage = { ...stage, [field]: value };
 
-            if (paperTargetStageFields.has(field)) {
-              const currentRequiredHits = Number(stage.paper_required_hits || 0);
-              const currentDefaultHits = stageDefaultPaperHits(stage);
+            if (scoredPaperTargetStageFields.has(field)) {
+              const shotsPerTarget = stagePaperShotsPerTarget(stage) || 2;
 
-              if (currentRequiredHits <= 0 || currentRequiredHits === currentDefaultHits) {
-                return {
-                  ...nextStage,
-                  paper_required_hits: stageDefaultPaperHits(nextStage),
-                };
-              }
+              return {
+                ...nextStage,
+                paper_required_hits: stagePaperTargets(nextStage) * shotsPerTarget,
+              };
             }
 
             return nextStage;
@@ -2740,32 +2763,59 @@ function OrganizerContent() {
                                   </div>
 
                                   <div className="grid gap-4 md:grid-cols-2">
-                                    {[
-                                      ["paper_targets", "Pełne tarcze IPSC"],
-                                      ["mini_paper_targets", "Mini tarcze IPSC"],
-                                      ["classic_targets", "Tarcze klasyczne / inne"],
-                                      ["paper_no_shoots", "No Shoot papierowe"],
-                                      ["moving_targets", "Cele ruchome"],
-                                      ["swingers", "Swingery"],
-                                      ["drop_turners", "Drop turnery"],
-                                    ].map(([field, label]) => (
-                                      <label key={field}>
-                                        <span className="mb-2 block text-sm font-semibold text-white">{label}</span>
-                                        <input
-                                          id={field === "paper_targets" ? `discipline-${index}-stage-${stageIndex}-paper-targets` : undefined}
-                                          type="number"
-                                          min="0"
-                                          value={String(stage[field as keyof DynamicStage] || "")}
-                                          onChange={(event) => updateStageField(
-                                            index,
-                                            stageIndex,
-                                            field as keyof DynamicStage,
-                                            Number(event.target.value) as never
+                                    {paperTargetFieldOptions.map(([field, label]) => {
+                                      const targetValue = Number(stage[field] || 0);
+                                      const scoredPaperTarget = scoredPaperTargetStageFields.has(field);
+                                      const showShotsPerTarget = scoredPaperTarget && targetValue > 0;
+                                      const shotsPerTargetFieldId = firstActiveScoredPaperTargetField(stage) === field
+                                        ? `discipline-${index}-stage-${stageIndex}-paper-required-hits`
+                                        : undefined;
+
+                                      return (
+                                        <div
+                                          key={field}
+                                          className={`grid gap-4 ${
+                                            showShotsPerTarget ? "md:col-span-2 md:grid-cols-2" : ""
+                                          }`}
+                                        >
+                                          <label>
+                                            <span className="mb-2 block text-sm font-semibold text-white">{label}</span>
+                                            <input
+                                              id={field === "paper_targets" ? `discipline-${index}-stage-${stageIndex}-paper-targets` : undefined}
+                                              type="number"
+                                              min="0"
+                                              value={String(stage[field] || "")}
+                                              onChange={(event) => updateStageField(
+                                                index,
+                                                stageIndex,
+                                                field,
+                                                Number(event.target.value) as never
+                                              )}
+                                              className={requiredFieldClass(stageHasScoredTarget(stage))}
+                                            />
+                                          </label>
+
+                                          {showShotsPerTarget && (
+                                            <label>
+                                              <span className="mb-2 block text-sm font-semibold text-white">Strzały na tarczę</span>
+                                              <input
+                                                id={shotsPerTargetFieldId}
+                                                type="number"
+                                                min="1"
+                                                value={stagePaperShotsPerTarget(stage) || ""}
+                                                onChange={(event) => updateStageField(
+                                                  index,
+                                                  stageIndex,
+                                                  "paper_required_hits",
+                                                  stagePaperTargets(stage) * Math.max(Number(event.target.value || 0), 0) as never
+                                                )}
+                                                className={requiredFieldClass(stageRequiredPaperHits(stage) > 0)}
+                                              />
+                                            </label>
                                           )}
-                                          className={requiredFieldClass(stageHasScoredTarget(stage))}
-                                        />
-                                      </label>
-                                    ))}
+                                        </div>
+                                      );
+                                    })}
                                   </div>
 
                                   <div className="grid gap-4 md:grid-cols-2">
@@ -2819,7 +2869,7 @@ function OrganizerContent() {
                                     ))}
                                   </div>
 
-                                  <div className="grid gap-4 md:grid-cols-3">
+                                  <div className="grid gap-4 md:grid-cols-2">
                                     <label>
                                       <span className="mb-2 block text-sm font-semibold text-white">Minimalna liczba strzałów</span>
                                       <input
@@ -2829,23 +2879,6 @@ function OrganizerContent() {
                                         placeholder={String(stageComputedMinRounds(stage))}
                                         onChange={(event) => updateStageField(index, stageIndex, "min_rounds", Number(event.target.value))}
                                         className="w-full rounded-xl border border-zinc-700 bg-zinc-900 p-4 text-white"
-                                      />
-                                    </label>
-                                    <label>
-                                      <span className="mb-2 block text-sm font-semibold text-white">Wymagane trafienia papierowe</span>
-                                      <input
-                                        id={`discipline-${index}-stage-${stageIndex}-paper-required-hits`}
-                                        type="number"
-                                        min={stagePaperTargets(stage) > 0 ? "1" : "0"}
-                                        value={stage.paper_required_hits || ""}
-                                        placeholder={String(stageDefaultPaperHits(stage))}
-                                        onChange={(event) => updateStageField(
-                                          index,
-                                          stageIndex,
-                                          "paper_required_hits",
-                                          Number(event.target.value) as never
-                                        )}
-                                        className={requiredFieldClass(stagePaperTargets(stage) <= 0 || stageRequiredPaperHits(stage) > 0)}
                                       />
                                     </label>
                                     <div className={requiredContainerClass(true)}>
