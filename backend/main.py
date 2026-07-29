@@ -5311,11 +5311,19 @@ def stage_targets_count(stage):
 
 
 def stage_score_hits_count(score):
+    typed_steel_hits = (
+        int(getattr(score, "popper_hits", 0) or 0)
+        + int(getattr(score, "mini_popper_hits", 0) or 0)
+        + int(getattr(score, "plate_hits", 0) or 0)
+        + int(getattr(score, "mini_plate_hits", 0) or 0)
+    )
+    steel_hits = typed_steel_hits if typed_steel_hits > 0 else int(getattr(score, "steel_hits", 0) or 0)
+
     return (
         int(getattr(score, "hits_a", 0) or 0)
         + int(getattr(score, "hits_c", 0) or 0)
         + int(getattr(score, "hits_d", 0) or 0)
-        + int(getattr(score, "steel_hits", 0) or 0)
+        + steel_hits
     )
 
 
