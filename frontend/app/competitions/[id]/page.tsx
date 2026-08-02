@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import JoinCompetitionPanel from "./JoinCompetitionPanel";
 import LogoPreviewLink from "./LogoPreviewLink";
 
+import DisciplineDescription from "@/app/components/DisciplineDescription";
 import { apiUrl } from "@/lib/api";
 import { getClayTargetsCount } from "@/lib/disciplines";
 import { getDirectionsHref, hasMapCoordinates } from "@/lib/maps";
@@ -297,9 +298,7 @@ export default async function CompetitionPage({
                     {discipline.name}
                   </h3>
 
-                  <p className="text-zinc-600 dark:text-gray-400">
-                    {discipline.description || "Brak opisu"}
-                  </p>
+                  <DisciplineDescription description={discipline.description} />
 
                   {discipline.discipline_type_label && (
                     <p className="text-zinc-700 dark:text-gray-300">

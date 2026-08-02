@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import DisciplineDescription from "@/app/components/DisciplineDescription";
 import { apiUrl } from "@/lib/api";
 import { authFetch, getAccessToken, isOrganizer } from "@/lib/auth";
 import {
@@ -1222,9 +1223,7 @@ export default function OrganizerCompetitionPage() {
                           Testuj sędziowanie
                         </Link>
                       </div>
-                      <p className="text-gray-600">
-                        {discipline.description || "Brak opisu"}
-                      </p>
+                      <DisciplineDescription description={discipline.description} />
                       <p className="text-gray-700 text-sm mt-2">
                         Rodzaj: {discipline.discipline_type_label || "nie podano"}
                       </p>
