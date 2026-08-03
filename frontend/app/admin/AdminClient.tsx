@@ -46,6 +46,8 @@ type AdminPzssClub = {
   license_number: string;
   status: string;
   is_active: boolean;
+  online_status: "online" | "offline";
+  last_seen: string;
   premium_until: string;
   premium_organizer_disabled: boolean;
 };
@@ -3426,12 +3428,13 @@ export default function AdminClient({
           </section>
         ) : activeTab === "pzss-clubs" ? (
           <section className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-x-auto">
-            <div className="min-w-[1280px]">
-              <div className="grid grid-cols-[1fr_1.4fr_1fr_0.9fr_1fr_1fr_1.5fr] gap-4 px-5 py-4 text-sm font-bold text-gray-400 border-b border-zinc-800">
+            <div className="min-w-[1460px]">
+              <div className="grid grid-cols-[1fr_1.35fr_1fr_0.9fr_0.95fr_0.95fr_1fr_1.45fr] gap-4 px-5 py-4 text-sm font-bold text-gray-400 border-b border-zinc-800">
                 <p>Nazwa skrócona</p>
                 <p>Nazwa pełna</p>
                 <p>Kontakt</p>
                 <p>Status</p>
+                <p>Online</p>
                 <p>Licencja klubowa</p>
                 <p>Premium org.</p>
                 <p>Akcje</p>
@@ -3444,7 +3447,7 @@ export default function AdminClient({
               ) : pzssClubs.map((club) => (
                 <div
                   key={club.id}
-                  className={`grid grid-cols-[1fr_1.4fr_1fr_0.9fr_1fr_1fr_1.5fr] gap-4 px-5 py-4 items-center border-b border-zinc-800 last:border-b-0 ${
+                  className={`grid grid-cols-[1fr_1.35fr_1fr_0.9fr_0.95fr_0.95fr_1fr_1.45fr] gap-4 px-5 py-4 items-center border-b border-zinc-800 last:border-b-0 ${
                     club.status === "pending" ? "bg-yellow-950/20" : ""
                   }`}
                 >
@@ -3479,6 +3482,22 @@ export default function AdminClient({
                     </p>
                     <p className={club.is_active ? "mt-1 text-xs font-semibold text-green-400" : "mt-1 text-xs font-semibold text-red-300"}>
                       {club.is_active ? "e-mail aktywowany" : "brak aktywacji e-mail"}
+                    </p>
+                  </div>
+
+                  <div>
+                    <p className={`font-bold ${
+                      club.online_status === "online"
+                        ? "text-green-400"
+                        : "text-gray-500"
+                    }`}>
+                      {club.online_status === "online"
+                        ? "online"
+                        : "offline"}
+                    </p>
+
+                    <p className="mt-1 text-xs text-gray-500">
+                      Ostatnio online: {formatDateTime(club.last_seen)}
                     </p>
                   </div>
 

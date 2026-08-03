@@ -9715,6 +9715,8 @@ def public_pzss_club(user: User):
         "license_number": getattr(user, "pzss_club_license_number", "") or "",
         "status": getattr(user, "pzss_club_status", "") or PZSS_CLUB_PENDING,
         "is_active": bool(user.is_active),
+        "online_status": "online" if is_user_online(user) else "offline",
+        "last_seen": user.last_seen or "",
         "premium_until": getattr(user, "premium_until", "") or "",
         "premium_organizer_disabled": bool(getattr(user, "premium_organizer_disabled", 0)),
         "created_label": user.email,
