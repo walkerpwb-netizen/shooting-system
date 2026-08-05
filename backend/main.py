@@ -15640,13 +15640,14 @@ def unpublish_competition(
     participants_count = (
         db.query(CompetitionParticipant)
         .filter(CompetitionParticipant.competition_id == competition.id)
+        .filter(shooter_entry_filter())
         .count()
     )
 
     if participants_count > 0:
         raise HTTPException(
             status_code=400,
-            detail="Nie można cofnąć publikacji zawodów, do których ktoś już dołączył"
+            detail="Nie można cofnąć publikacji zawodów, do których zapisał się zawodnik"
         )
 
     competition.status = "draft"

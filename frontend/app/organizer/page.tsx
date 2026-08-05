@@ -569,11 +569,8 @@ function parseCompetitionTime(dateValue: string) {
     : time;
 }
 
-function hasJoinedCompetition(competition: Competition) {
-  return (
-    (competition.shooters_count || competition.participants?.length || 0) > 0
-    || (competition.judges_count || competition.judges?.length || 0) > 0
-  );
+function hasShooterEntries(competition: Competition) {
+  return (competition.shooters_count || competition.participants?.length || 0) > 0;
 }
 
 function isCompetitionDateReached(dateValue: string) {
@@ -1164,8 +1161,8 @@ function OrganizerContent() {
     }
 
     if (competition.status === "published") {
-      if (hasJoinedCompetition(competition)) {
-        setMessage("Nie można cofnąć publikacji zawodów, do których ktoś już dołączył ❌");
+      if (hasShooterEntries(competition)) {
+        setMessage("Nie można cofnąć publikacji zawodów, do których zapisał się zawodnik ❌");
         return;
       }
 
@@ -3487,7 +3484,7 @@ function OrganizerContent() {
                         </button>
                       )}
 
-                      {competition.status === "published" && !hasJoinedCompetition(competition) && (
+                      {competition.status === "published" && !hasShooterEntries(competition) && (
                         <button
                           type="button"
                           onClick={() => handleTogglePublication(competition)}
