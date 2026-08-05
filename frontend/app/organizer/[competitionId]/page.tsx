@@ -150,6 +150,7 @@ const competitionStatusLabels: Record<string, string> = {
   published: "Opublikowane",
   started: "Trwające",
   completed: "Zakończone",
+  cancelled: "Odwołane",
 };
 const ALL_DISCIPLINES_VALUE = "all";
 

@@ -548,6 +548,7 @@ const competitionStatusLabels: Record<string, string> = {
   published: "Opublikowane",
   started: "Trwające",
   completed: "Zakończone",
+  cancelled: "Odwołane",
 };
 
 function getCompetitionStatusLabel(status: string) {
@@ -571,6 +572,16 @@ function parseCompetitionTime(dateValue: string) {
 
 function hasShooterEntries(competition: Competition) {
   return (competition.shooters_count || competition.participants?.length || 0) > 0;
+}
+
+function isRegistrationDeadlineReached(value: string | null | undefined, now: number) {
+  if (!value) {
+    return false;
+  }
+
+  const timestamp = new Date(value).getTime();
+
+  return Number.isFinite(timestamp) && timestamp <= now;
 }
 
 function isCompetitionDateReached(dateValue: string) {
@@ -631,11 +642,15 @@ function OrganizerContent() {
   const [pzssPdfDownloadingId, setPzssPdfDownloadingId] = useState<number | null>(null);
   const [copyDialogCompetition, setCopyDialogCompetition] = useState<Competition | null>(null);
   const [copyingCompetitionId, setCopyingCompetitionId] = useState<number | null>(null);
+  const [cancelDialogCompetition, setCancelDialogCompetition] = useState<Competition | null>(null);
+  const [notifyCancelledParticipants, setNotifyCancelledParticipants] = useState(false);
+  const [cancellingCompetitionId, setCancellingCompetitionId] = useState<number | null>(null);
   const [editingCompetitionId, setEditingCompetitionId] = useState<number | null>(null);
   const [editingCompetitionStatus, setEditingCompetitionStatus] = useState("");
   const [deletingDisciplineId, setDeletingDisciplineId] = useState<number | null>(null);
   const [competitionNameFilter, setCompetitionNameFilter] = useState("");
   const [showDisciplineContact, setShowDisciplineContact] = useState(false);
+  const [currentTime, setCurrentTime] = useState(() => Date.now());
   const canManageDisciplines = !editingCompetitionId || editingCompetitionStatus === "draft";
   const authSnapshot = useSyncExternalStore(
     subscribeToAuthChange,
@@ -676,6 +691,12 @@ function OrganizerContent() {
     competitionNameFilter,
     competitions,
   ]);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => setCurrentTime(Date.now()), 30000);
+
+    return () => window.clearInterval(intervalId);
+  }, []);
 
   function showPremiumPublicationLimitDialog(detail: string) {
     if (!detail.includes("Możesz mieć tylko jedne zawody opublikowane jednocześnie")) {
@@ -1119,6 +1140,54 @@ function OrganizerContent() {
     } catch (error) {
       console.error(error);
       setMessage("Błąd połączenia z serwerem ❌");
+    }
+  }
+
+  function openCancelCompetitionDialog(competition: Competition) {
+    setCancelDialogCompetition(competition);
+    setNotifyCancelledParticipants(false);
+    setMessage("");
+  }
+
+  async function handleCancelCompetition() {
+    if (!cancelDialogCompetition) {
+      return;
+    }
+
+    try {
+      setCancellingCompetitionId(cancelDialogCompetition.id);
+
+      const response = await authFetch(
+        organizerApiUrl(`/competitions/${cancelDialogCompetition.id}/cancel`),
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            notify_participants: notifyCancelledParticipants,
+          }),
+        }
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.detail || "Nie udało się odwołać zawodów ❌");
+        return;
+      }
+
+      const emailInfo = notifyCancelledParticipants
+        ? ` Wysłano e-maili: ${data.notified_participants_count || 0}.`
+        : "";
+      setMessage(`Zawody odwołane ✅${emailInfo}`);
+      setCancelDialogCompetition(null);
+      setNotifyCancelledParticipants(false);
+      fetchOrganizerCompetitions();
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    } finally {
+      setCancellingCompetitionId(null);
     }
   }
 
@@ -3355,8 +3424,17 @@ function OrganizerContent() {
                     : 0;
                   const missingJudgesCount = competition.missing_judge_disciplines?.length || 0;
                   const canStartByDate = isCompetitionDateReached(competition.date);
+                  const registrationDeadlineReached = isRegistrationDeadlineReached(
+                    competition.registration_deadline,
+                    currentTime
+                  );
                   const startBlockedByMinParticipants = Boolean(
                     competition.min_participants && missingMinParticipants > 0
+                  );
+                  const canCancelByLowAttendance = Boolean(
+                    competition.status === "published"
+                    && registrationDeadlineReached
+                    && startBlockedByMinParticipants
                   );
                   const startDisabled = !canStartByDate
                     || missingJudgesCount > 0
@@ -3420,6 +3498,12 @@ function OrganizerContent() {
                       {startBlockedByMinParticipants && competition.status === "published" && (
                         <p className="mt-2 rounded-lg border border-yellow-300 bg-yellow-50 px-3 py-2 text-xs font-bold text-yellow-900 dark:border-yellow-800 dark:bg-yellow-950/40 dark:text-yellow-100">
                           Nie można rozpocząć zawodów: brakuje jeszcze {missingMinParticipants} zawodników do minimalnej liczby zapisanych.
+                        </p>
+                      )}
+
+                      {competition.status === "cancelled" && (
+                        <p className="mt-2 rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-xs font-bold text-zinc-800 dark:border-zinc-700 dark:bg-zinc-950/50 dark:text-gray-200">
+                          Zawody zostały odwołane z powodu niewystarczającej liczby zapisanych zawodników.
                         </p>
                       )}
 
@@ -3506,6 +3590,19 @@ function OrganizerContent() {
                         </button>
                       )}
 
+                      {canCancelByLowAttendance && (
+                        <button
+                          type="button"
+                          onClick={() => openCancelCompetitionDialog(competition)}
+                          disabled={cancellingCompetitionId === competition.id}
+                          className="ui-button bg-red-800 hover:bg-red-700 disabled:bg-gray-500 disabled:cursor-not-allowed text-white px-4 py-2 rounded-xl font-semibold"
+                        >
+                          {cancellingCompetitionId === competition.id
+                            ? "Odwołuję..."
+                            : "Odwołaj zawody"}
+                        </button>
+                      )}
+
                       {competition.status === "started" && (
                         <button
                           type="button"
@@ -3566,6 +3663,74 @@ function OrganizerContent() {
         )}
 
       </div>
+
+      {cancelDialogCompetition && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 px-4 py-6"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="cancel-competition-title"
+        >
+          <div className="w-full max-w-xl rounded-2xl border border-red-500/70 bg-zinc-950 p-6 text-white shadow-2xl">
+            <h2 id="cancel-competition-title" className="text-2xl font-black text-red-200">
+              Odwołać zawody?
+            </h2>
+
+            <p className="mt-4 text-base leading-7 text-gray-100">
+              Ta akcja oznaczy zawody jako odwołane i ukryje je poza panelem organizatora.
+            </p>
+
+            <div className="mt-3 rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3">
+              <p className="font-bold text-white">
+                {cancelDialogCompetition.name}
+              </p>
+              <p className="mt-1 text-sm text-gray-300">
+                Zapisani zawodnicy: {cancelDialogCompetition.shooters_count || cancelDialogCompetition.participants?.length || 0}
+                {cancelDialogCompetition.min_participants
+                  ? `/${cancelDialogCompetition.min_participants}`
+                  : ""}
+              </p>
+            </div>
+
+            <label className="mt-5 flex items-start gap-3 rounded-xl border border-zinc-700 bg-zinc-900 p-4 font-semibold text-white">
+              <input
+                type="checkbox"
+                checked={notifyCancelledParticipants}
+                onChange={(event) => setNotifyCancelledParticipants(event.target.checked)}
+                className="mt-1 h-5 w-5"
+              />
+              <span>
+                wyślij email do zapisanych zawodników o odwołaniu
+              </span>
+            </label>
+
+            <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setCancelDialogCompetition(null);
+                  setNotifyCancelledParticipants(false);
+                }}
+                disabled={cancellingCompetitionId === cancelDialogCompetition.id}
+                className="ui-button rounded-xl bg-zinc-700 px-6 py-3 font-bold text-white transition hover:bg-zinc-600 disabled:cursor-not-allowed disabled:bg-gray-600"
+              >
+                Anuluj
+              </button>
+
+              <button
+                type="button"
+                onClick={handleCancelCompetition}
+                disabled={cancellingCompetitionId === cancelDialogCompetition.id}
+                className="ui-button rounded-xl bg-red-800 px-6 py-3 font-bold text-white transition hover:bg-red-700 disabled:cursor-wait disabled:bg-gray-600"
+              >
+                {cancellingCompetitionId === cancelDialogCompetition.id
+                  ? "Odwołuję..."
+                  : "Odwołaj zawody"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {copyDialogCompetition && (
         <div

@@ -406,6 +406,7 @@ const competitionStatusLabels: Record<string, string> = {
   published: "opublikowane",
   started: "rozpoczęte / live",
   completed: "zakończone / historyczne",
+  cancelled: "odwołane",
 };
 
 const defaultResultsTableSettings: ResultsTableSettings = {
