@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 
 import JoinCompetitionPanel from "./JoinCompetitionPanel";
 import LogoPreviewLink from "./LogoPreviewLink";
+import RegistrationCountdown from "./RegistrationCountdown";
 
 import DisciplineDescription from "@/app/components/DisciplineDescription";
 import { apiUrl } from "@/lib/api";
@@ -50,6 +51,8 @@ type Competition = {
   longitude: number | null;
   entry_fee?: string;
   participant_limit?: number | null;
+  registration_deadline?: string | null;
+  min_participants?: number | null;
   status: string;
   organizer_full_name?: string;
   organizer_logo?: string;
@@ -179,6 +182,12 @@ export default async function CompetitionPage({
 
   return (
     <main className="min-h-screen bg-white p-6 text-zinc-950 dark:bg-black dark:text-white sm:p-10">
+      <RegistrationCountdown
+        registrationDeadline={competition.registration_deadline}
+        participantsCount={competition.participants.length}
+        minParticipants={competition.min_participants || null}
+      />
+
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <h1 className="text-4xl font-bold">
           {competition.name}
@@ -221,6 +230,12 @@ export default async function CompetitionPage({
             {competition.participant_limit && (
               <p className="text-zinc-700 dark:text-gray-300">
                 Limit zawodników: {competition.participants.length}/{competition.participant_limit}
+              </p>
+            )}
+
+            {competition.min_participants && (
+              <p className="text-zinc-700 dark:text-gray-300">
+                Minimum zawodników: {competition.participants.length}/{competition.min_participants}
               </p>
             )}
           </section>
@@ -341,6 +356,7 @@ export default async function CompetitionPage({
           clubDiscountClubs={competition.club_discount_clubs || competition.organizer_full_name || ""}
           competitionEntryFee={competition.entry_fee || ""}
           participantLimit={competition.participant_limit || null}
+          registrationDeadline={competition.registration_deadline || null}
           competitionStatus={competition.status}
           initialParticipants={competition.participants as Participant[]}
           disciplines={competition.disciplines as Discipline[]}

@@ -541,6 +541,16 @@ class Competition(Base):
         nullable=True,
     )
 
+    registration_deadline = Column(
+        String,
+        nullable=True,
+    )
+
+    min_participants = Column(
+        Integer,
+        nullable=True,
+    )
+
     pzss_license_calendar = Column(
         Integer,
         default=0,

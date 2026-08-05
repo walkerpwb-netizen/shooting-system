@@ -237,6 +237,8 @@ class CompetitionData(BaseModel):
     sponsors: str = ""
     sponsor_logo: str = ""
     participant_limit: Optional[int] = None
+    registration_deadline: Optional[str] = None
+    min_participants: Optional[int] = None
     pzss_license_calendar: bool = False
     requires_licensed_judge: Optional[bool] = None
     club_discount_enabled: bool = False
@@ -7243,6 +7245,29 @@ def validate_judges_assigned_before_start(competition: Competition, db):
         )
 
 
+def validate_min_participants_before_start(competition: Competition, db):
+    min_participants = getattr(competition, "min_participants", None)
+
+    if not min_participants:
+        return
+
+    shooters_count = count_shooters_by_competition(db, [competition.id]).get(
+        competition.id,
+        0,
+    )
+
+    if shooters_count < min_participants:
+        missing_count = min_participants - shooters_count
+
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Nie można rozpocząć zawodów. "
+                f"Brakuje jeszcze {missing_count} zawodników do minimalnej liczby zapisanych."
+            ),
+        )
+
+
 def competition_list_row(
     competition: Competition,
     disciplines_count: int = 0,
@@ -7265,6 +7290,8 @@ def competition_list_row(
         "sponsor_logo": "",
         "has_sponsor_logo": bool(competition.sponsor_logo),
         "participant_limit": competition.participant_limit,
+        "registration_deadline": getattr(competition, "registration_deadline", None),
+        "min_participants": getattr(competition, "min_participants", None),
         "pzss_license_calendar": bool(getattr(competition, "pzss_license_calendar", 0)),
         "requires_licensed_judge": bool(getattr(competition, "requires_licensed_judge", 1)),
         **competition_club_discount_payload(competition),
@@ -7287,6 +7314,8 @@ COMPETITION_COPY_FIELDS = [
     "sponsors",
     "sponsor_logo",
     "participant_limit",
+    "registration_deadline",
+    "min_participants",
     "pzss_license_calendar",
     "requires_licensed_judge",
     "club_discount_enabled",
@@ -8106,6 +8135,76 @@ def parse_competition_date(date_value: str):
     return None
 
 
+def parse_registration_deadline(deadline_value: Optional[str]):
+    value = (deadline_value or "").strip()
+
+    if not value:
+        return None
+
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=APP_TIMEZONE)
+
+    return parsed.astimezone(APP_TIMEZONE)
+
+
+def normalize_registration_deadline(deadline_value: Optional[str]):
+    parsed = parse_registration_deadline(deadline_value)
+
+    if not parsed:
+        return None
+
+    return parsed.replace(second=0, microsecond=0).isoformat()
+
+
+def validate_competition_registration_settings(data: CompetitionData):
+    normalized_deadline = normalize_registration_deadline(data.registration_deadline)
+
+    if data.registration_deadline and not normalized_deadline:
+        raise HTTPException(
+            status_code=400,
+            detail="Podaj poprawny termin końca zapisów"
+        )
+
+    if normalized_deadline:
+        deadline = parse_registration_deadline(normalized_deadline)
+
+        if not deadline or deadline <= datetime.now(APP_TIMEZONE):
+            raise HTTPException(
+                status_code=400,
+                detail="Termin końca zapisów musi być w przyszłości"
+            )
+
+        competition_date = parse_competition_date(data.date)
+
+        if competition_date and deadline.date() > competition_date.date():
+            raise HTTPException(
+                status_code=400,
+                detail="Termin końca zapisów nie może być późniejszy niż data zawodów"
+            )
+
+    if data.min_participants is not None and data.min_participants <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Minimalna liczba zawodników musi być większa od zera"
+        )
+
+    return normalized_deadline
+
+
+def registration_deadline_passed(competition: Competition):
+    deadline = parse_registration_deadline(getattr(competition, "registration_deadline", None))
+
+    if not deadline:
+        return False
+
+    return datetime.now(APP_TIMEZONE) >= deadline
+
+
 def sort_competitions_by_date(competitions, descending: bool = False):
     def sort_key(competition: Competition):
         competition_date = parse_competition_date(competition.date)
@@ -8798,6 +8897,8 @@ def get_competition(
         "sponsors": competition.sponsors or "",
         "sponsor_logo": competition.sponsor_logo or "",
         "participant_limit": competition.participant_limit,
+        "registration_deadline": getattr(competition, "registration_deadline", None),
+        "min_participants": getattr(competition, "min_participants", None),
         "pzss_license_calendar": bool(getattr(competition, "pzss_license_calendar", 0)),
         "requires_licensed_judge": bool(getattr(competition, "requires_licensed_judge", 1)),
         **competition_club_discount_payload(competition),
@@ -10471,6 +10572,8 @@ def admin_get_competitions(
             "sponsors": competition.sponsors or "",
             "sponsor_logo": competition.sponsor_logo or "",
             "participant_limit": competition.participant_limit,
+            "registration_deadline": getattr(competition, "registration_deadline", None),
+            "min_participants": getattr(competition, "min_participants", None),
             "pzss_license_calendar": bool(getattr(competition, "pzss_license_calendar", 0)),
             "requires_licensed_judge": bool(getattr(competition, "requires_licensed_judge", 1)),
             **competition_club_discount_payload(competition),
@@ -11392,6 +11495,8 @@ def create_competition(
             detail="Limit zawodników musi być większy od zera"
         )
 
+    registration_deadline = validate_competition_registration_settings(data)
+
     if not has_role(organizer, "admin") and not normalize_text(organizer.organizer_name or ""):
         raise HTTPException(
             status_code=400,
@@ -11429,6 +11534,8 @@ def create_competition(
         sponsors=data.sponsors,
         sponsor_logo=data.sponsor_logo,
         participant_limit=data.participant_limit,
+        registration_deadline=registration_deadline,
+        min_participants=data.min_participants,
         pzss_license_calendar=1 if data.pzss_license_calendar else 0,
         requires_licensed_judge=1 if requires_licensed_judge else 0,
         **club_discount,
@@ -11552,6 +11659,8 @@ def organizer_competition_detail_row(competition: Competition, db):
         "sponsors": competition.sponsors or "",
         "sponsor_logo": competition.sponsor_logo or "",
         "participant_limit": competition.participant_limit,
+        "registration_deadline": getattr(competition, "registration_deadline", None),
+        "min_participants": getattr(competition, "min_participants", None),
         "pzss_license_calendar": bool(getattr(competition, "pzss_license_calendar", 0)),
         "requires_licensed_judge": bool(getattr(competition, "requires_licensed_judge", 1)),
         **competition_club_discount_payload(competition),
@@ -14288,6 +14397,12 @@ def join_competition(
             detail="Nie można zapisać się na te zawody"
         )
 
+    if registration_deadline_passed(competition):
+        raise HTTPException(
+            status_code=400,
+            detail="Zapisy na te zawody zostały zakończone"
+        )
+
     if not user.is_active:
         raise HTTPException(
             status_code=403,
@@ -15369,6 +15484,8 @@ def update_competition(
             detail="Limit zawodników musi być większy od zera"
         )
 
+    registration_deadline = validate_competition_registration_settings(data)
+
     organizer = competition_owner_user(competition, db) or user
 
     if data.pzss_license_calendar and not is_approved_pzss_club(organizer):
@@ -15396,6 +15513,8 @@ def update_competition(
     competition.sponsors = data.sponsors
     competition.sponsor_logo = data.sponsor_logo
     competition.participant_limit = data.participant_limit
+    competition.registration_deadline = registration_deadline
+    competition.min_participants = data.min_participants
     competition.pzss_license_calendar = 1 if data.pzss_license_calendar else 0
     competition.requires_licensed_judge = (
         1
@@ -15447,6 +15566,12 @@ def publish_competition(
         raise HTTPException(
             status_code=400,
             detail="Nie można publikować rozpoczętych lub zakończonych zawodów"
+        )
+
+    if registration_deadline_passed(competition):
+        raise HTTPException(
+            status_code=400,
+            detail="Nie można opublikować zawodów z zakończonym terminem zapisów"
         )
 
     disciplines_count = (
@@ -15572,6 +15697,7 @@ def start_competition(
             detail="Zawody można rozpocząć najwcześniej w dniu zawodów"
         )
 
+    validate_min_participants_before_start(competition, db)
     validate_judges_assigned_before_start(competition, db)
     validate_trap_squad_groups_before_start(competition, db)
 

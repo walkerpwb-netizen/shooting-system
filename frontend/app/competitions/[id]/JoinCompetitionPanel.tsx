@@ -82,6 +82,7 @@ type JoinCompetitionPanelProps = {
   clubDiscountScope: "competition" | "discipline";
   clubDiscountAmount: string;
   clubDiscountClubs: string;
+  registrationDeadline: string | null;
   initialParticipants: Participant[];
   disciplines: Discipline[];
 };
@@ -97,6 +98,7 @@ export default function JoinCompetitionPanel({
   clubDiscountScope,
   clubDiscountAmount,
   clubDiscountClubs,
+  registrationDeadline,
   initialParticipants,
   disciplines,
 }: JoinCompetitionPanelProps) {
@@ -120,6 +122,7 @@ export default function JoinCompetitionPanel({
     loaded: false,
   });
   const [sessionChecked, setSessionChecked] = useState(false);
+  const [currentTime, setCurrentTime] = useState(() => Date.now());
   const [selectedDisciplines, setSelectedDisciplines] = useState<SelectedDiscipline[]>([]);
   const authSnapshot = useSyncExternalStore(
     subscribeToAuthChange,
@@ -415,6 +418,14 @@ export default function JoinCompetitionPanel({
     && participants.length >= participantLimit
     && !userIsJoined
   );
+  const registrationDeadlineTime = registrationDeadline
+    ? new Date(registrationDeadline).getTime()
+    : null;
+  const registrationClosedByDeadline = Boolean(
+    registrationDeadlineTime
+    && Number.isFinite(registrationDeadlineTime)
+    && registrationDeadlineTime <= currentTime
+  );
   const competitionFee = selectedDisciplines.length > 0
     ? parsePrice(competitionEntryFee)
     : 0;
@@ -460,7 +471,18 @@ export default function JoinCompetitionPanel({
     0
   );
   const totalFee = baseEntryFee - clubDiscount + ammoFee;
-  const registrationOpen = ["published", "started"].includes(competitionStatus);
+  const registrationOpen = ["published", "started"].includes(competitionStatus)
+    && !registrationClosedByDeadline;
+
+  useEffect(() => {
+    if (!registrationDeadlineTime || !Number.isFinite(registrationDeadlineTime)) {
+      return undefined;
+    }
+
+    const intervalId = window.setInterval(() => setCurrentTime(Date.now()), 30000);
+
+    return () => window.clearInterval(intervalId);
+  }, [registrationDeadlineTime]);
 
   function showNotice(message: string) {
     setNoticeMessage(message);
@@ -481,6 +503,11 @@ export default function JoinCompetitionPanel({
 
     if (selectedDisciplines.length === 0) {
       showNotice("Wybierz minimum jedną konkurencję");
+      return;
+    }
+
+    if (registrationClosedByDeadline) {
+      showNotice("Zapisy na te zawody zostały zakończone");
       return;
     }
 
@@ -625,6 +652,11 @@ export default function JoinCompetitionPanel({
       return;
     }
 
+    if (registrationClosedByDeadline) {
+      showNotice("Zapisy na te zawody zostały zakończone");
+      return;
+    }
+
     setShowForm(true);
   }
 
@@ -655,6 +687,8 @@ export default function JoinCompetitionPanel({
               ? "Zapisy są zamknięte, ponieważ zawody aktualnie trwają."
               : competitionStatus === "completed"
                 ? "Zapisy są zamknięte, ponieważ zawody zostały zakończone."
+                : registrationClosedByDeadline
+                  ? "Zapisy są zamknięte, ponieważ termin zapisów minął."
                 : "Zapisy są aktualnie zamknięte."}
           </p>
 
@@ -841,10 +875,12 @@ export default function JoinCompetitionPanel({
             <button
               type="button"
               onClick={joinCompetition}
-              disabled={loading || participantLimitReached}
+              disabled={loading || participantLimitReached || registrationClosedByDeadline}
               className="bg-green-800 hover:bg-green-700 disabled:opacity-50 transition text-white py-3 rounded-xl font-semibold"
             >
-              {participantLimitReached
+              {registrationClosedByDeadline
+                ? "Zapisy zakończone"
+                : participantLimitReached
                 ? "Limit miejsc osiągnięty"
                 : loading
                   ? "Zapisywanie..."
@@ -895,10 +931,12 @@ export default function JoinCompetitionPanel({
             <button
               type="button"
               onClick={openJoinForm}
-              disabled={participantLimitReached}
+              disabled={participantLimitReached || registrationClosedByDeadline}
               className="w-full bg-green-800 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition text-white py-4 rounded-xl font-semibold"
             >
-              {participantLimitReached
+              {registrationClosedByDeadline
+                ? "Zapisy zakończone"
+                : participantLimitReached
                 ? "Limit miejsc osiągnięty"
                 : "Zapisz się"}
             </button>

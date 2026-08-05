@@ -33,6 +33,8 @@ type Competition = {
   sponsors: string;
   sponsor_logo: string;
   participant_limit: number | null;
+  registration_deadline: string | null;
+  min_participants: number | null;
   pzss_license_calendar: boolean;
   requires_licensed_judge: boolean;
   club_discount_enabled: boolean;
@@ -227,6 +229,38 @@ const temporarilyUnsupportedDisciplineTypes = new Set([
 
 function hasText(value: string) {
   return Boolean(value.trim());
+}
+
+function datetimeLocalValue(value: string | null | undefined) {
+  if (!value) {
+    return "";
+  }
+
+  const match = value.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/);
+
+  if (match) {
+    return match[0];
+  }
+
+  const parsed = new Date(value);
+
+  if (Number.isNaN(parsed.getTime())) {
+    return "";
+  }
+
+  const timezoneOffsetMs = parsed.getTimezoneOffset() * 60 * 1000;
+
+  return new Date(parsed.getTime() - timezoneOffsetMs).toISOString().slice(0, 16);
+}
+
+function isFutureDateTimeLocal(value: string) {
+  if (!value) {
+    return false;
+  }
+
+  const timestamp = new Date(value).getTime();
+
+  return Number.isFinite(timestamp) && timestamp > Date.now();
 }
 
 function isPositiveNumber(value: string | number) {
@@ -582,6 +616,10 @@ function OrganizerContent() {
   const [sponsorLogo, setSponsorLogo] = useState("");
   const [useParticipantLimit, setUseParticipantLimit] = useState(false);
   const [participantLimit, setParticipantLimit] = useState("");
+  const [useRegistrationDeadline, setUseRegistrationDeadline] = useState(false);
+  const [registrationDeadline, setRegistrationDeadline] = useState("");
+  const [useMinParticipants, setUseMinParticipants] = useState(false);
+  const [minParticipants, setMinParticipants] = useState("");
   const [pzssLicenseCalendar, setPzssLicenseCalendar] = useState(false);
   const [requiresLicensedJudge, setRequiresLicensedJudge] = useState<boolean | null>(null);
   const [clubDiscountEnabled, setClubDiscountEnabled] = useState(false);
@@ -676,6 +714,10 @@ function OrganizerContent() {
     setSponsorLogo("");
     setUseParticipantLimit(false);
     setParticipantLimit("");
+    setUseRegistrationDeadline(false);
+    setRegistrationDeadline("");
+    setUseMinParticipants(false);
+    setMinParticipants("");
     setPzssLicenseCalendar(false);
     setRequiresLicensedJudge(null);
     setClubDiscountEnabled(false);
@@ -1162,6 +1204,16 @@ function OrganizerContent() {
       setSponsors(competitionDetails.sponsors || "");
       setSponsorLogo(competitionDetails.sponsor_logo || "");
       setUseParticipantLimit(Boolean(competitionDetails.participant_limit));
+      setUseRegistrationDeadline(Boolean(competitionDetails.registration_deadline));
+      setRegistrationDeadline(datetimeLocalValue(competitionDetails.registration_deadline));
+      setUseMinParticipants(Boolean(
+        competitionDetails.registration_deadline && competitionDetails.min_participants
+      ));
+      setMinParticipants(
+        competitionDetails.registration_deadline && competitionDetails.min_participants
+          ? String(competitionDetails.min_participants)
+          : ""
+      );
       setPzssLicenseCalendar(Boolean(competitionDetails.pzss_license_calendar));
       setRequiresLicensedJudge(Boolean(competitionDetails.requires_licensed_judge));
       setClubDiscountEnabled(Boolean(competitionDetails.club_discount_enabled));
@@ -1472,6 +1524,14 @@ function OrganizerContent() {
       return "competition-participant-limit";
     }
 
+    if (useRegistrationDeadline && !isFutureDateTimeLocal(registrationDeadline)) {
+      return "competition-registration-deadline";
+    }
+
+    if (useMinParticipants && !isPositiveNumber(minParticipants)) {
+      return "competition-min-participants";
+    }
+
     if (hasText(entryFee) && !isNonNegativeNumber(entryFee)) {
       return "competition-entry-fee";
     }
@@ -1628,6 +1688,12 @@ function OrganizerContent() {
             sponsor_logo: sponsorLogo,
             participant_limit: useParticipantLimit
               ? Number(participantLimit)
+              : null,
+            registration_deadline: useRegistrationDeadline
+              ? registrationDeadline
+              : null,
+            min_participants: useMinParticipants
+              ? Number(minParticipants)
               : null,
             pzss_license_calendar: canMarkPzssLicenseCalendar && pzssLicenseCalendar,
             requires_licensed_judge: canMarkPzssLicenseCalendar
@@ -2012,6 +2078,76 @@ function OrganizerContent() {
                   required
                   className={requiredFieldClass(isPositiveNumber(participantLimit))}
                 />
+              )}
+
+              <label className="flex items-center gap-3 border border-zinc-700 bg-zinc-950 p-4 rounded-xl text-white font-semibold">
+                <input
+                  type="checkbox"
+                  checked={useRegistrationDeadline}
+                  onChange={(event) => {
+                    setUseRegistrationDeadline(event.target.checked);
+
+                    if (!event.target.checked) {
+                      setRegistrationDeadline("");
+                      setUseMinParticipants(false);
+                      setMinParticipants("");
+                    }
+                  }}
+                  className="h-5 w-5"
+                />
+                Określ termin końca zapisów
+              </label>
+
+              {useRegistrationDeadline && (
+                <label>
+                  <span className="mb-2 block text-sm font-semibold text-white">
+                    Data i godzina końca zapisów *
+                  </span>
+                  <input
+                    id="competition-registration-deadline"
+                    type="datetime-local"
+                    value={registrationDeadline}
+                    onChange={(event) => setRegistrationDeadline(event.target.value)}
+                    aria-invalid={!isFutureDateTimeLocal(registrationDeadline)}
+                    required
+                    className={requiredFieldClass(isFutureDateTimeLocal(registrationDeadline))}
+                  />
+                </label>
+              )}
+
+              {useRegistrationDeadline && (
+                <>
+                  <label className="flex items-center gap-3 border border-zinc-700 bg-zinc-950 p-4 rounded-xl text-white font-semibold">
+                    <input
+                      type="checkbox"
+                      checked={useMinParticipants}
+                      onChange={(event) => {
+                        setUseMinParticipants(event.target.checked);
+
+                        if (!event.target.checked) {
+                          setMinParticipants("");
+                        }
+                      }}
+                      className="h-5 w-5"
+                    />
+                    Minimalna liczba zapisanych zawodników, aby odbyły się zawody
+                  </label>
+
+                  {useMinParticipants && (
+                    <input
+                      id="competition-min-participants"
+                      type="number"
+                      min="1"
+                      step="1"
+                      placeholder="Minimalna liczba zawodników *"
+                      value={minParticipants}
+                      onChange={(event) => setMinParticipants(event.target.value)}
+                      aria-invalid={!isPositiveNumber(minParticipants)}
+                      required
+                      className={requiredFieldClass(isPositiveNumber(minParticipants))}
+                    />
+                  )}
+                </>
               )}
 
               {canMarkPzssLicenseCalendar && (
@@ -3215,7 +3351,28 @@ function OrganizerContent() {
                   <p aria-hidden="true" />
                 </div>
 
-                {visibleCompetitions.map((competition) => (
+                {visibleCompetitions.map((competition) => {
+                  const shootersCount = competition.shooters_count || competition.participants?.length || 0;
+                  const missingMinParticipants = competition.min_participants
+                    ? Math.max(competition.min_participants - shootersCount, 0)
+                    : 0;
+                  const missingJudgesCount = competition.missing_judge_disciplines?.length || 0;
+                  const canStartByDate = isCompetitionDateReached(competition.date);
+                  const startBlockedByMinParticipants = Boolean(
+                    competition.min_participants && missingMinParticipants > 0
+                  );
+                  const startDisabled = !canStartByDate
+                    || missingJudgesCount > 0
+                    || startBlockedByMinParticipants;
+                  const startTitle = missingJudgesCount > 0
+                    ? `Przypisz sędziego do: ${competition.missing_judge_disciplines?.join(", ")}`
+                    : startBlockedByMinParticipants
+                      ? `Brakuje jeszcze ${missingMinParticipants} zawodników do minimalnej liczby zapisanych`
+                      : canStartByDate
+                        ? ""
+                        : "Zawody można rozpocząć najwcześniej w dniu zawodów";
+
+                  return (
                   <div
                     key={competition.id}
                     className="relative isolate grid gap-4 overflow-hidden border-b border-zinc-200 px-4 py-4 text-sm last:border-b-0 dark:border-zinc-800 lg:grid-cols-[1.5fr_0.7fr_1fr_1.5fr] lg:items-center"
@@ -3242,15 +3399,30 @@ function OrganizerContent() {
                       </p>
 
                       <p className="mt-1 text-xs text-zinc-600 dark:text-gray-400">
-                        Zawodnicy: {competition.shooters_count || competition.participants?.length || 0}
+                        Zawodnicy: {shootersCount}
                         {competition.participant_limit
                           ? `/${competition.participant_limit}`
                           : " / Bez limitu"}
                       </p>
 
-                      {(competition.missing_judge_disciplines?.length || 0) > 0 && competition.status === "published" && (
+                      {competition.min_participants && (
+                        <p className="mt-1 text-xs font-semibold text-zinc-600 dark:text-gray-400">
+                          Minimum do odbycia zawodów: {shootersCount}/{competition.min_participants}
+                          {missingMinParticipants > 0
+                            ? `, brakuje ${missingMinParticipants}`
+                            : ", próg spełniony"}
+                        </p>
+                      )}
+
+                      {missingJudgesCount > 0 && competition.status === "published" && (
                         <p className="mt-2 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs font-bold text-red-800 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200">
                           Nie można rozpocząć zawodów: brak przypisanego sędziego dla konkurencji: {competition.missing_judge_disciplines?.join(", ")}. Przypisz sędziego w szczegółach zawodów.
+                        </p>
+                      )}
+
+                      {startBlockedByMinParticipants && competition.status === "published" && (
+                        <p className="mt-2 rounded-lg border border-yellow-300 bg-yellow-50 px-3 py-2 text-xs font-bold text-yellow-900 dark:border-yellow-800 dark:bg-yellow-950/40 dark:text-yellow-100">
+                          Nie można rozpocząć zawodów: brakuje jeszcze {missingMinParticipants} zawodników do minimalnej liczby zapisanych.
                         </p>
                       )}
 
@@ -3329,17 +3501,8 @@ function OrganizerContent() {
                         <button
                           type="button"
                           onClick={() => handleStartCompetition(competition)}
-                          disabled={
-                            !isCompetitionDateReached(competition.date)
-                            || (competition.missing_judge_disciplines?.length || 0) > 0
-                          }
-                          title={
-                            (competition.missing_judge_disciplines?.length || 0) > 0
-                              ? `Przypisz sędziego do: ${competition.missing_judge_disciplines?.join(", ")}`
-                              : isCompetitionDateReached(competition.date)
-                                ? ""
-                                : "Zawody można rozpocząć najwcześniej w dniu zawodów"
-                          }
+                          disabled={startDisabled}
+                          title={startTitle}
                           className="ui-button bg-green-800 hover:bg-green-700 disabled:bg-gray-500 disabled:cursor-not-allowed text-white px-4 py-2 rounded-xl font-semibold"
                         >
                           Rozpocznij
@@ -3398,7 +3561,8 @@ function OrganizerContent() {
                       )}
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </>
