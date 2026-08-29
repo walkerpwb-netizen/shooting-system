@@ -174,6 +174,7 @@ function runCodex(prompt: string) {
       cwd: workdir || undefined,
       env: childEnv,
     });
+    child.stdin.end();
 
     const timeoutId = setTimeout(() => {
       if (settled) {
