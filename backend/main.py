@@ -50,6 +50,7 @@ from datetime import datetime, timedelta, timezone, time
 from typing import Optional
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from io import BytesIO
+import asyncio
 import hashlib
 import base64
 import json
@@ -77,6 +78,7 @@ PROFILE_DATE_FORMATS = ("%Y-%m-%d", "%d.%m.%Y", "%d-%m-%Y", "%d/%m/%Y")
 PASSWORD_RESET_LIMIT = 3
 PASSWORD_RESET_WINDOW = timedelta(hours=1)
 PASSWORD_RESET_TOKEN_TTL = timedelta(minutes=30)
+ACCOUNT_ACTIVATION_TTL = timedelta(days=7)
 LOGIN_IP_LIMIT = 10
 LOGIN_IP_WINDOW = timedelta(minutes=1)
 LOGIN_EMAIL_FAILURE_LIMIT = 5
@@ -140,6 +142,29 @@ EMAIL_ASSET_DIR.mkdir(parents=True, exist_ok=True)
 HOME_POST_DIR.mkdir(parents=True, exist_ok=True)
 HOME_SCREEN_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
+
+
+async def expired_activation_accounts_cleanup_loop():
+    while True:
+        db = SessionLocal()
+
+        try:
+            deleted_count = delete_expired_activation_accounts(db)
+
+            if deleted_count:
+                print(f"Deleted expired inactive accounts: {deleted_count}")
+        except Exception as exc:
+            db.rollback()
+            print(f"Failed to delete expired inactive accounts: {exc}")
+        finally:
+            db.close()
+
+        await asyncio.sleep(3600)
+
+
+@app.on_event("startup")
+async def start_expired_activation_accounts_cleanup():
+    asyncio.create_task(expired_activation_accounts_cleanup_loop())
 
 oauth2_scheme = OAuth2PasswordBearer(
     tokenUrl="login"
@@ -2440,6 +2465,62 @@ def is_pzss_club_account(user: User):
     return getattr(user, "account_type", "") == PZSS_CLUB_ACCOUNT_TYPE
 
 
+def parse_iso_datetime(value: str):
+    if not value:
+        return None
+
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+
+    return parsed.astimezone(timezone.utc)
+
+
+def activation_expires_at_for_user(user: User):
+    if bool(getattr(user, "is_active", 0)) or not getattr(user, "activation_token", None):
+        return None
+
+    explicit_deadline = parse_iso_datetime(getattr(user, "activation_expires_at", "") or "")
+
+    if explicit_deadline:
+        return explicit_deadline
+
+    created_at = parse_iso_datetime(getattr(user, "created_at", "") or "")
+
+    if not created_at:
+        return None
+
+    return created_at + ACCOUNT_ACTIVATION_TTL
+
+
+def activation_seconds_remaining_for_user(user: User, now=None):
+    deadline = activation_expires_at_for_user(user)
+
+    if not deadline:
+        return None
+
+    current_time = now or datetime.now(timezone.utc)
+
+    return max(0, int((deadline - current_time).total_seconds()))
+
+
+def new_activation_expires_at():
+    return (datetime.now(timezone.utc) + ACCOUNT_ACTIVATION_TTL).isoformat()
+
+
+def ensure_activation_expires_at(user: User):
+    deadline = activation_expires_at_for_user(user)
+
+    if deadline and not getattr(user, "activation_expires_at", None):
+        user.activation_expires_at = deadline.isoformat()
+
+    return deadline
+
+
 def is_approved_pzss_club(user: User):
     return (
         is_pzss_club_account(user)
@@ -2460,6 +2541,7 @@ def pzss_club_display_name(user: User):
 
 def public_user(user: User):
     roles = get_user_roles(user)
+    activation_deadline = activation_expires_at_for_user(user)
 
     return {
         "id": user.id,
@@ -2468,6 +2550,8 @@ def public_user(user: User):
         "roles": roles,
         "is_active": bool(user.is_active),
         "created_at": getattr(user, "created_at", "") or "",
+        "activation_expires_at": activation_deadline.isoformat() if activation_deadline else "",
+        "activation_seconds_remaining": activation_seconds_remaining_for_user(user),
         "first_name": user.first_name or "",
         "last_name": user.last_name or "",
         "club": user.club or "",
@@ -2522,6 +2606,7 @@ def admin_user_info_row(label: str, value):
 
 def admin_user_profile_info(user: User):
     roles = get_user_roles(user)
+    activation_deadline = activation_expires_at_for_user(user)
 
     return {
         "id": user.id,
@@ -2539,6 +2624,8 @@ def admin_user_profile_info(user: User):
                     admin_user_info_row("Status online", "online" if is_user_online(user) else "offline"),
                     admin_user_info_row("Konto aktywne", bool(user.is_active)),
                     admin_user_info_row("Profil kompletny", is_profile_complete(user)),
+                    admin_user_info_row("Termin aktywacji", activation_deadline.isoformat() if activation_deadline else ""),
+                    admin_user_info_row("Sekundy do usunięcia", activation_seconds_remaining_for_user(user)),
                     admin_user_info_row("Ostatnia aktywność", user.last_seen),
                     admin_user_info_row("Wymuszony reset hasła", bool(user.password_reset_required)),
                 ],
@@ -3618,6 +3705,38 @@ def delete_user_with_dependencies(user: User, db):
 
     db.commit()
     delete_profile_photo_file(profile_photo_url)
+
+
+def delete_expired_activation_accounts(db):
+    now = datetime.now(timezone.utc)
+    candidates = (
+        db.query(User)
+        .filter(
+            or_(User.is_active != 1, User.is_active.is_(None)),
+            User.activation_token.isnot(None),
+        )
+        .all()
+    )
+    deleted_count = 0
+    changed_count = 0
+
+    for user in candidates:
+        had_deadline = bool(getattr(user, "activation_expires_at", None))
+        deadline = ensure_activation_expires_at(user)
+
+        if deadline and not had_deadline:
+            changed_count += 1
+
+        if not deadline or deadline > now:
+            continue
+
+        delete_user_with_dependencies(user, db)
+        deleted_count += 1
+
+    if changed_count:
+        db.commit()
+
+    return deleted_count
 
 
 def delete_participant_with_dependencies(participant: CompetitionParticipant, db):
@@ -9944,6 +10063,8 @@ def admin_reject_shooting_range_submission(
 
 
 def public_pzss_club(user: User):
+    activation_deadline = activation_expires_at_for_user(user)
+
     return {
         "id": user.id,
         "email": user.email,
@@ -9953,6 +10074,9 @@ def public_pzss_club(user: User):
         "license_number": getattr(user, "pzss_club_license_number", "") or "",
         "status": getattr(user, "pzss_club_status", "") or PZSS_CLUB_PENDING,
         "is_active": bool(user.is_active),
+        "created_at": getattr(user, "created_at", "") or "",
+        "activation_expires_at": activation_deadline.isoformat() if activation_deadline else "",
+        "activation_seconds_remaining": activation_seconds_remaining_for_user(user),
         "online_status": "online" if is_user_online(user) else "offline",
         "last_seen": user.last_seen or "",
         "premium_until": getattr(user, "premium_until", "") or "",
@@ -10061,6 +10185,8 @@ def admin_get_pzss_clubs(
     admin: User = Depends(get_current_admin),
     db=Depends(get_db),
 ):
+    delete_expired_activation_accounts(db)
+
     clubs = (
         db.query(User)
         .filter(User.account_type == PZSS_CLUB_ACCOUNT_TYPE)
@@ -10316,6 +10442,8 @@ def admin_get_users(
     admin: User = Depends(get_current_admin),
     db=Depends(get_db),
 ):
+    delete_expired_activation_accounts(db)
+
     users = (
         db.query(User)
         .filter(
@@ -10529,6 +10657,7 @@ def admin_activate_user(
 
     target_user.is_active = 1
     target_user.activation_token = None
+    target_user.activation_expires_at = None
     db.commit()
     db.refresh(target_user)
 
@@ -11171,6 +11300,7 @@ def register(
     db=Depends(get_db),
 ):
     validate_registration_consents(data)
+    delete_expired_activation_accounts(db)
 
     existing_user = (
         db.query(User)
@@ -11197,6 +11327,7 @@ def register(
         is_active=0,
         created_at=utc_now_iso(),
         activation_token=activation_token,
+        activation_expires_at=new_activation_expires_at(),
         premium_until=premium_end_of_year_iso(),
     )
 
@@ -11235,6 +11366,7 @@ def register_pzss_club(
     db=Depends(get_db),
 ):
     validate_registration_consents(data)
+    delete_expired_activation_accounts(db)
 
     email = normalize_text(data.email).lower()
     short_name = normalize_text(data.short_name)
@@ -11287,6 +11419,7 @@ def register_pzss_club(
         is_active=0,
         created_at=utc_now_iso(),
         activation_token=activation_token,
+        activation_expires_at=new_activation_expires_at(),
         premium_until=premium_end_of_year_iso(),
         account_type=PZSS_CLUB_ACCOUNT_TYPE,
         pzss_club_short_name=short_name,
@@ -11332,6 +11465,8 @@ def activate_account(
     response: Response,
     db=Depends(get_db),
 ):
+    delete_expired_activation_accounts(db)
+
     user = (
         db.query(User)
         .filter(User.activation_token == token)
@@ -11346,6 +11481,7 @@ def activate_account(
 
     user.is_active = 1
     user.activation_token = None
+    user.activation_expires_at = None
     db.commit()
 
     access_token = create_access_token(user)
@@ -11374,6 +11510,7 @@ def login(
     email = normalize_text(data.email).lower()
     enforce_login_ip_rate_limit(client_ip_from_request(request), db)
     db.commit()
+    delete_expired_activation_accounts(db)
 
     user = (
         db.query(User)

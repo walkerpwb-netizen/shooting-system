@@ -4,7 +4,7 @@ import dynamic from "next/dynamic";
 import Image from "next/image";
 import Link from "next/link";
 import type { FormEvent } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { apiUrl } from "@/lib/api";
@@ -17,12 +17,42 @@ type AdminTab = "users" | "pzss-clubs" | "competitions" | "shooting-ranges" | "s
 type UserSortField = "name" | "status" | "role" | "club" | "account" | "phone";
 type SortDirection = "asc" | "desc";
 type CodexChatRole = "user" | "assistant";
+type CodexJobStatus = "queued" | "running" | "completed" | "failed";
 
 type CodexChatMessage = {
   id: string;
   role: CodexChatRole;
   content: string;
   createdAt: string;
+  jobId?: string;
+  status?: CodexJobStatus;
+};
+
+type CodexJob = {
+  id: string;
+  status: CodexJobStatus;
+  prompt: string;
+  createdAt: string;
+  updatedAt: string;
+  startedAt?: string;
+  finishedAt?: string;
+  durationMs?: number;
+  detail?: string;
+  exitCode?: number | null;
+  timedOut?: boolean;
+};
+
+type CodexLimits = {
+  promptCharacters: number;
+  contextMessages: number;
+  visibleHistoryMessages: number;
+  maxQueueSize: number;
+  queuedJobs: number;
+  runningJobs: number;
+  executionTimeoutMs: number;
+  sandbox: string;
+  workdir: string;
+  workerActive: boolean;
 };
 
 type AdminUser = {
@@ -32,6 +62,8 @@ type AdminUser = {
   roles: string[];
   is_active: boolean;
   created_at: string;
+  activation_expires_at: string;
+  activation_seconds_remaining: number | null;
   first_name: string;
   last_name: string;
   club: string;
@@ -54,6 +86,9 @@ type AdminPzssClub = {
   license_number: string;
   status: string;
   is_active: boolean;
+  created_at: string;
+  activation_expires_at: string;
+  activation_seconds_remaining: number | null;
   online_status: "online" | "offline";
   last_seen: string;
   premium_until: string;
@@ -609,6 +644,10 @@ export default function AdminClient({
   ]);
   const [codexPrompt, setCodexPrompt] = useState("");
   const [codexWorking, setCodexWorking] = useState(false);
+  const [codexSubmitting, setCodexSubmitting] = useState(false);
+  const [codexJobs, setCodexJobs] = useState<CodexJob[]>([]);
+  const [codexLimits, setCodexLimits] = useState<CodexLimits | null>(null);
+  const [codexLastRefresh, setCodexLastRefresh] = useState("");
   const [editingShootingRange, setEditingShootingRange] = useState<EditableShootingRange | null>(null);
   const [rangeEditForm, setRangeEditForm] = useState<ShootingRangeEditForm>({
     source_range_id: "",
@@ -620,6 +659,82 @@ export default function AdminClient({
     longitude: null,
   });
   const [rangeEditSaving, setRangeEditSaving] = useState(false);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  const applyCodexState = useCallback((data: {
+    messages?: CodexChatMessage[];
+    jobs?: CodexJob[];
+    limits?: CodexLimits;
+  }) => {
+    if (Array.isArray(data.messages) && data.messages.length) {
+      setCodexMessages(data.messages);
+    }
+
+    if (Array.isArray(data.jobs)) {
+      setCodexJobs(data.jobs);
+    }
+
+    if (data.limits) {
+      setCodexLimits(data.limits);
+      setCodexWorking(data.limits.queuedJobs + data.limits.runningJobs > 0);
+    } else if (Array.isArray(data.jobs)) {
+      setCodexWorking(data.jobs.some((job) => job.status === "queued" || job.status === "running"));
+    }
+
+    setCodexLastRefresh(new Date().toISOString());
+  }, []);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 60000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (activeTab !== "codex") {
+      return;
+    }
+
+    let ignore = false;
+
+    async function refreshCodexState() {
+      const token = getAccessToken();
+
+      if (!token) {
+        return;
+      }
+
+      try {
+        const response = await fetch("/admin/codex-command", {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          cache: "no-store",
+        });
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok || ignore) {
+          return;
+        }
+
+        applyCodexState(data);
+      } catch (error) {
+        console.error(error);
+      }
+    }
+
+    refreshCodexState();
+    const intervalId = window.setInterval(refreshCodexState, 5000);
+
+    return () => {
+      ignore = true;
+      window.clearInterval(intervalId);
+    };
+  }, [activeTab, applyCodexState]);
 
   useEffect(() => {
     if (!isAdmin()) {
@@ -1377,7 +1492,7 @@ export default function AdminClient({
 
     const prompt = codexPrompt.trim();
 
-    if (!prompt || codexWorking) {
+    if (!prompt || codexSubmitting) {
       return;
     }
 
@@ -1388,11 +1503,10 @@ export default function AdminClient({
       content: prompt,
       createdAt: new Date().toISOString(),
     };
-    const history = [...codexMessages, userMessage].slice(-10);
 
     setCodexMessages((currentMessages) => [...currentMessages, userMessage]);
     setCodexPrompt("");
-    setCodexWorking(true);
+    setCodexSubmitting(true);
     setMessage("");
 
     try {
@@ -1404,7 +1518,6 @@ export default function AdminClient({
         },
         body: JSON.stringify({
           prompt,
-          history,
         }),
       });
       const data = await response.json().catch(() => ({}));
@@ -1422,15 +1535,7 @@ export default function AdminClient({
         return;
       }
 
-      setCodexMessages((currentMessages) => [
-        ...currentMessages,
-        {
-          id: `codex-assistant-${Date.now()}`,
-          role: "assistant",
-          content: data.answer || "Codex zakończył pracę bez wiadomości końcowej.",
-          createdAt: new Date().toISOString(),
-        },
-      ]);
+      applyCodexState(data);
     } catch (error) {
       console.error(error);
       setCodexMessages((currentMessages) => [
@@ -1443,7 +1548,7 @@ export default function AdminClient({
         },
       ]);
     } finally {
-      setCodexWorking(false);
+      setCodexSubmitting(false);
     }
   }
 
@@ -2823,6 +2928,117 @@ export default function AdminClient({
     ).format(date);
   }
 
+  function formatDurationMs(value?: number) {
+    if (!value || value <= 0) {
+      return "brak";
+    }
+
+    const totalSeconds = Math.round(value / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+
+    if (minutes > 0) {
+      return `${minutes} min ${seconds} s`;
+    }
+
+    return `${seconds} s`;
+  }
+
+  function formatCodexTimeout(value?: number) {
+    if (!value || value <= 0) {
+      return "brak";
+    }
+
+    const minutes = Math.round(value / 60000);
+
+    if (minutes >= 60) {
+      const hours = Math.floor(minutes / 60);
+      const restMinutes = minutes % 60;
+
+      return restMinutes
+        ? `${hours} godz. ${restMinutes} min`
+        : `${hours} godz.`;
+    }
+
+    return `${minutes} min`;
+  }
+
+  function codexStatusLabel(status: CodexJobStatus) {
+    if (status === "queued") {
+      return "w kolejce";
+    }
+
+    if (status === "running") {
+      return "pracuje";
+    }
+
+    if (status === "failed") {
+      return "błąd";
+    }
+
+    return "gotowe";
+  }
+
+  function codexStatusClass(status: CodexJobStatus) {
+    if (status === "failed") {
+      return "border-red-900 bg-red-950/40 text-red-200";
+    }
+
+    if (status === "completed") {
+      return "border-green-900 bg-green-950/40 text-green-200";
+    }
+
+    return "border-yellow-900 bg-yellow-950/40 text-yellow-100";
+  }
+
+  function formatActivationCountdown(expiresAt: string) {
+    if (!expiresAt) {
+      return "brak terminu";
+    }
+
+    const expiresAtMs = new Date(expiresAt).getTime();
+
+    if (Number.isNaN(expiresAtMs)) {
+      return "brak terminu";
+    }
+
+    const remainingMinutes = Math.ceil((expiresAtMs - nowMs) / 60000);
+
+    if (remainingMinutes <= 0) {
+      return "wygasło";
+    }
+
+    const days = Math.floor(remainingMinutes / 1440);
+    const hours = Math.floor((remainingMinutes % 1440) / 60);
+    const minutes = remainingMinutes % 60;
+
+    if (days > 0) {
+      return `${days} dni ${hours} godz.`;
+    }
+
+    if (hours > 0) {
+      return `${hours} godz. ${minutes} min`;
+    }
+
+    return `${minutes} min`;
+  }
+
+  function getActivationCountdownClass(expiresAt: string) {
+    if (!expiresAt) {
+      return "text-gray-500";
+    }
+
+    const expiresAtMs = new Date(expiresAt).getTime();
+
+    if (Number.isNaN(expiresAtMs)) {
+      return "text-gray-500";
+    }
+
+    return expiresAtMs <= nowMs
+      ? "text-red-300"
+      : "text-yellow-200";
+  }
+
   function formatNumber(value: number) {
     return value.toLocaleString("pl-PL");
   }
@@ -3041,6 +3257,12 @@ export default function AdminClient({
       </div>
     );
   }
+
+  const activeCodexJobCount = codexJobs.filter((job) => job.status === "queued" || job.status === "running").length;
+  const latestCodexJob = codexJobs.length
+    ? codexJobs[codexJobs.length - 1]
+    : null;
+  const codexPromptLength = codexPrompt.trim().length;
 
   return (
     <main className="min-h-screen px-6 py-6">
@@ -3402,6 +3624,14 @@ export default function AdminClient({
                         Założone: {formatDateTime(user.created_at)}
                       </p>
 
+                      <p className={`text-xs font-semibold ${getActivationCountdownClass(user.activation_expires_at)}`}>
+                        Usunięcie za: {formatActivationCountdown(user.activation_expires_at)}
+                      </p>
+
+                      <p className="text-xs text-gray-500">
+                        Termin: {formatDateTime(user.activation_expires_at)}
+                      </p>
+
                       <button
                         type="button"
                         onClick={() => activateUserManually(user.id)}
@@ -3577,6 +3807,18 @@ export default function AdminClient({
                     <p className={club.is_active ? "mt-1 text-xs font-semibold text-green-400" : "mt-1 text-xs font-semibold text-red-300"}>
                       {club.is_active ? "e-mail aktywowany" : "brak aktywacji e-mail"}
                     </p>
+
+                    {!club.is_active && (
+                      <>
+                        <p className={`mt-1 text-xs font-semibold ${getActivationCountdownClass(club.activation_expires_at)}`}>
+                          Usunięcie za: {formatActivationCountdown(club.activation_expires_at)}
+                        </p>
+
+                        <p className="mt-1 text-xs text-gray-500">
+                          Termin: {formatDateTime(club.activation_expires_at)}
+                        </p>
+                      </>
+                    )}
                   </div>
 
                   <div>
@@ -5155,9 +5397,53 @@ export default function AdminClient({
                   </p>
                 </div>
 
-                <span className="rounded-full border border-green-800 bg-green-950/40 px-4 py-2 text-sm font-bold text-green-200">
-                  VPS / workspace-write
-                </span>
+                <div className="flex flex-wrap gap-2 text-sm font-bold">
+                  <span className="rounded-full border border-green-800 bg-green-950/40 px-4 py-2 text-green-200">
+                    VPS / {codexLimits?.sandbox || "workspace-write"}
+                  </span>
+
+                  <span className="rounded-full border border-zinc-700 bg-zinc-950 px-4 py-2 text-gray-200">
+                    Limit: {formatCodexTimeout(codexLimits?.executionTimeoutMs)}
+                  </span>
+                </div>
+              </div>
+
+              <div className="mt-5 grid gap-3 md:grid-cols-4">
+                <div className="rounded-xl border border-zinc-800 bg-zinc-950/70 px-4 py-3">
+                  <p className="text-xs font-bold uppercase text-gray-500">
+                    Status
+                  </p>
+                  <p className={codexWorking ? "mt-1 font-bold text-yellow-200" : "mt-1 font-bold text-green-300"}>
+                    {codexWorking ? "pracuje" : "gotowy"}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-zinc-800 bg-zinc-950/70 px-4 py-3">
+                  <p className="text-xs font-bold uppercase text-gray-500">
+                    Kolejka
+                  </p>
+                  <p className="mt-1 font-bold text-white">
+                    {activeCodexJobCount}/{codexLimits?.maxQueueSize || 20}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-zinc-800 bg-zinc-950/70 px-4 py-3">
+                  <p className="text-xs font-bold uppercase text-gray-500">
+                    Worker
+                  </p>
+                  <p className={codexLimits?.workerActive ? "mt-1 font-bold text-green-300" : "mt-1 font-bold text-gray-300"}>
+                    {codexLimits?.workerActive ? "aktywny" : "bez zadań"}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-zinc-800 bg-zinc-950/70 px-4 py-3">
+                  <p className="text-xs font-bold uppercase text-gray-500">
+                    Odświeżono
+                  </p>
+                  <p className="mt-1 font-bold text-white">
+                    {codexLastRefresh ? formatDateTime(codexLastRefresh) : "czekam"}
+                  </p>
+                </div>
               </div>
             </div>
 
@@ -5184,17 +5470,17 @@ export default function AdminClient({
                       </p>
 
                       {chatMessage.content}
+
+                      {chatMessage.status && (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <span className={`rounded-full border px-3 py-1 text-xs font-bold ${codexStatusClass(chatMessage.status)}`}>
+                            {codexStatusLabel(chatMessage.status)}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
-
-                {codexWorking && (
-                  <div className="flex justify-start">
-                    <div className="rounded-2xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-sm font-semibold text-gray-300">
-                      Codex pracuje na VPS...
-                    </div>
-                  </div>
-                )}
               </div>
 
               <form
@@ -5215,17 +5501,33 @@ export default function AdminClient({
                   />
                 </label>
 
-                <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                  <p className="text-sm text-gray-500">
-                    Zadania wykonują się kolejno. Długie operacje mogą potrwać kilka minut.
-                  </p>
+                <div className="mt-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                  <div className="text-sm text-gray-500">
+                    <p>
+                      Zadania wykonują się kolejno. Wynik zostaje w historii po wylogowaniu.
+                    </p>
+
+                    <p className="mt-1">
+                      Znaki: {codexPromptLength}/{codexLimits?.promptCharacters || 12000}
+                      {latestCodexJob?.finishedAt ? ` • ostatni czas: ${formatDurationMs(latestCodexJob.durationMs)}` : ""}
+                    </p>
+                  </div>
 
                   <button
                     type="submit"
-                    disabled={codexWorking || !codexPrompt.trim()}
+                    disabled={
+                      codexSubmitting
+                      || !codexPrompt.trim()
+                      || codexPromptLength > (codexLimits?.promptCharacters || 12000)
+                      || activeCodexJobCount >= (codexLimits?.maxQueueSize || 20)
+                    }
                     className="ui-button bg-green-700 hover:bg-green-600 disabled:bg-zinc-700 disabled:cursor-not-allowed text-white px-5 py-3 rounded-xl font-bold transition"
                   >
-                    {codexWorking ? "Pracuję..." : "Wyślij do Codex"}
+                    {codexSubmitting
+                      ? "Wysyłam..."
+                      : codexWorking
+                        ? "Dodaj do kolejki"
+                        : "Wyślij do Codex"}
                   </button>
                 </div>
               </form>

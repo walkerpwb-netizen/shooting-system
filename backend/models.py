@@ -47,6 +47,11 @@ class User(Base):
         nullable=True,
     )
 
+    activation_expires_at = Column(
+        String,
+        nullable=True,
+    )
+
     password_reset_token = Column(
         String,
         nullable=True,
