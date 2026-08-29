@@ -151,7 +151,6 @@ function runCodex(prompt: string) {
     "--json",
     "--sandbox",
     "workspace-write",
-    "--approve-for-me",
     prompt,
   ];
 
