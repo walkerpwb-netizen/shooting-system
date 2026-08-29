@@ -3262,6 +3262,7 @@ export default function AdminClient({
   const latestCodexJob = codexJobs.length
     ? codexJobs[codexJobs.length - 1]
     : null;
+  const displayedCodexMessages = useMemo(() => [...codexMessages].reverse(), [codexMessages]);
   const codexPromptLength = codexPrompt.trim().length;
 
   return (
@@ -5449,7 +5450,7 @@ export default function AdminClient({
 
             <section className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
               <div className="max-h-[62vh] min-h-[24rem] space-y-4 overflow-y-auto p-5">
-                {codexMessages.map((chatMessage) => (
+                {displayedCodexMessages.map((chatMessage) => (
                   <div
                     key={chatMessage.id}
                     className={`flex ${
