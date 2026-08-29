@@ -18,6 +18,7 @@ from mailer import (
     default_activation_email_template,
     send_email,
     send_activation_email,
+    send_new_registered_user_admin_email,
     send_password_reset_email,
     send_pzss_club_approved_email,
 )
@@ -3371,6 +3372,30 @@ def send_password_reset_for_user(user: User, db) -> None:
         user.email,
         password_reset_link(token),
     )
+
+
+def notify_admin_about_registered_user(user: User) -> None:
+    notification_email = settings.admin_new_user_notification_email
+
+    if not notification_email:
+        return
+
+    try:
+        send_new_registered_user_admin_email(
+            to_email=notification_email,
+            user_email=user.email,
+            user_id=user.id,
+            account_type=getattr(user, "account_type", "") or USER_ACCOUNT_TYPE,
+            registered_at=getattr(user, "created_at", "") or "",
+            pzss_club_short_name=getattr(user, "pzss_club_short_name", "") or "",
+            pzss_club_full_name=getattr(user, "pzss_club_full_name", "") or "",
+            phone_number=getattr(user, "phone_number", "") or "",
+        )
+    except (MailConfigurationError, MailDeliveryError) as exc:
+        print(
+            "Failed to send new user admin notification "
+            f"for user id {getattr(user, 'id', '')}: {exc}"
+        )
 
 
 def delete_competition_with_dependencies(competition: Competition, db):
@@ -11347,6 +11372,7 @@ def register(
         )
         db.commit()
         db.refresh(new_user)
+        notify_admin_about_registered_user(new_user)
     except (MailConfigurationError, MailDeliveryError) as exc:
         db.rollback()
         raise HTTPException(
@@ -11446,6 +11472,7 @@ def register_pzss_club(
         )
         db.commit()
         db.refresh(new_user)
+        notify_admin_about_registered_user(new_user)
     except (MailConfigurationError, MailDeliveryError) as exc:
         db.rollback()
         raise HTTPException(

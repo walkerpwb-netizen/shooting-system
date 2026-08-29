@@ -331,3 +331,61 @@ def send_pzss_club_approved_email(
     """
 
     send_email(to_email, subject, text_body, html_body)
+
+
+def send_new_registered_user_admin_email(
+    to_email: str,
+    user_email: str,
+    user_id: Optional[int],
+    account_type: str,
+    registered_at: Optional[str],
+    pzss_club_short_name: Optional[str] = None,
+    pzss_club_full_name: Optional[str] = None,
+    phone_number: Optional[str] = None,
+) -> None:
+    account_type_label = "klub PZSS" if account_type == "pzss_club" else "użytkownik"
+    admin_url = f"{settings.frontend_url}/admin"
+    rows = [
+        ("ID użytkownika", str(user_id or "")),
+        ("E-mail", user_email),
+        ("Typ konta", account_type_label),
+        ("Utworzono", registered_at or ""),
+        ("Status", "oczekuje na aktywację e-mail"),
+    ]
+
+    if account_type == "pzss_club":
+        rows.extend([
+            ("Nazwa skrócona klubu", pzss_club_short_name or ""),
+            ("Nazwa pełna klubu", pzss_club_full_name or ""),
+            ("Telefon", phone_number or ""),
+        ])
+
+    subject = "Nowa rejestracja w Systemie Strzeleckim"
+    text_body = (
+        "Dzień dobry,\n\n"
+        "W Systemie Strzeleckim zarejestrowano nowe konto.\n\n"
+        + "\n".join(f"{label}: {value}" for label, value in rows if value)
+        + "\n\n"
+        f"Panel administratora: {admin_url}\n\n"
+        "To wiadomość automatyczna.\n"
+    )
+    html_rows = "".join(
+        "<tr>"
+        f"<th align=\"left\" style=\"padding:4px 12px 4px 0\">{escape(label)}</th>"
+        f"<td style=\"padding:4px 0\">{escape(value)}</td>"
+        "</tr>"
+        for label, value in rows
+        if value
+    )
+    html_body = f"""
+    <p>Dzień dobry,</p>
+    <p>W Systemie Strzeleckim zarejestrowano nowe konto.</p>
+    <table>{html_rows}</table>
+    <p>
+      Panel administratora:
+      <a href="{escape(admin_url, quote=True)}">{escape(admin_url)}</a>
+    </p>
+    <p>To wiadomość automatyczna.</p>
+    """
+
+    send_email(to_email, subject, text_body, html_body)

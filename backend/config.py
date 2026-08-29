@@ -71,6 +71,7 @@ class Settings:
     smtp_from_email: str
     smtp_from_name: str
     smtp_use_tls: bool
+    admin_new_user_notification_email: str
 
     @property
     def is_sqlite_database(self) -> bool:
@@ -102,4 +103,8 @@ settings = Settings(
     smtp_from_email=os.getenv("SMTP_FROM_EMAIL", ""),
     smtp_from_name=os.getenv("SMTP_FROM_NAME", "Shooting System"),
     smtp_use_tls=_get_bool("SMTP_USE_TLS", True),
+    admin_new_user_notification_email=os.getenv(
+        "ADMIN_NEW_USER_NOTIFICATION_EMAIL",
+        "walkerpwb@gmail.com",
+    ),
 )
