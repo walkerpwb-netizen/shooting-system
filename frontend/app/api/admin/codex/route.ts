@@ -140,6 +140,12 @@ function runCodex(prompt: string) {
   const command = process.env.CODEX_CLI_PATH || "codex";
   const workdir = process.env.CODEX_ADMIN_WORKDIR;
   const timeoutMs = Number(process.env.CODEX_ADMIN_TIMEOUT_MS || 10 * 60 * 1000);
+  const childEnv: NodeJS.ProcessEnv = {
+    HOME: process.env.HOME || "/home/ubuntu",
+    PATH: process.env.PATH || "/usr/local/bin:/usr/bin:/bin",
+    CODEX_HOME: process.env.CODEX_HOME || "/home/ubuntu/.codex",
+    NODE_ENV: process.env.NODE_ENV || "production",
+  };
   const args = [
     "exec",
     "--json",
@@ -167,11 +173,7 @@ function runCodex(prompt: string) {
 
     const child = spawn(command, args, {
       cwd: workdir || undefined,
-      env: {
-        ...process.env,
-        HOME: process.env.HOME || "/home/ubuntu",
-        PATH: process.env.PATH || "/usr/local/bin:/usr/bin:/bin",
-      },
+      env: childEnv,
     });
 
     const timeoutId = setTimeout(() => {
