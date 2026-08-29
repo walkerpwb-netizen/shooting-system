@@ -1396,7 +1396,7 @@ export default function AdminClient({
     setMessage("");
 
     try {
-      const response = await fetch("/api/admin/codex", {
+      const response = await fetch("/admin/codex-command", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
