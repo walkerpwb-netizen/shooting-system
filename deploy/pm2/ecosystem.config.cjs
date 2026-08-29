@@ -29,6 +29,8 @@ module.exports = {
         NEXT_TELEMETRY_DISABLED: "1",
         NEXT_PUBLIC_API_URL: "/api",
         API_URL: "http://127.0.0.1:8000",
+        CODEX_CLI_PATH: "/home/ubuntu/.vscode-server/extensions/openai.chatgpt-26.5814.41407-linux-x64/bin/linux-x86_64/codex",
+        CODEX_ADMIN_WORKDIR: "/home/ubuntu/shooting-system",
       },
     },
   ],

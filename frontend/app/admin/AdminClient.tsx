@@ -13,9 +13,17 @@ import { notifyShootingRangeSubmissionsChange } from "@/lib/shootingRangeNotific
 import QrCodeScanner from "@/components/QrCodeScanner";
 import TargetPhotoScanner from "@/zdjęcie tarczy/TargetPhotoScanner";
 
-type AdminTab = "users" | "pzss-clubs" | "competitions" | "shooting-ranges" | "settings" | "premium" | "ads" | "monitoring" | "qr-scanner" | "target-photo" | "pdf-test" | "test-data";
+type AdminTab = "users" | "pzss-clubs" | "competitions" | "shooting-ranges" | "settings" | "premium" | "ads" | "monitoring" | "codex" | "qr-scanner" | "target-photo" | "pdf-test" | "test-data";
 type UserSortField = "name" | "status" | "role" | "club" | "account" | "phone";
 type SortDirection = "asc" | "desc";
+type CodexChatRole = "user" | "assistant";
+
+type CodexChatMessage = {
+  id: string;
+  role: CodexChatRole;
+  content: string;
+  createdAt: string;
+};
 
 type AdminUser = {
   id: number;
@@ -591,6 +599,16 @@ export default function AdminClient({
   const [testOverwriteResults, setTestOverwriteResults] = useState(true);
   const [testWorking, setTestWorking] = useState(false);
   const [derivedCacheWorking, setDerivedCacheWorking] = useState(false);
+  const [codexMessages, setCodexMessages] = useState<CodexChatMessage[]>([
+    {
+      id: "codex-welcome",
+      role: "assistant",
+      content: "Gotowy. Napisz polecenie, a uruchomię Codex na VPS w repozytorium projektu.",
+      createdAt: new Date().toISOString(),
+    },
+  ]);
+  const [codexPrompt, setCodexPrompt] = useState("");
+  const [codexWorking, setCodexWorking] = useState(false);
   const [editingShootingRange, setEditingShootingRange] = useState<EditableShootingRange | null>(null);
   const [rangeEditForm, setRangeEditForm] = useState<ShootingRangeEditForm>({
     source_range_id: "",
@@ -1351,6 +1369,81 @@ export default function AdminClient({
     } catch (error) {
       console.error(error);
       setMessage("Błąd połączenia z serwerem ❌");
+    }
+  }
+
+  async function sendCodexPrompt(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const prompt = codexPrompt.trim();
+
+    if (!prompt || codexWorking) {
+      return;
+    }
+
+    const token = getAccessToken();
+    const userMessage: CodexChatMessage = {
+      id: `codex-user-${Date.now()}`,
+      role: "user",
+      content: prompt,
+      createdAt: new Date().toISOString(),
+    };
+    const history = [...codexMessages, userMessage].slice(-10);
+
+    setCodexMessages((currentMessages) => [...currentMessages, userMessage]);
+    setCodexPrompt("");
+    setCodexWorking(true);
+    setMessage("");
+
+    try {
+      const response = await fetch("/api/admin/codex", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          prompt,
+          history,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        setCodexMessages((currentMessages) => [
+          ...currentMessages,
+          {
+            id: `codex-error-${Date.now()}`,
+            role: "assistant",
+            content: data.detail || "Nie udało się uruchomić Codex na VPS.",
+            createdAt: new Date().toISOString(),
+          },
+        ]);
+        return;
+      }
+
+      setCodexMessages((currentMessages) => [
+        ...currentMessages,
+        {
+          id: `codex-assistant-${Date.now()}`,
+          role: "assistant",
+          content: data.answer || "Codex zakończył pracę bez wiadomości końcowej.",
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+    } catch (error) {
+      console.error(error);
+      setCodexMessages((currentMessages) => [
+        ...currentMessages,
+        {
+          id: `codex-network-${Date.now()}`,
+          role: "assistant",
+          content: "Błąd połączenia z lokalnym endpointem Codex.",
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+    } finally {
+      setCodexWorking(false);
     }
   }
 
@@ -5047,6 +5140,96 @@ export default function AdminClient({
                 </section>
               </>
             )}
+          </section>
+        ) : activeTab === "codex" ? (
+          <section className="space-y-6">
+            <div className="ui-block bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <h2 className="text-3xl font-bold text-white mb-2">
+                    CODEX
+                  </h2>
+
+                  <p className="text-gray-400">
+                    Czat uruchamia lokalne zadania Codex na VPS w katalogu projektu.
+                  </p>
+                </div>
+
+                <span className="rounded-full border border-green-800 bg-green-950/40 px-4 py-2 text-sm font-bold text-green-200">
+                  VPS / workspace-write
+                </span>
+              </div>
+            </div>
+
+            <section className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
+              <div className="max-h-[62vh] min-h-[24rem] space-y-4 overflow-y-auto p-5">
+                {codexMessages.map((chatMessage) => (
+                  <div
+                    key={chatMessage.id}
+                    className={`flex ${
+                      chatMessage.role === "user"
+                        ? "justify-end"
+                        : "justify-start"
+                    }`}
+                  >
+                    <div
+                      className={`max-w-4xl whitespace-pre-wrap rounded-2xl px-4 py-3 text-sm leading-6 ${
+                        chatMessage.role === "user"
+                          ? "bg-green-700 text-white"
+                          : "border border-zinc-800 bg-zinc-950 text-gray-100"
+                      }`}
+                    >
+                      <p className="mb-2 text-xs font-bold uppercase text-gray-400">
+                        {chatMessage.role === "user" ? "Ty" : "Codex"}
+                      </p>
+
+                      {chatMessage.content}
+                    </div>
+                  </div>
+                ))}
+
+                {codexWorking && (
+                  <div className="flex justify-start">
+                    <div className="rounded-2xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-sm font-semibold text-gray-300">
+                      Codex pracuje na VPS...
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <form
+                onSubmit={sendCodexPrompt}
+                className="border-t border-zinc-800 bg-zinc-950/80 p-5"
+              >
+                <label className="block">
+                  <span className="mb-2 block text-sm font-bold text-gray-300">
+                    Polecenie
+                  </span>
+
+                  <textarea
+                    value={codexPrompt}
+                    onChange={(event) => setCodexPrompt(event.target.value)}
+                    rows={5}
+                    placeholder="Np. sprawdź ostatni błąd deploya i napraw najmniejszą zmianą"
+                    className="w-full resize-y rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-white placeholder:text-gray-500"
+                  />
+                </label>
+
+                <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <p className="text-sm text-gray-500">
+                    Zadania wykonują się kolejno. Długie operacje mogą potrwać kilka minut.
+                  </p>
+
+                  <button
+                    type="submit"
+                    disabled={codexWorking || !codexPrompt.trim()}
+                    className="ui-button bg-green-700 hover:bg-green-600 disabled:bg-zinc-700 disabled:cursor-not-allowed text-white px-5 py-3 rounded-xl font-bold transition"
+                  >
+                    {codexWorking ? "Pracuję..." : "Wyślij do Codex"}
+                  </button>
+                </div>
+              </form>
+            </section>
           </section>
         ) : activeTab === "qr-scanner" ? (
           <QrCodeScanner />
