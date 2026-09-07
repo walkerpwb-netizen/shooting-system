@@ -21,6 +21,7 @@ from mailer import (
     send_new_registered_user_admin_email,
     send_password_reset_email,
     send_pzss_club_approved_email,
+    send_pzss_club_rejected_email,
 )
 
 from models import (
@@ -10417,7 +10418,38 @@ def admin_reject_pzss_club(
     db.commit()
     db.refresh(club)
 
-    return public_pzss_club(club)
+    rejection_email_sent = True
+    rejection_email_error = ""
+
+    try:
+        send_pzss_club_rejected_email(
+            club.email,
+            pzss_club_display_name(club),
+        )
+    except (MailConfigurationError, MailDeliveryError) as exc:
+        rejection_email_sent = False
+        rejection_email_error = str(exc)
+        print(f"Failed to send PZSS club rejection e-mail to {club.email}: {exc}")
+
+    response = public_pzss_club(club)
+    response["rejection_email_sent"] = rejection_email_sent
+    response["rejection_email_error"] = rejection_email_error
+    response["deleted"] = True
+
+    (
+        db.query(User)
+        .filter(User.verified_club_id == club.id)
+        .update(
+            {
+                User.verified_club_id: None,
+                User.club_membership_status: None,
+            },
+            synchronize_session=False,
+        )
+    )
+    delete_user_with_dependencies(club, db)
+
+    return response
 
 
 @app.delete("/admin/pzss-clubs/{club_id}")

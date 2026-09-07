@@ -93,6 +93,11 @@ type AdminPzssClub = {
   last_seen: string;
   premium_until: string;
   premium_organizer_disabled: boolean;
+  approval_email_sent?: boolean;
+  approval_email_error?: string;
+  rejection_email_sent?: boolean;
+  rejection_email_error?: string;
+  deleted?: boolean;
 };
 
 type PzssClubEditForm = {
@@ -1657,10 +1662,23 @@ export default function AdminClient({
         return;
       }
 
-      setPzssClubs((currentClubs) => currentClubs.map((club) => (
-        club.id === clubId ? data : club
-      )));
-      setMessage("Klub PZSS odrzucony");
+      setPzssClubs((currentClubs) => (
+        data.deleted
+          ? currentClubs.filter((club) => club.id !== clubId)
+          : currentClubs.map((club) => (
+            club.id === clubId ? data : club
+          ))
+      ));
+      setClubLicenseInputs((currentInputs) => {
+        const nextInputs = { ...currentInputs };
+        delete nextInputs[clubId];
+        return nextInputs;
+      });
+      setMessage(
+        data.rejection_email_sent === false
+          ? "Klub PZSS odrzucony i usunięty, ale nie udało się wysłać e-maila z informacją ⚠️"
+          : "Klub PZSS odrzucony i usunięty, e-mail z informacją wysłany ✅"
+      );
     } catch (error) {
       console.error(error);
       setMessage("Błąd połączenia z serwerem ❌");

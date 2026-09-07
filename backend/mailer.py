@@ -333,6 +333,50 @@ def send_pzss_club_approved_email(
     send_email(to_email, subject, text_body, html_body)
 
 
+def send_pzss_club_rejected_email(
+    to_email: str,
+    club_name: str,
+) -> None:
+    register_url = f"{settings.frontend_url}/register?type=pzss-club"
+    messenger_url = "https://m.me/systemstrzelecki"
+    safe_club_name = club_name or "Twój klub"
+    subject = "Konto klubu PZSS nie przeszło weryfikacji"
+    text_body = (
+        "Dzień dobry,\n\n"
+        f"Konto klubu {safe_club_name} w Systemie Strzeleckim nie przeszło weryfikacji "
+        "i zostało odrzucone przez administratora.\n\n"
+        "Konto zostanie usunięte z systemu. Możesz założyć je ponownie z prawidłowymi danymi:\n"
+        f"{register_url}\n\n"
+        "W razie pytań skontaktuj się z nami przez Messenger:\n"
+        f"{messenger_url}\n\n"
+        "To wiadomość automatyczna.\n\n"
+        "Pozdrawiamy,\n"
+        "System Strzelecki\n"
+    )
+    html_body = f"""
+    <p>Dzień dobry,</p>
+    <p>
+      Konto klubu <strong>{escape(safe_club_name)}</strong> w Systemie Strzeleckim
+      nie przeszło weryfikacji i zostało odrzucone przez administratora.
+    </p>
+    <p>
+      Konto zostanie usunięte z systemu. Możesz założyć je ponownie
+      z prawidłowymi danymi:
+      <br>
+      <a href="{escape(register_url, quote=True)}">{escape(register_url)}</a>
+    </p>
+    <p>
+      W razie pytań skontaktuj się z nami przez Messenger:
+      <br>
+      <a href="{escape(messenger_url, quote=True)}">{escape(messenger_url)}</a>
+    </p>
+    <p>To wiadomość automatyczna.</p>
+    <p>Pozdrawiamy,<br>System Strzelecki</p>
+    """
+
+    send_email(to_email, subject, text_body, html_body)
+
+
 def send_new_registered_user_admin_email(
     to_email: str,
     user_email: str,
