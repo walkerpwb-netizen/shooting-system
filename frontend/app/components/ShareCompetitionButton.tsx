@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 
 type ShareCompetitionButtonProps = {
   competitionId: number;
+  hrefBase?: string;
+  title?: string;
   className?: string;
 };
 
@@ -22,6 +24,8 @@ function copyWithFallback(value: string) {
 
 export default function ShareCompetitionButton({
   competitionId,
+  hrefBase = "/competitions",
+  title = "Skopiuj link do zawodów",
   className = "ui-button bg-blue-700 hover:bg-blue-600 text-white px-4 py-2 rounded-xl font-semibold transition",
 }: ShareCompetitionButtonProps) {
   const [copied, setCopied] = useState(false);
@@ -41,7 +45,7 @@ export default function ShareCompetitionButton({
   }, [copied]);
 
   async function copyCompetitionLink() {
-    const link = `${window.location.origin}/competitions/${competitionId}`;
+    const link = `${window.location.origin}${hrefBase}/${competitionId}`;
 
     try {
       if (navigator.clipboard) {
@@ -63,7 +67,7 @@ export default function ShareCompetitionButton({
       type="button"
       onClick={copyCompetitionLink}
       className={className}
-      title="Skopiuj link do zawodów"
+      title={title}
     >
       {copied
         ? "Link skopiowany"

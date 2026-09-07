@@ -10,6 +10,7 @@ import { getAccessToken } from "@/lib/auth";
 export type CompetitionListItem = {
   id: number;
   name: string;
+  event_type?: "competition" | "training";
   date: string;
   location: string;
   latitude: number | null;
@@ -33,6 +34,16 @@ type CompetitionListProps = {
   dateSortDirection?: DateSortDirection;
   mapHref?: string;
   onlyMyEntries?: boolean;
+  entriesEndpoint?: string;
+  detailsHrefBase?: string;
+  labels?: {
+    filterPlaceholder?: string;
+    mapButton?: string;
+    nameHeader?: string;
+    loadingJoined?: string;
+    emptyFiltered?: string;
+    shareTitle?: string;
+  };
 };
 
 function parseCompetitionTime(dateValue: string) {
@@ -70,6 +81,9 @@ export default function CompetitionList({
   dateSortDirection = "asc",
   mapHref = "/competitions/map",
   onlyMyEntries = false,
+  entriesEndpoint = "/competitions/my-entries",
+  detailsHrefBase = "/competitions",
+  labels,
 }: CompetitionListProps) {
   const [nameFilter, setNameFilter] = useState("");
   const [entryTypes, setEntryTypes] = useState<Record<string, string>>({});
@@ -88,7 +102,7 @@ export default function CompetitionList({
     async function loadEntryTypes() {
       try {
         const response = await fetch(
-          apiUrl("/competitions/my-entries"),
+          apiUrl(entriesEndpoint),
           {
             headers: {
               Authorization: `Bearer ${token}`,
@@ -110,7 +124,7 @@ export default function CompetitionList({
     }
 
     loadEntryTypes();
-  }, []);
+  }, [entriesEndpoint]);
 
   const visibleCompetitions = useMemo(() => {
     const normalizedFilter = nameFilter.trim().toLowerCase();
@@ -142,7 +156,7 @@ export default function CompetitionList({
           <input
             value={nameFilter}
             onChange={(event) => setNameFilter(event.target.value)}
-            placeholder="Filtruj po nazwie zawodów"
+            placeholder={labels?.filterPlaceholder || "Filtruj po nazwie zawodów"}
             className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 placeholder:text-zinc-500 focus:border-green-700 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder:text-gray-500 sm:w-80"
           />
 
@@ -164,7 +178,7 @@ export default function CompetitionList({
               <path d="M9 3v15" />
               <path d="M15 6v15" />
             </svg>
-            Szukaj zawodów na mapie
+            {labels?.mapButton || "Szukaj zawodów na mapie"}
           </Link>
         </div>
 
@@ -174,7 +188,7 @@ export default function CompetitionList({
       </div>
 
       <div className="hidden grid-cols-[1.5fr_0.7fr_1fr_1.1fr] gap-4 border-b border-zinc-200 bg-zinc-50 px-4 py-3 text-xs font-bold uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950/50 dark:text-gray-400 lg:grid">
-        <p>Nazwa zawodów</p>
+        <p>{labels?.nameHeader || "Nazwa zawodów"}</p>
         <p>Data {dateSortDirection === "asc" ? "↑" : "↓"}</p>
         <p>Lokalizacja</p>
         <p aria-hidden="true" />
@@ -182,13 +196,13 @@ export default function CompetitionList({
 
       {onlyMyEntries && !entriesLoaded ? (
         <p className="px-4 py-5 text-zinc-600 dark:text-gray-400">
-          Ładowanie Twoich zawodów...
+          {labels?.loadingJoined || "Ładowanie Twoich zawodów..."}
         </p>
       ) : visibleCompetitions.length === 0 ? (
         <p className="px-4 py-5 text-zinc-600 dark:text-gray-400">
           {onlyMyEntries
             ? emptyMessage
-            : "Brak zawodów pasujących do filtra."}
+            : labels?.emptyFiltered || "Brak zawodów pasujących do filtra."}
         </p>
       ) : (
         <div>
@@ -200,6 +214,7 @@ export default function CompetitionList({
               date={competition.date}
               location={competition.location}
               status={competition.status}
+              eventType={competition.event_type}
               organizerFullName={competition.organizer_full_name}
               sponsors={competition.sponsors}
               organizerLogo={competition.organizer_logo}
@@ -208,6 +223,8 @@ export default function CompetitionList({
               shootersCount={competition.shooters_count}
               disciplinesCount={competition.disciplines_count}
               entryType={entryTypes[String(competition.id)] || ""}
+              detailsHrefBase={detailsHrefBase}
+              shareTitle={labels?.shareTitle}
             />
           ))}
         </div>

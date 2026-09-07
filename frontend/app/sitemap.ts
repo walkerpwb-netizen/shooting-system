@@ -25,6 +25,16 @@ const staticRoutes = [
     changeFrequency: "hourly",
   },
   {
+    path: "/trainings",
+    priority: 0.8,
+    changeFrequency: "hourly",
+  },
+  {
+    path: "/trainings/map",
+    priority: 0.7,
+    changeFrequency: "hourly",
+  },
+  {
     path: "/shooting-ranges/map",
     priority: 0.8,
     changeFrequency: "daily",
@@ -106,8 +116,28 @@ async function competitionEntries() {
     );
 }
 
+async function trainingEntries() {
+  const trainings = await getJson<Competition[]>("/trainings");
+
+  if (!trainings) {
+    return [];
+  }
+
+  return trainings
+    .filter((training) =>
+      ["published", "started", "completed"].includes(training.status)
+    )
+    .map((training) =>
+      sitemapEntry(`/trainings/${training.id}`, {
+        changeFrequency: training.status === "completed" ? "monthly" : "daily",
+        priority: training.status === "published" ? 0.7 : 0.6,
+      })
+    );
+}
+
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const competitions = await competitionEntries();
+  const trainings = await trainingEntries();
 
   return [
     ...staticRoutes.map((route) =>
@@ -117,5 +147,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       })
     ),
     ...competitions,
+    ...trainings,
   ];
 }

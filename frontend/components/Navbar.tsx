@@ -795,6 +795,10 @@ export default function Navbar() {
           Ranking
         </Link>
 
+        <Link href="/trainings">
+          Szkolenia
+        </Link>
+
         {user && (
           <Link href="/profile">
             Profil
@@ -1014,6 +1018,14 @@ export default function Navbar() {
                 className="py-3"
               >
                 Ranking
+              </Link>
+
+              <Link
+                href="/trainings"
+                onClick={() => setMobileMenuOpen(false)}
+                className="py-3"
+              >
+                Szkolenia
               </Link>
 
               {user && (

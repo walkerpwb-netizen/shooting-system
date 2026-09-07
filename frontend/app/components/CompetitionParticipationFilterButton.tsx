@@ -10,6 +10,9 @@ import { getAccessToken } from "@/lib/auth";
 type CompetitionParticipationFilterButtonProps = {
   competitions: CompetitionListItem[];
   isActive: boolean;
+  href?: string;
+  label?: string;
+  entriesEndpoint?: string;
 };
 
 const participantStatuses = new Set(["published", "started"]);
@@ -17,6 +20,9 @@ const participantStatuses = new Set(["published", "started"]);
 export default function CompetitionParticipationFilterButton({
   competitions,
   isActive,
+  href = "/competitions?status=joined",
+  label = "Biorę udział",
+  entriesEndpoint = "/competitions/my-entries",
 }: CompetitionParticipationFilterButtonProps) {
   const [entryTypes, setEntryTypes] = useState<Record<string, string>>({});
 
@@ -30,7 +36,7 @@ export default function CompetitionParticipationFilterButton({
     async function loadEntryTypes() {
       try {
         const response = await fetch(
-          apiUrl("/competitions/my-entries"),
+          apiUrl(entriesEndpoint),
           {
             headers: {
               Authorization: `Bearer ${token}`,
@@ -50,7 +56,7 @@ export default function CompetitionParticipationFilterButton({
     }
 
     loadEntryTypes();
-  }, []);
+  }, [entriesEndpoint]);
 
   const hasParticipantCompetition = useMemo(() => (
     competitions.some((competition) => (
@@ -65,14 +71,14 @@ export default function CompetitionParticipationFilterButton({
 
   return (
     <Link
-      href="/competitions?status=joined"
+      href={href}
       className={`ui-button px-5 py-3 rounded-xl font-bold transition ${
         isActive
           ? "bg-green-700 text-white"
           : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-gray-300 dark:hover:bg-zinc-700"
       }`}
     >
-      Biorę udział
+      {label}
     </Link>
   );
 }

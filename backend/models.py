@@ -594,6 +594,13 @@ class Competition(Base):
         nullable=True,
     )
 
+    event_type = Column(
+        String,
+        default="competition",
+        nullable=False,
+        server_default="competition",
+    )
+
     status = Column(
         String,
         default="draft",

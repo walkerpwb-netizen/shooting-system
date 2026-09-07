@@ -258,6 +258,7 @@ class CompetitionData(BaseModel):
     name: str
     date: str
     location: str
+    event_type: str = "competition"
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     entry_fee: str = ""
@@ -274,6 +275,35 @@ class CompetitionData(BaseModel):
     club_discount_scope: str = "competition"
     club_discount_amount: str = ""
     club_discount_clubs: str = ""
+
+
+COMPETITION_EVENT_TYPE = "competition"
+TRAINING_EVENT_TYPE = "training"
+COMPETITION_EVENT_TYPES = {COMPETITION_EVENT_TYPE, TRAINING_EVENT_TYPE}
+
+
+def normalize_competition_event_type(event_type: Optional[str]) -> str:
+    normalized_event_type = normalize_text(event_type or COMPETITION_EVENT_TYPE).lower()
+
+    if normalized_event_type not in COMPETITION_EVENT_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail="Nieprawidłowy typ wydarzenia"
+        )
+
+    return normalized_event_type
+
+
+def competition_event_type(competition: Competition) -> str:
+    return getattr(competition, "event_type", "") or COMPETITION_EVENT_TYPE
+
+
+def is_training_event(competition: Competition) -> bool:
+    return competition_event_type(competition) == TRAINING_EVENT_TYPE
+
+
+def event_not_found_detail(event_type: str) -> str:
+    return "Szkolenie nie istnieje" if event_type == TRAINING_EVENT_TYPE else "Zawody nie istnieją"
 
 
 def safe_auth_redirect_path(value: str) -> str:
@@ -7282,6 +7312,7 @@ def competition_result_summary(competition: Competition, db, premium_locked: boo
     return {
         "id": competition.id,
         "name": competition.name,
+        "event_type": competition_event_type(competition),
         "date": competition.date,
         "location": competition.location,
         "organizer_full_name": competition.organizer_full_name or competition.created_by,
@@ -7352,9 +7383,23 @@ def missing_judge_disciplines_by_competition(db, competition_ids: list[int]):
     if not competition_ids:
         return {}
 
+    required_competition_ids = {
+        competition_id
+        for (competition_id,) in (
+            db.query(Competition.id)
+            .filter(Competition.id.in_(competition_ids))
+            .filter(Competition.requires_licensed_judge == 1)
+            .all()
+        )
+    }
+    result = {competition_id: [] for competition_id in competition_ids}
+
+    if not required_competition_ids:
+        return result
+
     disciplines = (
         db.query(Discipline)
-        .filter(Discipline.competition_id.in_(competition_ids))
+        .filter(Discipline.competition_id.in_(required_competition_ids))
         .order_by(*discipline_order_columns())
         .all()
     )
@@ -7363,14 +7408,13 @@ def missing_judge_disciplines_by_competition(db, competition_ids: list[int]):
         for (discipline_id,) in (
             db.query(JudgeInvitation.discipline_id)
             .filter(
-                JudgeInvitation.competition_id.in_(competition_ids),
+                JudgeInvitation.competition_id.in_(required_competition_ids),
                 JudgeInvitation.discipline_id.is_not(None),
             )
             .all()
         )
         if discipline_id is not None
     }
-    result = {competition_id: [] for competition_id in competition_ids}
 
     for discipline in disciplines:
         if discipline.id not in assigned_discipline_ids:
@@ -7380,6 +7424,9 @@ def missing_judge_disciplines_by_competition(db, competition_ids: list[int]):
 
 
 def validate_judges_assigned_before_start(competition: Competition, db):
+    if not bool(getattr(competition, "requires_licensed_judge", 1)):
+        return
+
     missing_disciplines = missing_judge_disciplines_by_competition(
         db,
         [competition.id],
@@ -7552,6 +7599,7 @@ def competition_list_row(
     return {
         "id": competition.id,
         "name": competition.name,
+        "event_type": competition_event_type(competition),
         "date": competition.date,
         "location": competition.location,
         "latitude": competition.latitude,
@@ -7578,6 +7626,7 @@ def competition_list_row(
 
 
 COMPETITION_COPY_FIELDS = [
+    "event_type",
     "date",
     "location",
     "latitude",
@@ -7732,6 +7781,7 @@ def get_result_competition_or_404(
     competition = (
         db.query(Competition)
         .filter(Competition.id == competition_id)
+        .filter(Competition.event_type == COMPETITION_EVENT_TYPE)
         .first()
     )
 
@@ -9084,6 +9134,7 @@ def get_competitions(db=Depends(get_db)):
 
     competitions = (
         db.query(Competition)
+        .filter(Competition.event_type == COMPETITION_EVENT_TYPE)
         .filter(Competition.status.in_(["published", "started", "completed"]))
         .all()
     )
@@ -9101,8 +9152,8 @@ def get_competitions(db=Depends(get_db)):
     ]
 
 
-@app.get("/competitions/my-entries")
-def get_my_competition_entries(
+def my_event_entries(
+    event_type: str,
     user: User = Depends(get_current_user),
     db=Depends(get_db),
 ):
@@ -9112,6 +9163,7 @@ def get_my_competition_entries(
         db.query(CompetitionParticipant)
         .join(Competition, Competition.id == CompetitionParticipant.competition_id)
         .filter(CompetitionParticipant.user_email == user.email)
+        .filter(Competition.event_type == event_type)
         .filter(Competition.status.in_(["published", "started", "completed"]))
         .all()
     )
@@ -9128,32 +9180,57 @@ def get_my_competition_entries(
     return entries
 
 
-@app.get("/competitions/{competition_id}")
-def get_competition(
-    competition_id: int,
+@app.get("/competitions/my-entries")
+def get_my_competition_entries(
+    user: User = Depends(get_current_user),
+    db=Depends(get_db),
+):
+    return my_event_entries(COMPETITION_EVENT_TYPE, user, db)
+
+
+@app.get("/trainings")
+def get_trainings(db=Depends(get_db)):
+    auto_complete_started_competitions(db)
+
+    trainings = (
+        db.query(Competition)
+        .filter(Competition.event_type == TRAINING_EVENT_TYPE)
+        .filter(Competition.status.in_(["published", "started", "completed"]))
+        .all()
+    )
+    training_ids = [training.id for training in trainings]
+    disciplines_counts = count_disciplines_by_competition(db, training_ids)
+    shooters_counts = count_shooters_by_competition(db, training_ids)
+
+    return [
+        competition_list_row(
+            training,
+            disciplines_count=disciplines_counts.get(training.id, 0),
+            shooters_count=shooters_counts.get(training.id, 0),
+        )
+        for training in sort_competitions_by_nearest_date(trainings)
+    ]
+
+
+@app.get("/trainings/my-entries")
+def get_my_training_entries(
+    user: User = Depends(get_current_user),
+    db=Depends(get_db),
+):
+    return my_event_entries(TRAINING_EVENT_TYPE, user, db)
+
+
+def public_competition_detail_row(
+    competition: Competition,
     current_user: Optional[User] = Depends(get_optional_current_user),
     db=Depends(get_db),
 ):
-    auto_complete_started_competitions(db)
-
-    competition = (
-        db.query(Competition)
-        .filter(Competition.id == competition_id)
-        .first()
-    )
-
-    if not competition:
-        raise HTTPException(
-            status_code=404,
-            detail="Zawody nie istnieją"
-        )
-
     if competition.status == "cancelled" and (
         not current_user or not can_manage_competition(current_user, competition)
     ):
         raise HTTPException(
             status_code=404,
-            detail="Zawody nie istnieją"
+            detail=event_not_found_detail(competition_event_type(competition))
         )
 
     disciplines = (
@@ -9169,6 +9246,7 @@ def get_competition(
     return {
         "id": competition.id,
         "name": competition.name,
+        "event_type": competition_event_type(competition),
         "date": competition.date,
         "location": competition.location,
         "latitude": competition.latitude,
@@ -9193,6 +9271,51 @@ def get_competition(
     }
 
 
+def get_public_event_or_404(
+    competition_id: int,
+    event_type: str,
+    db,
+):
+    event = (
+        db.query(Competition)
+        .filter(Competition.id == competition_id)
+        .filter(Competition.event_type == event_type)
+        .first()
+    )
+
+    if not event:
+        raise HTTPException(
+            status_code=404,
+            detail=event_not_found_detail(event_type)
+        )
+
+    return event
+
+
+@app.get("/competitions/{competition_id}")
+def get_competition(
+    competition_id: int,
+    current_user: Optional[User] = Depends(get_optional_current_user),
+    db=Depends(get_db),
+):
+    auto_complete_started_competitions(db)
+    competition = get_public_event_or_404(competition_id, COMPETITION_EVENT_TYPE, db)
+
+    return public_competition_detail_row(competition, current_user, db)
+
+
+@app.get("/trainings/{training_id}")
+def get_training(
+    training_id: int,
+    current_user: Optional[User] = Depends(get_optional_current_user),
+    db=Depends(get_db),
+):
+    auto_complete_started_competitions(db)
+    training = get_public_event_or_404(training_id, TRAINING_EVENT_TYPE, db)
+
+    return public_competition_detail_row(training, current_user, db)
+
+
 @app.get("/live-results/competitions")
 def get_live_result_competitions(
     user: User = Depends(get_current_user),
@@ -9203,6 +9326,7 @@ def get_live_result_competitions(
 
     competitions = (
         db.query(Competition)
+        .filter(Competition.event_type == COMPETITION_EVENT_TYPE)
         .filter(Competition.status.in_(["started", "completed"]))
         .all()
     )
@@ -9250,6 +9374,7 @@ def get_historical_result_competitions(
 
     competitions = (
         db.query(Competition)
+        .filter(Competition.event_type == COMPETITION_EVENT_TYPE)
         .filter(Competition.status == "completed")
         .all()
     )
@@ -10887,6 +11012,7 @@ def admin_get_competitions(
         result.append({
             "id": competition.id,
             "name": competition.name,
+            "event_type": competition_event_type(competition),
             "date": competition.date,
             "location": competition.location,
             "entry_fee": competition.entry_fee or "",
@@ -11819,6 +11945,8 @@ def create_competition(
     user: User = Depends(get_current_organizer),
     db=Depends(get_db),
 ):
+    event_type = normalize_competition_event_type(data.event_type)
+    is_training = event_type == TRAINING_EVENT_TYPE
     validate_competition_coordinates(data)
     organizer = admin_context_organizer(user, admin_club_id, db)
 
@@ -11833,23 +11961,29 @@ def create_competition(
     if not has_role(organizer, "admin") and not normalize_text(organizer.organizer_name or ""):
         raise HTTPException(
             status_code=400,
-            detail="Uzupełnij nazwę organizatora w profilu przed utworzeniem zawodów"
+            detail=(
+                "Uzupełnij nazwę organizatora w profilu przed utworzeniem szkolenia"
+                if is_training
+                else "Uzupełnij nazwę organizatora w profilu przed utworzeniem zawodów"
+            )
         )
 
-    if data.pzss_license_calendar and not is_approved_pzss_club(organizer):
+    if not is_training and data.pzss_license_calendar and not is_approved_pzss_club(organizer):
         raise HTTPException(
             status_code=403,
             detail="Tę opcję może zaznaczyć tylko zweryfikowany klub PZSS"
         )
 
-    if not is_approved_pzss_club(organizer) and data.requires_licensed_judge is None:
+    if not is_training and not is_approved_pzss_club(organizer) and data.requires_licensed_judge is None:
         raise HTTPException(
             status_code=400,
             detail="Wybierz, czy zawody wymagają licencjonowanego sędziego PZSS"
         )
 
     requires_licensed_judge = (
-        True
+        False
+        if is_training
+        else True
         if is_approved_pzss_club(organizer)
         else bool(data.requires_licensed_judge)
     )
@@ -11857,6 +11991,7 @@ def create_competition(
 
     competition = Competition(
         name=data.name,
+        event_type=event_type,
         date=data.date,
         location=data.location,
         latitude=data.latitude,
@@ -11869,7 +12004,7 @@ def create_competition(
         participant_limit=data.participant_limit,
         registration_deadline=registration_deadline,
         min_participants=data.min_participants,
-        pzss_license_calendar=1 if data.pzss_license_calendar else 0,
+        pzss_license_calendar=1 if not is_training and data.pzss_license_calendar else 0,
         requires_licensed_judge=1 if requires_licensed_judge else 0,
         **club_discount,
         status="draft",
@@ -11883,7 +12018,7 @@ def create_competition(
     db.refresh(competition)
 
     return {
-        "message": "Zawody utworzone",
+        "message": "Szkolenie utworzone" if is_training else "Zawody utworzone",
         "competition_id": competition.id,
     }
 
@@ -11973,15 +12108,20 @@ def organizer_competition_detail_row(competition: Competition, db):
         for invitation in judge_invitations
         if invitation.discipline_id is not None
     }
-    missing_judge_disciplines = [
-        discipline.name
-        for discipline in disciplines
-        if discipline.id not in assigned_discipline_ids
-    ]
+    missing_judge_disciplines = (
+        [
+            discipline.name
+            for discipline in disciplines
+            if discipline.id not in assigned_discipline_ids
+        ]
+        if bool(getattr(competition, "requires_licensed_judge", 1))
+        else []
+    )
 
     return {
         "id": competition.id,
         "name": competition.name,
+        "event_type": competition_event_type(competition),
         "date": competition.date,
         "location": competition.location,
         "latitude": competition.latitude,
@@ -15785,6 +15925,8 @@ def update_competition(
     db=Depends(get_db),
 ):
     auto_complete_started_competitions(db)
+    event_type = normalize_competition_event_type(data.event_type)
+    is_training = event_type == TRAINING_EVENT_TYPE
     validate_competition_coordinates(data)
 
     competition = (
@@ -15821,19 +15963,20 @@ def update_competition(
 
     organizer = competition_owner_user(competition, db) or user
 
-    if data.pzss_license_calendar and not is_approved_pzss_club(organizer):
+    if not is_training and data.pzss_license_calendar and not is_approved_pzss_club(organizer):
         raise HTTPException(
             status_code=403,
             detail="Tę opcję może zaznaczyć tylko zweryfikowany klub PZSS"
         )
 
-    if not is_approved_pzss_club(organizer) and data.requires_licensed_judge is None:
+    if not is_training and not is_approved_pzss_club(organizer) and data.requires_licensed_judge is None:
         raise HTTPException(
             status_code=400,
             detail="Wybierz, czy zawody wymagają licencjonowanego sędziego PZSS"
         )
 
     competition.name = data.name
+    competition.event_type = event_type
     competition.date = data.date
     competition.location = data.location
     competition.latitude = data.latitude
@@ -15848,9 +15991,11 @@ def update_competition(
     competition.participant_limit = data.participant_limit
     competition.registration_deadline = registration_deadline
     competition.min_participants = data.min_participants
-    competition.pzss_license_calendar = 1 if data.pzss_license_calendar else 0
+    competition.pzss_license_calendar = 1 if not is_training and data.pzss_license_calendar else 0
     competition.requires_licensed_judge = (
-        1
+        0
+        if is_training
+        else 1
         if is_approved_pzss_club(organizer) or data.requires_licensed_judge
         else 0
     )
@@ -15863,7 +16008,7 @@ def update_competition(
     db.commit()
 
     return {
-        "message": "Zawody zaktualizowane",
+        "message": "Szkolenie zaktualizowane" if is_training else "Zawody zaktualizowane",
         "competition_id": competition.id,
         "status": competition.status,
     }
@@ -15919,8 +16064,9 @@ def publish_competition(
             detail="Nie dodano żadnej konkurencji."
         )
 
-    organizer = competition_owner_user(competition, db) or user
-    require_organizer_publication_slot(organizer, competition, db)
+    if not is_training_event(competition):
+        organizer = competition_owner_user(competition, db) or user
+        require_organizer_publication_slot(organizer, competition, db)
 
     competition.status = "published"
     db.commit()

@@ -23,6 +23,7 @@ import {
 type Competition = {
   id: number;
   name: string;
+  event_type?: EventType;
   date: string;
   location: string;
   latitude: number | null;
@@ -87,6 +88,7 @@ type Competition = {
   }[];
 };
 
+type EventType = "competition" | "training";
 type Discipline = {
   id?: number;
   name: string;
@@ -611,6 +613,7 @@ function OrganizerContent() {
   const [competitions, setCompetitions] = useState<Competition[]>([]);
   const [activeTab, setActiveTab] = useState<OrganizerTab>("current");
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [eventType, setEventType] = useState<EventType>("competition");
   const [name, setName] = useState("");
   const [date, setDate] = useState("");
   const [location, setLocation] = useState("");
@@ -652,6 +655,18 @@ function OrganizerContent() {
   const [showDisciplineContact, setShowDisciplineContact] = useState(false);
   const [currentTime, setCurrentTime] = useState(() => Date.now());
   const canManageDisciplines = !editingCompetitionId || editingCompetitionStatus === "draft";
+  const isTrainingForm = eventType === "training";
+  const eventLabels = {
+    name: isTrainingForm ? "szkolenia" : "zawodów",
+    titleCreate: isTrainingForm ? "Utwórz nowe szkolenie" : "Utwórz nowe zawody",
+    titleEdit: isTrainingForm ? "Edytuj szkolenie" : "Edytuj zawody",
+    submitCreate: isTrainingForm ? "Utwórz szkolenie" : "Utwórz zawody",
+    namePlaceholder: isTrainingForm ? "Nazwa szkolenia *" : "Nazwa zawodów *",
+    dateAria: isTrainingForm ? "Data szkolenia" : "Data zawodów",
+    locationPlaceholder: isTrainingForm
+      ? "Podaj nazwę strzelnicy lub miejsca szkolenia *"
+      : "Podaj nazwę Strzelnicy gdzie odbywają się zawody *",
+  };
   const authSnapshot = useSyncExternalStore(
     subscribeToAuthChange,
     getAuthSnapshot,
@@ -719,6 +734,7 @@ function OrganizerContent() {
   }, [adminClubId]);
 
   function resetForm() {
+    setEventType("competition");
     setName("");
     setDate("");
     setLocation("");
@@ -1260,6 +1276,7 @@ function OrganizerContent() {
       const competitionDetails = await fetchOrganizerCompetitionDetails(competition.id);
 
       setEditingCompetitionId(competitionDetails.id);
+      setEventType(competitionDetails.event_type === "training" ? "training" : "competition");
       setName(competitionDetails.name);
       setDate(competitionDetails.date);
       setLocation(competitionDetails.location);
@@ -1330,7 +1347,7 @@ function OrganizerContent() {
     }
   }
 
-  function handleToggleForm() {
+  function handleToggleForm(nextEventType: EventType = "competition") {
     if (showCreateForm) {
       resetForm();
       setShowCreateForm(false);
@@ -1338,6 +1355,7 @@ function OrganizerContent() {
     }
 
     resetForm();
+    setEventType(nextEventType);
     setShowCreateForm(true);
   }
 
@@ -1582,7 +1600,7 @@ function OrganizerContent() {
       return "competition-location";
     }
 
-    if (!canMarkPzssLicenseCalendar && requiresLicensedJudge === null) {
+    if (!isTrainingForm && !canMarkPzssLicenseCalendar && requiresLicensedJudge === null) {
       return "competition-requires-licensed-judge-yes";
     }
 
@@ -1744,6 +1762,7 @@ function OrganizerContent() {
 
           body: JSON.stringify({
             name,
+            event_type: eventType,
             date,
             location,
             latitude,
@@ -1761,8 +1780,10 @@ function OrganizerContent() {
             min_participants: useMinParticipants
               ? Number(minParticipants)
               : null,
-            pzss_license_calendar: canMarkPzssLicenseCalendar && pzssLicenseCalendar,
-            requires_licensed_judge: canMarkPzssLicenseCalendar
+            pzss_license_calendar: !isTrainingForm && canMarkPzssLicenseCalendar && pzssLicenseCalendar,
+            requires_licensed_judge: isTrainingForm
+              ? false
+              : canMarkPzssLicenseCalendar
               ? true
               : requiresLicensedJudge,
             club_discount_enabled: clubDiscountEnabled,
@@ -1931,13 +1952,23 @@ function OrganizerContent() {
 
             <button
               type="button"
-              onClick={handleToggleForm}
+              onClick={() => handleToggleForm("competition")}
               className="ui-button w-full md:w-auto bg-green-700 hover:bg-green-600 text-white px-6 py-4 rounded-2xl font-bold transition"
             >
               {showCreateForm
                 ? "Zamknij"
                 : "Nowe zawody"}
             </button>
+
+            {!showCreateForm && (
+              <button
+                type="button"
+                onClick={() => handleToggleForm("training")}
+                className="ui-button w-full md:w-auto bg-blue-700 hover:bg-blue-600 text-white px-6 py-4 rounded-2xl font-bold transition"
+              >
+                Nowe Szkolenie
+              </button>
+            )}
           </div>
 
         </div>
@@ -1976,13 +2007,13 @@ function OrganizerContent() {
 
             <h2 className="text-3xl font-bold text-white mb-6">
               {editingCompetitionId
-                ? "Edytuj zawody"
-                : "Utwórz nowe zawody"}
+                ? eventLabels.titleEdit
+                : eventLabels.titleCreate}
             </h2>
 
             {!canManageDisciplines && (
               <p className="bg-yellow-950/30 border border-yellow-800 text-yellow-100 rounded-xl p-4 mb-6">
-                Dodawanie konkurencji jest dostępne tylko przed publikacją zawodów.
+                Dodawanie konkurencji jest dostępne tylko przed publikacją {eventLabels.name}.
               </p>
             )}
 
@@ -1991,7 +2022,7 @@ function OrganizerContent() {
               <input
                 id="competition-name"
                 type="text"
-                placeholder="Nazwa zawodów *"
+                placeholder={eventLabels.namePlaceholder}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 aria-invalid={!hasText(name)}
@@ -2004,7 +2035,7 @@ function OrganizerContent() {
                 type="date"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
-                aria-label="Data zawodów"
+                aria-label={eventLabels.dateAria}
                 aria-invalid={!hasText(date)}
                 required
                 className={requiredFieldClass(hasText(date))}
@@ -2013,7 +2044,7 @@ function OrganizerContent() {
               <input
                 id="competition-location"
                 type="text"
-                placeholder="Podaj nazwę Strzelnicy gdzie odbywają się zawody *"
+                placeholder={eventLabels.locationPlaceholder}
                 value={location}
                 onChange={(e) => setLocation(e.target.value)}
                 aria-invalid={!hasText(location)}
@@ -2083,7 +2114,7 @@ function OrganizerContent() {
                 </div>
               </section>
 
-              {!canMarkPzssLicenseCalendar && (
+              {!isTrainingForm && !canMarkPzssLicenseCalendar && (
                 <fieldset className={requiredContainerClass(requiresLicensedJudge !== null)}>
                   <legend className="px-2 font-semibold">
                     Czy te zawody wymagają licencjonowanego sędziego PZSS? *
@@ -2128,7 +2159,7 @@ function OrganizerContent() {
                   }}
                   className="h-5 w-5"
                 />
-                Czy chcesz określić limit zawodników?
+                Czy chcesz określić limit {isTrainingForm ? "uczestników" : "zawodników"}?
               </label>
 
               {useParticipantLimit && (
@@ -2137,7 +2168,7 @@ function OrganizerContent() {
                   type="number"
                   min="1"
                   step="1"
-                  placeholder="Maksymalna liczba zawodników *"
+                  placeholder={isTrainingForm ? "Maksymalna liczba uczestników *" : "Maksymalna liczba zawodników *"}
                   value={participantLimit}
                   onChange={(e) => setParticipantLimit(e.target.value)}
                   aria-invalid={!isPositiveNumber(participantLimit)}
@@ -2196,7 +2227,7 @@ function OrganizerContent() {
                       }}
                       className="h-5 w-5"
                     />
-                    Minimalna liczba zapisanych zawodników, aby odbyły się zawody
+                    Minimalna liczba zapisanych {isTrainingForm ? "uczestników, aby odbyło się szkolenie" : "zawodników, aby odbyły się zawody"}
                   </label>
 
                   {useMinParticipants && (
@@ -2205,7 +2236,7 @@ function OrganizerContent() {
                       type="number"
                       min="1"
                       step="1"
-                      placeholder="Minimalna liczba zawodników *"
+                      placeholder={isTrainingForm ? "Minimalna liczba uczestników *" : "Minimalna liczba zawodników *"}
                       value={minParticipants}
                       onChange={(event) => setMinParticipants(event.target.value)}
                       aria-invalid={!isPositiveNumber(minParticipants)}
@@ -2216,7 +2247,7 @@ function OrganizerContent() {
                 </>
               )}
 
-              {canMarkPzssLicenseCalendar && (
+              {!isTrainingForm && canMarkPzssLicenseCalendar && (
                 <label className="flex items-center gap-3 border border-red-700 bg-red-950/30 p-4 rounded-xl text-white font-semibold">
                   <input
                     type="checkbox"
@@ -3366,7 +3397,7 @@ function OrganizerContent() {
                 ? "Zapisywanie..."
                 : editingCompetitionId
                   ? "Zapisz zmiany"
-                  : "Utwórz zawody"}
+                  : eventLabels.submitCreate}
             </button>
 
             {message && (
@@ -3418,6 +3449,7 @@ function OrganizerContent() {
                 </div>
 
                 {visibleCompetitions.map((competition) => {
+                  const isTrainingEvent = competition.event_type === "training";
                   const shootersCount = competition.shooters_count || competition.participants?.length || 0;
                   const missingMinParticipants = competition.min_participants
                     ? Math.max(competition.min_participants - shootersCount, 0)
@@ -3454,12 +3486,18 @@ function OrganizerContent() {
                   >
                     <div className="relative z-10 min-w-0">
                       <div className="mb-2 flex flex-wrap gap-2">
+                        {isTrainingEvent && (
+                          <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-bold text-blue-800 dark:bg-blue-950/50 dark:text-blue-200">
+                            Szkolenie
+                          </span>
+                        )}
+
                         <span className="rounded-full bg-yellow-100 px-3 py-1 text-xs font-bold text-yellow-800">
                           {getCompetitionStatusLabel(competition.status)}
                         </span>
 
                         <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-bold text-zinc-700 dark:bg-zinc-800 dark:text-gray-200">
-                          Dyscypliny: {competition.disciplines_count}
+                          {isTrainingEvent ? "Bloki" : "Dyscypliny"}: {competition.disciplines_count}
                         </span>
 
                         {competition.pzss_license_calendar && (
@@ -3474,7 +3512,7 @@ function OrganizerContent() {
                       </p>
 
                       <p className="mt-1 text-xs text-zinc-600 dark:text-gray-400">
-                        Zawodnicy: {shootersCount}
+                        {isTrainingEvent ? "Uczestnicy" : "Zawodnicy"}: {shootersCount}
                         {competition.participant_limit
                           ? `/${competition.participant_limit}`
                           : " / Bez limitu"}
@@ -3482,7 +3520,7 @@ function OrganizerContent() {
 
                       {competition.min_participants && (
                         <p className="mt-1 text-xs font-semibold text-zinc-600 dark:text-gray-400">
-                          Minimum do odbycia zawodów: {shootersCount}/{competition.min_participants}
+                          Minimum do odbycia {isTrainingEvent ? "szkolenia" : "zawodów"}: {shootersCount}/{competition.min_participants}
                           {missingMinParticipants > 0
                             ? `, brakuje ${missingMinParticipants}`
                             : ", próg spełniony"}

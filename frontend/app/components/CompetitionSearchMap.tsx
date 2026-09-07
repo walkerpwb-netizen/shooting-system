@@ -17,6 +17,9 @@ export type CompetitionMapItem = {
 
 type CompetitionSearchMapProps = {
   competitions: CompetitionMapItem[];
+  detailsHrefBase?: string;
+  detailsLabel?: string;
+  emptyMessage?: string;
 };
 
 type MapLayerMode = "street" | "hybrid";
@@ -107,6 +110,9 @@ function FitCompetitionBounds({
 
 export default function CompetitionSearchMap({
   competitions,
+  detailsHrefBase = "/competitions",
+  detailsLabel = "Szczegóły zawodów",
+  emptyMessage = "Brak zawodów z dodaną dokładną lokalizacją dla tego widoku.",
 }: CompetitionSearchMapProps) {
   const [layerMode, setLayerMode] = useState<MapLayerMode>("street");
   const mappedCompetitions = useMemo(
@@ -189,10 +195,10 @@ export default function CompetitionSearchMap({
                   {competition.location}
                 </p>
                 <Link
-                  href={`/competitions/${competition.id}`}
+                  href={`${detailsHrefBase}/${competition.id}`}
                   className="inline-flex rounded-lg bg-green-800 px-3 py-2 text-xs font-bold text-white hover:bg-green-700"
                 >
-                  Szczegóły zawodów
+                  {detailsLabel}
                 </Link>
               </div>
             </Popup>
@@ -202,7 +208,7 @@ export default function CompetitionSearchMap({
 
       {mappedCompetitions.length === 0 && (
         <div className="pointer-events-none absolute inset-x-4 top-4 rounded-xl border border-zinc-200 bg-white/95 p-4 text-sm font-semibold text-zinc-700 shadow-lg dark:border-zinc-700 dark:bg-zinc-900/95 dark:text-gray-200">
-          Brak zawodów z dodaną dokładną lokalizacją dla tego widoku.
+          {emptyMessage}
         </div>
       )}
     </div>

@@ -18,8 +18,21 @@ const CompetitionSearchMap = dynamic(
 
 export default function CompetitionsMapClient({
   competitions,
+  detailsHrefBase,
+  detailsLabel,
+  emptyMessage,
 }: {
   competitions: CompetitionMapItem[];
+  detailsHrefBase?: string;
+  detailsLabel?: string;
+  emptyMessage?: string;
 }) {
-  return <CompetitionSearchMap competitions={competitions} />;
+  return (
+    <CompetitionSearchMap
+      competitions={competitions}
+      detailsHrefBase={detailsHrefBase}
+      detailsLabel={detailsLabel}
+      emptyMessage={emptyMessage}
+    />
+  );
 }

@@ -11,6 +11,7 @@ type CompetitionCardProps = {
   date: string;
   location: string;
   status: string;
+  eventType?: "competition" | "training";
   organizerFullName: string;
   sponsors: string;
   organizerLogo: string;
@@ -19,6 +20,8 @@ type CompetitionCardProps = {
   shootersCount: number;
   disciplinesCount: number;
   entryType?: string;
+  detailsHrefBase?: string;
+  shareTitle?: string;
 };
 
 export default function CompetitionCard({
@@ -27,6 +30,7 @@ export default function CompetitionCard({
   date,
   location,
   status,
+  eventType = "competition",
   organizerFullName,
   sponsors,
   organizerLogo,
@@ -35,7 +39,10 @@ export default function CompetitionCard({
   shootersCount,
   disciplinesCount,
   entryType = "",
+  detailsHrefBase = "/competitions",
+  shareTitle,
 }: CompetitionCardProps) {
+  const isTraining = eventType === "training";
   const joinedAsShooter = entryType === "shooter";
   const joinedAsJudge = entryType === "judge";
   const freeSlots = participantLimit === null
@@ -106,7 +113,7 @@ export default function CompetitionCard({
         </p>
 
         <p className="mt-1 text-xs text-zinc-600 dark:text-gray-400">
-          Strzelcy: {shootersCount} • Wolne miejsca: {freeSlots} • Dyscypliny: {disciplinesCount}
+          {isTraining ? "Uczestnicy" : "Strzelcy"}: {shootersCount} • Wolne miejsca: {freeSlots} • {isTraining ? "Bloki" : "Dyscypliny"}: {disciplinesCount}
         </p>
 
         {(organizerFullName || sponsors) && (
@@ -126,7 +133,11 @@ export default function CompetitionCard({
 
       <div className="relative z-10 flex flex-wrap gap-2 lg:justify-end">
         {status === "published" && (
-          <ShareCompetitionButton competitionId={id} />
+          <ShareCompetitionButton
+            competitionId={id}
+            hrefBase={detailsHrefBase}
+            title={shareTitle || (isTraining ? "Skopiuj link do szkolenia" : "Skopiuj link do zawodów")}
+          />
         )}
 
         {joinedAsJudge && ["published", "started"].includes(status) && (
@@ -134,12 +145,12 @@ export default function CompetitionCard({
             href={`/judge/${id}`}
             className="ui-button rounded-xl bg-blue-700 px-4 py-2 font-semibold text-white transition hover:bg-blue-600"
           >
-            Sędziuj zawody
+            {isTraining ? "Obsługuj szkolenie" : "Sędziuj zawody"}
           </Link>
         )}
 
         <Link
-          href={`/competitions/${id}`}
+          href={`${detailsHrefBase}/${id}`}
           className="ui-button bg-green-800 hover:bg-green-700 transition text-white px-4 py-2 rounded-xl font-semibold"
         >
           Szczegóły

@@ -73,6 +73,8 @@ type ProfileState = {
 
 type JoinCompetitionPanelProps = {
   competitionId: number;
+  eventType?: "competition" | "training";
+  detailsHrefBase?: string;
   competitionEntryFee: string;
   participantLimit: number | null;
   competitionStatus: string;
@@ -89,6 +91,8 @@ type JoinCompetitionPanelProps = {
 
 export default function JoinCompetitionPanel({
   competitionId,
+  eventType = "competition",
+  detailsHrefBase = "/competitions",
   competitionEntryFee,
   participantLimit,
   competitionStatus,
@@ -131,7 +135,21 @@ export default function JoinCompetitionPanel({
   );
   const [authToken, , , storedUserEmail] = authSnapshot.split("|");
   const hasStoredSession = Boolean(authToken && storedUserEmail);
-  const competitionPath = `/competitions/${competitionId}`;
+  const isTraining = eventType === "training";
+  const eventLabels = {
+    participants: isTraining ? "Uczestnicy" : "Zawodnicy",
+    participantSingular: isTraining ? "uczestnik" : "zawodnik",
+    participantPlural: isTraining ? "uczestników" : "zawodników",
+    eventEnrollmentTarget: isTraining ? "szkolenie" : "zawody",
+    eventGenitive: isTraining ? "szkolenia" : "zawodów",
+    eventThis: isTraining ? "szkolenia" : "wydarzenia",
+    eventInstrumental: isTraining ? "szkoleniem" : "zawodami",
+    statusInProgress: isTraining ? "szkolenie aktualnie trwa" : "zawody aktualnie trwają",
+    statusCompleted: isTraining ? "szkolenie zostało zakończone" : "zawody zostały zakończone",
+    joinTitle: isTraining ? "Dołącz do szkolenia" : "Dołącz do zawodów",
+    joinedMessage: isTraining ? "Jesteś zapisany na szkolenie." : "Jesteś zapisany na zawody.",
+  };
+  const competitionPath = `${detailsHrefBase}/${competitionId}`;
   const currentEntryType = entryState.authSnapshot === authSnapshot
     ? entryState.entryType
     : "";
@@ -502,12 +520,12 @@ export default function JoinCompetitionPanel({
     }
 
     if (selectedDisciplines.length === 0) {
-      showNotice("Wybierz minimum jedną konkurencję");
+      showNotice(isTraining ? "Wybierz minimum jeden blok szkolenia" : "Wybierz minimum jedną konkurencję");
       return;
     }
 
     if (registrationClosedByDeadline) {
-      showNotice("Zapisy na te zawody zostały zakończone");
+      showNotice(`Zapisy na ${eventLabels.eventEnrollmentTarget} zostały zakończone`);
       return;
     }
 
@@ -538,7 +556,7 @@ export default function JoinCompetitionPanel({
     }
 
     if (participantLimitReached) {
-      showNotice("Limit zawodników został osiągnięty");
+      showNotice(`Limit ${eventLabels.participantPlural} został osiągnięty`);
       return;
     }
 
@@ -564,7 +582,7 @@ export default function JoinCompetitionPanel({
       const data = await response.json();
 
       if (!response.ok) {
-        showNotice(data.detail || "Nie udało się zapisać na zawody");
+        showNotice(data.detail || `Nie udało się zapisać na ${eventLabels.eventEnrollmentTarget}`);
         return;
       }
 
@@ -578,7 +596,7 @@ export default function JoinCompetitionPanel({
       showNotice(
         competitionStatus === "started"
           ? "Zgłoszenie przyjęte. Pojawisz się na liście po potwierdzeniu udziału i opłaty przez organizatora."
-          : "Jesteś zapisany na zawody."
+          : eventLabels.joinedMessage
       );
     } catch (error) {
       console.error(error);
@@ -598,7 +616,7 @@ export default function JoinCompetitionPanel({
     }
 
     const confirmed = window.confirm(
-      "Czy na pewno chcesz wypisać się z tych zawodów?"
+      `Czy na pewno chcesz wypisać się z tego ${eventLabels.eventThis}?`
     );
 
     if (!confirmed) {
@@ -622,7 +640,7 @@ export default function JoinCompetitionPanel({
       const data = await response.json();
 
       if (!response.ok) {
-        showNotice(data.detail || "Nie udało się wypisać z zawodów");
+        showNotice(data.detail || `Nie udało się wypisać z ${eventLabels.eventGenitive}`);
         return;
       }
 
@@ -634,7 +652,7 @@ export default function JoinCompetitionPanel({
         loaded: true,
       });
       setShowForm(false);
-      showNotice("Wypisano z zawodów.");
+      showNotice(`Wypisano z ${eventLabels.eventGenitive}.`);
     } catch (error) {
       console.error(error);
       showNotice("Błąd połączenia z serwerem");
@@ -653,7 +671,7 @@ export default function JoinCompetitionPanel({
     }
 
     if (registrationClosedByDeadline) {
-      showNotice("Zapisy na te zawody zostały zakończone");
+      showNotice(`Zapisy na ${eventLabels.eventEnrollmentTarget} zostały zakończone`);
       return;
     }
 
@@ -664,7 +682,7 @@ export default function JoinCompetitionPanel({
     <aside className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 space-y-5">
       <div className="flex items-center justify-between gap-4">
         <h2 className="text-2xl font-bold">
-          Zawodnicy
+          {eventLabels.participants}
         </h2>
 
         <span className="rounded-full bg-zinc-100 px-3 py-1 text-sm font-semibold text-zinc-700 dark:bg-zinc-800 dark:text-gray-300">
@@ -676,7 +694,7 @@ export default function JoinCompetitionPanel({
 
       {participantLimit && (
         <p className="text-sm text-zinc-600 dark:text-gray-400">
-          Limit zawodników: {participants.length}/{participantLimit}
+          Limit {eventLabels.participantPlural}: {participants.length}/{participantLimit}
         </p>
       )}
 
@@ -684,9 +702,9 @@ export default function JoinCompetitionPanel({
         <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 space-y-2 text-zinc-700 dark:border-zinc-700 dark:bg-zinc-950/50 dark:text-gray-300">
           <p>
             {competitionStatus === "started"
-              ? "Zapisy są zamknięte, ponieważ zawody aktualnie trwają."
+              ? `Zapisy są zamknięte, ponieważ ${eventLabels.statusInProgress}.`
               : competitionStatus === "completed"
-                ? "Zapisy są zamknięte, ponieważ zawody zostały zakończone."
+                ? `Zapisy są zamknięte, ponieważ ${eventLabels.statusCompleted}.`
                 : registrationClosedByDeadline
                   ? "Zapisy są zamknięte, ponieważ termin zapisów minął."
                 : "Zapisy są aktualnie zamknięte."}
@@ -694,14 +712,14 @@ export default function JoinCompetitionPanel({
 
           {userIsJoined && (
             <p className="font-semibold">
-              Jesteś zapisany jako zawodnik.
+              Jesteś zapisany jako {eventLabels.participantSingular}.
             </p>
           )}
         </div>
       ) : showForm ? (
         <div className="rounded-xl border border-zinc-200 p-4 space-y-4 dark:border-zinc-700">
           <h3 className="font-bold">
-            Dołącz do zawodów
+            {eventLabels.joinTitle}
           </h3>
 
           <div className="space-y-4">
@@ -815,7 +833,7 @@ export default function JoinCompetitionPanel({
                       )}
 
                       <p className="text-sm text-zinc-600 dark:text-gray-400">
-                        Opłata startowa: {competitionEntryFee || discipline.entry_fee || "0"} zł
+                        Opłata za udział: {competitionEntryFee || discipline.entry_fee || "0"} zł
                         {getAmmoType(discipline.id) === "club" && (() => {
                           const clayTargetsCount = getClayTargetsCount(discipline);
                           const ammoAndClayFee = parsePrice(discipline.ammo_price) * discipline.shots_count
@@ -863,12 +881,12 @@ export default function JoinCompetitionPanel({
             )}
 
             <p className="mt-3 text-red-700 dark:text-red-300">
-              Opłatę uiszczasz w dniu zawodów organizatorowi.
+              Opłatę uiszczasz w dniu {eventLabels.eventGenitive} organizatorowi.
             </p>
           </div>
 
           <p className="rounded-xl border border-yellow-200 bg-yellow-50 p-4 text-center text-yellow-800 dark:border-yellow-700 dark:bg-yellow-950/30 dark:text-yellow-200">
-            Wypisanie się z zawodów jest możliwe najpóźniej 48 godzin przed zawodami.
+            Wypisanie się z {eventLabels.eventGenitive} jest możliwe najpóźniej 48 godzin przed {eventLabels.eventInstrumental}.
           </p>
 
           <div className="grid grid-cols-2 gap-3">
@@ -900,13 +918,13 @@ export default function JoinCompetitionPanel({
         <div className="space-y-3">
           {assignedAsJudge && (
             <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-blue-800 dark:border-blue-700 dark:bg-blue-950/30 dark:text-blue-100">
-              Organizator przypisał Cię do tych zawodów jako sędziego.
+              Organizator przypisał Cię do tego wydarzenia jako sędziego.
             </div>
           )}
 
           {waitingForOrganizerApproval ? (
             <div className="rounded-xl border border-yellow-200 bg-yellow-50 p-4 text-yellow-800 dark:border-yellow-700 dark:bg-yellow-950/30 dark:text-yellow-100">
-              Zgłoszenie przyjęte. Pojawisz się na liście zawodników po potwierdzeniu udziału i opłaty przez organizatora.
+              Zgłoszenie przyjęte. Pojawisz się na liście po potwierdzeniu udziału i opłaty przez organizatora.
             </div>
           ) : authStatePending ? (
             <button
@@ -943,14 +961,14 @@ export default function JoinCompetitionPanel({
           )}
 
           <p className="text-center text-sm text-yellow-700 dark:text-yellow-200">
-            Wypisanie się z zawodów jest możliwe najpóźniej 48 godzin przed zawodami.
+            Wypisanie się z {eventLabels.eventGenitive} jest możliwe najpóźniej 48 godzin przed {eventLabels.eventInstrumental}.
           </p>
         </div>
       )}
 
       {participants.length === 0 ? (
         <p className="text-zinc-600 dark:text-gray-400">
-          Nikt jeszcze nie dołączył do tych zawodów.
+          Nikt jeszcze nie dołączył do tego {eventLabels.eventThis}.
         </p>
       ) : (
         <div className="space-y-3">
