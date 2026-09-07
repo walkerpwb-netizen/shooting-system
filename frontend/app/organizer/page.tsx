@@ -24,6 +24,7 @@ type Competition = {
   id: number;
   name: string;
   event_type?: EventType;
+  description?: string;
   date: string;
   location: string;
   latitude: number | null;
@@ -614,6 +615,7 @@ function OrganizerContent() {
   const [activeTab, setActiveTab] = useState<OrganizerTab>("current");
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [eventType, setEventType] = useState<EventType>("competition");
+  const [eventDescription, setEventDescription] = useState("");
   const [name, setName] = useState("");
   const [date, setDate] = useState("");
   const [location, setLocation] = useState("");
@@ -666,6 +668,9 @@ function OrganizerContent() {
     locationPlaceholder: isTrainingForm
       ? "Podaj nazwę strzelnicy lub miejsca szkolenia *"
       : "Podaj nazwę Strzelnicy gdzie odbywają się zawody *",
+    pricePlaceholder: isTrainingForm
+      ? "Cena za szkolenie"
+      : "Podaj koszt udziału w całych zawodach lub pozostaw puste, jeśli pobierasz opłatę za poszczególne konkurencje",
   };
   const authSnapshot = useSyncExternalStore(
     subscribeToAuthChange,
@@ -735,6 +740,7 @@ function OrganizerContent() {
 
   function resetForm() {
     setEventType("competition");
+    setEventDescription("");
     setName("");
     setDate("");
     setLocation("");
@@ -1255,7 +1261,7 @@ function OrganizerContent() {
       return;
     }
 
-    if ((competition.disciplines_count || 0) <= 0) {
+    if (competition.event_type !== "training" && (competition.disciplines_count || 0) <= 0) {
       setMessage("Nie dodano żadnej konkurencji.");
       return;
     }
@@ -1277,6 +1283,7 @@ function OrganizerContent() {
 
       setEditingCompetitionId(competitionDetails.id);
       setEventType(competitionDetails.event_type === "training" ? "training" : "competition");
+      setEventDescription(competitionDetails.description || "");
       setName(competitionDetails.name);
       setDate(competitionDetails.date);
       setLocation(competitionDetails.location);
@@ -1600,19 +1607,23 @@ function OrganizerContent() {
       return "competition-location";
     }
 
+    if (isTrainingForm && !hasText(eventDescription)) {
+      return "competition-description";
+    }
+
     if (!isTrainingForm && !canMarkPzssLicenseCalendar && requiresLicensedJudge === null) {
       return "competition-requires-licensed-judge-yes";
     }
 
-    if (useParticipantLimit && !isPositiveNumber(participantLimit)) {
+    if (!isTrainingForm && useParticipantLimit && !isPositiveNumber(participantLimit)) {
       return "competition-participant-limit";
     }
 
-    if (useRegistrationDeadline && !isFutureDateTimeLocal(registrationDeadline)) {
+    if (!isTrainingForm && useRegistrationDeadline && !isFutureDateTimeLocal(registrationDeadline)) {
       return "competition-registration-deadline";
     }
 
-    if (useMinParticipants && !isPositiveNumber(minParticipants)) {
+    if (!isTrainingForm && useMinParticipants && !isPositiveNumber(minParticipants)) {
       return "competition-min-participants";
     }
 
@@ -1620,12 +1631,16 @@ function OrganizerContent() {
       return "competition-entry-fee";
     }
 
-    if (clubDiscountEnabled && !isPositiveNumber(clubDiscountAmount)) {
+    if (!isTrainingForm && clubDiscountEnabled && !isPositiveNumber(clubDiscountAmount)) {
       return "competition-club-discount-amount";
     }
 
-    if (clubDiscountEnabled && !hasText(clubDiscountClubs)) {
+    if (!isTrainingForm && clubDiscountEnabled && !hasText(clubDiscountClubs)) {
       return "competition-club-discount-clubs";
+    }
+
+    if (isTrainingForm) {
+      return "";
     }
 
     for (let index = 0; index < disciplines.length; index += 1) {
@@ -1763,21 +1778,22 @@ function OrganizerContent() {
           body: JSON.stringify({
             name,
             event_type: eventType,
+            description: isTrainingForm ? eventDescription : "",
             date,
             location,
             latitude,
             longitude,
             entry_fee: entryFee,
-            organizer_logo: organizerLogo,
-            sponsors,
-            sponsor_logo: sponsorLogo,
-            participant_limit: useParticipantLimit
+            organizer_logo: isTrainingForm ? "" : organizerLogo,
+            sponsors: isTrainingForm ? "" : sponsors,
+            sponsor_logo: isTrainingForm ? "" : sponsorLogo,
+            participant_limit: !isTrainingForm && useParticipantLimit
               ? Number(participantLimit)
               : null,
-            registration_deadline: useRegistrationDeadline
+            registration_deadline: !isTrainingForm && useRegistrationDeadline
               ? registrationDeadline
               : null,
-            min_participants: useMinParticipants
+            min_participants: !isTrainingForm && useMinParticipants
               ? Number(minParticipants)
               : null,
             pzss_license_calendar: !isTrainingForm && canMarkPzssLicenseCalendar && pzssLicenseCalendar,
@@ -1786,12 +1802,12 @@ function OrganizerContent() {
               : canMarkPzssLicenseCalendar
               ? true
               : requiresLicensedJudge,
-            club_discount_enabled: clubDiscountEnabled,
+            club_discount_enabled: !isTrainingForm && clubDiscountEnabled,
             club_discount_scope: clubDiscountScope,
-            club_discount_amount: clubDiscountEnabled
+            club_discount_amount: !isTrainingForm && clubDiscountEnabled
               ? clubDiscountAmount
               : "",
-            club_discount_clubs: clubDiscountEnabled
+            club_discount_clubs: !isTrainingForm && clubDiscountEnabled
               ? clubDiscountClubs
               : "",
           }),
@@ -1807,7 +1823,7 @@ function OrganizerContent() {
 
       const competitionId = data.competition_id;
 
-      if (disciplines.length > 0) {
+      if (!isTrainingForm && disciplines.length > 0) {
         for (const [disciplineIndex, discipline] of disciplines.entries()) {
           const disciplineEndpoint = discipline.id
             ? organizerApiUrl(`/competitions/${competitionId}/disciplines/${discipline.id}`)
@@ -2052,6 +2068,23 @@ function OrganizerContent() {
                 className={requiredFieldClass(hasText(location))}
               />
 
+              {isTrainingForm && (
+                <label className="block">
+                  <span className="mb-2 block text-sm font-semibold text-white">
+                    Dokładny opis i przebieg szkolenia *
+                  </span>
+                  <textarea
+                    id="competition-description"
+                    value={eventDescription}
+                    onChange={(event) => setEventDescription(event.target.value)}
+                    placeholder="Opisz program, przebieg, wymagania dla uczestników i informacje organizacyjne."
+                    aria-invalid={!hasText(eventDescription)}
+                    required
+                    className={`${requiredFieldClass(hasText(eventDescription))} min-h-[220px] resize-y`}
+                  />
+                </label>
+              )}
+
               <section className="rounded-xl border border-zinc-700 bg-zinc-950/40 p-4 text-white">
                 <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                   <div>
@@ -2114,6 +2147,8 @@ function OrganizerContent() {
                 </div>
               </section>
 
+              {!isTrainingForm && (
+                <>
               {!isTrainingForm && !canMarkPzssLicenseCalendar && (
                 <fieldset className={requiredContainerClass(requiresLicensedJudge !== null)}>
                   <legend className="px-2 font-semibold">
@@ -2353,18 +2388,21 @@ function OrganizerContent() {
                 onChange={(e) => setSponsors(e.target.value)}
                 className="w-full border border-zinc-700 bg-zinc-800 p-4 rounded-xl text-white min-h-[96px]"
               />
+                </>
+              )}
 
               <input
                 id="competition-entry-fee"
                 type="number"
                 step="0.01"
                 min="0"
-                placeholder="Podaj koszt udziału w całych zawodach lub pozostaw puste, jeśli pobierasz opłatę za poszczególne konkurencje"
+                placeholder={eventLabels.pricePlaceholder}
                 value={entryFee}
                 onChange={(e) => setEntryFee(e.target.value)}
                 className={optionalNumberFieldClass(entryFee)}
               />
 
+              {!isTrainingForm && (
               <section className="rounded-xl border border-zinc-700 bg-zinc-950 p-4 text-white">
                 <label className="flex items-start gap-3 font-semibold">
                   <input
@@ -2455,10 +2493,11 @@ function OrganizerContent() {
                   </div>
                 )}
               </section>
+              )}
 
             </div>
 
-            {canManageDisciplines && (
+            {!isTrainingForm && canManageDisciplines && (
               <div className="space-y-6">
 
                 {disciplines.map((discipline, index) => {

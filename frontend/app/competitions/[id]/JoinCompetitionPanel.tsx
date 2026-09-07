@@ -444,7 +444,8 @@ export default function JoinCompetitionPanel({
     && Number.isFinite(registrationDeadlineTime)
     && registrationDeadlineTime <= currentTime
   );
-  const competitionFee = selectedDisciplines.length > 0
+  const noDisciplineTraining = isTraining && disciplines.length === 0;
+  const competitionFee = selectedDisciplines.length > 0 || noDisciplineTraining
     ? parsePrice(competitionEntryFee)
     : 0;
   const disciplinesFee = competitionEntryFee
@@ -519,7 +520,7 @@ export default function JoinCompetitionPanel({
       return;
     }
 
-    if (selectedDisciplines.length === 0) {
+    if (selectedDisciplines.length === 0 && !noDisciplineTraining) {
       showNotice(isTraining ? "Wybierz minimum jeden blok szkolenia" : "Wybierz minimum jedną konkurencję");
       return;
     }
@@ -722,6 +723,7 @@ export default function JoinCompetitionPanel({
             {eventLabels.joinTitle}
           </h3>
 
+          {!noDisciplineTraining && (
           <div className="space-y-4">
             {disciplines.map((discipline) => {
               const selected = isDisciplineSelected(discipline.id);
@@ -864,6 +866,7 @@ export default function JoinCompetitionPanel({
               );
             })}
           </div>
+          )}
 
           <div className="rounded-xl border border-red-200 bg-red-50 p-5 text-center dark:border-red-700 dark:bg-red-950/30">
             <p className="mb-1 text-sm font-semibold text-red-700 dark:text-red-400">

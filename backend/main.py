@@ -259,6 +259,7 @@ class CompetitionData(BaseModel):
     date: str
     location: str
     event_type: str = "competition"
+    description: str = ""
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     entry_fee: str = ""
@@ -353,6 +354,24 @@ def validate_competition_coordinates(data: CompetitionData) -> None:
             status_code=400,
             detail="Długość geograficzna musi być w zakresie od -180 do 180"
         )
+
+
+def validate_competition_description(data: CompetitionData) -> str:
+    description = normalize_text(data.description or "")
+
+    if normalize_competition_event_type(data.event_type) == TRAINING_EVENT_TYPE and not description:
+        raise HTTPException(
+            status_code=400,
+            detail="Dodaj dokładny opis i przebieg szkolenia"
+        )
+
+    if len(description) > 5000:
+        raise HTTPException(
+            status_code=400,
+            detail="Opis może mieć maksymalnie 5000 znaków"
+        )
+
+    return description
 
 
 class DisciplineData(BaseModel):
@@ -4921,6 +4940,9 @@ def calculate_total_fee_from_selection(
     shooter_club: str = "",
 ):
     if not selected_disciplines:
+        if is_training_event(competition):
+            return format_money(parse_price(competition.entry_fee))
+
         return "0.00"
 
     competition_fee = parse_price(competition.entry_fee)
@@ -7313,6 +7335,7 @@ def competition_result_summary(competition: Competition, db, premium_locked: boo
         "id": competition.id,
         "name": competition.name,
         "event_type": competition_event_type(competition),
+        "description": getattr(competition, "description", "") or "",
         "date": competition.date,
         "location": competition.location,
         "organizer_full_name": competition.organizer_full_name or competition.created_by,
@@ -7600,6 +7623,7 @@ def competition_list_row(
         "id": competition.id,
         "name": competition.name,
         "event_type": competition_event_type(competition),
+        "description": getattr(competition, "description", "") or "",
         "date": competition.date,
         "location": competition.location,
         "latitude": competition.latitude,
@@ -7627,6 +7651,7 @@ def competition_list_row(
 
 COMPETITION_COPY_FIELDS = [
     "event_type",
+    "description",
     "date",
     "location",
     "latitude",
@@ -9247,6 +9272,7 @@ def public_competition_detail_row(
         "id": competition.id,
         "name": competition.name,
         "event_type": competition_event_type(competition),
+        "description": getattr(competition, "description", "") or "",
         "date": competition.date,
         "location": competition.location,
         "latitude": competition.latitude,
@@ -11013,6 +11039,7 @@ def admin_get_competitions(
             "id": competition.id,
             "name": competition.name,
             "event_type": competition_event_type(competition),
+            "description": getattr(competition, "description", "") or "",
             "date": competition.date,
             "location": competition.location,
             "entry_fee": competition.entry_fee or "",
@@ -11948,6 +11975,7 @@ def create_competition(
     event_type = normalize_competition_event_type(data.event_type)
     is_training = event_type == TRAINING_EVENT_TYPE
     validate_competition_coordinates(data)
+    description = validate_competition_description(data)
     organizer = admin_context_organizer(user, admin_club_id, db)
 
     if data.participant_limit is not None and data.participant_limit <= 0:
@@ -11992,6 +12020,7 @@ def create_competition(
     competition = Competition(
         name=data.name,
         event_type=event_type,
+        description=description,
         date=data.date,
         location=data.location,
         latitude=data.latitude,
@@ -12122,6 +12151,7 @@ def organizer_competition_detail_row(competition: Competition, db):
         "id": competition.id,
         "name": competition.name,
         "event_type": competition_event_type(competition),
+        "description": getattr(competition, "description", "") or "",
         "date": competition.date,
         "location": competition.location,
         "latitude": competition.latitude,
@@ -14864,16 +14894,18 @@ def join_competition(
             detail="Zawody nie istnieją"
         )
 
+    is_training = is_training_event(competition)
+
     if competition.status not in ["published", "started"]:
         raise HTTPException(
             status_code=400,
-            detail="Nie można zapisać się na te zawody"
+            detail="Nie można zapisać się na to szkolenie" if is_training else "Nie można zapisać się na te zawody"
         )
 
     if registration_deadline_passed(competition):
         raise HTTPException(
             status_code=400,
-            detail="Zapisy na te zawody zostały zakończone"
+            detail="Zapisy na to szkolenie zostały zakończone" if is_training else "Zapisy na te zawody zostały zakończone"
         )
 
     if not user.is_active:
@@ -14885,22 +14917,26 @@ def join_competition(
     if is_pzss_club_account(user):
         raise HTTPException(
             status_code=403,
-            detail="Konto klubu PZSS nie może dołączać do zawodów"
+            detail="Konto klubu PZSS nie może dołączać do szkoleń" if is_training else "Konto klubu PZSS nie może dołączać do zawodów"
         )
 
     if not is_profile_complete(user):
         raise HTTPException(
             status_code=400,
-            detail="Uzupełnij dane konta w profilu, aby dołączyć do zawodów"
+            detail=(
+                "Uzupełnij dane konta w profilu, aby dołączyć do szkolenia"
+                if is_training
+                else "Uzupełnij dane konta w profilu, aby dołączyć do zawodów"
+            )
         )
 
     if data.entry_type != "shooter":
         raise HTTPException(
             status_code=400,
-            detail="Do zawodów można dołączyć tylko jako strzelec"
+            detail="Do szkolenia można dołączyć tylko jako uczestnik" if is_training else "Do zawodów można dołączyć tylko jako strzelec"
         )
 
-    if not data.disciplines:
+    if not data.disciplines and not is_training:
         raise HTTPException(
             status_code=400,
             detail="Wybierz minimum jedną konkurencję"
@@ -14922,7 +14958,7 @@ def join_competition(
         if selected_discipline.discipline_id not in allowed_discipline_ids:
             raise HTTPException(
                 status_code=400,
-                detail="Wybrano konkurencję spoza tych zawodów"
+                detail="Wybrano blok spoza tego szkolenia" if is_training else "Wybrano konkurencję spoza tych zawodów"
             )
 
         if selected_discipline.ammo_type not in ["own", "club"]:
@@ -15928,6 +15964,7 @@ def update_competition(
     event_type = normalize_competition_event_type(data.event_type)
     is_training = event_type == TRAINING_EVENT_TYPE
     validate_competition_coordinates(data)
+    description = validate_competition_description(data)
 
     competition = (
         db.query(Competition)
@@ -15977,6 +16014,7 @@ def update_competition(
 
     competition.name = data.name
     competition.event_type = event_type
+    competition.description = description
     competition.date = data.date
     competition.location = data.location
     competition.latitude = data.latitude
@@ -16058,7 +16096,7 @@ def publish_competition(
         .count()
     )
 
-    if disciplines_count == 0:
+    if disciplines_count == 0 and not is_training_event(competition):
         raise HTTPException(
             status_code=400,
             detail="Nie dodano żadnej konkurencji."

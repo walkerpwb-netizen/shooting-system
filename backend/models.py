@@ -506,6 +506,11 @@ class Competition(Base):
         nullable=False,
     )
 
+    description = Column(
+        Text,
+        nullable=True,
+    )
+
     latitude = Column(
         Float,
         nullable=True,

@@ -45,6 +45,7 @@ type Training = {
   id: number;
   name: string;
   event_type?: "competition" | "training";
+  description?: string;
   date: string;
   location: string;
   latitude: number | null;
@@ -120,7 +121,9 @@ export async function generateMetadata({
     ? ` Liczba bloków: ${training.disciplines.length}.`
     : "";
   const description = truncateDescription(
-    `Szkolenie strzeleckie ${training.name}. Data: ${training.date}. Miejsce: ${training.location}.${organizer}${blocksCount}`
+    training.description
+      ? training.description
+      : `Szkolenie strzeleckie ${training.name}. Data: ${training.date}. Miejsce: ${training.location}.${organizer}${blocksCount}`
   );
   const title = `${training.name} | Szkolenie strzeleckie`;
   const imageUrl = metadataImageUrl(training.organizer_logo);
@@ -217,15 +220,9 @@ export default async function TrainingPage({
               </p>
             )}
 
-            {training.entry_fee ? (
-              <p className="text-zinc-700 dark:text-gray-300">
-                Cena udziału: {training.entry_fee} zł za całe szkolenie
-              </p>
-            ) : (
-              <p className="text-zinc-700 dark:text-gray-300">
-                Cena udziału: według wybranych bloków
-              </p>
-            )}
+            <p className="text-zinc-700 dark:text-gray-300">
+              Cena udziału: {training.entry_fee ? `${training.entry_fee} zł` : "nie podano"}
+            </p>
 
             {training.participant_limit && (
               <p className="text-zinc-700 dark:text-gray-300">
@@ -239,6 +236,18 @@ export default async function TrainingPage({
               </p>
             )}
           </section>
+
+          {training.description && (
+            <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+              <h2 className="text-2xl font-bold mb-4">
+                Opis i przebieg szkolenia
+              </h2>
+
+              <p className="whitespace-pre-wrap text-zinc-700 dark:text-gray-300">
+                {training.description}
+              </p>
+            </section>
+          )}
 
           {(training.organizer_full_name || training.organizer_logo || training.sponsors || training.sponsor_logo) && (
             <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
@@ -298,6 +307,7 @@ export default async function TrainingPage({
             </section>
           )}
 
+          {training.disciplines.length > 0 && (
           <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
             <h2 className="text-2xl font-bold mb-4">
               Bloki szkolenia
@@ -344,6 +354,7 @@ export default async function TrainingPage({
               ))}
             </div>
           </section>
+          )}
         </div>
 
         <JoinCompetitionPanel
