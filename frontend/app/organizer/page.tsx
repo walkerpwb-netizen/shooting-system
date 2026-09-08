@@ -1615,7 +1615,7 @@ function OrganizerContent() {
       return "competition-requires-licensed-judge-yes";
     }
 
-    if (!isTrainingForm && useParticipantLimit && !isPositiveNumber(participantLimit)) {
+    if (useParticipantLimit && !isPositiveNumber(participantLimit)) {
       return "competition-participant-limit";
     }
 
@@ -1787,7 +1787,7 @@ function OrganizerContent() {
             organizer_logo: isTrainingForm ? "" : organizerLogo,
             sponsors: isTrainingForm ? "" : sponsors,
             sponsor_logo: isTrainingForm ? "" : sponsorLogo,
-            participant_limit: !isTrainingForm && useParticipantLimit
+            participant_limit: useParticipantLimit
               ? Number(participantLimit)
               : null,
             registration_deadline: !isTrainingForm && useRegistrationDeadline
@@ -2092,7 +2092,7 @@ function OrganizerContent() {
                       Dokładna lokalizacja wydarzenia
                     </h3>
                     <p className="mt-1 text-sm text-gray-400">
-                      Podanie dokładnej lokalizacji wydarzenia może zwiększyć liczbę zainteresowanych strzelców.
+                      Podanie dokładnej lokalizacji wydarzenia może zwiększyć liczbę zainteresowanych {isTrainingForm ? "uczestników" : "strzelców"}.
                     </p>
                   </div>
 
@@ -2179,37 +2179,6 @@ function OrganizerContent() {
                     </label>
                   </div>
                 </fieldset>
-              )}
-
-              <label className="flex items-center gap-3 border border-zinc-700 bg-zinc-950 p-4 rounded-xl text-white font-semibold">
-                <input
-                  type="checkbox"
-                  checked={useParticipantLimit}
-                  onChange={(event) => {
-                    setUseParticipantLimit(event.target.checked);
-
-                    if (!event.target.checked) {
-                      setParticipantLimit("");
-                    }
-                  }}
-                  className="h-5 w-5"
-                />
-                Czy chcesz określić limit {isTrainingForm ? "uczestników" : "zawodników"}?
-              </label>
-
-              {useParticipantLimit && (
-                <input
-                  id="competition-participant-limit"
-                  type="number"
-                  min="1"
-                  step="1"
-                  placeholder={isTrainingForm ? "Maksymalna liczba uczestników *" : "Maksymalna liczba zawodników *"}
-                  value={participantLimit}
-                  onChange={(e) => setParticipantLimit(e.target.value)}
-                  aria-invalid={!isPositiveNumber(participantLimit)}
-                  required
-                  className={requiredFieldClass(isPositiveNumber(participantLimit))}
-                />
               )}
 
               <label className="flex items-center gap-3 border border-zinc-700 bg-zinc-950 p-4 rounded-xl text-white font-semibold">
@@ -2389,6 +2358,37 @@ function OrganizerContent() {
                 className="w-full border border-zinc-700 bg-zinc-800 p-4 rounded-xl text-white min-h-[96px]"
               />
                 </>
+              )}
+
+              <label className="flex items-center gap-3 border border-zinc-700 bg-zinc-950 p-4 rounded-xl text-white font-semibold">
+                <input
+                  type="checkbox"
+                  checked={useParticipantLimit}
+                  onChange={(event) => {
+                    setUseParticipantLimit(event.target.checked);
+
+                    if (!event.target.checked) {
+                      setParticipantLimit("");
+                    }
+                  }}
+                  className="h-5 w-5"
+                />
+                Czy chcesz określić limit {isTrainingForm ? "uczestników" : "zawodników"}?
+              </label>
+
+              {useParticipantLimit && (
+                <input
+                  id="competition-participant-limit"
+                  type="number"
+                  min="1"
+                  step="1"
+                  placeholder={isTrainingForm ? "Maksymalna liczba uczestników *" : "Maksymalna liczba zawodników *"}
+                  value={participantLimit}
+                  onChange={(e) => setParticipantLimit(e.target.value)}
+                  aria-invalid={!isPositiveNumber(participantLimit)}
+                  required
+                  className={requiredFieldClass(isPositiveNumber(participantLimit))}
+                />
               )}
 
               <input
@@ -3417,7 +3417,7 @@ function OrganizerContent() {
               </div>
             )}
 
-            {canManageDisciplines && (
+            {!isTrainingForm && canManageDisciplines && (
               <button
                 type="button"
                 onClick={handleAddDiscipline}
