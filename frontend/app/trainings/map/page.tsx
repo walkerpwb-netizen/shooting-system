@@ -5,13 +5,13 @@ import CompetitionsMapClient from "@/app/competitions/map/CompetitionsMapClient"
 import { apiUrl } from "@/lib/api";
 
 export const metadata: Metadata = {
-  title: "Mapa szkoleń strzeleckich | System Strzelecki",
+  title: "Mapa szkoleń i zawodów strzeleckich | System Strzelecki",
   description:
-    "Znajdź szkolenia strzeleckie na mapie i sprawdź lokalizację nadchodzących, trwających oraz zakończonych wydarzeń.",
+    "Znajdź szkolenia i zawody strzeleckie na mapie oraz sprawdź lokalizację nadchodzących, trwających i zakończonych wydarzeń.",
   openGraph: {
-    title: "Mapa szkoleń strzeleckich | System Strzelecki",
+    title: "Mapa szkoleń i zawodów strzeleckich | System Strzelecki",
     description:
-      "Mapa opublikowanych szkoleń strzeleckich z dokładnymi lokalizacjami wydarzeń.",
+      "Mapa opublikowanych szkoleń i zawodów strzeleckich z dokładnymi lokalizacjami wydarzeń.",
     url: "/trainings/map",
     siteName: "System Strzelecki",
     type: "website",
@@ -26,6 +26,7 @@ type TrainingStatusTab = "upcoming" | "live" | "finished";
 type Training = {
   id: number;
   name: string;
+  event_type?: "competition" | "training";
   date: string;
   location: string;
   status: string;
@@ -62,18 +63,19 @@ const tabs: {
 ];
 
 async function getTrainings() {
-  const response = await fetch(
-    apiUrl("/trainings"),
-    {
-      cache: "no-store",
-    }
-  );
+  const [trainingsResponse, competitionsResponse] = await Promise.all([
+    fetch(apiUrl("/trainings"), { cache: "no-store" }),
+    fetch(apiUrl("/competitions"), { cache: "no-store" }),
+  ]);
 
-  if (!response.ok) {
-    return [];
-  }
+  const trainings = trainingsResponse.ok
+    ? await trainingsResponse.json()
+    : [];
+  const competitions = competitionsResponse.ok
+    ? await competitionsResponse.json()
+    : [];
 
-  return response.json();
+  return [...trainings, ...competitions];
 }
 
 export default async function TrainingsMapPage({
@@ -99,10 +101,10 @@ export default async function TrainingsMapPage({
         <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
             <h1 className="mb-2 text-4xl font-bold text-zinc-950 dark:text-white md:text-5xl">
-              Mapa szkoleń
+              Mapa szkoleń i zawodów
             </h1>
             <p className="text-zinc-600 dark:text-gray-400">
-              Szkolenia z dodaną dokładną lokalizacją
+              Szkolenia i zawody z dodaną dokładną lokalizacją
             </p>
           </div>
 
@@ -110,7 +112,7 @@ export default async function TrainingsMapPage({
             href={`/trainings?status=${activeTab.key}`}
             className="ui-button inline-flex w-full items-center justify-center rounded-xl bg-zinc-100 px-5 py-3 font-bold text-zinc-800 transition hover:bg-zinc-200 dark:bg-zinc-800 dark:text-gray-200 dark:hover:bg-zinc-700 md:w-auto"
           >
-            Wróć do listy
+            Wróć do szkoleń
           </Link>
         </div>
 
@@ -132,9 +134,7 @@ export default async function TrainingsMapPage({
 
         <CompetitionsMapClient
           competitions={visibleTrainings}
-          detailsHrefBase="/trainings"
-          detailsLabel="Szczegóły szkolenia"
-          emptyMessage="Brak szkoleń z dodaną dokładną lokalizacją dla tego widoku."
+          emptyMessage="Brak szkoleń i zawodów z dodaną dokładną lokalizacją dla tego widoku."
         />
       </div>
     </main>

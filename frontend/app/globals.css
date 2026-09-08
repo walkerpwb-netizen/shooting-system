@@ -164,6 +164,14 @@ body {
   background: #52525b;
 }
 
+.competition-map-marker.is-competition span {
+  background: #15803d;
+}
+
+.competition-map-marker.is-training span {
+  background: #2563eb;
+}
+
 .shooting-range-map-marker {
   background: transparent;
   border: 0;

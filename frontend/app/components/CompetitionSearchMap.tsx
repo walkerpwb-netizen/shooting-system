@@ -8,6 +8,7 @@ import { MapContainer, Marker, Popup, TileLayer, useMap } from "react-leaflet";
 export type CompetitionMapItem = {
   id: number;
   name: string;
+  event_type?: "competition" | "training";
   date: string;
   location: string;
   status: string;
@@ -23,6 +24,7 @@ type CompetitionSearchMapProps = {
 };
 
 type MapLayerMode = "street" | "hybrid";
+type EventType = "competition" | "training";
 
 const defaultCenter: [number, number] = [52.0692, 19.4803];
 const polandBounds: L.LatLngBoundsExpression = [
@@ -57,20 +59,45 @@ function hasCoordinates(competition: CompetitionMapItem) {
   );
 }
 
-function createCompetitionIcon(status: string) {
-  const statusClass = status === "started"
+function eventType(competition: CompetitionMapItem): EventType {
+  return competition.event_type === "training" ? "training" : "competition";
+}
+
+function createCompetitionIcon(competition: CompetitionMapItem) {
+  const statusClass = competition.status === "started"
     ? "is-live"
-    : status === "completed"
+    : competition.status === "completed"
       ? "is-finished"
       : "is-upcoming";
+  const typeClass = eventType(competition) === "training"
+    ? "is-training"
+    : "is-competition";
 
   return L.divIcon({
-    className: `competition-map-marker ${statusClass}`,
+    className: `competition-map-marker ${statusClass} ${typeClass}`,
     html: "<span></span>",
     iconSize: [30, 30],
     iconAnchor: [15, 15],
     popupAnchor: [0, -12],
   });
+}
+
+function detailsHref(competition: CompetitionMapItem, fallbackHrefBase: string) {
+  const hrefBase = eventType(competition) === "competition"
+    ? "/competitions"
+    : eventType(competition) === "training"
+    ? "/trainings"
+    : fallbackHrefBase;
+
+  return `${hrefBase}/${competition.id}`;
+}
+
+function detailsText(competition: CompetitionMapItem, fallbackLabel: string) {
+  return eventType(competition) === "competition"
+    ? "Szczegóły zawodów"
+    : eventType(competition) === "training"
+    ? "Szczegóły szkolenia"
+    : fallbackLabel;
 }
 
 function FitCompetitionBounds({
@@ -124,7 +151,7 @@ export default function CompetitionSearchMap({
     const icons = new Map<number, L.DivIcon>();
 
     mappedCompetitions.forEach((competition) => {
-      icons.set(competition.id, createCompetitionIcon(competition.status));
+      icons.set(competition.id, createCompetitionIcon(competition));
     });
 
     return icons;
@@ -132,7 +159,18 @@ export default function CompetitionSearchMap({
 
   return (
     <div className="relative flex h-[70vh] min-h-[520px] flex-col overflow-hidden rounded-xl border border-zinc-200 bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900">
-      <div className="flex justify-end border-b border-zinc-200 bg-white p-2 dark:border-zinc-800 dark:bg-zinc-950">
+      <div className="flex flex-col gap-3 border-b border-zinc-200 bg-white p-2 dark:border-zinc-800 dark:bg-zinc-950 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap gap-3 text-xs font-bold text-zinc-700 dark:text-gray-200">
+          <span className="inline-flex items-center gap-2">
+            <span className="h-3 w-3 rounded-full bg-green-700 ring-2 ring-white dark:ring-zinc-950" />
+            Zawody
+          </span>
+          <span className="inline-flex items-center gap-2">
+            <span className="h-3 w-3 rounded-full bg-blue-600 ring-2 ring-white dark:ring-zinc-950" />
+            Szkolenia
+          </span>
+        </div>
+
         <div className="overflow-hidden rounded-lg bg-white shadow-lg">
           {([
             ["street", "Mapa"],
@@ -188,6 +226,9 @@ export default function CompetitionSearchMap({
                 <p className="font-bold">
                   {competition.name}
                 </p>
+                <p className="text-xs font-bold uppercase tracking-wide text-zinc-500">
+                  {eventType(competition) === "training" ? "Szkolenie" : "Zawody"}
+                </p>
                 <p>
                   {competition.date}
                 </p>
@@ -195,10 +236,10 @@ export default function CompetitionSearchMap({
                   {competition.location}
                 </p>
                 <Link
-                  href={`${detailsHrefBase}/${competition.id}`}
+                  href={detailsHref(competition, detailsHrefBase)}
                   className="inline-flex rounded-lg bg-green-800 px-3 py-2 text-xs font-bold text-white hover:bg-green-700"
                 >
-                  {detailsLabel}
+                  {detailsText(competition, detailsLabel)}
                 </Link>
               </div>
             </Popup>
