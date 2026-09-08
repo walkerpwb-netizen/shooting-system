@@ -3481,7 +3481,7 @@ function OrganizerContent() {
             ) : (
               <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
                 <div className="hidden grid-cols-[1.5fr_0.7fr_1fr_1.5fr] gap-4 border-b border-zinc-200 bg-zinc-50 px-4 py-3 text-xs font-bold uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950/50 dark:text-gray-400 lg:grid">
-                  <p>Nazwa zawodów</p>
+                  <p>Nazwa Wydarzenia</p>
                   <p>Data {activeTab === "history" ? "↓" : "↑"}</p>
                   <p>Lokalizacja</p>
                   <p aria-hidden="true" />
@@ -3608,13 +3608,15 @@ function OrganizerContent() {
                         Szczegóły
                       </button>
 
-                      <button
-                        type="button"
-                        onClick={() => router.push(`/organizer/${competition.id}${adminClubQuery}#judges`)}
-                        className="ui-button bg-emerald-800 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl font-semibold"
-                      >
-                        Sędziowie
-                      </button>
+                      {!isTrainingEvent && (
+                        <button
+                          type="button"
+                          onClick={() => router.push(`/organizer/${competition.id}${adminClubQuery}#judges`)}
+                          className="ui-button bg-emerald-800 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl font-semibold"
+                        >
+                          Sędziowie
+                        </button>
+                      )}
 
                       <button
                         type="button"
