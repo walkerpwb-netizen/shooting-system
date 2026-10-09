@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 
 import { apiUrl } from "@/lib/api";
 import {
@@ -45,6 +45,7 @@ const requiredConsents = [
 type ConsentId = typeof requiredConsents[number]["id"];
 
 const CONSENT_REQUIRED_MESSAGE = "Zgody są wymagane!";
+const EMPTY_REGISTRATION_HONEYPOT = "";
 
 function validatePassword(password: string) {
   const hasUppercase = /[A-Z]/.test(password);
@@ -86,6 +87,8 @@ function RegisterForm() {
   const [clubShortName, setClubShortName] = useState("");
   const [clubFullName, setClubFullName] = useState("");
   const [clubPhoneNumber, setClubPhoneNumber] = useState("");
+  const [company, setCompany] = useState(EMPTY_REGISTRATION_HONEYPOT);
+  const formStartedAtMsRef = useRef(0);
   const [consents, setConsents] = useState<Record<ConsentId, boolean>>({
     termsAccepted: false,
     privacyAccepted: false,
@@ -145,6 +148,17 @@ function RegisterForm() {
         currentMessage === CONSENT_REQUIRED_MESSAGE ? "" : currentMessage
       ));
     }
+  }
+
+  const initializeRegistrationForm = useCallback((element: HTMLFormElement | null) => {
+    if (element && !formStartedAtMsRef.current) {
+      formStartedAtMsRef.current = Date.now();
+    }
+  }, []);
+
+  function resetRegistrationTrap() {
+    setCompany(EMPTY_REGISTRATION_HONEYPOT);
+    formStartedAtMsRef.current = Date.now();
   }
 
   async function handleRegister() {
@@ -207,6 +221,8 @@ function RegisterForm() {
                 privacy_policy_accepted: consents.privacyAccepted,
                 results_publication_accepted: consents.resultsPublicationAccepted,
                 redirect_path: redirectPath,
+                company,
+                form_started_at_ms: formStartedAtMsRef.current,
               }
             : {
                 email,
@@ -215,6 +231,8 @@ function RegisterForm() {
                 privacy_policy_accepted: consents.privacyAccepted,
                 results_publication_accepted: consents.resultsPublicationAccepted,
                 redirect_path: redirectPath,
+                company,
+                form_started_at_ms: formStartedAtMsRef.current,
               }
           ),
         }
@@ -247,6 +265,7 @@ function RegisterForm() {
         privacyAccepted: false,
         resultsPublicationAccepted: false,
       });
+      resetRegistrationTrap();
       setShowConsentErrors(false);
       if (redirectPath) {
         storeAuthRedirectPath(redirectPath);
@@ -315,12 +334,24 @@ function RegisterForm() {
         )}
 
         <form
+          ref={initializeRegistrationForm}
           onSubmit={(event) => {
             event.preventDefault();
             void handleRegister();
           }}
           className="flex flex-col gap-4"
         >
+          <div aria-hidden="true" className="absolute left-[-10000px] top-auto h-px w-px overflow-hidden">
+            <input
+              type="text"
+              name="company"
+              tabIndex={-1}
+              autoComplete="off"
+              value={company}
+              onChange={(event) => setCompany(event.target.value)}
+            />
+          </div>
+
           {isClubRegistration && (
             <>
               <input

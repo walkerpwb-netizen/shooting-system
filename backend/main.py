@@ -85,6 +85,9 @@ LOGIN_IP_LIMIT = 10
 LOGIN_IP_WINDOW = timedelta(minutes=1)
 LOGIN_EMAIL_FAILURE_LIMIT = 5
 LOGIN_EMAIL_FAILURE_WINDOW = timedelta(minutes=15)
+REGISTRATION_MIN_FORM_AGE = timedelta(seconds=3)
+REGISTRATION_MAX_FORM_AGE = timedelta(hours=2)
+REGISTRATION_FUTURE_TOLERANCE = timedelta(seconds=30)
 PREMIUM_EXPIRED_DETAIL = "Status premium wygasł"
 BACKUP_DIR = Path("/home/ubuntu/backups/shooting-system/postgres")
 UPLOADS_DIR = Path(__file__).resolve().parent / "uploads"
@@ -193,6 +196,8 @@ class RegisterData(BaseModel):
     privacy_policy_accepted: bool = False
     results_publication_accepted: bool = False
     redirect_path: str = ""
+    company: str = ""
+    form_started_at_ms: Optional[int] = None
 
 
 class PzssClubRegisterData(BaseModel):
@@ -205,6 +210,8 @@ class PzssClubRegisterData(BaseModel):
     privacy_policy_accepted: bool = False
     results_publication_accepted: bool = False
     redirect_path: str = ""
+    company: str = ""
+    form_started_at_ms: Optional[int] = None
 
 
 class PzssClubApprovalData(BaseModel):
@@ -1201,6 +1208,50 @@ def validate_registration_consents(data: RegisterData | PzssClubRegisterData):
         raise HTTPException(
             status_code=400,
             detail="Zaznacz wszystkie wymagane zgody"
+        )
+
+
+def validate_registration_form_integrity(data: RegisterData | PzssClubRegisterData):
+    if (data.company or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Nie udało się utworzyć konta. Odśwież formularz i spróbuj ponownie."
+        )
+
+    if data.form_started_at_ms is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Odśwież formularz rejestracji i spróbuj ponownie."
+        )
+
+    now = datetime.now(timezone.utc)
+
+    try:
+        started_at = datetime.fromtimestamp(data.form_started_at_ms / 1000, timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        raise HTTPException(
+            status_code=400,
+            detail="Odśwież formularz rejestracji i spróbuj ponownie."
+        )
+
+    form_age = now - started_at
+
+    if form_age < -REGISTRATION_FUTURE_TOLERANCE:
+        raise HTTPException(
+            status_code=400,
+            detail="Odśwież formularz rejestracji i spróbuj ponownie."
+        )
+
+    if form_age < REGISTRATION_MIN_FORM_AGE:
+        raise HTTPException(
+            status_code=400,
+            detail="Nie udało się utworzyć konta. Spróbuj ponownie za chwilę."
+        )
+
+    if form_age > REGISTRATION_MAX_FORM_AGE:
+        raise HTTPException(
+            status_code=400,
+            detail="Formularz rejestracji wygasł. Odśwież stronę i spróbuj ponownie."
         )
 
 
@@ -11509,6 +11560,7 @@ def register(
     data: RegisterData,
     db=Depends(get_db),
 ):
+    validate_registration_form_integrity(data)
     validate_registration_consents(data)
     delete_expired_activation_accounts(db)
 
@@ -11576,6 +11628,7 @@ def register_pzss_club(
     data: PzssClubRegisterData,
     db=Depends(get_db),
 ):
+    validate_registration_form_integrity(data)
     validate_registration_consents(data)
     delete_expired_activation_accounts(db)
 
