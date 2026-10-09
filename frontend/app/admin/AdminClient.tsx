@@ -3940,7 +3940,7 @@ export default function AdminClient({
         ) : activeTab === "competitions" ? (
           <section className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-x-auto">
             <div className="min-w-[1200px]">
-              <div className="grid grid-cols-[1.5fr_1fr_1.2fr_0.8fr_1.3fr_1.4fr_0.8fr_0.8fr_1.2fr] gap-4 px-5 py-4 text-sm font-bold text-gray-400 border-b border-zinc-800">
+              <div className="grid grid-cols-[1.5fr_1fr_1.2fr_0.8fr_1.3fr_1.4fr_0.8fr_0.8fr_1.6fr] gap-4 px-5 py-4 text-sm font-bold text-gray-400 border-b border-zinc-800">
                 <p>Nazwa zawodów</p>
                 <p>Data</p>
                 <p>Lokalizacja</p>
@@ -3981,7 +3981,7 @@ export default function AdminClient({
                       />
                     )}
 
-                    <div className="relative z-10 grid grid-cols-[1.5fr_1fr_1.2fr_0.8fr_1.3fr_1.4fr_0.8fr_0.8fr_1.2fr] gap-4 px-5 py-4 items-center">
+                    <div className="relative z-10 grid grid-cols-[1.5fr_1fr_1.2fr_0.8fr_1.3fr_1.4fr_0.8fr_0.8fr_1.6fr] gap-4 px-5 py-4 items-center">
                       <p className="text-white font-bold">
                         {competition.name}
                       </p>
@@ -4041,6 +4041,13 @@ export default function AdminClient({
                       </p>
 
                       <div className="flex flex-wrap gap-2">
+                        <Link
+                          href={`/organizer/${competition.id}`}
+                          className="bg-green-700 hover:bg-green-600 text-white px-3 py-2 rounded-lg text-sm font-semibold transition"
+                        >
+                          Panel organizatora
+                        </Link>
+
                         <button
                           type="button"
                           onClick={() =>
