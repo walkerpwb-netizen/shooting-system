@@ -78,6 +78,7 @@ EVENT_LABELS = {
     "negotiation_failed": "Nieudana negocjacja SSH",
     "pam_auth_failure": "Błąd uwierzytelniania PAM/SSH",
 }
+PASSWORD_AUTH_ALERT_EVENTS = {"successful_login", "failed_password"}
 
 
 def utc_now_iso() -> str:
@@ -164,6 +165,13 @@ def email_rows(event: dict[str, str]) -> list[tuple[str, str]]:
         for label, key in ordered_keys
         if event.get(key, "")
     ]
+
+
+def should_send_alert(event: dict[str, str]) -> bool:
+    return (
+        event.get("event_type") in PASSWORD_AUTH_ALERT_EVENTS
+        and event.get("method") == "password"
+    )
 
 
 def send_ssh_alert(event: dict[str, str]) -> None:
@@ -258,7 +266,7 @@ def run(since: str, dry_run: bool, limit: int | None) -> None:
     for entry in iter_journal_entries(since):
         event = event_from_entry(entry)
 
-        if not event:
+        if not event or not should_send_alert(event):
             continue
 
         if dry_run:
