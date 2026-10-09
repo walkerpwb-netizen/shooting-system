@@ -1,0 +1,19 @@
+[Unit]
+Description=Shooting System SSH login email alerts
+Wants=network-online.target
+After=network-online.target ssh.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/ubuntu/shooting-system/backend
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/ubuntu/shooting-system/backend/venv/bin/python /home/ubuntu/shooting-system/backend/scripts/ssh_login_alerts.py --since now
+Restart=always
+RestartSec=5
+SyslogIdentifier=shooting-ssh-alerts
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

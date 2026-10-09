@@ -7,10 +7,13 @@ DEPLOY_REMOTE="${DEPLOY_REMOTE:-origin}"
 LOCK_FILE="${LOCK_FILE:-/tmp/shooting-system-deploy.lock}"
 
 BACKEND_SERVICE="${BACKEND_SERVICE:-shooting-backend.service}"
+SSH_ALERTS_SERVICE="${SSH_ALERTS_SERVICE:-shooting-ssh-alerts.service}"
 FRONTEND_PM2_APP="${FRONTEND_PM2_APP:-shooting-frontend}"
 PM2_CONFIG="${PM2_CONFIG:-deploy/pm2/ecosystem.config.cjs}"
 BACKEND_UNIT_SRC="${BACKEND_UNIT_SRC:-deploy/systemd/shooting-backend.service}"
 BACKEND_UNIT_DST="${BACKEND_UNIT_DST:-/etc/systemd/system/shooting-backend.service}"
+SSH_ALERTS_UNIT_SRC="${SSH_ALERTS_UNIT_SRC:-deploy/systemd/shooting-ssh-alerts.service}"
+SSH_ALERTS_UNIT_DST="${SSH_ALERTS_UNIT_DST:-/etc/systemd/system/shooting-ssh-alerts.service}"
 NGINX_CONF_SRC="${NGINX_CONF_SRC:-deploy/nginx/shooting-system.conf}"
 NGINX_CONF_DST="${NGINX_CONF_DST:-/etc/nginx/sites-available/shooting-system}"
 BACKEND_VENV="${BACKEND_VENV:-backend/venv}"
@@ -163,15 +166,27 @@ run_migrations() {
 
 sync_service_configs() {
   local backend_unit_changed=0
+  local ssh_alerts_unit_changed=0
 
   log "Syncing service configs"
   if sync_file_with_backup "$REPO_DIR/$BACKEND_UNIT_SRC" "$BACKEND_UNIT_DST" "deploy"; then
     backend_unit_changed=1
   fi
 
-  if [[ "$backend_unit_changed" -eq 1 ]]; then
+  if sync_file_with_backup "$REPO_DIR/$SSH_ALERTS_UNIT_SRC" "$SSH_ALERTS_UNIT_DST" "deploy"; then
+    ssh_alerts_unit_changed=1
+  fi
+
+  if [[ "$backend_unit_changed" -eq 1 || "$ssh_alerts_unit_changed" -eq 1 ]]; then
     run sudo systemctl daemon-reload
+  fi
+
+  if [[ "$backend_unit_changed" -eq 1 ]]; then
     run sudo systemctl enable "$BACKEND_SERVICE"
+  fi
+
+  if [[ "$ssh_alerts_unit_changed" -eq 1 ]]; then
+    run sudo systemctl enable "$SSH_ALERTS_SERVICE"
   fi
 }
 
@@ -179,6 +194,12 @@ restart_backend() {
   log "Restarting backend"
   run sudo systemctl restart "$BACKEND_SERVICE"
   run sudo systemctl is-active "$BACKEND_SERVICE"
+}
+
+restart_ssh_alerts() {
+  log "Restarting SSH alert monitor"
+  run sudo systemctl restart "$SSH_ALERTS_SERVICE"
+  run sudo systemctl is-active "$SSH_ALERTS_SERVICE"
 }
 
 reload_frontend() {
@@ -242,6 +263,7 @@ main() {
   run_migrations
   sync_service_configs
   restart_backend
+  restart_ssh_alerts
   reload_frontend
   reload_nginx
   run_health_checks
