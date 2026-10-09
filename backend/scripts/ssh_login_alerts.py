@@ -79,7 +79,7 @@ EVENT_LABELS = {
     "pam_auth_failure": "Błąd uwierzytelniania PAM/SSH",
 }
 PASSWORD_AUTH_ALERT_EVENTS = {"successful_login", "failed_password"}
-IGNORED_PASSWORD_ALERT_USERS = {"root"}
+PASSWORD_AUTH_ALERT_USERS = {"ubuntu"}
 
 
 def utc_now_iso() -> str:
@@ -172,7 +172,7 @@ def should_send_alert(event: dict[str, str]) -> bool:
     return (
         event.get("event_type") in PASSWORD_AUTH_ALERT_EVENTS
         and event.get("method") == "password"
-        and event.get("user") not in IGNORED_PASSWORD_ALERT_USERS
+        and event.get("user") in PASSWORD_AUTH_ALERT_USERS
     )
 
 
