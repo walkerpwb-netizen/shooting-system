@@ -8,7 +8,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import DisciplineDescription from "@/app/components/DisciplineDescription";
 import { apiUrl } from "@/lib/api";
-import { authFetch, getAccessToken, isOrganizer } from "@/lib/auth";
+import { authFetch, getAccessToken, isAdmin, isOrganizer } from "@/lib/auth";
 import {
   POWER_FACTOR_OPTIONS,
   getDynamicDisciplineDivisions,
@@ -1090,6 +1090,15 @@ export default function OrganizerCompetitionPage() {
           >
             Wróć do panelu organizatora
           </Link>
+
+          {competition && isAdmin() && (
+            <Link
+              href={`/organizer?admin_edit_competition_id=${competition.id}`}
+              className="ml-0 inline-flex bg-green-700 hover:bg-green-600 text-white px-5 py-3 rounded-xl font-bold shadow-lg shadow-green-950/30 transition sm:ml-3"
+            >
+              Edytuj dane zawodów
+            </Link>
+          )}
 
           <h1 className="text-5xl font-bold text-white mb-2">
             {competition?.name || "Szczegóły zawodów"}

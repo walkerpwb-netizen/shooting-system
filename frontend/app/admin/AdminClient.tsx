@@ -4042,10 +4042,10 @@ export default function AdminClient({
 
                       <div className="flex flex-wrap gap-2">
                         <Link
-                          href={`/organizer/${competition.id}`}
+                          href={`/organizer?admin_edit_competition_id=${competition.id}`}
                           className="bg-green-700 hover:bg-green-600 text-white px-3 py-2 rounded-lg text-sm font-semibold transition"
                         >
-                          Panel organizatora
+                          Edytuj w panelu
                         </Link>
 
                         <button

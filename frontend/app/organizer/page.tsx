@@ -603,10 +603,21 @@ function isCompetitionDateReached(dateValue: string) {
   return competitionDate <= today;
 }
 
+function positiveIntegerParam(value: string | null) {
+  const parsedValue = Number(value);
+
+  return Number.isInteger(parsedValue) && parsedValue > 0
+    ? parsedValue
+    : null;
+}
+
 function OrganizerContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const adminClubId = searchParams.get("admin_club_id") || "";
+  const adminEditCompetitionId = positiveIntegerParam(
+    searchParams.get("admin_edit_competition_id")
+  );
   const adminClubQuery = adminClubId
     ? `?admin_club_id=${encodeURIComponent(adminClubId)}`
     : "";
@@ -677,8 +688,13 @@ function OrganizerContent() {
     getAuthSnapshot,
     () => ""
   );
-  const [, , , , accountType, pzssClubStatus] = authSnapshot.split("|");
+  const [, , rolesSnapshot, , accountType, pzssClubStatus] = authSnapshot.split("|");
+  const isAdminUser = rolesSnapshot
+    .split(",")
+    .map((role) => role.trim())
+    .includes("admin");
   const canMarkPzssLicenseCalendar = Boolean(adminClubId)
+    || (isAdminUser && pzssLicenseCalendar)
     || (accountType === "pzss_club" && pzssClubStatus === "approved");
   const existingDisciplineCount = disciplines.filter((discipline) => discipline.id).length;
   const visibleCompetitions = useMemo(() => {
@@ -917,6 +933,80 @@ function OrganizerContent() {
     }
 
     return data as Competition;
+  }
+
+  function populateCompetitionEditForm(competitionDetails: Competition) {
+    const canEditDisciplines = competitionDetails.status === "draft";
+
+    setEditingCompetitionId(competitionDetails.id);
+    setEventType(competitionDetails.event_type === "training" ? "training" : "competition");
+    setEventDescription(competitionDetails.description || "");
+    setName(competitionDetails.name);
+    setDate(competitionDetails.date);
+    setLocation(competitionDetails.location);
+    setLatitude(competitionDetails.latitude ?? null);
+    setLongitude(competitionDetails.longitude ?? null);
+    setEntryFee(competitionDetails.entry_fee || "");
+    setOrganizerLogo(competitionDetails.organizer_logo || "");
+    setSponsors(competitionDetails.sponsors || "");
+    setSponsorLogo(competitionDetails.sponsor_logo || "");
+    setUseParticipantLimit(Boolean(competitionDetails.participant_limit));
+    setUseRegistrationDeadline(Boolean(competitionDetails.registration_deadline));
+    setRegistrationDeadline(datetimeLocalValue(competitionDetails.registration_deadline));
+    setUseMinParticipants(Boolean(
+      competitionDetails.registration_deadline && competitionDetails.min_participants
+    ));
+    setMinParticipants(
+      competitionDetails.registration_deadline && competitionDetails.min_participants
+        ? String(competitionDetails.min_participants)
+        : ""
+    );
+    setPzssLicenseCalendar(Boolean(competitionDetails.pzss_license_calendar));
+    setRequiresLicensedJudge(Boolean(competitionDetails.requires_licensed_judge));
+    setClubDiscountEnabled(Boolean(competitionDetails.club_discount_enabled));
+    setClubDiscountScope(
+      competitionDetails.club_discount_scope === "discipline"
+        ? "discipline"
+        : "competition"
+    );
+    setClubDiscountAmount(competitionDetails.club_discount_amount || "");
+    setClubDiscountClubs(competitionDetails.club_discount_clubs || "");
+    setParticipantLimit(
+      competitionDetails.participant_limit
+        ? String(competitionDetails.participant_limit)
+        : ""
+    );
+    setEditingCompetitionStatus(competitionDetails.status);
+    setDisciplines(
+      canEditDisciplines
+        ? (competitionDetails.disciplines || [])
+          .slice()
+          .sort((firstDiscipline, secondDiscipline) =>
+            (firstDiscipline.display_order ?? firstDiscipline.id ?? 0)
+            - (secondDiscipline.display_order ?? secondDiscipline.id ?? 0)
+          )
+          .map((discipline, disciplineIndex) => ({
+            id: discipline.id,
+            name: discipline.name,
+            description: discipline.description || "",
+            discipline_type: discipline.discipline_type || "",
+            shots_count: discipline.shots_count || 0,
+            trap_variant: discipline.clay_variant || discipline.trap_variant || "",
+            trap_series_count: discipline.clay_series_count || discipline.trap_series_count || 0,
+            ammo_type: discipline.ammo_type || "",
+            ammo_price: discipline.ammo_price || "",
+            clay_price: discipline.clay_price || "",
+            entry_fee: discipline.entry_fee || "",
+            fixed_power_factor: discipline.fixed_power_factor || "",
+            fixed_division: discipline.fixed_division || "",
+            one_hand_bonus_enabled: Boolean(discipline.one_hand_bonus_enabled),
+            display_order: discipline.display_order ?? disciplineIndex,
+            stages: (discipline.stages || []).map((stage, stageIndex) => createBlankStage(stage.stage_number || stageIndex + 1, stage)),
+          }))
+        : []
+    );
+    setMessage("");
+    setShowCreateForm(true);
   }
 
   async function handleDownloadResultsPdf(competition: Competition) {
@@ -1272,7 +1362,7 @@ function OrganizerContent() {
   async function handleEditCompetition(
     competition: Competition
   ) {
-    if (competition.status !== "draft") {
+    if (competition.status !== "draft" && !isAdminUser) {
       setMessage("Opublikowanych, rozpoczętych lub zakończonych zawodów nie można edytować ❌");
       return;
     }
@@ -1281,78 +1371,50 @@ function OrganizerContent() {
       setMessage("Ładuję szczegóły zawodów...");
       const competitionDetails = await fetchOrganizerCompetitionDetails(competition.id);
 
-      setEditingCompetitionId(competitionDetails.id);
-      setEventType(competitionDetails.event_type === "training" ? "training" : "competition");
-      setEventDescription(competitionDetails.description || "");
-      setName(competitionDetails.name);
-      setDate(competitionDetails.date);
-      setLocation(competitionDetails.location);
-      setLatitude(competitionDetails.latitude ?? null);
-      setLongitude(competitionDetails.longitude ?? null);
-      setEntryFee(competitionDetails.entry_fee || "");
-      setOrganizerLogo(competitionDetails.organizer_logo || "");
-      setSponsors(competitionDetails.sponsors || "");
-      setSponsorLogo(competitionDetails.sponsor_logo || "");
-      setUseParticipantLimit(Boolean(competitionDetails.participant_limit));
-      setUseRegistrationDeadline(Boolean(competitionDetails.registration_deadline));
-      setRegistrationDeadline(datetimeLocalValue(competitionDetails.registration_deadline));
-      setUseMinParticipants(Boolean(
-        competitionDetails.registration_deadline && competitionDetails.min_participants
-      ));
-      setMinParticipants(
-        competitionDetails.registration_deadline && competitionDetails.min_participants
-          ? String(competitionDetails.min_participants)
-          : ""
-      );
-      setPzssLicenseCalendar(Boolean(competitionDetails.pzss_license_calendar));
-      setRequiresLicensedJudge(Boolean(competitionDetails.requires_licensed_judge));
-      setClubDiscountEnabled(Boolean(competitionDetails.club_discount_enabled));
-      setClubDiscountScope(
-        competitionDetails.club_discount_scope === "discipline"
-          ? "discipline"
-          : "competition"
-      );
-      setClubDiscountAmount(competitionDetails.club_discount_amount || "");
-      setClubDiscountClubs(competitionDetails.club_discount_clubs || "");
-      setParticipantLimit(
-        competitionDetails.participant_limit
-          ? String(competitionDetails.participant_limit)
-          : ""
-      );
-      setEditingCompetitionStatus(competitionDetails.status);
-      setDisciplines(
-        (competitionDetails.disciplines || [])
-        .slice()
-        .sort((firstDiscipline, secondDiscipline) =>
-          (firstDiscipline.display_order ?? firstDiscipline.id ?? 0)
-          - (secondDiscipline.display_order ?? secondDiscipline.id ?? 0)
-        )
-        .map((discipline, disciplineIndex) => ({
-          id: discipline.id,
-          name: discipline.name,
-          description: discipline.description || "",
-          discipline_type: discipline.discipline_type || "",
-          shots_count: discipline.shots_count || 0,
-          trap_variant: discipline.clay_variant || discipline.trap_variant || "",
-          trap_series_count: discipline.clay_series_count || discipline.trap_series_count || 0,
-          ammo_type: discipline.ammo_type || "",
-          ammo_price: discipline.ammo_price || "",
-          clay_price: discipline.clay_price || "",
-          entry_fee: discipline.entry_fee || "",
-          fixed_power_factor: discipline.fixed_power_factor || "",
-          fixed_division: discipline.fixed_division || "",
-          one_hand_bonus_enabled: Boolean(discipline.one_hand_bonus_enabled),
-          display_order: discipline.display_order ?? disciplineIndex,
-          stages: (discipline.stages || []).map((stage, stageIndex) => createBlankStage(stage.stage_number || stageIndex + 1, stage)),
-        }))
-      );
-      setMessage("");
-      setShowCreateForm(true);
+      if (competitionDetails.status !== "draft" && !isAdminUser) {
+        setMessage("Opublikowanych, rozpoczętych lub zakończonych zawodów nie można edytować ❌");
+        return;
+      }
+
+      populateCompetitionEditForm(competitionDetails);
     } catch (error) {
       console.error(error);
       setMessage(error instanceof Error ? `${error.message} ❌` : "Nie udało się pobrać szczegółów zawodów ❌");
     }
   }
+
+  useEffect(() => {
+    if (!adminEditCompetitionId || !isAdminUser || editingCompetitionId === adminEditCompetitionId) {
+      return;
+    }
+
+    let ignore = false;
+
+    async function openAdminCompetitionEdit() {
+      try {
+        setMessage("Ładuję szczegóły zawodów...");
+        const competitionDetails = await fetchOrganizerCompetitionDetails(adminEditCompetitionId as number);
+
+        if (ignore) {
+          return;
+        }
+
+        populateCompetitionEditForm(competitionDetails);
+      } catch (error) {
+        console.error(error);
+
+        if (!ignore) {
+          setMessage(error instanceof Error ? `${error.message} ❌` : "Nie udało się pobrać szczegółów zawodów ❌");
+        }
+      }
+    }
+
+    void openAdminCompetitionEdit();
+
+    return () => {
+      ignore = true;
+    };
+  }, [adminEditCompetitionId, editingCompetitionId, isAdminUser]);
 
   function handleToggleForm(nextEventType: EventType = "competition") {
     if (showCreateForm) {
@@ -1823,7 +1885,7 @@ function OrganizerContent() {
 
       const competitionId = data.competition_id;
 
-      if (!isTrainingForm && disciplines.length > 0) {
+      if (!isTrainingForm && canManageDisciplines && disciplines.length > 0) {
         for (const [disciplineIndex, discipline] of disciplines.entries()) {
           const disciplineEndpoint = discipline.id
             ? organizerApiUrl(`/competitions/${competitionId}/disciplines/${discipline.id}`)
