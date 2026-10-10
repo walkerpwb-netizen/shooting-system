@@ -1,0 +1,13 @@
+[Unit]
+Description=Shooting System daily SSH failed password summary
+After=ssh.service
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/home/ubuntu/shooting-system/backend
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/ubuntu/shooting-system/backend/venv/bin/python /home/ubuntu/shooting-system/backend/scripts/ssh_login_alerts.py --daily-failed-summary --since "24 hours ago"
+SyslogIdentifier=shooting-ssh-failed-summary
+StandardOutput=journal
+StandardError=journal

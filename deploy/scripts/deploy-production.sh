@@ -8,12 +8,17 @@ LOCK_FILE="${LOCK_FILE:-/tmp/shooting-system-deploy.lock}"
 
 BACKEND_SERVICE="${BACKEND_SERVICE:-shooting-backend.service}"
 SSH_ALERTS_SERVICE="${SSH_ALERTS_SERVICE:-shooting-ssh-alerts.service}"
+SSH_FAILED_SUMMARY_TIMER="${SSH_FAILED_SUMMARY_TIMER:-shooting-ssh-failed-summary.timer}"
 FRONTEND_PM2_APP="${FRONTEND_PM2_APP:-shooting-frontend}"
 PM2_CONFIG="${PM2_CONFIG:-deploy/pm2/ecosystem.config.cjs}"
 BACKEND_UNIT_SRC="${BACKEND_UNIT_SRC:-deploy/systemd/shooting-backend.service}"
 BACKEND_UNIT_DST="${BACKEND_UNIT_DST:-/etc/systemd/system/shooting-backend.service}"
 SSH_ALERTS_UNIT_SRC="${SSH_ALERTS_UNIT_SRC:-deploy/systemd/shooting-ssh-alerts.service}"
 SSH_ALERTS_UNIT_DST="${SSH_ALERTS_UNIT_DST:-/etc/systemd/system/shooting-ssh-alerts.service}"
+SSH_FAILED_SUMMARY_SERVICE_SRC="${SSH_FAILED_SUMMARY_SERVICE_SRC:-deploy/systemd/shooting-ssh-failed-summary.service}"
+SSH_FAILED_SUMMARY_SERVICE_DST="${SSH_FAILED_SUMMARY_SERVICE_DST:-/etc/systemd/system/shooting-ssh-failed-summary.service}"
+SSH_FAILED_SUMMARY_TIMER_SRC="${SSH_FAILED_SUMMARY_TIMER_SRC:-deploy/systemd/shooting-ssh-failed-summary.timer}"
+SSH_FAILED_SUMMARY_TIMER_DST="${SSH_FAILED_SUMMARY_TIMER_DST:-/etc/systemd/system/shooting-ssh-failed-summary.timer}"
 NGINX_CONF_SRC="${NGINX_CONF_SRC:-deploy/nginx/shooting-system.conf}"
 NGINX_CONF_DST="${NGINX_CONF_DST:-/etc/nginx/sites-available/shooting-system}"
 BACKEND_VENV="${BACKEND_VENV:-backend/venv}"
@@ -167,6 +172,8 @@ run_migrations() {
 sync_service_configs() {
   local backend_unit_changed=0
   local ssh_alerts_unit_changed=0
+  local ssh_failed_summary_service_changed=0
+  local ssh_failed_summary_timer_changed=0
 
   log "Syncing service configs"
   if sync_file_with_backup "$REPO_DIR/$BACKEND_UNIT_SRC" "$BACKEND_UNIT_DST" "deploy"; then
@@ -177,7 +184,15 @@ sync_service_configs() {
     ssh_alerts_unit_changed=1
   fi
 
-  if [[ "$backend_unit_changed" -eq 1 || "$ssh_alerts_unit_changed" -eq 1 ]]; then
+  if sync_file_with_backup "$REPO_DIR/$SSH_FAILED_SUMMARY_SERVICE_SRC" "$SSH_FAILED_SUMMARY_SERVICE_DST" "deploy"; then
+    ssh_failed_summary_service_changed=1
+  fi
+
+  if sync_file_with_backup "$REPO_DIR/$SSH_FAILED_SUMMARY_TIMER_SRC" "$SSH_FAILED_SUMMARY_TIMER_DST" "deploy"; then
+    ssh_failed_summary_timer_changed=1
+  fi
+
+  if [[ "$backend_unit_changed" -eq 1 || "$ssh_alerts_unit_changed" -eq 1 || "$ssh_failed_summary_service_changed" -eq 1 || "$ssh_failed_summary_timer_changed" -eq 1 ]]; then
     run sudo systemctl daemon-reload
   fi
 
@@ -187,6 +202,10 @@ sync_service_configs() {
 
   if [[ "$ssh_alerts_unit_changed" -eq 1 ]]; then
     run sudo systemctl enable "$SSH_ALERTS_SERVICE"
+  fi
+
+  if [[ "$ssh_failed_summary_service_changed" -eq 1 || "$ssh_failed_summary_timer_changed" -eq 1 ]]; then
+    run sudo systemctl enable --now "$SSH_FAILED_SUMMARY_TIMER"
   fi
 }
 

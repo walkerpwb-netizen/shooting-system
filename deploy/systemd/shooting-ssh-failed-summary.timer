@@ -1,0 +1,11 @@
+[Unit]
+Description=Send Shooting System daily SSH failed password summary
+
+[Timer]
+OnCalendar=*-*-* 06:15:00
+Persistent=true
+RandomizedDelaySec=15m
+Unit=shooting-ssh-failed-summary.service
+
+[Install]
+WantedBy=timers.target

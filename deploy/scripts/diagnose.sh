@@ -2,7 +2,7 @@
 set -euo pipefail
 
 echo "== Services =="
-systemctl --no-pager --plain is-active shooting-backend.service shooting-ssh-alerts.service pm2-ubuntu.service nginx postgresql shooting-postgres-backup.timer
+systemctl --no-pager --plain is-active shooting-backend.service shooting-ssh-alerts.service shooting-ssh-failed-summary.timer pm2-ubuntu.service nginx postgresql shooting-postgres-backup.timer
 
 echo
 echo "== PM2 =="
