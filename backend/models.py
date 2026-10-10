@@ -253,6 +253,104 @@ class AppSetting(Base):
     )
 
 
+class PushSubscription(Base):
+    __tablename__ = "push_subscriptions"
+    __table_args__ = (
+        UniqueConstraint("user_id", "device_id", name="uq_push_subscriptions_user_device"),
+    )
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True,
+    )
+
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=False,
+        index=True,
+    )
+
+    device_id = Column(
+        String,
+        nullable=False,
+        index=True,
+    )
+
+    device_name = Column(
+        String,
+        nullable=True,
+    )
+
+    platform = Column(
+        String,
+        nullable=True,
+    )
+
+    browser = Column(
+        String,
+        nullable=True,
+    )
+
+    login_source = Column(
+        String,
+        nullable=True,
+    )
+
+    push_status = Column(
+        String,
+        default="unknown",
+        nullable=False,
+        index=True,
+    )
+
+    endpoint = Column(
+        Text,
+        nullable=True,
+    )
+
+    p256dh_key = Column(
+        Text,
+        nullable=True,
+    )
+
+    auth_key = Column(
+        Text,
+        nullable=True,
+    )
+
+    user_agent = Column(
+        Text,
+        nullable=True,
+    )
+
+    created_at = Column(
+        String,
+        nullable=True,
+    )
+
+    updated_at = Column(
+        String,
+        nullable=True,
+    )
+
+    last_seen_at = Column(
+        String,
+        nullable=True,
+    )
+
+    last_subscribed_at = Column(
+        String,
+        nullable=True,
+    )
+
+    disabled_at = Column(
+        String,
+        nullable=True,
+    )
+
+
 class AdDailyStat(Base):
     __tablename__ = "ad_daily_stats"
     __table_args__ = (

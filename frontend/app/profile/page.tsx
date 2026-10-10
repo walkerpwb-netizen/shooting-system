@@ -2,13 +2,21 @@
 
 import type { ChangeEvent, PointerEvent, ReactNode } from "react";
 import NextImage from "next/image";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import QrCode from "@/components/QrCode";
 import QrCodeScanner from "@/components/QrCodeScanner";
 import { apiUrl } from "@/lib/api";
 import { getAccessToken, clearStoredAuth, notifyAuthChange } from "@/lib/auth";
+import {
+  disablePushDevice,
+  hasPushSupport,
+  isPwaStandalone,
+  listPushDevices,
+  subscribeCurrentDeviceToPush,
+  type PushDevice,
+} from "@/lib/pushNotifications";
 
 type VerifiedPzssClub = {
   id: number;
@@ -176,6 +184,46 @@ function premiumTimeLeft(premiumUntil: string) {
     minutes,
     expired: diff <= 0,
   };
+}
+
+function pushStatusLabel(status: string) {
+  if (status === "enabled") {
+    return "Włączone";
+  }
+
+  if (status === "denied") {
+    return "Odmowa systemowa";
+  }
+
+  if (status === "dismissed") {
+    return "Wyłączone";
+  }
+
+  if (status === "expired") {
+    return "Wygasłe";
+  }
+
+  return "Nieaktywne";
+}
+
+function pushDateLabel(value: string) {
+  if (!value) {
+    return "Brak";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleString("pl-PL", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function PremiumStatusBar({
@@ -573,6 +621,10 @@ export default function ProfilePage() {
   const [requestingPasswordReset, setRequestingPasswordReset] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [pushDevices, setPushDevices] = useState<PushDevice[]>([]);
+  const [pushDevicesLoading, setPushDevicesLoading] = useState(false);
+  const [pushDeviceActionId, setPushDeviceActionId] = useState("");
+  const [enablingProfilePush, setEnablingProfilePush] = useState(false);
   const [message, setMessage] = useState("");
   const [editing, setEditing] = useState(false);
   const [licenseScannerOpen, setLicenseScannerOpen] = useState(false);
@@ -604,6 +656,17 @@ export default function ProfilePage() {
   const [organizerName, setOrganizerName] = useState("");
   const [roleJudgeLicenseNumber, setRoleJudgeLicenseNumber] = useState("");
   const [judgeLicenseValidUntil, setJudgeLicenseValidUntil] = useState("");
+
+  const loadPushDevices = useCallback(async () => {
+    try {
+      setPushDevicesLoading(true);
+      setPushDevices(await listPushDevices());
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setPushDevicesLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     const token = getAccessToken();
@@ -678,6 +741,7 @@ export default function ProfilePage() {
           setRoleJudgeLicenseNumber(data.judge_license_number || "");
           setJudgeLicenseValidUntil(data.judge_license_valid_until || "");
           setEditing(!data.profile_complete);
+          void loadPushDevices();
 
           const invitedClub = invitedClubId
             ? verifiedClubsData.find((verifiedClub: VerifiedPzssClub) => verifiedClub.id === invitedClubId)
@@ -712,7 +776,7 @@ export default function ProfilePage() {
     return () => {
       ignore = true;
     };
-  }, [invitedClubId, router]);
+  }, [invitedClubId, loadPushDevices, router]);
 
   useEffect(() => {
     return () => {
@@ -1201,6 +1265,44 @@ export default function ProfilePage() {
       setMessage("Błąd połączenia z serwerem ❌");
     } finally {
       setDeletingAccount(false);
+    }
+  }
+
+  async function enablePushOnCurrentDevice() {
+    try {
+      setEnablingProfilePush(true);
+      setMessage("");
+      await subscribeCurrentDeviceToPush();
+      await loadPushDevices();
+      setMessage("Powiadomienia push zostały włączone na tym urządzeniu ✅");
+    } catch (error) {
+      console.error(error);
+      setMessage(error instanceof Error ? `${error.message} ❌` : "Nie udało się włączyć powiadomień ❌");
+    } finally {
+      setEnablingProfilePush(false);
+    }
+  }
+
+  async function disablePushDeviceFromProfile(device: PushDevice) {
+    const confirmed = window.confirm(
+      `Wyłączyć powiadomienia dla urządzenia: ${device.device_name || "Nieznane urządzenie"}?`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setPushDeviceActionId(device.device_id);
+      setMessage("");
+      await disablePushDevice(device.device_id);
+      await loadPushDevices();
+      setMessage("Powiadomienia na wybranym urządzeniu zostały wyłączone ✅");
+    } catch (error) {
+      console.error(error);
+      setMessage(error instanceof Error ? `${error.message} ❌` : "Nie udało się wyłączyć urządzenia ❌");
+    } finally {
+      setPushDeviceActionId("");
     }
   }
 
@@ -1793,6 +1895,79 @@ export default function ProfilePage() {
 
               {isOwnerProfile && (
                 <section className="mt-8 flex flex-col gap-5 border-t border-red-200 pt-8 dark:border-red-950">
+                  <div className="border border-zinc-200 bg-zinc-50 p-5 text-zinc-950 dark:border-red-950 dark:bg-zinc-950 dark:text-red-50">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <h2 className="text-2xl font-bold text-red-600 dark:text-red-400">
+                          Moje urządzenia
+                        </h2>
+                        <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-600 dark:text-red-100/80">
+                          Lista instalacji aplikacji i urządzeń zapisanych do powiadomień push.
+                        </p>
+                      </div>
+
+                      {isPwaStandalone() && hasPushSupport() && (
+                        <button
+                          type="button"
+                          onClick={enablePushOnCurrentDevice}
+                          disabled={enablingProfilePush}
+                          className="bg-green-900 px-5 py-3 font-semibold text-white transition hover:bg-green-800 disabled:opacity-50"
+                        >
+                          {enablingProfilePush ? "Włączanie..." : "Włącz na tym urządzeniu"}
+                        </button>
+                      )}
+                    </div>
+
+                    {pushDevicesLoading ? (
+                      <p className="mt-5 text-sm text-zinc-600 dark:text-red-100/80">
+                        Ładowanie urządzeń...
+                      </p>
+                    ) : pushDevices.length ? (
+                      <div className="mt-5 grid gap-3">
+                        {pushDevices.map((device) => (
+                          <div
+                            key={device.device_id}
+                            className="grid gap-4 border border-zinc-200 bg-white p-4 dark:border-red-950 dark:bg-black sm:grid-cols-[1fr_auto]"
+                          >
+                            <div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <h3 className="font-bold text-zinc-950 dark:text-red-50">
+                                  {device.device_name || "Nieznane urządzenie"}
+                                </h3>
+                                <span className="border border-zinc-300 px-2 py-1 text-xs font-bold text-zinc-700 dark:border-red-900 dark:text-red-100">
+                                  {pushStatusLabel(device.push_status)}
+                                </span>
+                              </div>
+
+                              <p className="mt-2 text-sm leading-6 text-zinc-600 dark:text-red-100/80">
+                                {device.platform || "Urządzenie"} · {device.browser || "Przeglądarka"} · {device.login_source === "pwa_standalone" ? "Aplikacja z ekranu" : "Przeglądarka"}
+                              </p>
+
+                              <p className="mt-1 text-xs leading-5 text-zinc-500 dark:text-red-100/60">
+                                Ostatnio widziane: {pushDateLabel(device.last_seen_at)} · Ostatnia subskrypcja: {pushDateLabel(device.last_subscribed_at)}
+                              </p>
+                            </div>
+
+                            {device.push_status === "enabled" && (
+                              <button
+                                type="button"
+                                onClick={() => disablePushDeviceFromProfile(device)}
+                                disabled={pushDeviceActionId === device.device_id}
+                                className="h-fit bg-zinc-800 px-4 py-2 font-semibold text-white transition hover:bg-zinc-700 disabled:opacity-50"
+                              >
+                                {pushDeviceActionId === device.device_id ? "Wyłączanie..." : "Wyłącz"}
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="mt-5 text-sm leading-6 text-zinc-600 dark:text-red-100/80">
+                        Nie masz jeszcze zapisanych urządzeń do powiadomień push.
+                      </p>
+                    )}
+                  </div>
+
                   <div className="flex flex-wrap gap-4">
                     <button
                       onClick={() => setEditing(true)}

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 
+import PushNotificationPrompt from "@/app/components/PushNotificationPrompt";
 import { apiUrl } from "@/lib/api";
 import { setSessionAuth } from "@/lib/auth";
 import {
@@ -12,6 +13,7 @@ import {
   getStoredAuthRedirectPath,
   safeAuthRedirectPath,
 } from "@/lib/authRedirect";
+import { fetchCurrentPushStatus, isPwaStandalone } from "@/lib/pushNotifications";
 
 type LoginKind = "user" | "club";
 
@@ -32,6 +34,17 @@ function LoginForm() {
   const [loadingKind, setLoadingKind] = useState<LoginKind | null>(null);
   const [userMessage, setUserMessage] = useState("");
   const [clubMessage, setClubMessage] = useState("");
+  const [showPushPrompt, setShowPushPrompt] = useState(false);
+  const [postLoginDestination, setPostLoginDestination] = useState("/");
+
+  function redirectAfterLogin(destination: string) {
+    window.location.href = destination;
+  }
+
+  function finishPushPrompt() {
+    setShowPushPrompt(false);
+    redirectAfterLogin(postLoginDestination);
+  }
 
   async function handleLogin(kind: LoginKind) {
     const email = kind === "club" ? clubEmail : userEmail;
@@ -110,13 +123,22 @@ function LoginForm() {
       setSessionAuth(data);
       setMessage("Logowanie poprawne");
 
-      setTimeout(() => {
-        const destination = safeAuthRedirectPath(searchParams.get("next"))
-          || consumeAuthRedirectPath()
-          || "/";
+      const destination = safeAuthRedirectPath(searchParams.get("next"))
+        || consumeAuthRedirectPath()
+        || "/";
 
-        window.location.href = destination;
-      }, 700);
+      setPostLoginDestination(destination);
+
+      if (isPwaStandalone()) {
+        const pushStatus = await fetchCurrentPushStatus();
+
+        if (pushStatus?.should_prompt) {
+          setShowPushPrompt(true);
+          return;
+        }
+      }
+
+      setTimeout(() => redirectAfterLogin(destination), 700);
     } catch (error) {
       console.error(error);
       setMessage("Błąd połączenia z serwerem");
@@ -132,6 +154,10 @@ function LoginForm() {
 
   return (
     <main className="min-h-screen w-full flex items-center justify-center px-6 py-10">
+      {showPushPrompt && (
+        <PushNotificationPrompt onFinished={finishPushPrompt} />
+      )}
+
       <section className="w-full max-w-2xl bg-white rounded-3xl shadow-2xl p-8">
         <div className="mb-6 grid grid-cols-2 rounded-xl bg-gray-100 p-1">
           <button

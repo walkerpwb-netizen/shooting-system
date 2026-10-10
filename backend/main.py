@@ -28,6 +28,7 @@ from models import (
     AdDailyStat,
     AppSetting,
     HomePost,
+    PushSubscription,
     ShootingRange,
     ShootingRangeSubmission,
     User,
@@ -135,6 +136,17 @@ MONITORED_SERVICES = [
     "postgresql.service",
     "shooting-postgres-backup.timer",
 ]
+PUSH_STATUS_ENABLED = "enabled"
+PUSH_STATUS_DENIED = "denied"
+PUSH_STATUS_DISMISSED = "dismissed"
+PUSH_STATUS_EXPIRED = "expired"
+PUSH_STATUS_UNKNOWN = "unknown"
+PUSH_LOGIN_SOURCE_PWA = "pwa_standalone"
+PUSH_PROMPT_BLOCKING_STATUSES = {
+    PUSH_STATUS_ENABLED,
+    PUSH_STATUS_DENIED,
+    PUSH_STATUS_DISMISSED,
+}
 
 pwd_context = CryptContext(
     schemes=["bcrypt"],
@@ -233,6 +245,33 @@ class AdminCreateUserData(BaseModel):
 class LoginData(BaseModel):
     email: str
     password: str
+
+
+class PushSubscriptionStatusData(BaseModel):
+    device_id: str
+    device_name: str = ""
+    platform: str = ""
+    browser: str = ""
+    login_source: str = ""
+    notification_permission: str = ""
+
+
+class PushSubscriptionKeysData(BaseModel):
+    p256dh: str = ""
+    auth: str = ""
+
+
+class BrowserPushSubscriptionData(BaseModel):
+    endpoint: str
+    keys: PushSubscriptionKeysData
+
+
+class PushSubscriptionSaveData(PushSubscriptionStatusData):
+    subscription: BrowserPushSubscriptionData
+
+
+class PushSubscriptionDecisionData(PushSubscriptionStatusData):
+    push_status: str
 
 
 class ForgotPasswordData(BaseModel):
@@ -2838,6 +2877,106 @@ def private_user_response(user: User, db, message: str = ""):
         response["message"] = message
 
     return response
+
+
+def push_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def push_clean_text(value: str, max_length: int = 255) -> str:
+    return normalize_text(value or "")[:max_length]
+
+
+def push_subscription_for_device(user: User, device_id: str, db) -> Optional[PushSubscription]:
+    cleaned_device_id = push_clean_text(device_id, 128)
+
+    if not cleaned_device_id:
+        return None
+
+    return (
+        db.query(PushSubscription)
+        .filter(
+            PushSubscription.user_id == user.id,
+            PushSubscription.device_id == cleaned_device_id,
+        )
+        .first()
+    )
+
+
+def update_push_device_metadata(
+    push_subscription: PushSubscription,
+    data: PushSubscriptionStatusData,
+    request: Request,
+    now_iso: str,
+) -> None:
+    push_subscription.device_name = push_clean_text(data.device_name, 120)
+    push_subscription.platform = push_clean_text(data.platform, 80)
+    push_subscription.browser = push_clean_text(data.browser, 80)
+    push_subscription.login_source = push_clean_text(data.login_source, 60)
+    push_subscription.user_agent = (request.headers.get("user-agent") or "")[:1000]
+    push_subscription.updated_at = now_iso
+    push_subscription.last_seen_at = now_iso
+
+
+def upsert_push_device(
+    user: User,
+    data: PushSubscriptionStatusData,
+    request: Request,
+    db,
+) -> PushSubscription:
+    device_id = push_clean_text(data.device_id, 128)
+
+    if not device_id:
+        raise HTTPException(status_code=400, detail="Brak identyfikatora urządzenia")
+
+    now_iso = push_now_iso()
+    push_subscription = push_subscription_for_device(user, device_id, db)
+
+    if not push_subscription:
+        push_subscription = PushSubscription(
+            user_id=user.id,
+            device_id=device_id,
+            push_status=PUSH_STATUS_UNKNOWN,
+            created_at=now_iso,
+        )
+        db.add(push_subscription)
+
+    update_push_device_metadata(push_subscription, data, request, now_iso)
+
+    return push_subscription
+
+
+def push_subscription_response(push_subscription: PushSubscription):
+    return {
+        "id": push_subscription.id,
+        "device_id": push_subscription.device_id,
+        "device_name": push_subscription.device_name or "Nieznane urządzenie",
+        "platform": push_subscription.platform or "",
+        "browser": push_subscription.browser or "",
+        "login_source": push_subscription.login_source or "",
+        "push_status": push_subscription.push_status or PUSH_STATUS_UNKNOWN,
+        "has_subscription": bool(push_subscription.endpoint),
+        "created_at": push_subscription.created_at or "",
+        "updated_at": push_subscription.updated_at or "",
+        "last_seen_at": push_subscription.last_seen_at or "",
+        "last_subscribed_at": push_subscription.last_subscribed_at or "",
+        "disabled_at": push_subscription.disabled_at or "",
+    }
+
+
+def should_prompt_for_push(push_subscription: PushSubscription, data: PushSubscriptionStatusData) -> bool:
+    if push_clean_text(data.login_source, 60) != PUSH_LOGIN_SOURCE_PWA:
+        return False
+
+    if push_clean_text(data.notification_permission, 32) == "denied":
+        return False
+
+    push_status = push_subscription.push_status or PUSH_STATUS_UNKNOWN
+
+    if push_status in PUSH_PROMPT_BLOCKING_STATUSES:
+        return False
+
+    return not bool(push_subscription.endpoint)
 
 
 
@@ -15363,6 +15502,150 @@ def get_me(
     db=Depends(get_db),
 ):
     return private_user_response(user, db)
+
+
+@app.get("/me/push-subscriptions")
+def get_my_push_subscriptions(
+    user: User = Depends(get_current_user),
+    db=Depends(get_db),
+):
+    subscriptions = (
+        db.query(PushSubscription)
+        .filter(PushSubscription.user_id == user.id)
+        .order_by(PushSubscription.last_seen_at.desc().nullslast(), PushSubscription.id.desc())
+        .all()
+    )
+
+    return [
+        push_subscription_response(subscription)
+        for subscription in subscriptions
+    ]
+
+
+@app.post("/me/push-subscriptions/status")
+def get_my_push_subscription_status(
+    data: PushSubscriptionStatusData,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db=Depends(get_db),
+):
+    push_subscription = upsert_push_device(user, data, request, db)
+
+    if (
+        push_clean_text(data.notification_permission, 32) == "denied"
+        and push_subscription.push_status != PUSH_STATUS_DENIED
+    ):
+        push_subscription.push_status = PUSH_STATUS_DENIED
+        push_subscription.endpoint = None
+        push_subscription.p256dh_key = None
+        push_subscription.auth_key = None
+        push_subscription.disabled_at = push_now_iso()
+
+    db.commit()
+    db.refresh(push_subscription)
+
+    response = push_subscription_response(push_subscription)
+    response["should_prompt"] = should_prompt_for_push(push_subscription, data)
+
+    return response
+
+
+@app.put("/me/push-subscriptions")
+def save_my_push_subscription(
+    data: PushSubscriptionSaveData,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db=Depends(get_db),
+):
+    endpoint = push_clean_text(data.subscription.endpoint, 2000)
+    p256dh_key = push_clean_text(data.subscription.keys.p256dh, 500)
+    auth_key = push_clean_text(data.subscription.keys.auth, 500)
+
+    if not endpoint or not p256dh_key or not auth_key:
+        raise HTTPException(
+            status_code=400,
+            detail="Niepełna subskrypcja powiadomień push",
+        )
+
+    push_subscription = upsert_push_device(user, data, request, db)
+    now_iso = push_now_iso()
+    push_subscription.push_status = PUSH_STATUS_ENABLED
+    push_subscription.endpoint = endpoint
+    push_subscription.p256dh_key = p256dh_key
+    push_subscription.auth_key = auth_key
+    push_subscription.last_subscribed_at = now_iso
+    push_subscription.disabled_at = None
+    push_subscription.updated_at = now_iso
+    db.commit()
+    db.refresh(push_subscription)
+
+    response = push_subscription_response(push_subscription)
+    response["should_prompt"] = False
+    response["message"] = "Urządzenie zapisane do powiadomień push"
+
+    return response
+
+
+@app.post("/me/push-subscriptions/decision")
+def save_my_push_subscription_decision(
+    data: PushSubscriptionDecisionData,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db=Depends(get_db),
+):
+    push_status = push_clean_text(data.push_status, 32)
+
+    if push_status not in {PUSH_STATUS_DENIED, PUSH_STATUS_DISMISSED}:
+        raise HTTPException(
+            status_code=400,
+            detail="Nieprawidłowa decyzja powiadomień push",
+        )
+
+    push_subscription = upsert_push_device(user, data, request, db)
+    now_iso = push_now_iso()
+    push_subscription.push_status = push_status
+    push_subscription.endpoint = None
+    push_subscription.p256dh_key = None
+    push_subscription.auth_key = None
+    push_subscription.disabled_at = now_iso
+    push_subscription.updated_at = now_iso
+    db.commit()
+    db.refresh(push_subscription)
+
+    response = push_subscription_response(push_subscription)
+    response["should_prompt"] = False
+
+    return response
+
+
+@app.delete("/me/push-subscriptions/{device_id}")
+def disable_my_push_subscription(
+    device_id: str,
+    user: User = Depends(get_current_user),
+    db=Depends(get_db),
+):
+    push_subscription = push_subscription_for_device(user, device_id, db)
+
+    if not push_subscription:
+        raise HTTPException(
+            status_code=404,
+            detail="Urządzenie nie istnieje w profilu",
+        )
+
+    now_iso = push_now_iso()
+    push_subscription.push_status = PUSH_STATUS_DISMISSED
+    push_subscription.endpoint = None
+    push_subscription.p256dh_key = None
+    push_subscription.auth_key = None
+    push_subscription.disabled_at = now_iso
+    push_subscription.updated_at = now_iso
+    db.commit()
+    db.refresh(push_subscription)
+
+    response = push_subscription_response(push_subscription)
+    response["message"] = "Powiadomienia na tym urządzeniu zostały wyłączone"
+
+    return response
 
 
 @app.get("/me/statistics")
