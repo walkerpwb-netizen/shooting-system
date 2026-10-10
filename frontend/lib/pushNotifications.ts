@@ -114,6 +114,44 @@ function notificationPermission() {
     : Notification.permission;
 }
 
+function isIosDevice() {
+  return /iphone|ipad|ipod/i.test(navigator.userAgent)
+    || (navigator.maxTouchPoints > 1 && /macintosh/i.test(navigator.userAgent));
+}
+
+function permissionErrorMessage(permission: NotificationPermission) {
+  if (permission === "denied") {
+    return "Powiadomienia są zablokowane w ustawieniach systemu lub aplikacji.";
+  }
+
+  if (isIosDevice()) {
+    return "iPhone nie wyświetlił systemowego pytania. Uruchom aplikację z ikony na ekranie początkowym, sprawdź iOS 16.4 lub nowszy oraz Ustawienia > Powiadomienia.";
+  }
+
+  return "Powiadomienia nie zostały włączone.";
+}
+
+function requestNotificationPermission() {
+  return new Promise<NotificationPermission>((resolve) => {
+    let resolved = false;
+
+    function finish(permission: NotificationPermission) {
+      if (resolved) {
+        return;
+      }
+
+      resolved = true;
+      resolve(permission);
+    }
+
+    const permissionResult = Notification.requestPermission(finish);
+
+    if (permissionResult?.then) {
+      permissionResult.then(finish).catch(() => finish(Notification.permission));
+    }
+  });
+}
+
 export function hasPushSupport() {
   return typeof window !== "undefined"
     && "serviceWorker" in navigator
@@ -206,11 +244,11 @@ export async function subscribeCurrentDeviceToPush() {
     throw new Error("Ta przeglądarka nie obsługuje powiadomień push w aplikacji.");
   }
 
-  const permission = await Notification.requestPermission();
+  const permission = await requestNotificationPermission();
 
   if (permission !== "granted") {
     await saveCurrentPushDecision(permission === "denied" ? "denied" : "dismissed");
-    throw new Error("Powiadomienia nie zostały włączone.");
+    throw new Error(permissionErrorMessage(permission));
   }
 
   const registration = await registerPushServiceWorker();

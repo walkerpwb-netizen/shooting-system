@@ -5,6 +5,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "System Strzelecki",
     short_name: "SystemStrzelecki",
     description: "System Organizacji Zawodów Strzeleckich",
+    id: "/",
     start_url: "/",
     display: "standalone",
     background_color: "#031c18",
