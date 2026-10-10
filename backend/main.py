@@ -8,6 +8,7 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import func, or_, text
 from PIL import Image, ImageOps, ImageDraw, ImageFont, UnidentifiedImageError
 from html import escape
+from pywebpush import WebPushException, webpush
 
 from database import SessionLocal
 from config import settings
@@ -3031,6 +3032,279 @@ def push_preference_response(user: User, preference: PushPreference):
         "organizer_participant_changes_available": organizer_available,
         "updated_at": preference.updated_at or "",
     }
+
+
+def push_event_path(competition: Competition) -> str:
+    prefix = "/trainings" if is_training_event(competition) else "/competitions"
+
+    return f"{prefix}/{competition.id}"
+
+
+def push_event_url(competition: Competition) -> str:
+    return f"{settings.frontend_url}{push_event_path(competition)}"
+
+
+def push_event_label(competition: Competition) -> str:
+    return "szkolenie" if is_training_event(competition) else "zawody"
+
+
+def push_event_label_title(competition: Competition) -> str:
+    return "Szkolenie" if is_training_event(competition) else "Zawody"
+
+
+def push_event_location_line(competition: Competition) -> str:
+    parts = [
+        normalize_text(getattr(competition, "date", "") or ""),
+        normalize_text(getattr(competition, "location", "") or ""),
+    ]
+
+    return ", ".join(part for part in parts if part)
+
+
+def push_participant_display_name(participant: CompetitionParticipant, user: User) -> str:
+    display_name = normalize_text(
+        f"{getattr(user, 'first_name', '') or ''} {getattr(user, 'last_name', '') or ''}"
+    )
+
+    if display_name:
+        return display_name
+
+    return normalize_text(getattr(participant, "user_email", "") or user.email)
+
+
+def push_preference_enabled(user: User, preference: Optional[PushPreference], key: str) -> bool:
+    if key == "organizer_participant_changes" and not user_can_receive_organizer_push(user):
+        return False
+
+    if not preference:
+        return True if key != "organizer_participant_changes" else user_can_receive_organizer_push(user)
+
+    return bool(getattr(preference, key, 0))
+
+
+def push_subscriptions_for_preference(
+    db,
+    preference_key: str,
+    user_ids: Optional[set[int]] = None,
+    user_emails: Optional[set[str]] = None,
+) -> list[PushSubscription]:
+    if user_ids is not None and not user_ids:
+        return []
+
+    normalized_emails = {
+        normalize_text(email).lower()
+        for email in (user_emails or set())
+        if normalize_text(email)
+    }
+
+    if user_emails is not None and not normalized_emails:
+        return []
+
+    query = (
+        db.query(PushSubscription, User, PushPreference)
+        .join(User, User.id == PushSubscription.user_id)
+        .outerjoin(PushPreference, PushPreference.user_id == User.id)
+        .filter(
+            PushSubscription.push_status == PUSH_STATUS_ENABLED,
+            PushSubscription.endpoint.isnot(None),
+            PushSubscription.p256dh_key.isnot(None),
+            PushSubscription.auth_key.isnot(None),
+        )
+    )
+
+    if user_ids is not None:
+        query = query.filter(User.id.in_(user_ids))
+
+    if user_emails is not None:
+        query = query.filter(func.lower(User.email).in_(normalized_emails))
+
+    subscriptions: list[PushSubscription] = []
+    seen_subscription_ids: set[int] = set()
+
+    for subscription, user, preference in query.all():
+        if subscription.id in seen_subscription_ids:
+            continue
+
+        if not push_preference_enabled(user, preference, preference_key):
+            continue
+
+        seen_subscription_ids.add(subscription.id)
+        subscriptions.append(subscription)
+
+    return subscriptions
+
+
+def send_push_notifications(
+    db,
+    subscriptions: list[PushSubscription],
+    title: str,
+    body: str,
+    url: str,
+) -> dict[str, int]:
+    result = {
+        "eligible": len(subscriptions),
+        "sent": 0,
+        "failed": 0,
+        "expired": 0,
+    }
+
+    if not subscriptions:
+        return result
+
+    if not settings.web_push_private_key or not settings.web_push_public_key:
+        print("Push notifications skipped: missing VAPID configuration")
+        result["failed"] = len(subscriptions)
+        return result
+
+    payload = json.dumps(
+        {
+            "title": title,
+            "body": body,
+            "url": url,
+        },
+        ensure_ascii=False,
+    )
+
+    for subscription in subscriptions:
+        try:
+            webpush(
+                subscription_info={
+                    "endpoint": subscription.endpoint,
+                    "keys": {
+                        "p256dh": subscription.p256dh_key,
+                        "auth": subscription.auth_key,
+                    },
+                },
+                data=payload,
+                vapid_private_key=settings.web_push_private_key,
+                vapid_claims={"sub": settings.web_push_vapid_subject},
+                timeout=10,
+                ttl=86400,
+            )
+            result["sent"] += 1
+        except WebPushException as exc:
+            status_code = getattr(getattr(exc, "response", None), "status_code", None)
+
+            if status_code in {404, 410}:
+                subscription.push_status = PUSH_STATUS_EXPIRED
+                subscription.endpoint = None
+                subscription.p256dh_key = None
+                subscription.auth_key = None
+                subscription.disabled_at = push_now_iso()
+                subscription.updated_at = push_now_iso()
+                result["expired"] += 1
+            else:
+                print(
+                    "Push notification failed "
+                    f"subscription_id={subscription.id} status={status_code} error={exc}"
+                )
+                result["failed"] += 1
+        except Exception as exc:
+            print(f"Push notification failed subscription_id={subscription.id} error={exc}")
+            result["failed"] += 1
+
+    if result["expired"]:
+        db.commit()
+
+    return result
+
+
+def notify_new_published_event(competition: Competition, db) -> dict[str, int]:
+    location_line = push_event_location_line(competition)
+    body = competition.name
+
+    if location_line:
+        body = f"{body} · {location_line}"
+
+    return send_push_notifications(
+        db,
+        push_subscriptions_for_preference(db, "new_events"),
+        f"Nowe {push_event_label(competition)}",
+        body,
+        push_event_url(competition),
+    )
+
+
+def notify_participants_event_cancelled(
+    competition: Competition,
+    participants: list[CompetitionParticipant],
+    db,
+) -> dict[str, int]:
+    participant_emails = {
+        participant.user_email
+        for participant in participants
+        if normalize_text(getattr(participant, "user_email", ""))
+    }
+    label = push_event_label_title(competition)
+    verb = "zostało odwołane" if is_training_event(competition) else "zostały odwołane"
+
+    return send_push_notifications(
+        db,
+        push_subscriptions_for_preference(
+            db,
+            "my_event_cancelled",
+            user_emails=participant_emails,
+        ),
+        f"{label} odwołane",
+        f"{competition.name} {verb}.",
+        push_event_url(competition),
+    )
+
+
+def notify_participants_event_started(competition: Competition, db) -> dict[str, int]:
+    participant_emails = {
+        participant.user_email
+        for participant in competition_shooter_participants(competition, db)
+        if normalize_text(getattr(participant, "user_email", ""))
+    }
+
+    return send_push_notifications(
+        db,
+        push_subscriptions_for_preference(
+            db,
+            "my_event_started",
+            user_emails=participant_emails,
+        ),
+        f"{push_event_label_title(competition)} rozpoczęte",
+        f"Rozpoczęto {push_event_label(competition)}: {competition.name}.",
+        push_event_url(competition),
+    )
+
+
+def notify_organizer_participant_change(
+    competition: Competition,
+    participant_name: str,
+    action: str,
+    db,
+) -> dict[str, int]:
+    organizer = competition_owner_user(competition, db)
+
+    if not organizer:
+        return {"eligible": 0, "sent": 0, "failed": 0, "expired": 0}
+
+    participants_count = (
+        db.query(CompetitionParticipant)
+        .filter(CompetitionParticipant.competition_id == competition.id)
+        .filter(shooter_entry_filter())
+        .count()
+    )
+    event_label = push_event_label(competition)
+    action_label = "zapisał(a) się" if action == "joined" else "wypisał(a) się"
+
+    return send_push_notifications(
+        db,
+        push_subscriptions_for_preference(
+            db,
+            "organizer_participant_changes",
+            user_ids={organizer.id},
+        ),
+        f"Zmiana zapisów: {competition.name}",
+        (
+            f"{participant_name} {action_label} na Twoje {event_label}. "
+            f"Masz teraz {participants_count} zapisanych uczestników."
+        ),
+        push_event_url(competition),
+    )
 
 
 
@@ -15263,6 +15537,8 @@ def join_competition(
                 detail="Limit zawodników został osiągnięty"
             )
 
+    created_participant = not bool(existing_participant)
+
     if existing_participant:
         participant = existing_participant
         participant.entry_type = "shooter"
@@ -15314,12 +15590,24 @@ def join_competition(
         db.add(participant_discipline)
 
     db.commit()
+    db.refresh(participant)
+
+    push_result = {"eligible": 0, "sent": 0, "failed": 0, "expired": 0}
+
+    if created_participant:
+        push_result = notify_organizer_participant_change(
+            competition,
+            push_participant_display_name(participant, user),
+            "joined",
+            db,
+        )
 
     participants = public_shooter_participants(competition, db)
     include_private = can_view_participant_private_fields(user, competition)
 
     return {
         "message": "Zapisano na zawody",
+        "push_notifications": push_result,
         "participants": [
             public_participant(participant, db, include_private=include_private)
             for participant in participants
@@ -15372,14 +15660,24 @@ def leave_competition(
             detail="Nie jesteś zapisany na te zawody jako strzelec"
         )
 
+    participant_name = push_participant_display_name(participant, user)
+
     delete_participant_with_dependencies(participant, db)
     db.commit()
+
+    push_result = notify_organizer_participant_change(
+        competition,
+        participant_name,
+        "left",
+        db,
+    )
 
     participants = public_shooter_participants(competition, db)
     include_private = can_view_participant_private_fields(user, competition)
 
     return {
         "message": "Wypisano z zawodów",
+        "push_notifications": push_result,
         "participants": [
             public_participant(participant, db, include_private=include_private)
             for participant in participants
@@ -16536,13 +16834,20 @@ def publish_competition(
         organizer = competition_owner_user(competition, db) or user
         require_organizer_publication_slot(organizer, competition, db)
 
+    was_published = competition.status == "published"
     competition.status = "published"
     db.commit()
+
+    push_result = {"eligible": 0, "sent": 0, "failed": 0, "expired": 0}
+
+    if not was_published:
+        push_result = notify_new_published_event(competition, db)
 
     return {
         "message": "Zawody opublikowane",
         "competition_id": competition.id,
         "status": competition.status,
+        "push_notifications": push_result,
     }
 
 
@@ -16652,10 +16957,13 @@ def start_competition(
     competition.status = "started"
     db.commit()
 
+    push_result = notify_participants_event_started(competition, db)
+
     return {
         "message": "Zawody rozpoczęte",
         "competition_id": competition.id,
         "status": competition.status,
+        "push_notifications": push_result,
     }
 
 
@@ -16710,11 +17018,18 @@ def cancel_competition_for_low_attendance(
     competition.completed_at = now_iso()
     db.commit()
 
+    push_result = notify_participants_event_cancelled(
+        competition,
+        participants,
+        db,
+    )
+
     return {
         "message": "Zawody odwołane",
         "competition_id": competition.id,
         "status": competition.status,
         "notified_participants_count": sent_count,
+        "push_notifications": push_result,
         "participants_count": len(participants),
     }
 

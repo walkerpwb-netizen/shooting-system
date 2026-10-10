@@ -72,6 +72,9 @@ class Settings:
     smtp_from_name: str
     smtp_use_tls: bool
     admin_new_user_notification_email: str
+    web_push_public_key: str
+    web_push_private_key: str
+    web_push_vapid_subject: str
 
     @property
     def is_sqlite_database(self) -> bool:
@@ -106,5 +109,11 @@ settings = Settings(
     admin_new_user_notification_email=os.getenv(
         "ADMIN_NEW_USER_NOTIFICATION_EMAIL",
         "walkerpwb@gmail.com",
+    ),
+    web_push_public_key=os.getenv("WEB_PUSH_PUBLIC_KEY", ""),
+    web_push_private_key=os.getenv("WEB_PUSH_PRIVATE_KEY", ""),
+    web_push_vapid_subject=os.getenv(
+        "WEB_PUSH_VAPID_SUBJECT",
+        "mailto:info@system-strzelecki.pl",
     ),
 )
