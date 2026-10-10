@@ -1936,7 +1936,7 @@ export default function ProfilePage() {
                         <button
                           type="button"
                           onClick={enablePushOnCurrentDevice}
-                          disabled={enablingProfilePush || notificationPermission === "denied"}
+                          disabled={enablingProfilePush}
                           className="bg-green-900 px-5 py-3 font-semibold text-white transition hover:bg-green-800 disabled:opacity-50"
                         >
                           {enablingProfilePush ? "Włączanie..." : "Włącz na tym urządzeniu"}
@@ -1946,7 +1946,7 @@ export default function ProfilePage() {
 
                     {notificationPermission === "denied" && (
                       <p className="mt-5 border border-yellow-500/50 bg-yellow-400/10 px-4 py-3 text-sm leading-6 text-yellow-900 dark:text-yellow-100">
-                        Powiadomienia są zablokowane przez iOS/Safari. Usuń zapis urządzenia z profilu, a potem odblokuj powiadomienia w ustawieniach iOS albo usuń aplikację z ekranu początkowego i dodaj ją ponownie z Safari.
+                        Powiadomienia są zablokowane przez iOS/Safari. Usuń zapis urządzenia z profilu, a potem odblokuj powiadomienia w ustawieniach iOS albo usuń aplikację z ekranu początkowego i dodaj ją ponownie z Safari. Jeśli widzisz dolny pasek Safari, aplikacja nie działa w trybie PWA wymaganym przez iOS Web Push.
                       </p>
                     )}
 

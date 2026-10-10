@@ -121,11 +121,11 @@ function isIosDevice() {
 
 function permissionErrorMessage(permission: NotificationPermission) {
   if (permission === "denied") {
-    return "Powiadomienia są zablokowane w ustawieniach systemu lub aplikacji.";
+    return "Powiadomienia są zablokowane w ustawieniach systemu lub aplikacji. Na iPhonie usuń aplikację z ekranu początkowego i dodaj ją ponownie z Safari z włączoną opcją otwierania jako aplikacja webowa. Jeżeli widzisz dolny pasek Safari, iOS nie uruchomił pełnej aplikacji PWA dla Web Push.";
   }
 
   if (isIosDevice()) {
-    return "iPhone nie wyświetlił systemowego pytania. Uruchom aplikację z ikony na ekranie początkowym, sprawdź iOS 16.4 lub nowszy oraz Ustawienia > Powiadomienia.";
+    return "iPhone nie wyświetlił systemowego pytania. Uruchom aplikację z ikony na ekranie początkowym, sprawdź iOS 16.4 lub nowszy oraz czy aplikacja otwiera się bez dolnego paska Safari.";
   }
 
   return "Powiadomienia nie zostały włączone.";
