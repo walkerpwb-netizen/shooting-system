@@ -8081,31 +8081,24 @@ def validate_competition_can_be_cancelled_for_low_attendance(
     return missing_count
 
 
-def cancellation_email_content(
-    competition: Competition,
-    missing_count: int,
-) -> tuple[str, str, str]:
+def cancellation_email_content(competition: Competition) -> tuple[str, str, str]:
     organizer = competition.organizer_full_name or "organizatora"
-    subject = f"Zawody {competition.name} zostały odwołane"
+    event_label = "Szkolenie" if is_training_event(competition) else "Zawody"
+    verb = "zostało odwołane" if is_training_event(competition) else "zostały odwołane"
+    subject = f"{event_label} {competition.name} {verb}"
     text_body = (
         "Dzień dobry,\n\n"
-        f"Zawody {competition.name}, zaplanowane na {competition.date} w lokalizacji {competition.location}, "
-        "zostały odwołane przez organizatora.\n\n"
-        "Powód: niewystarczająca liczba zapisanych zawodników po zakończeniu zapisów. "
-        f"Do minimalnej liczby brakowało {missing_count} zawodników.\n\n"
+        f"{event_label} {competition.name}, zaplanowane na {competition.date} w lokalizacji {competition.location}, "
+        f"{verb} przez organizatora.\n\n"
         f"Organizator: {organizer}\n\n"
         "To wiadomość automatyczna z Systemu Strzeleckiego.\n"
     )
     html_body = f"""
     <p>Dzień dobry,</p>
     <p>
-      Zawody <strong>{escape(competition.name)}</strong>, zaplanowane na
+      {escape(event_label)} <strong>{escape(competition.name)}</strong>, zaplanowane na
       <strong>{escape(competition.date)}</strong> w lokalizacji
-      <strong>{escape(competition.location)}</strong>, zostały odwołane przez organizatora.
-    </p>
-    <p>
-      Powód: niewystarczająca liczba zapisanych zawodników po zakończeniu zapisów.
-      Do minimalnej liczby brakowało <strong>{missing_count}</strong> zawodników.
+      <strong>{escape(competition.location)}</strong>, {escape(verb)} przez organizatora.
     </p>
     <p>Organizator: {escape(organizer)}</p>
     <p>To wiadomość automatyczna z Systemu Strzeleckiego.</p>
@@ -8117,12 +8110,8 @@ def cancellation_email_content(
 def send_competition_cancelled_emails(
     competition: Competition,
     participants: list[CompetitionParticipant],
-    missing_count: int,
 ):
-    subject, text_body, html_body = cancellation_email_content(
-        competition,
-        missing_count,
-    )
+    subject, text_body, html_body = cancellation_email_content(competition)
     sent_emails: set[str] = set()
 
     for participant in participants:
@@ -16672,6 +16661,19 @@ def delete_competition(
             detail="Nie można usunąć rozpoczętych lub zakończonych zawodów"
         )
 
+    participants_count = (
+        db.query(CompetitionParticipant)
+        .filter(CompetitionParticipant.competition_id == competition.id)
+        .filter(shooter_entry_filter())
+        .count()
+    )
+
+    if competition.status == "published" and participants_count > 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Opublikowane wydarzenie z zapisanymi uczestnikami trzeba odwołać zamiast usuwać"
+        )
+
     delete_competition_with_dependencies(competition, db)
     refresh_ranking_and_achievement_entries(db)
     db.commit()
@@ -16968,7 +16970,7 @@ def start_competition(
 
 
 @app.put("/competitions/{competition_id}/cancel")
-def cancel_competition_for_low_attendance(
+def cancel_competition(
     competition_id: int,
     data: CancelCompetitionData,
     user: User = Depends(get_current_organizer),
@@ -16994,11 +16996,20 @@ def cancel_competition_for_low_attendance(
             detail="Brak dostępu"
         )
 
-    missing_count = validate_competition_can_be_cancelled_for_low_attendance(
-        competition,
-        db,
-    )
+    if competition.status != "published":
+        raise HTTPException(
+            status_code=400,
+            detail="Odwołać można tylko opublikowane zawody lub szkolenie"
+        )
+
     participants = competition_shooter_participants(competition, db)
+
+    if not participants:
+        raise HTTPException(
+            status_code=400,
+            detail="Wydarzenie bez zapisanych uczestników można usunąć zamiast odwoływać"
+        )
+
     sent_count = 0
 
     if data.notify_participants:
@@ -17006,7 +17017,6 @@ def cancel_competition_for_low_attendance(
             sent_count = send_competition_cancelled_emails(
                 competition,
                 participants,
-                missing_count,
             )
         except (MailConfigurationError, MailDeliveryError) as exc:
             raise HTTPException(

@@ -577,16 +577,6 @@ function hasShooterEntries(competition: Competition) {
   return (competition.shooters_count || competition.participants?.length || 0) > 0;
 }
 
-function isRegistrationDeadlineReached(value: string | null | undefined, now: number) {
-  if (!value) {
-    return false;
-  }
-
-  const timestamp = new Date(value).getTime();
-
-  return Number.isFinite(timestamp) && timestamp <= now;
-}
-
 function isCompetitionDateReached(dateValue: string) {
   const normalizedDate = dateValue.includes(".")
     ? dateValue.split(".").reverse().join("-")
@@ -666,7 +656,6 @@ function OrganizerContent() {
   const [deletingDisciplineId, setDeletingDisciplineId] = useState<number | null>(null);
   const [competitionNameFilter, setCompetitionNameFilter] = useState("");
   const [showDisciplineContact, setShowDisciplineContact] = useState(false);
-  const [currentTime, setCurrentTime] = useState(() => Date.now());
   const canManageDisciplines = !editingCompetitionId || editingCompetitionStatus === "draft";
   const isTrainingForm = eventType === "training";
   const eventLabels = {
@@ -727,12 +716,6 @@ function OrganizerContent() {
     competitionNameFilter,
     competitions,
   ]);
-
-  useEffect(() => {
-    const intervalId = window.setInterval(() => setCurrentTime(Date.now()), 30000);
-
-    return () => window.clearInterval(intervalId);
-  }, []);
 
   function showPremiumPublicationLimitDialog(detail: string) {
     if (!detail.includes("Możesz mieć tylko jedne zawody opublikowane jednocześnie")) {
@@ -1288,10 +1271,11 @@ function OrganizerContent() {
         return;
       }
 
+      const eventName = cancelDialogCompetition.event_type === "training" ? "Szkolenie" : "Zawody";
       const emailInfo = notifyCancelledParticipants
         ? ` Wysłano e-maili: ${data.notified_participants_count || 0}.`
         : "";
-      setMessage(`Zawody odwołane ✅${emailInfo}`);
+      setMessage(`${eventName} odwołane ✅${emailInfo}`);
       setCancelDialogCompetition(null);
       setNotifyCancelledParticipants(false);
       fetchOrganizerCompetitions();
@@ -3557,17 +3541,16 @@ function OrganizerContent() {
                     : 0;
                   const missingJudgesCount = competition.missing_judge_disciplines?.length || 0;
                   const canStartByDate = isCompetitionDateReached(competition.date);
-                  const registrationDeadlineReached = isRegistrationDeadlineReached(
-                    competition.registration_deadline,
-                    currentTime
-                  );
                   const startBlockedByMinParticipants = Boolean(
                     competition.min_participants && missingMinParticipants > 0
                   );
-                  const canCancelByLowAttendance = Boolean(
+                  const canCancelPublishedEvent = Boolean(
                     competition.status === "published"
-                    && registrationDeadlineReached
-                    && startBlockedByMinParticipants
+                    && shootersCount > 0
+                  );
+                  const canDeleteCompetition = !(
+                    competition.status === "published"
+                    && shootersCount > 0
                   );
                   const startDisabled = !canStartByDate
                     || missingJudgesCount > 0
@@ -3642,7 +3625,7 @@ function OrganizerContent() {
 
                       {competition.status === "cancelled" && (
                         <p className="mt-2 rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-xs font-bold text-zinc-800 dark:border-zinc-700 dark:bg-zinc-950/50 dark:text-gray-200">
-                          Zawody zostały odwołane z powodu niewystarczającej liczby zapisanych zawodników.
+                          {isTrainingEvent ? "Szkolenie zostało odwołane." : "Zawody zostały odwołane."}
                         </p>
                       )}
 
@@ -3731,7 +3714,7 @@ function OrganizerContent() {
                         </button>
                       )}
 
-                      {canCancelByLowAttendance && (
+                      {canCancelPublishedEvent && (
                         <button
                           type="button"
                           onClick={() => openCancelCompetitionDialog(competition)}
@@ -3740,7 +3723,9 @@ function OrganizerContent() {
                         >
                           {cancellingCompetitionId === competition.id
                             ? "Odwołuję..."
-                            : "Odwołaj zawody"}
+                            : isTrainingEvent
+                              ? "Odwołaj szkolenie"
+                              : "Odwołaj zawody"}
                         </button>
                       )}
 
@@ -3784,7 +3769,7 @@ function OrganizerContent() {
                             {pzssPdfDownloadingId === competition.id ? "Generuję..." : "Komunikaty dla PZSS"}
                           </button>
                         </>
-                      ) : (
+                      ) : canDeleteCompetition ? (
                         <button
                           type="button"
                           onClick={() => handleDeleteCompetition(competition.id)}
@@ -3793,7 +3778,7 @@ function OrganizerContent() {
                         >
                           Usuń
                         </button>
-                      )}
+                      ) : null}
                     </div>
                   </div>
                   );
@@ -3814,11 +3799,11 @@ function OrganizerContent() {
         >
           <div className="w-full max-w-xl rounded-2xl border border-red-500/70 bg-zinc-950 p-6 text-white shadow-2xl">
             <h2 id="cancel-competition-title" className="text-2xl font-black text-red-200">
-              Odwołać zawody?
+              Odwołać {cancelDialogCompetition.event_type === "training" ? "szkolenie" : "zawody"}?
             </h2>
 
             <p className="mt-4 text-base leading-7 text-gray-100">
-              Ta akcja oznaczy zawody jako odwołane i ukryje je poza panelem organizatora.
+              Ta akcja oznaczy {cancelDialogCompetition.event_type === "training" ? "szkolenie" : "zawody"} jako odwołane i wyśle powiadomienia push do zapisanych uczestników.
             </p>
 
             <div className="mt-3 rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3">
@@ -3826,7 +3811,7 @@ function OrganizerContent() {
                 {cancelDialogCompetition.name}
               </p>
               <p className="mt-1 text-sm text-gray-300">
-                Zapisani zawodnicy: {cancelDialogCompetition.shooters_count || cancelDialogCompetition.participants?.length || 0}
+                Zapisani {cancelDialogCompetition.event_type === "training" ? "uczestnicy" : "zawodnicy"}: {cancelDialogCompetition.shooters_count || cancelDialogCompetition.participants?.length || 0}
                 {cancelDialogCompetition.min_participants
                   ? `/${cancelDialogCompetition.min_participants}`
                   : ""}
@@ -3841,7 +3826,7 @@ function OrganizerContent() {
                 className="mt-1 h-5 w-5"
               />
               <span>
-                wyślij email do zapisanych zawodników o odwołaniu
+                wyślij też email do zapisanych {cancelDialogCompetition.event_type === "training" ? "uczestników" : "zawodników"} o odwołaniu
               </span>
             </label>
 
@@ -3866,7 +3851,9 @@ function OrganizerContent() {
               >
                 {cancellingCompetitionId === cancelDialogCompetition.id
                   ? "Odwołuję..."
-                  : "Odwołaj zawody"}
+                  : cancelDialogCompetition.event_type === "training"
+                    ? "Odwołaj szkolenie"
+                    : "Odwołaj zawody"}
               </button>
             </div>
           </div>
