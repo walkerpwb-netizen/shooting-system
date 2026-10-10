@@ -650,6 +650,7 @@ function OrganizerContent() {
   const [copyingCompetitionId, setCopyingCompetitionId] = useState<number | null>(null);
   const [cancelDialogCompetition, setCancelDialogCompetition] = useState<Competition | null>(null);
   const [notifyCancelledParticipants, setNotifyCancelledParticipants] = useState(false);
+  const [cancellationReason, setCancellationReason] = useState("");
   const [cancellingCompetitionId, setCancellingCompetitionId] = useState<number | null>(null);
   const [editingCompetitionId, setEditingCompetitionId] = useState<number | null>(null);
   const [editingCompetitionStatus, setEditingCompetitionStatus] = useState("");
@@ -1241,6 +1242,7 @@ function OrganizerContent() {
   function openCancelCompetitionDialog(competition: Competition) {
     setCancelDialogCompetition(competition);
     setNotifyCancelledParticipants(false);
+    setCancellationReason("");
     setMessage("");
   }
 
@@ -1261,6 +1263,7 @@ function OrganizerContent() {
           },
           body: JSON.stringify({
             notify_participants: notifyCancelledParticipants,
+            cancellation_reason: cancellationReason,
           }),
         }
       );
@@ -1278,6 +1281,7 @@ function OrganizerContent() {
       setMessage(`${eventName} odwołane ✅${emailInfo}`);
       setCancelDialogCompetition(null);
       setNotifyCancelledParticipants(false);
+      setCancellationReason("");
       fetchOrganizerCompetitions();
     } catch (error) {
       console.error(error);
@@ -3818,6 +3822,23 @@ function OrganizerContent() {
               </p>
             </div>
 
+            <label className="mt-5 block rounded-xl border border-zinc-700 bg-zinc-900 p-4 font-semibold text-white">
+              <span className="block text-sm uppercase tracking-wide text-red-200">
+                Powód odwołania
+              </span>
+              <textarea
+                value={cancellationReason}
+                onChange={(event) => setCancellationReason(event.target.value)}
+                maxLength={220}
+                rows={3}
+                placeholder="Np. awaria strzelnicy, warunki pogodowe, decyzja organizatora"
+                className="mt-3 w-full resize-none rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-base text-white outline-none transition placeholder:text-zinc-500 focus:border-red-400"
+              />
+              <span className="mt-2 block text-xs font-medium text-gray-400">
+                Ten tekst pojawi się w powiadomieniu push dla zapisanych uczestników.
+              </span>
+            </label>
+
             <label className="mt-5 flex items-start gap-3 rounded-xl border border-zinc-700 bg-zinc-900 p-4 font-semibold text-white">
               <input
                 type="checkbox"
@@ -3836,6 +3857,7 @@ function OrganizerContent() {
                 onClick={() => {
                   setCancelDialogCompetition(null);
                   setNotifyCancelledParticipants(false);
+                  setCancellationReason("");
                 }}
                 disabled={cancellingCompetitionId === cancelDialogCompetition.id}
                 className="ui-button rounded-xl bg-zinc-700 px-6 py-3 font-bold text-white transition hover:bg-zinc-600 disabled:cursor-not-allowed disabled:bg-gray-600"

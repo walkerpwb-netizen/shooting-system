@@ -581,6 +581,7 @@ class JoinCompetitionData(BaseModel):
 
 class CancelCompetitionData(BaseModel):
     notify_participants: bool = False
+    cancellation_reason: str = ""
 
 
 class ManualParticipantData(BaseModel):
@@ -3228,6 +3229,7 @@ def notify_new_published_event(competition: Competition, db) -> dict[str, int]:
 def notify_participants_event_cancelled(
     competition: Competition,
     participants: list[CompetitionParticipant],
+    cancellation_reason: str,
     db,
 ) -> dict[str, int]:
     participant_emails = {
@@ -3237,6 +3239,10 @@ def notify_participants_event_cancelled(
     }
     label = push_event_label_title(competition)
     verb = "zostało odwołane" if is_training_event(competition) else "zostały odwołane"
+    body = f"{competition.name} {verb}."
+
+    if cancellation_reason:
+        body = f"{body} Powód: {cancellation_reason}"
 
     return send_push_notifications(
         db,
@@ -3246,7 +3252,7 @@ def notify_participants_event_cancelled(
             user_emails=participant_emails,
         ),
         f"{label} odwołane",
-        f"{competition.name} {verb}.",
+        body,
         push_event_url(competition),
     )
 
@@ -8081,15 +8087,25 @@ def validate_competition_can_be_cancelled_for_low_attendance(
     return missing_count
 
 
-def cancellation_email_content(competition: Competition) -> tuple[str, str, str]:
+def cancellation_email_content(
+    competition: Competition,
+    cancellation_reason: str,
+) -> tuple[str, str, str]:
     organizer = competition.organizer_full_name or "organizatora"
     event_label = "Szkolenie" if is_training_event(competition) else "Zawody"
     verb = "zostało odwołane" if is_training_event(competition) else "zostały odwołane"
     subject = f"{event_label} {competition.name} {verb}"
+    reason_text = f"Powód odwołania: {cancellation_reason}\n\n" if cancellation_reason else ""
+    reason_html = (
+        f"<p>Powód odwołania: <strong>{escape(cancellation_reason)}</strong></p>"
+        if cancellation_reason
+        else ""
+    )
     text_body = (
         "Dzień dobry,\n\n"
         f"{event_label} {competition.name}, zaplanowane na {competition.date} w lokalizacji {competition.location}, "
         f"{verb} przez organizatora.\n\n"
+        f"{reason_text}"
         f"Organizator: {organizer}\n\n"
         "To wiadomość automatyczna z Systemu Strzeleckiego.\n"
     )
@@ -8100,6 +8116,7 @@ def cancellation_email_content(competition: Competition) -> tuple[str, str, str]
       <strong>{escape(competition.date)}</strong> w lokalizacji
       <strong>{escape(competition.location)}</strong>, {escape(verb)} przez organizatora.
     </p>
+    {reason_html}
     <p>Organizator: {escape(organizer)}</p>
     <p>To wiadomość automatyczna z Systemu Strzeleckiego.</p>
     """
@@ -8110,8 +8127,12 @@ def cancellation_email_content(competition: Competition) -> tuple[str, str, str]
 def send_competition_cancelled_emails(
     competition: Competition,
     participants: list[CompetitionParticipant],
+    cancellation_reason: str,
 ):
-    subject, text_body, html_body = cancellation_email_content(competition)
+    subject, text_body, html_body = cancellation_email_content(
+        competition,
+        cancellation_reason,
+    )
     sent_emails: set[str] = set()
 
     for participant in participants:
@@ -17010,6 +17031,7 @@ def cancel_competition(
             detail="Wydarzenie bez zapisanych uczestników można usunąć zamiast odwoływać"
         )
 
+    cancellation_reason = push_clean_text(data.cancellation_reason, 220)
     sent_count = 0
 
     if data.notify_participants:
@@ -17017,6 +17039,7 @@ def cancel_competition(
             sent_count = send_competition_cancelled_emails(
                 competition,
                 participants,
+                cancellation_reason,
             )
         except (MailConfigurationError, MailDeliveryError) as exc:
             raise HTTPException(
@@ -17031,6 +17054,7 @@ def cancel_competition(
     push_result = notify_participants_event_cancelled(
         competition,
         participants,
+        cancellation_reason,
         db,
     )
 
