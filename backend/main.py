@@ -3135,6 +3135,33 @@ def push_subscriptions_for_preference(
     return subscriptions
 
 
+def push_subscriptions_for_user_emails(
+    db,
+    user_emails: set[str],
+) -> list[PushSubscription]:
+    normalized_emails = {
+        normalize_text(email).lower()
+        for email in user_emails
+        if normalize_text(email)
+    }
+
+    if not normalized_emails:
+        return []
+
+    return (
+        db.query(PushSubscription)
+        .join(User, User.id == PushSubscription.user_id)
+        .filter(
+            func.lower(User.email).in_(normalized_emails),
+            PushSubscription.push_status == PUSH_STATUS_ENABLED,
+            PushSubscription.endpoint.isnot(None),
+            PushSubscription.p256dh_key.isnot(None),
+            PushSubscription.auth_key.isnot(None),
+        )
+        .all()
+    )
+
+
 def send_push_notifications(
     db,
     subscriptions: list[PushSubscription],
@@ -3948,7 +3975,33 @@ def send_password_reset_for_user(user: User, db) -> None:
     )
 
 
-def notify_admin_about_registered_user(user: User) -> None:
+def notify_admin_new_registered_user_push(
+    notification_email: str,
+    user: User,
+    db,
+) -> dict[str, int]:
+    account_type = getattr(user, "account_type", "") or USER_ACCOUNT_TYPE
+    is_pzss_club = account_type == PZSS_CLUB_ACCOUNT_TYPE
+    body = f"Użytkownik: {user.email}"
+
+    if is_pzss_club:
+        club_name = (
+            getattr(user, "pzss_club_short_name", "")
+            or getattr(user, "pzss_club_full_name", "")
+            or user.email
+        )
+        body = f"Klub PZSS: {club_name} ({user.email})"
+
+    return send_push_notifications(
+        db,
+        push_subscriptions_for_user_emails(db, {notification_email}),
+        "Nowa rejestracja w Systemie Strzeleckim",
+        body,
+        f"{settings.frontend_url}/admin",
+    )
+
+
+def notify_admin_about_registered_user(user: User, db) -> None:
     notification_email = settings.admin_new_user_notification_email
 
     if not notification_email:
@@ -3969,6 +4022,18 @@ def notify_admin_about_registered_user(user: User) -> None:
         print(
             "Failed to send new user admin notification "
             f"for user id {getattr(user, 'id', '')}: {exc}"
+        )
+
+    push_result = notify_admin_new_registered_user_push(
+        notification_email,
+        user,
+        db,
+    )
+
+    if push_result["failed"]:
+        print(
+            "Failed to send some new user admin push notifications "
+            f"for user id {getattr(user, 'id', '')}: {push_result}"
         )
 
 
@@ -12098,7 +12163,7 @@ def register(
         )
         db.commit()
         db.refresh(new_user)
-        notify_admin_about_registered_user(new_user)
+        notify_admin_about_registered_user(new_user, db)
     except (MailConfigurationError, MailDeliveryError) as exc:
         db.rollback()
         raise HTTPException(
@@ -12199,7 +12264,7 @@ def register_pzss_club(
         )
         db.commit()
         db.refresh(new_user)
-        notify_admin_about_registered_user(new_user)
+        notify_admin_about_registered_user(new_user, db)
     except (MailConfigurationError, MailDeliveryError) as exc:
         db.rollback()
         raise HTTPException(
