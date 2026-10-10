@@ -351,6 +351,64 @@ class PushSubscription(Base):
     )
 
 
+class PushPreference(Base):
+    __tablename__ = "push_preferences"
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uq_push_preferences_user_id"),
+    )
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True,
+    )
+
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=False,
+        index=True,
+    )
+
+    new_events = Column(
+        Integer,
+        default=1,
+        nullable=False,
+        server_default="1",
+    )
+
+    my_event_cancelled = Column(
+        Integer,
+        default=1,
+        nullable=False,
+        server_default="1",
+    )
+
+    my_event_started = Column(
+        Integer,
+        default=1,
+        nullable=False,
+        server_default="1",
+    )
+
+    organizer_participant_changes = Column(
+        Integer,
+        default=0,
+        nullable=False,
+        server_default="0",
+    )
+
+    created_at = Column(
+        String,
+        nullable=True,
+    )
+
+    updated_at = Column(
+        String,
+        nullable=True,
+    )
+
+
 class AdDailyStat(Base):
     __tablename__ = "ad_daily_stats"
     __table_args__ = (

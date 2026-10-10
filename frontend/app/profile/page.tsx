@@ -11,11 +11,14 @@ import { apiUrl } from "@/lib/api";
 import { getAccessToken, clearStoredAuth, notifyAuthChange } from "@/lib/auth";
 import {
   disablePushDevice,
+  getPushPreferences,
   hasPushSupport,
   isPwaStandalone,
   listPushDevices,
+  savePushPreferences,
   subscribeCurrentDeviceToPush,
   type PushDevice,
+  type PushPreferences,
 } from "@/lib/pushNotifications";
 
 type VerifiedPzssClub = {
@@ -94,6 +97,12 @@ type ProfilePhotoCropDrag = {
   startCropX: number;
   startCropY: number;
 };
+
+type PushPreferenceKey =
+  | "new_events"
+  | "my_event_cancelled"
+  | "my_event_started"
+  | "organizer_participant_changes";
 
 const profileRoleLabels: Record<string, string> = {
   user: "Użytkownik",
@@ -232,6 +241,17 @@ function browserNotificationPermission() {
   }
 
   return Notification.permission;
+}
+
+function defaultPushPreferences(): PushPreferences {
+  return {
+    new_events: true,
+    my_event_cancelled: true,
+    my_event_started: true,
+    organizer_participant_changes: false,
+    organizer_participant_changes_available: false,
+    updated_at: "",
+  };
 }
 
 function PremiumStatusBar({
@@ -637,6 +657,12 @@ export default function ProfilePage() {
   const [notificationPermission, setNotificationPermission] = useState(() => (
     browserNotificationPermission()
   ));
+  const [pushPreferences, setPushPreferences] = useState<PushPreferences>(() => (
+    defaultPushPreferences()
+  ));
+  const [pushPreferencesLoading, setPushPreferencesLoading] = useState(false);
+  const [pushPreferencesSaving, setPushPreferencesSaving] = useState(false);
+  const [pushPreferencesMessage, setPushPreferencesMessage] = useState("");
   const [message, setMessage] = useState("");
   const [editing, setEditing] = useState(false);
   const [licenseScannerOpen, setLicenseScannerOpen] = useState(false);
@@ -678,6 +704,18 @@ export default function ProfilePage() {
       console.error(error);
     } finally {
       setPushDevicesLoading(false);
+    }
+  }, []);
+
+  const loadPushPreferences = useCallback(async () => {
+    try {
+      setPushPreferencesLoading(true);
+      setPushPreferences(await getPushPreferences());
+    } catch (error) {
+      console.error(error);
+      setPushPreferencesMessage("Nie udało się pobrać preferencji powiadomień.");
+    } finally {
+      setPushPreferencesLoading(false);
     }
   }, []);
 
@@ -755,6 +793,7 @@ export default function ProfilePage() {
           setJudgeLicenseValidUntil(data.judge_license_valid_until || "");
           setEditing(!data.profile_complete);
           void loadPushDevices();
+          void loadPushPreferences();
 
           const invitedClub = invitedClubId
             ? verifiedClubsData.find((verifiedClub: VerifiedPzssClub) => verifiedClub.id === invitedClubId)
@@ -789,7 +828,7 @@ export default function ProfilePage() {
     return () => {
       ignore = true;
     };
-  }, [invitedClubId, loadPushDevices, router]);
+  }, [invitedClubId, loadPushDevices, loadPushPreferences, router]);
 
   useEffect(() => {
     return () => {
@@ -1329,6 +1368,29 @@ export default function ProfilePage() {
       setPushDevicesMessage(error instanceof Error ? error.message : "Nie udało się usunąć urządzenia.");
     } finally {
       setPushDeviceActionId("");
+    }
+  }
+
+  function setPushPreferenceValue(key: PushPreferenceKey, value: boolean) {
+    setPushPreferences((currentPreferences) => ({
+      ...currentPreferences,
+      [key]: value,
+    }));
+    setPushPreferencesMessage("");
+  }
+
+  async function saveProfilePushPreferences() {
+    try {
+      setPushPreferencesSaving(true);
+      setPushPreferencesMessage("");
+      const savedPreferences = await savePushPreferences(pushPreferences);
+      setPushPreferences(savedPreferences);
+      setPushPreferencesMessage(savedPreferences.message || "Preferencje powiadomień zostały zapisane.");
+    } catch (error) {
+      console.error(error);
+      setPushPreferencesMessage(error instanceof Error ? error.message : "Nie udało się zapisać preferencji powiadomień.");
+    } finally {
+      setPushPreferencesSaving(false);
     }
   }
 
@@ -1921,6 +1983,75 @@ export default function ProfilePage() {
 
               {isOwnerProfile && (
                 <section className="mt-8 flex flex-col gap-5 border-t border-red-200 pt-8 dark:border-red-950">
+                  <div className="border border-zinc-200 bg-zinc-50 p-5 text-zinc-950 dark:border-red-950 dark:bg-zinc-950 dark:text-red-50">
+                    <h2 className="text-2xl font-bold text-red-600 dark:text-red-400">
+                      Powiadomienia
+                    </h2>
+
+                    <div className="mt-5 grid gap-3">
+                      <label className="flex gap-3 border border-zinc-200 bg-white p-4 text-sm leading-6 dark:border-red-950 dark:bg-black">
+                        <input
+                          type="checkbox"
+                          checked={pushPreferences.new_events}
+                          onChange={(event) => setPushPreferenceValue("new_events", event.target.checked)}
+                          disabled={pushPreferencesLoading || pushPreferencesSaving}
+                          className="mt-1 h-5 w-5 shrink-0"
+                        />
+                        <span>Powiadomienia o nowych zawodach i szkoleniach</span>
+                      </label>
+
+                      <label className="flex gap-3 border border-zinc-200 bg-white p-4 text-sm leading-6 dark:border-red-950 dark:bg-black">
+                        <input
+                          type="checkbox"
+                          checked={pushPreferences.my_event_cancelled}
+                          onChange={(event) => setPushPreferenceValue("my_event_cancelled", event.target.checked)}
+                          disabled={pushPreferencesLoading || pushPreferencesSaving}
+                          className="mt-1 h-5 w-5 shrink-0"
+                        />
+                        <span>Powiadomienia o odwołaniu zawodów lub szkoleń, w których jesteś zapisany</span>
+                      </label>
+
+                      <label className="flex gap-3 border border-zinc-200 bg-white p-4 text-sm leading-6 dark:border-red-950 dark:bg-black">
+                        <input
+                          type="checkbox"
+                          checked={pushPreferences.my_event_started}
+                          onChange={(event) => setPushPreferenceValue("my_event_started", event.target.checked)}
+                          disabled={pushPreferencesLoading || pushPreferencesSaving}
+                          className="mt-1 h-5 w-5 shrink-0"
+                        />
+                        <span>Powiadomienia o rozpoczęciu zawodów i szkoleń, w których bierzesz udział</span>
+                      </label>
+
+                      {pushPreferences.organizer_participant_changes_available && (
+                        <label className="flex gap-3 border border-zinc-200 bg-white p-4 text-sm leading-6 dark:border-red-950 dark:bg-black">
+                          <input
+                            type="checkbox"
+                            checked={pushPreferences.organizer_participant_changes}
+                            onChange={(event) => setPushPreferenceValue("organizer_participant_changes", event.target.checked)}
+                            disabled={pushPreferencesLoading || pushPreferencesSaving}
+                            className="mt-1 h-5 w-5 shrink-0"
+                          />
+                          <span>Powiadomienia dla organizatora, gdy ktoś zapisze się lub wypisze z Twoich zawodów albo szkolenia</span>
+                        </label>
+                      )}
+                    </div>
+
+                    {pushPreferencesMessage && (
+                      <p className="mt-5 border border-zinc-300 bg-white px-4 py-3 text-sm leading-6 text-zinc-700 dark:border-red-900 dark:bg-black dark:text-red-100">
+                        {pushPreferencesMessage}
+                      </p>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={saveProfilePushPreferences}
+                      disabled={pushPreferencesLoading || pushPreferencesSaving}
+                      className="mt-5 bg-green-900 px-5 py-3 font-semibold text-white transition hover:bg-green-800 disabled:opacity-50"
+                    >
+                      {pushPreferencesSaving ? "Zapisywanie..." : "Zapisz ustawienia powiadomień"}
+                    </button>
+                  </div>
+
                   <div className="border border-zinc-200 bg-zinc-50 p-5 text-zinc-950 dark:border-red-950 dark:bg-zinc-950 dark:text-red-50">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div>

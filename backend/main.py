@@ -28,6 +28,7 @@ from models import (
     AdDailyStat,
     AppSetting,
     HomePost,
+    PushPreference,
     PushSubscription,
     ShootingRange,
     ShootingRangeSubmission,
@@ -271,6 +272,13 @@ class PushSubscriptionSaveData(PushSubscriptionStatusData):
 
 class PushSubscriptionDecisionData(PushSubscriptionStatusData):
     push_status: str
+
+
+class PushPreferenceData(BaseModel):
+    new_events: bool = True
+    my_event_cancelled: bool = True
+    my_event_started: bool = True
+    organizer_participant_changes: bool = False
 
 
 class ForgotPasswordData(BaseModel):
@@ -2978,6 +2986,53 @@ def should_prompt_for_push(push_subscription: PushSubscription, data: PushSubscr
     return not bool(push_subscription.endpoint)
 
 
+def user_can_receive_organizer_push(user: User) -> bool:
+    return has_role(user, "organizer") or has_role(user, "admin")
+
+
+def push_preference_for_user(user: User, db) -> PushPreference:
+    preference = (
+        db.query(PushPreference)
+        .filter(PushPreference.user_id == user.id)
+        .first()
+    )
+
+    if preference:
+        return preference
+
+    now_iso = push_now_iso()
+    preference = PushPreference(
+        user_id=user.id,
+        new_events=1,
+        my_event_cancelled=1,
+        my_event_started=1,
+        organizer_participant_changes=1 if user_can_receive_organizer_push(user) else 0,
+        created_at=now_iso,
+        updated_at=now_iso,
+    )
+    db.add(preference)
+    db.commit()
+    db.refresh(preference)
+
+    return preference
+
+
+def push_preference_response(user: User, preference: PushPreference):
+    organizer_available = user_can_receive_organizer_push(user)
+
+    return {
+        "new_events": bool(preference.new_events),
+        "my_event_cancelled": bool(preference.my_event_cancelled),
+        "my_event_started": bool(preference.my_event_started),
+        "organizer_participant_changes": bool(
+            preference.organizer_participant_changes
+            and organizer_available
+        ),
+        "organizer_participant_changes_available": organizer_available,
+        "updated_at": preference.updated_at or "",
+    }
+
+
 
 
 def profile_photo_path_from_url(photo_url: str):
@@ -3959,6 +4014,18 @@ def delete_user_with_dependencies(user: User, db):
     (
         db.query(JudgeInvitation)
         .filter(JudgeInvitation.judge_email == user.email)
+        .delete(synchronize_session=False)
+    )
+
+    (
+        db.query(PushSubscription)
+        .filter(PushSubscription.user_id == user.id)
+        .delete(synchronize_session=False)
+    )
+
+    (
+        db.query(PushPreference)
+        .filter(PushPreference.user_id == user.id)
         .delete(synchronize_session=False)
     )
 
@@ -15519,6 +15586,41 @@ def get_my_push_subscriptions(
         push_subscription_response(subscription)
         for subscription in subscriptions
     ]
+
+
+@app.get("/me/push-preferences")
+def get_my_push_preferences(
+    user: User = Depends(get_current_user),
+    db=Depends(get_db),
+):
+    preference = push_preference_for_user(user, db)
+
+    return push_preference_response(user, preference)
+
+
+@app.put("/me/push-preferences")
+def update_my_push_preferences(
+    data: PushPreferenceData,
+    user: User = Depends(get_current_user),
+    db=Depends(get_db),
+):
+    preference = push_preference_for_user(user, db)
+    preference.new_events = 1 if data.new_events else 0
+    preference.my_event_cancelled = 1 if data.my_event_cancelled else 0
+    preference.my_event_started = 1 if data.my_event_started else 0
+    preference.organizer_participant_changes = (
+        1
+        if data.organizer_participant_changes and user_can_receive_organizer_push(user)
+        else 0
+    )
+    preference.updated_at = push_now_iso()
+    db.commit()
+    db.refresh(preference)
+
+    response = push_preference_response(user, preference)
+    response["message"] = "Preferencje powiadomień zostały zapisane"
+
+    return response
 
 
 @app.post("/me/push-subscriptions/status")

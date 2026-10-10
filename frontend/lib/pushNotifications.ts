@@ -36,6 +36,15 @@ export type PushStatusResponse = PushDevice & {
   message?: string;
 };
 
+export type PushPreferences = {
+  new_events: boolean;
+  my_event_cancelled: boolean;
+  my_event_started: boolean;
+  organizer_participant_changes: boolean;
+  organizer_participant_changes_available: boolean;
+  updated_at: string;
+};
+
 function browserName() {
   const userAgent = navigator.userAgent;
 
@@ -326,4 +335,39 @@ export async function disablePushDevice(deviceId: string) {
   }
 
   return data as { message?: string; device_id?: string };
+}
+
+export async function getPushPreferences() {
+  const response = await authFetch(apiUrl("/me/push-preferences"), {
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error("Nie udało się pobrać preferencji powiadomień.");
+  }
+
+  return response.json() as Promise<PushPreferences>;
+}
+
+export async function savePushPreferences(preferences: PushPreferences) {
+  const response = await authFetch(apiUrl("/me/push-preferences"), {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      new_events: preferences.new_events,
+      my_event_cancelled: preferences.my_event_cancelled,
+      my_event_started: preferences.my_event_started,
+      organizer_participant_changes: preferences.organizer_participant_changes,
+    }),
+  });
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(data.detail || "Nie udało się zapisać preferencji powiadomień.");
+  }
+
+  return data as PushPreferences & { message?: string };
 }
