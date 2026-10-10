@@ -226,6 +226,14 @@ function pushDateLabel(value: string) {
   });
 }
 
+function browserNotificationPermission() {
+  if (typeof window === "undefined" || typeof Notification === "undefined") {
+    return "unsupported";
+  }
+
+  return Notification.permission;
+}
+
 function PremiumStatusBar({
   premiumUntil,
   premiumDisabled,
@@ -625,6 +633,10 @@ export default function ProfilePage() {
   const [pushDevicesLoading, setPushDevicesLoading] = useState(false);
   const [pushDeviceActionId, setPushDeviceActionId] = useState("");
   const [enablingProfilePush, setEnablingProfilePush] = useState(false);
+  const [pushDevicesMessage, setPushDevicesMessage] = useState("");
+  const [notificationPermission, setNotificationPermission] = useState(() => (
+    browserNotificationPermission()
+  ));
   const [message, setMessage] = useState("");
   const [editing, setEditing] = useState(false);
   const [licenseScannerOpen, setLicenseScannerOpen] = useState(false);
@@ -661,6 +673,7 @@ export default function ProfilePage() {
     try {
       setPushDevicesLoading(true);
       setPushDevices(await listPushDevices());
+      setNotificationPermission(browserNotificationPermission());
     } catch (error) {
       console.error(error);
     } finally {
@@ -1269,15 +1282,26 @@ export default function ProfilePage() {
   }
 
   async function enablePushOnCurrentDevice() {
+    if (browserNotificationPermission() === "denied") {
+      setNotificationPermission("denied");
+      setPushDevicesMessage(
+        "iOS/Safari blokuje powiadomienia dla tej aplikacji. Odblokuj je w ustawieniach powiadomień albo usuń aplikację z ekranu początkowego i dodaj ją ponownie z Safari."
+      );
+      return;
+    }
+
     try {
       setEnablingProfilePush(true);
       setMessage("");
+      setPushDevicesMessage("");
       await subscribeCurrentDeviceToPush();
       await loadPushDevices();
-      setMessage("Powiadomienia push zostały włączone na tym urządzeniu ✅");
+      setNotificationPermission(browserNotificationPermission());
+      setPushDevicesMessage("Powiadomienia push zostały włączone na tym urządzeniu.");
     } catch (error) {
       console.error(error);
-      setMessage(error instanceof Error ? `${error.message} ❌` : "Nie udało się włączyć powiadomień ❌");
+      setNotificationPermission(browserNotificationPermission());
+      setPushDevicesMessage(error instanceof Error ? error.message : "Nie udało się włączyć powiadomień.");
     } finally {
       setEnablingProfilePush(false);
     }
@@ -1285,7 +1309,7 @@ export default function ProfilePage() {
 
   async function disablePushDeviceFromProfile(device: PushDevice) {
     const confirmed = window.confirm(
-      `Wyłączyć powiadomienia dla urządzenia: ${device.device_name || "Nieznane urządzenie"}?`
+      `Usunąć urządzenie z profilu: ${device.device_name || "Nieznane urządzenie"}?`
     );
 
     if (!confirmed) {
@@ -1295,12 +1319,14 @@ export default function ProfilePage() {
     try {
       setPushDeviceActionId(device.device_id);
       setMessage("");
+      setPushDevicesMessage("");
       await disablePushDevice(device.device_id);
       await loadPushDevices();
-      setMessage("Powiadomienia na wybranym urządzeniu zostały wyłączone ✅");
+      setNotificationPermission(browserNotificationPermission());
+      setPushDevicesMessage("Urządzenie zostało usunięte z profilu.");
     } catch (error) {
       console.error(error);
-      setMessage(error instanceof Error ? `${error.message} ❌` : "Nie udało się wyłączyć urządzenia ❌");
+      setPushDevicesMessage(error instanceof Error ? error.message : "Nie udało się usunąć urządzenia.");
     } finally {
       setPushDeviceActionId("");
     }
@@ -1910,13 +1936,25 @@ export default function ProfilePage() {
                         <button
                           type="button"
                           onClick={enablePushOnCurrentDevice}
-                          disabled={enablingProfilePush}
+                          disabled={enablingProfilePush || notificationPermission === "denied"}
                           className="bg-green-900 px-5 py-3 font-semibold text-white transition hover:bg-green-800 disabled:opacity-50"
                         >
                           {enablingProfilePush ? "Włączanie..." : "Włącz na tym urządzeniu"}
                         </button>
                       )}
                     </div>
+
+                    {notificationPermission === "denied" && (
+                      <p className="mt-5 border border-yellow-500/50 bg-yellow-400/10 px-4 py-3 text-sm leading-6 text-yellow-900 dark:text-yellow-100">
+                        Powiadomienia są zablokowane przez iOS/Safari. Usuń zapis urządzenia z profilu, a potem odblokuj powiadomienia w ustawieniach iOS albo usuń aplikację z ekranu początkowego i dodaj ją ponownie z Safari.
+                      </p>
+                    )}
+
+                    {pushDevicesMessage && (
+                      <p className="mt-5 border border-zinc-300 bg-white px-4 py-3 text-sm leading-6 text-zinc-700 dark:border-red-900 dark:bg-black dark:text-red-100">
+                        {pushDevicesMessage}
+                      </p>
+                    )}
 
                     {pushDevicesLoading ? (
                       <p className="mt-5 text-sm text-zinc-600 dark:text-red-100/80">
@@ -1948,16 +1986,14 @@ export default function ProfilePage() {
                               </p>
                             </div>
 
-                            {device.push_status === "enabled" && (
-                              <button
-                                type="button"
-                                onClick={() => disablePushDeviceFromProfile(device)}
-                                disabled={pushDeviceActionId === device.device_id}
-                                className="h-fit bg-zinc-800 px-4 py-2 font-semibold text-white transition hover:bg-zinc-700 disabled:opacity-50"
-                              >
-                                {pushDeviceActionId === device.device_id ? "Wyłączanie..." : "Wyłącz"}
-                              </button>
-                            )}
+                            <button
+                              type="button"
+                              onClick={() => disablePushDeviceFromProfile(device)}
+                              disabled={pushDeviceActionId === device.device_id}
+                              className="h-fit bg-zinc-800 px-4 py-2 font-semibold text-white transition hover:bg-zinc-700 disabled:opacity-50"
+                            >
+                              {pushDeviceActionId === device.device_id ? "Usuwanie..." : "Usuń"}
+                            </button>
                           </div>
                         ))}
                       </div>

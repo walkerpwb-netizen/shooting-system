@@ -325,5 +325,5 @@ export async function disablePushDevice(deviceId: string) {
     throw new Error(data.detail || "Nie udało się wyłączyć urządzenia.");
   }
 
-  return data as PushDevice;
+  return data as { message?: string; device_id?: string };
 }

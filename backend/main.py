@@ -15631,20 +15631,13 @@ def disable_my_push_subscription(
             detail="Urządzenie nie istnieje w profilu",
         )
 
-    now_iso = push_now_iso()
-    push_subscription.push_status = PUSH_STATUS_DISMISSED
-    push_subscription.endpoint = None
-    push_subscription.p256dh_key = None
-    push_subscription.auth_key = None
-    push_subscription.disabled_at = now_iso
-    push_subscription.updated_at = now_iso
+    db.delete(push_subscription)
     db.commit()
-    db.refresh(push_subscription)
 
-    response = push_subscription_response(push_subscription)
-    response["message"] = "Powiadomienia na tym urządzeniu zostały wyłączone"
-
-    return response
+    return {
+        "message": "Urządzenie zostało usunięte z profilu",
+        "device_id": device_id,
+    }
 
 
 @app.get("/me/statistics")
