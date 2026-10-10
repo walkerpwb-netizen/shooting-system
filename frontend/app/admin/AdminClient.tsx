@@ -613,6 +613,7 @@ export default function AdminClient({
   const [testPdfDownloading, setTestPdfDownloading] = useState(false);
   const [competitionResultsPdfDownloadingId, setCompetitionResultsPdfDownloadingId] = useState<number | null>(null);
   const [competitionPzssPdfDownloadingId, setCompetitionPzssPdfDownloadingId] = useState<number | null>(null);
+  const [competitionCopyingId, setCompetitionCopyingId] = useState<number | null>(null);
   const [expandedCompetitionId, setExpandedCompetitionId] = useState<number | null>(null);
   const [currentAdminEmail] = useState(() =>
     typeof window === "undefined"
@@ -1842,6 +1843,46 @@ export default function AdminClient({
     } catch (error) {
       console.error(error);
       setMessage("Błąd połączenia z serwerem ❌");
+    }
+  }
+
+  async function copyCompetitionToOwnOrganizerPanel(competition: AdminCompetition) {
+    const confirmed = window.confirm(
+      `Skopiować zawody "${competition.name}" jako szkic do Twojego panelu organizatora?`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    const token = getAccessToken();
+
+    try {
+      setMessage("");
+      setCompetitionCopyingId(competition.id);
+
+      const response = await fetch(
+        apiUrl(`/organizer/competitions/${competition.id}/copy`),
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage(data.detail || "Nie udało się skopiować zawodów ❌");
+        return;
+      }
+
+      router.push(`/organizer?admin_edit_competition_id=${data.competition_id}`);
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    } finally {
+      setCompetitionCopyingId(null);
     }
   }
 
@@ -4062,6 +4103,17 @@ export default function AdminClient({
                           {expanded
                             ? "Ukryj"
                             : "Szczegóły"}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => copyCompetitionToOwnOrganizerPanel(competition)}
+                          disabled={competitionCopyingId === competition.id}
+                          className="bg-violet-700 hover:bg-violet-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-3 py-2 rounded-lg text-sm font-semibold transition"
+                        >
+                          {competitionCopyingId === competition.id
+                            ? "Kopiuję..."
+                            : "Kopiuj do siebie"}
                         </button>
 
                         {competition.status === "completed" && (
