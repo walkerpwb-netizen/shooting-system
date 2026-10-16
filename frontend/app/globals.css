@@ -68,6 +68,13 @@ body {
   width: 100%;
 }
 
+.app-navigation {
+  padding-top: calc(env(safe-area-inset-top, 0px) + 0.25rem);
+  padding-right: max(env(safe-area-inset-right, 0px), 0.75rem);
+  padding-bottom: 0.25rem;
+  padding-left: max(env(safe-area-inset-left, 0px), 0.75rem);
+}
+
 .ui-profile-fields {
   display: flex;
   flex-direction: column;

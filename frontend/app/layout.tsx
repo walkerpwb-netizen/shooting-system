@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import Footer from "@/components/Footer";
 import Navbar from "@/components/Navbar";
+import AppNavigation from "@/components/AppNavigation";
 import GlobalUiSettings from "./components/GlobalUiSettings";
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://system-strzelecki.pl";
@@ -78,6 +79,7 @@ export default function RootLayout({
     >
       <body className="min-h-full">
         <GlobalUiSettings />
+        <AppNavigation />
         <Navbar />
         {children}
         <Footer />
