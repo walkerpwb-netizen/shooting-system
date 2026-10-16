@@ -2,7 +2,7 @@ from fastapi import FastAPI, File, Form, UploadFile, Request
 from fastapi import Depends, HTTPException, Cookie
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import func, or_, text
@@ -229,6 +229,10 @@ class PzssClubRegisterData(BaseModel):
 
 class PzssClubApprovalData(BaseModel):
     license_number: str
+
+
+class PzssClubRejectionData(BaseModel):
+    reason: str = Field(min_length=1, max_length=2000)
 
 
 class AdminPzssClubUpdateData(BaseModel):
@@ -11155,9 +11159,15 @@ def admin_approve_pzss_club(
 @app.put("/admin/pzss-clubs/{club_id}/reject")
 def admin_reject_pzss_club(
     club_id: int,
+    data: PzssClubRejectionData,
     admin: User = Depends(get_current_admin),
     db=Depends(get_db),
 ):
+    reason = data.reason.strip()
+
+    if not reason:
+        raise HTTPException(status_code=400, detail="Podaj powód odrzucenia klubu PZSS")
+
     club = (
         db.query(User)
         .filter(
@@ -11181,6 +11191,7 @@ def admin_reject_pzss_club(
         send_pzss_club_rejected_email(
             club.email,
             pzss_club_display_name(club),
+            reason,
         )
     except (MailConfigurationError, MailDeliveryError) as exc:
         rejection_email_sent = False

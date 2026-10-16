@@ -336,15 +336,18 @@ def send_pzss_club_approved_email(
 def send_pzss_club_rejected_email(
     to_email: str,
     club_name: str,
+    reason: str,
 ) -> None:
     register_url = f"{settings.frontend_url}/register?type=pzss-club"
     messenger_url = "https://m.me/systemstrzelecki"
     safe_club_name = club_name or "Twój klub"
     subject = "Konto klubu PZSS nie przeszło weryfikacji"
+    html_reason = escape(reason).replace("\n", "<br>")
     text_body = (
         "Dzień dobry,\n\n"
         f"Konto klubu {safe_club_name} w Systemie Strzeleckim nie przeszło weryfikacji "
         "i zostało odrzucone przez administratora.\n\n"
+        f"Powód odrzucenia:\n{reason}\n\n"
         "Konto zostanie usunięte z systemu. Możesz założyć je ponownie z prawidłowymi danymi:\n"
         f"{register_url}\n\n"
         "W razie pytań skontaktuj się z nami przez Messenger:\n"
@@ -359,6 +362,7 @@ def send_pzss_club_rejected_email(
       Konto klubu <strong>{escape(safe_club_name)}</strong> w Systemie Strzeleckim
       nie przeszło weryfikacji i zostało odrzucone przez administratora.
     </p>
+    <p><strong>Powód odrzucenia:</strong><br>{html_reason}</p>
     <p>
       Konto zostanie usunięte z systemu. Możesz założyć je ponownie
       z prawidłowymi danymi:

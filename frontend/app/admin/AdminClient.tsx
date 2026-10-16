@@ -12,6 +12,7 @@ import { getAccessToken, isAdmin } from "@/lib/auth";
 import { notifyShootingRangeSubmissionsChange } from "@/lib/shootingRangeNotifications";
 import QrCodeScanner from "@/components/QrCodeScanner";
 import TargetPhotoScanner from "@/zdjęcie tarczy/TargetPhotoScanner";
+import PzssClubRejectionDialog from "./PzssClubRejectionDialog";
 
 type AdminTab = "users" | "pzss-clubs" | "competitions" | "shooting-ranges" | "settings" | "premium" | "ads" | "monitoring" | "codex" | "qr-scanner" | "target-photo" | "pdf-test" | "test-data";
 type UserSortField = "name" | "status" | "role" | "club" | "account" | "phone";
@@ -583,6 +584,7 @@ export default function AdminClient({
   const [pzssClubs, setPzssClubs] = useState<AdminPzssClub[]>([]);
   const [clubLicenseInputs, setClubLicenseInputs] = useState<Record<number, string>>({});
   const [editingPzssClub, setEditingPzssClub] = useState<AdminPzssClub | null>(null);
+  const [rejectingPzssClub, setRejectingPzssClub] = useState<AdminPzssClub | null>(null);
   const [pzssClubEditForm, setPzssClubEditForm] = useState<PzssClubEditForm>({
     short_name: "",
     full_name: "",
@@ -1635,12 +1637,7 @@ export default function AdminClient({
     }
   }
 
-  async function rejectPzssClub(clubId: number) {
-    const confirmed = window.confirm("Czy oznaczyć ten klub PZSS jako odrzucony?");
-
-    if (!confirmed) {
-      return;
-    }
+  async function rejectPzssClub(clubId: number, reason: string): Promise<string | null> {
 
     const token = getAccessToken();
 
@@ -1652,15 +1649,18 @@ export default function AdminClient({
         {
           method: "PUT",
           headers: {
+            "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
+          body: JSON.stringify({ reason }),
         }
       );
       const data = await response.json();
 
       if (!response.ok) {
-        setMessage(data.detail || "Nie udało się odrzucić klubu PZSS ❌");
-        return;
+        return typeof data.detail === "string"
+          ? data.detail
+          : "Nie udało się odrzucić klubu PZSS ❌";
       }
 
       setPzssClubs((currentClubs) => (
@@ -1680,9 +1680,10 @@ export default function AdminClient({
           ? "Klub PZSS odrzucony i usunięty, ale nie udało się wysłać e-maila z informacją ⚠️"
           : "Klub PZSS odrzucony i usunięty, e-mail z informacją wysłany ✅"
       );
+      return null;
     } catch (error) {
       console.error(error);
-      setMessage("Błąd połączenia z serwerem ❌");
+      return "Błąd połączenia z serwerem ❌";
     }
   }
 
@@ -3333,6 +3334,16 @@ export default function AdminClient({
           </p>
         )}
 
+        {rejectingPzssClub && (
+          <PzssClubRejectionDialog
+            key={rejectingPzssClub.id}
+            clubName={rejectingPzssClub.full_name || rejectingPzssClub.short_name}
+            email={rejectingPzssClub.email}
+            onClose={() => setRejectingPzssClub(null)}
+            onConfirm={(reason) => rejectPzssClub(rejectingPzssClub.id, reason)}
+          />
+        )}
+
         {editingPzssClub && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-8">
             <form
@@ -3950,7 +3961,7 @@ export default function AdminClient({
 
                         <button
                           type="button"
-                          onClick={() => rejectPzssClub(club.id)}
+                          onClick={() => setRejectingPzssClub(club)}
                           className="bg-zinc-700 hover:bg-zinc-600 text-white px-3 py-2 rounded-lg text-sm font-semibold transition"
                         >
                           Odrzuć
