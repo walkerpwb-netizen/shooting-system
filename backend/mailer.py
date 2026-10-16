@@ -198,6 +198,8 @@ def send_email(
     subject: str,
     text_body: str,
     html_body: Optional[str] = None,
+    *,
+    copy_to_admin: bool = True,
 ) -> None:
     _require_mail_config()
 
@@ -207,7 +209,7 @@ def send_email(
     message["Subject"] = subject
     admin_email = settings.admin_new_user_notification_email.strip()
 
-    if admin_email and parseaddr(admin_email)[1].casefold() != parseaddr(to_email)[1].casefold():
+    if copy_to_admin and admin_email and parseaddr(admin_email)[1].casefold() != parseaddr(to_email)[1].casefold():
         message["Bcc"] = admin_email
 
     message.set_content(text_body)
@@ -271,7 +273,7 @@ def send_activation_email(
         escape(activation_link, quote=True),
     )
 
-    send_email(to_email, subject, text_body, html_body)
+    send_email(to_email, subject, text_body, html_body, copy_to_admin=False)
 
 
 def send_password_reset_email(to_email: str, reset_link: str) -> None:
