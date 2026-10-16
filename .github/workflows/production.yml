@@ -97,6 +97,9 @@ jobs:
       - name: Verify Alembic migrations
         run: alembic -c alembic.ini upgrade head
 
+      - name: Test user lifecycle timestamps
+        run: python -m unittest discover -s tests -v
+
   deploy:
     name: Deploy production
     runs-on: ubuntu-latest

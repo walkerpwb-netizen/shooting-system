@@ -1087,6 +1087,14 @@ def get_user_roles(user: User):
 
 def set_user_roles(user: User, roles: list[str]):
     normalized_roles = normalize_roles(roles)
+
+    if (
+        "shooter" in normalized_roles
+        and "shooter" not in get_user_roles(user)
+        and not user.shooter_since
+    ):
+        user.shooter_since = utc_now_iso()
+
     user.roles = ",".join(normalized_roles)
     user.role = primary_role(normalized_roles)
 
@@ -2603,6 +2611,15 @@ def ensure_shooter_role(user: User):
         set_user_roles(user, get_user_roles(user) + ["shooter"])
 
 
+def mark_user_activated(user: User):
+    if not user.is_active and not user.activated_at:
+        user.activated_at = utc_now_iso()
+
+    user.is_active = 1
+    user.activation_token = None
+    user.activation_expires_at = None
+
+
 def is_user_online(user: User):
     if not user.last_seen:
         return False
@@ -2758,6 +2775,15 @@ def admin_user_info_row(label: str, value):
     }
 
 
+def admin_user_info_datetime(value):
+    parsed = parse_iso_datetime(value or "")
+
+    if not parsed:
+        return "brak danych"
+
+    return parsed.astimezone(APP_TIMEZONE).strftime("%d.%m.%Y %H:%M:%S (czas polski)")
+
+
 def admin_user_profile_info(user: User):
     roles = get_user_roles(user)
     activation_deadline = activation_expires_at_for_user(user)
@@ -2775,6 +2801,9 @@ def admin_user_profile_info(user: User):
                 "rows": [
                     admin_user_info_row("ID", user.id),
                     admin_user_info_row("E-mail", user.email),
+                    admin_user_info_row("Data założenia konta", admin_user_info_datetime(user.created_at)),
+                    admin_user_info_row("Data aktywacji konta", admin_user_info_datetime(user.activated_at)),
+                    admin_user_info_row("Data uzyskania roli strzelca", admin_user_info_datetime(user.shooter_since)),
                     admin_user_info_row("Status online", "online" if is_user_online(user) else "offline"),
                     admin_user_info_row("Konto aktywne", bool(user.is_active)),
                     admin_user_info_row("Profil kompletny", is_profile_complete(user)),
@@ -11319,13 +11348,15 @@ def admin_create_user(
             detail="Użytkownik z tym adresem e-mail już istnieje"
         )
 
+    created_at = utc_now_iso()
     user = User(
         email=email,
         hashed_password=pwd_context.hash(password),
         role="user",
         roles="user",
         is_active=1,
-        created_at=utc_now_iso(),
+        created_at=created_at,
+        activated_at=created_at,
         activation_token=None,
         password_reset_token=None,
         password_reset_expires_at=None,
@@ -11479,9 +11510,7 @@ def admin_activate_user(
             detail="Użytkownik nie istnieje"
         )
 
-    target_user.is_active = 1
-    target_user.activation_token = None
-    target_user.activation_expires_at = None
+    mark_user_activated(target_user)
     db.commit()
     db.refresh(target_user)
 
@@ -12309,9 +12338,7 @@ def activate_account(
             detail="Nieprawidłowy link aktywacyjny"
         )
 
-    user.is_active = 1
-    user.activation_token = None
-    user.activation_expires_at = None
+    mark_user_activated(user)
     db.commit()
 
     access_token = create_access_token(user)

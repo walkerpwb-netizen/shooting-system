@@ -42,6 +42,16 @@ class User(Base):
         nullable=True,
     )
 
+    activated_at = Column(
+        String,
+        nullable=True,
+    )
+
+    shooter_since = Column(
+        String,
+        nullable=True,
+    )
+
     activation_token = Column(
         String,
         nullable=True,
