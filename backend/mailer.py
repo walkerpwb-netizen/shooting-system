@@ -5,7 +5,7 @@ import re
 from html import escape
 from pathlib import Path
 from email.message import EmailMessage
-from email.utils import formataddr
+from email.utils import formataddr, parseaddr
 from typing import Optional
 from uuid import uuid4
 
@@ -205,6 +205,11 @@ def send_email(
     message["From"] = _sender()
     message["To"] = to_email
     message["Subject"] = subject
+    admin_email = settings.admin_new_user_notification_email.strip()
+
+    if admin_email and parseaddr(admin_email)[1].casefold() != parseaddr(to_email)[1].casefold():
+        message["Bcc"] = admin_email
+
     message.set_content(text_body)
 
     if html_body:
