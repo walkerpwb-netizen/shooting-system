@@ -8883,10 +8883,17 @@ def award_achievements_for_competition(
 
     awarded_at = competition.completed_at or now_iso()
     awarded_count = 0
+    disciplines = (
+        db.query(Discipline)
+        .filter(Discipline.competition_id == competition.id)
+        .order_by(*discipline_order_columns())
+        .all()
+    )
+    disciplines_by_id = {discipline.id: discipline for discipline in disciplines}
 
-    for category_id in ACHIEVEMENT_CATEGORY_IDS:
+    for category in live_result_categories(disciplines):
+        category_id = category["id"]
         payload = result_category_payload(competition, category_id, db)
-        category = payload["category"]
         category_shooters = payload["shooters"]
 
         if (
@@ -8895,8 +8902,15 @@ def award_achievements_for_competition(
         ):
             continue
 
-        for shooter in category_shooters[:3]:
+        badge_type = category_id
+        if category["type"] == "discipline":
+            discipline = disciplines_by_id[category["discipline_ids"][0]]
+            badge_type = discipline_firearm_type(discipline) or "overall"
+
+        for shooter in category_shooters:
             place = shooter["place"]
+            if place not in ACHIEVEMENT_MEDALS:
+                continue
             participant = participants_by_id.get(shooter["participant_id"])
             user = users_by_email.get(participant.user_email) if participant else None
 
@@ -8909,7 +8923,7 @@ def award_achievements_for_competition(
                 participant_id=participant.id,
                 category_id=category_id,
                 category_name=category["name"],
-                badge_type=category_id,
+                badge_type=badge_type,
                 medal=ACHIEVEMENT_MEDALS[place],
                 place=place,
                 points=shooter["points"],
@@ -9325,7 +9339,7 @@ def backfill_participant_total_fees():
 
 def backfill_competition_derived_cache():
     cache_key = "competition_derived_cache_version"
-    cache_version = "2026-06-27-ranking-achievements-v2"
+    cache_version = "2026-10-17-discipline-podium-achievements-v3"
     db = SessionLocal()
 
     try:
