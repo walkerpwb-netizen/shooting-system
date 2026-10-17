@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import ResultsLeaderboardTable from "@/app/components/ResultsLeaderboardTable";
+import { CompetitionParticipationProvider, DisciplineParticipationCard } from "@/app/components/CompetitionParticipation";
 import { apiUrl } from "@/lib/api";
 import { authFetch, getAccessToken, isOrganizer } from "@/lib/auth";
 
@@ -137,6 +138,7 @@ export default function OrganizerLeaderboardPage() {
   const updatedAt = formatUpdatedAt(leaderboard?.updated_at || "");
 
   return (
+    <CompetitionParticipationProvider competitionId={competitionId}>
     <main className="min-h-screen px-6 py-10">
       <div className="w-full">
         <Link
@@ -175,9 +177,11 @@ export default function OrganizerLeaderboardPage() {
                 )}
               </div>
 
+              <DisciplineParticipationCard disciplineIds={leaderboard.category.type === "discipline" ? leaderboard.category.discipline_ids : []}>
               <h1 className="mb-3 text-4xl font-bold text-zinc-950 dark:text-white sm:text-5xl">
                 {leaderboard.category.name}
               </h1>
+              </DisciplineParticipationCard>
 
               <p className="text-zinc-600 dark:text-gray-400">
                 {leaderboard.competition.name} • {leaderboard.competition.location} • {leaderboard.competition.date}
@@ -194,5 +198,6 @@ export default function OrganizerLeaderboardPage() {
         )}
       </div>
     </main>
+    </CompetitionParticipationProvider>
   );
 }

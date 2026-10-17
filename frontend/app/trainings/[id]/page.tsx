@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import JoinCompetitionPanel from "@/app/competitions/[id]/JoinCompetitionPanel";
 import LogoPreviewLink from "@/app/competitions/[id]/LogoPreviewLink";
 import RegistrationCountdown from "@/app/competitions/[id]/RegistrationCountdown";
+import { CompetitionParticipationProvider, DisciplineParticipationCard } from "@/app/components/CompetitionParticipation";
 import DisciplineDescription from "@/app/components/DisciplineDescription";
 import { apiUrl } from "@/lib/api";
 import { getClayTargetsCount } from "@/lib/disciplines";
@@ -197,6 +198,7 @@ export default async function TrainingPage({
         </h1>
       </div>
 
+      <CompetitionParticipationProvider competitionId={training.id}>
       <div className="grid lg:grid-cols-2 gap-6">
         <div className="space-y-6">
           <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
@@ -315,10 +317,7 @@ export default async function TrainingPage({
 
             <div className="space-y-3">
               {training.disciplines.map((discipline: Discipline) => (
-                <div
-                  key={discipline.id}
-                  className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700"
-                >
+                <DisciplineParticipationCard key={discipline.id} disciplineIds={[discipline.id]}>
                   <h3 className="font-bold">
                     {discipline.name}
                   </h3>
@@ -350,7 +349,7 @@ export default async function TrainingPage({
                       Cena bloku: {discipline.entry_fee || "0"} zł
                     </p>
                   )}
-                </div>
+                </DisciplineParticipationCard>
               ))}
             </div>
           </section>
@@ -375,6 +374,7 @@ export default async function TrainingPage({
           disciplines={training.disciplines as Discipline[]}
         />
       </div>
+      </CompetitionParticipationProvider>
     </main>
   );
 }

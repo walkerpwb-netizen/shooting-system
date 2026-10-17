@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { ParticipationBadge } from "@/app/components/CompetitionParticipation";
 import { apiUrl } from "@/lib/api";
 import { authFetch } from "@/lib/auth";
 
@@ -259,10 +260,11 @@ export default function StartHistoryPage() {
                           <Link
                             key={discipline.discipline_id}
                             href={discipline.category_path}
-                            className="grid grid-cols-[minmax(0,1fr)_7rem] gap-4 px-4 py-4 text-sm transition hover:bg-red-50 dark:hover:bg-red-950/30 sm:grid-cols-[minmax(0,1fr)_9rem_7rem] sm:text-base"
+                            className="m-2 grid grid-cols-[minmax(0,1fr)_7rem] gap-4 rounded-xl border-2 border-green-600 bg-green-50/60 px-4 py-4 text-sm transition hover:bg-green-100 dark:border-green-500 dark:bg-green-950/20 dark:hover:bg-green-950/40 sm:grid-cols-[minmax(0,1fr)_9rem_7rem] sm:text-base"
                           >
                             <span className="font-semibold text-zinc-900 dark:text-red-50">
-                              {discipline.name}
+                              <span className="mb-2 block">{discipline.name}</span>
+                              <ParticipationBadge joined />
                             </span>
 
                             <span className="hidden text-zinc-600 dark:text-red-100/80 sm:block">

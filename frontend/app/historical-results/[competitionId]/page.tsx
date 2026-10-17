@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import ResultCategoryList from "@/app/components/ResultCategoryList";
+import { CompetitionParticipationProvider } from "@/app/components/CompetitionParticipation";
 import { apiUrl } from "@/lib/api";
 import { getAccessToken } from "@/lib/auth";
 import { authHeaderFromToken } from "@/lib/premium";
@@ -88,6 +89,7 @@ export default function HistoricalCompetitionPage() {
   ) || [];
 
   return (
+    <CompetitionParticipationProvider competitionId={competitionId}>
     <main className="min-h-screen px-6 py-10">
       <div className="w-full">
         <Link
@@ -163,5 +165,6 @@ export default function HistoricalCompetitionPage() {
         )}
       </div>
     </main>
+    </CompetitionParticipationProvider>
   );
 }

@@ -4,6 +4,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
+import { useCompetitionParticipation, ParticipationBadge } from "@/app/components/CompetitionParticipation";
 import { apiUrl } from "@/lib/api";
 import {
   authFetch,
@@ -56,12 +57,6 @@ type SelectedDiscipline = {
   power_factor: "" | "minor" | "major";
 };
 
-type EntryState = {
-  authSnapshot: string;
-  entryType: string;
-  loaded: boolean;
-};
-
 type ProfileState = {
   authSnapshot: string;
   profile: {
@@ -112,11 +107,7 @@ export default function JoinCompetitionPanel({
   const [loading, setLoading] = useState(false);
   const [noticeMessage, setNoticeMessage] = useState("");
   const [showForm, setShowForm] = useState(false);
-  const [entryState, setEntryState] = useState<EntryState>({
-    authSnapshot: "",
-    entryType: "",
-    loaded: false,
-  });
+  const participation = useCompetitionParticipation();
   const [profileState, setProfileState] = useState<ProfileState>({
     authSnapshot: "",
     profile: {
@@ -150,11 +141,8 @@ export default function JoinCompetitionPanel({
     joinedMessage: isTraining ? "Jesteś zapisany na szkolenie." : "Jesteś zapisany na zawody.",
   };
   const competitionPath = `${detailsHrefBase}/${competitionId}`;
-  const currentEntryType = entryState.authSnapshot === authSnapshot
-    ? entryState.entryType
-    : "";
-  const entryLoaded = !hasStoredSession
-    || (entryState.authSnapshot === authSnapshot && entryState.loaded);
+  const currentEntryType = participation?.entry?.entry_type || "";
+  const entryLoaded = participation?.status !== "loading";
   const currentUserProfile = profileState.authSnapshot === authSnapshot
     ? profileState.profile
     : {
@@ -183,45 +171,6 @@ export default function JoinCompetitionPanel({
       active = false;
     };
   }, []);
-
-  useEffect(() => {
-    if (!hasStoredSession || !sessionChecked) {
-      return;
-    }
-
-    let active = true;
-
-    async function loadMyEntry() {
-      let entryType = "";
-
-      try {
-        const response = await authFetch(apiUrl(`/competitions/${competitionId}/my-entry`));
-
-        if (!response.ok) {
-          return;
-        }
-
-        const data = await response.json();
-        entryType = data.entry_type || "";
-      } catch (error) {
-        console.error(error);
-      } finally {
-        if (active) {
-          setEntryState({
-            authSnapshot,
-            entryType,
-            loaded: true,
-          });
-        }
-      }
-    }
-
-    void loadMyEntry();
-
-    return () => {
-      active = false;
-    };
-  }, [authSnapshot, competitionId, hasStoredSession, sessionChecked]);
 
   useEffect(() => {
     if (!hasStoredSession || !sessionChecked) {
@@ -589,10 +538,9 @@ export default function JoinCompetitionPanel({
 
       setParticipants(data.participants);
       setShowForm(false);
-      setEntryState({
-        authSnapshot,
-        entryType: "shooter",
-        loaded: true,
+      participation?.setEntry({
+        entry_type: "shooter",
+        discipline_ids: selectedDisciplines.map((discipline) => discipline.discipline_id),
       });
       showNotice(
         competitionStatus === "started"
@@ -647,11 +595,7 @@ export default function JoinCompetitionPanel({
 
       setParticipants(data.participants);
       setSelectedDisciplines([]);
-      setEntryState({
-        authSnapshot,
-        entryType: "",
-        loaded: true,
-      });
+      participation?.setEntry({ entry_type: "", discipline_ids: [] });
       setShowForm(false);
       showNotice(`Wypisano z ${eventLabels.eventGenitive}.`);
     } catch (error) {
@@ -967,6 +911,18 @@ export default function JoinCompetitionPanel({
             Wypisanie się z {eventLabels.eventGenitive} jest możliwe najpóźniej 48 godzin przed {eventLabels.eventInstrumental}.
           </p>
         </div>
+      )}
+
+      {participation?.status === "ready" && currentEntryType === "shooter" && disciplines.length > 0 && (
+        <section className="space-y-3" aria-label="Twoje konkurencje">
+          <h3 className="font-bold">Twoje konkurencje</h3>
+          {disciplines.filter((discipline) => participation.entry?.discipline_ids.includes(discipline.id)).map((discipline) => (
+            <div key={discipline.id} className="rounded-xl border-2 border-green-600 bg-green-50/60 p-3 dark:border-green-500 dark:bg-green-950/20">
+              <p className="mb-2 font-semibold">{discipline.name}</p>
+              <ParticipationBadge joined />
+            </div>
+          ))}
+        </section>
       )}
 
       {participants.length === 0 ? (

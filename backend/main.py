@@ -10103,9 +10103,18 @@ def get_my_competition_entry(
     )
 
     if shooter_participant:
+        discipline_ids = [
+            discipline_id
+            for (discipline_id,) in db.query(ParticipantDiscipline.discipline_id)
+            .filter(ParticipantDiscipline.participant_id == shooter_participant.id)
+            .distinct()
+            .order_by(ParticipantDiscipline.discipline_id)
+            .all()
+        ]
         return {
             "entry_type": "shooter",
             "is_head_judge": False,
+            "discipline_ids": discipline_ids,
         }
 
     judge_participant = (
@@ -10122,10 +10131,12 @@ def get_my_competition_entry(
         return {
             "entry_type": "judge",
             "is_head_judge": bool(judge_participant.is_head_judge),
+            "discipline_ids": [],
         }
 
     return {
         "entry_type": "",
+        "discipline_ids": [],
     }
 
 

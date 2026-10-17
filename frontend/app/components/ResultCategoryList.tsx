@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
+import { DisciplineParticipationCard } from "./CompetitionParticipation";
+
 export type ResultCategoryListItem = {
   id: string;
   name: string;
@@ -123,10 +125,12 @@ export default function ResultCategoryList({
           Brak pozycji pasujących do filtra.
         </p>
       ) : visibleCategories.map((category) => (
-        <div
+        <DisciplineParticipationCard
           key={category.id}
-          className="grid gap-4 border-b border-zinc-200 px-4 py-4 text-sm last:border-b-0 dark:border-zinc-800 lg:grid-cols-[1.5fr_0.8fr_1fr_1fr] lg:items-center"
+          disciplineIds={category.type === "discipline" ? category.discipline_ids : []}
+          className="m-2 rounded-xl p-4"
         >
+        <div className="grid gap-4 text-sm lg:grid-cols-[1.5fr_0.8fr_1fr_1fr] lg:items-center">
           <div className="min-w-0">
             <p className="truncate text-base font-bold text-zinc-950 dark:text-white">
               {category.name}
@@ -156,6 +160,7 @@ export default function ResultCategoryList({
             </Link>
           </div>
         </div>
+        </DisciplineParticipationCard>
       ))}
     </section>
   );

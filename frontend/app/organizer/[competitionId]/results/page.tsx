@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import ResultCategoryList from "@/app/components/ResultCategoryList";
+import { CompetitionParticipationProvider } from "@/app/components/CompetitionParticipation";
 import { apiUrl } from "@/lib/api";
 import { authFetch, getAccessToken, isOrganizer } from "@/lib/auth";
 
@@ -108,6 +109,7 @@ export default function OrganizerResultsPage() {
   ) || [];
 
   return (
+    <CompetitionParticipationProvider competitionId={competitionId}>
     <main className="min-h-screen px-6 py-10">
       <div className="w-full">
         <Link
@@ -183,5 +185,6 @@ export default function OrganizerResultsPage() {
         )}
       </div>
     </main>
+    </CompetitionParticipationProvider>
   );
 }
