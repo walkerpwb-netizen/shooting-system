@@ -1565,6 +1565,8 @@ export default function JudgeDisciplinePage() {
   const [sortField, setSortField] = useState<SortField>("name");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const [standardResultDraft, setStandardResultDraft] = useState<StandardResultDraft | null>(null);
+  const [standardResultSavingId, setStandardResultSavingId] = useState<number | null>(null);
+  const standardResultSavingRef = useRef(false);
   const [activeTrapGroup, setActiveTrapGroup] = useState<{
     groupNumber: number;
     shooters: Shooter[];
@@ -1959,6 +1961,9 @@ export default function JudgeDisciplinePage() {
   }
 
   async function saveResult(shooter: Shooter) {
+    if (standardResultSavingRef.current) {
+      return;
+    }
     if (!resultsEnabled) {
       return;
     }
@@ -1990,6 +1995,9 @@ export default function JudgeDisciplinePage() {
     points: string,
     oneHandBonus: boolean
   ) {
+    if (standardResultSavingRef.current) {
+      return;
+    }
     const bonusEnabled = Boolean(discipline?.one_hand_bonus_enabled);
     const normalizedPoints = points.trim();
     const bonusResult = bonusEnabled
@@ -2021,6 +2029,8 @@ export default function JudgeDisciplinePage() {
     const token = getAccessToken();
 
     try {
+      standardResultSavingRef.current = true;
+      setStandardResultSavingId(shooter.participant_id);
       setMessage("");
 
       const response = await authFetch(
@@ -2061,6 +2071,9 @@ export default function JudgeDisciplinePage() {
     } catch (error) {
       console.error(error);
       setMessage("Błąd połączenia z serwerem ❌");
+    } finally {
+      standardResultSavingRef.current = false;
+      setStandardResultSavingId(null);
     }
   }
 
@@ -4177,7 +4190,7 @@ export default function JudgeDisciplinePage() {
                         <button
                           type="button"
                           onClick={() => saveResult(shooter)}
-                          disabled={!resultsEnabled}
+                          disabled={!resultsEnabled || standardResultSavingId !== null}
                           title={!resultsEnabled ? "Zawody jeszcze się nie rozpoczęły" : ""}
                           className={`w-full px-4 py-3 text-center text-sm font-bold text-white transition sm:w-44 ${
                             !resultsEnabled
@@ -4187,7 +4200,9 @@ export default function JudgeDisciplinePage() {
                               : "bg-green-700 hover:bg-green-600"
                           }`}
                         >
-                          {!resultsEnabled
+                          {standardResultSavingId === shooter.participant_id
+                            ? "Zapisywanie…"
+                            : !resultsEnabled
                             ? "Zawody nierozpoczęte"
                             : shooter.points
                             ? "Edytuj wynik"
@@ -4269,6 +4284,7 @@ export default function JudgeDisciplinePage() {
                 <button
                   type="button"
                   onClick={() => setStandardResultDraft(null)}
+                  disabled={standardResultSavingId !== null}
                   className="rounded-xl border border-zinc-700 px-4 py-3 font-bold text-gray-200 transition hover:bg-zinc-900"
                 >
                   Anuluj
@@ -4280,9 +4296,10 @@ export default function JudgeDisciplinePage() {
                     standardResultDraft.points,
                     standardResultDraft.oneHandBonus
                   )}
+                  disabled={standardResultSavingId !== null}
                   className="rounded-xl bg-green-700 px-4 py-3 font-black text-white transition hover:bg-green-600"
                 >
-                  Zapisz wynik
+                  {standardResultSavingId !== null ? "Zapisywanie…" : "Zapisz wynik"}
                 </button>
               </div>
             </div>

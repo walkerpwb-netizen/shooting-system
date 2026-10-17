@@ -97,7 +97,9 @@ jobs:
       - name: Verify Alembic migrations
         run: alembic -c alembic.ini upgrade head
 
-      - name: Test user lifecycle timestamps
+      - name: Test backend regressions
+        env:
+          TEST_POSTGRES_URL: ${{ env.DATABASE_URL }}
         run: python -m unittest discover -s tests -v
 
   deploy:

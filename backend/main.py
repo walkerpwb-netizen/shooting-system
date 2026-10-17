@@ -11,6 +11,7 @@ from html import escape
 from pywebpush import WebPushException, webpush
 
 from database import SessionLocal
+from result_store import save_discipline_result
 from config import settings
 from mailer import (
     ACTIVATION_LINK_PLACEHOLDER,
@@ -6759,16 +6760,8 @@ def dynamic_final_classification(competition_id: int, discipline_id: int, db):
 def update_dynamic_discipline_results(competition_id: int, discipline_id: int, judge_email: str, db):
     classification = dynamic_final_classification(competition_id, discipline_id, db)
 
-    for row in classification:
-        result = (
-            db.query(DisciplineResult)
-            .filter(
-                DisciplineResult.competition_id == competition_id,
-                DisciplineResult.discipline_id == discipline_id,
-                DisciplineResult.participant_id == row["competitor_id"],
-            )
-            .first()
-        )
+    # Use a consistent write order when multiple judges save different stages.
+    for row in sorted(classification, key=lambda item: item["competitor_id"]):
         result_data = json.dumps({
             "discipline": "dynamic-stage",
             "stage_points": row["stage_points"],
@@ -6777,20 +6770,15 @@ def update_dynamic_discipline_results(competition_id: int, discipline_id: int, j
             "stage_wins": row["stage_wins"],
         }, ensure_ascii=False)
 
-        if not result:
-            result = DisciplineResult(
-                competition_id=competition_id,
-                discipline_id=discipline_id,
-                participant_id=row["competitor_id"],
-                judge_email=judge_email,
-                points=row["stage_points"],
-                result_data=result_data,
-            )
-            db.add(result)
-        else:
-            result.points = row["stage_points"]
-            result.judge_email = judge_email
-            result.result_data = result_data
+        save_discipline_result(
+            db,
+            competition_id=competition_id,
+            discipline_id=discipline_id,
+            participant_id=row["competitor_id"],
+            judge_email=judge_email,
+            points=row["stage_points"],
+            result_data=result_data,
+        )
 
 
 def validate_practical_shotgun_result_data(discipline: Discipline, result_data: str):
@@ -15198,30 +15186,15 @@ def save_judge_result(
             data.result_data,
         )
 
-    result = (
-        db.query(DisciplineResult)
-        .filter(
-            DisciplineResult.participant_id == participant.id,
-            DisciplineResult.discipline_id == discipline_id,
-        )
-        .first()
+    result = save_discipline_result(
+        db,
+        competition_id=competition_id,
+        discipline_id=discipline_id,
+        participant_id=participant.id,
+        judge_email=user.email,
+        points=result_points,
+        result_data=data.result_data,
     )
-
-    if not result:
-        result = DisciplineResult(
-            competition_id=competition_id,
-            discipline_id=discipline_id,
-            participant_id=participant.id,
-            judge_email=user.email,
-            points=result_points,
-            result_data=data.result_data,
-        )
-        db.add(result)
-    else:
-        result.points = result_points
-        result.judge_email = user.email
-        if data.result_data is not None:
-            result.result_data = data.result_data
 
     db.commit()
 

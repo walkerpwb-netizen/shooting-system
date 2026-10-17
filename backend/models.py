@@ -1057,6 +1057,12 @@ class JudgeInvitation(Base):
 
 class DisciplineResult(Base):
     __tablename__ = "discipline_results"
+    __table_args__ = (
+        Index(
+            "uq_discipline_results_participant_discipline",
+            "participant_id", "discipline_id", unique=True,
+        ),
+    )
 
     id = Column(
         Integer,
