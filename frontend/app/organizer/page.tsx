@@ -645,6 +645,7 @@ function OrganizerContent() {
   const [disciplines, setDisciplines] = useState<Discipline[]>([]);
   const [loading, setLoading] = useState(false);
   const [resultsPdfDownloadingId, setResultsPdfDownloadingId] = useState<number | null>(null);
+  const [resultsExcelDownloadingId, setResultsExcelDownloadingId] = useState<number | null>(null);
   const [pzssPdfDownloadingId, setPzssPdfDownloadingId] = useState<number | null>(null);
   const [copyDialogCompetition, setCopyDialogCompetition] = useState<Competition | null>(null);
   const [copyingCompetitionId, setCopyingCompetitionId] = useState<number | null>(null);
@@ -1028,6 +1029,44 @@ function OrganizerContent() {
       setMessage("Błąd połączenia z serwerem ❌");
     } finally {
       setResultsPdfDownloadingId(null);
+    }
+  }
+
+  async function handleDownloadResultsExcel(competition: Competition) {
+    try {
+      setMessage("");
+      setResultsExcelDownloadingId(competition.id);
+
+      const response = await authFetch(apiUrl(`/organizer/competitions/${competition.id}/results.xlsx`));
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        setMessage(data?.detail || "Nie udało się wygenerować pliku Excel ❌");
+        return;
+      }
+
+      const blob = await response.blob();
+      const fileUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const safeName = competition.name
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "") || `zawody-${competition.id}`;
+
+      link.href = fileUrl;
+      link.download = `wyniki-${competition.id}-${safeName}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(fileUrl);
+      setMessage("Plik Excel z wynikami wygenerowany ✅");
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    } finally {
+      setResultsExcelDownloadingId(null);
     }
   }
 
@@ -3771,6 +3810,16 @@ function OrganizerContent() {
                             className="ui-button bg-sky-700 hover:bg-sky-600 disabled:bg-gray-500 disabled:cursor-not-allowed text-white px-4 py-2 rounded-xl font-semibold"
                           >
                             {pzssPdfDownloadingId === competition.id ? "Generuję..." : "Komunikaty dla PZSS"}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleDownloadResultsExcel(competition)}
+                            disabled={resultsExcelDownloadingId === competition.id}
+                            title="Pobierz czyste dane wyników — każda konkurencja w osobnym arkuszu"
+                            className="ui-button bg-emerald-700 hover:bg-emerald-600 disabled:bg-gray-500 disabled:cursor-not-allowed text-white px-4 py-2 rounded-xl font-semibold"
+                          >
+                            {resultsExcelDownloadingId === competition.id ? "Generuję..." : "Excel wyników"}
                           </button>
                         </>
                       ) : canDeleteCompetition ? (

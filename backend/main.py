@@ -12,6 +12,7 @@ from pywebpush import WebPushException, webpush
 
 from database import SessionLocal
 from result_store import save_discipline_result
+from results_excel import build_results_workbook
 from config import settings
 from mailer import (
     ACTIVATION_LINK_PLACEHOLDER,
@@ -13242,6 +13243,40 @@ def download_organizer_competition_results_pdf(
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@app.get("/organizer/competitions/{competition_id}/results.xlsx")
+def download_organizer_competition_results_excel(
+    competition_id: int,
+    user: User = Depends(get_current_organizer),
+    db=Depends(get_db),
+):
+    auto_complete_started_competitions(db)
+    competition = get_organizer_result_competition_or_404(competition_id, user, db)
+
+    if competition.status != "completed":
+        raise HTTPException(
+            status_code=400,
+            detail="Plik Excel można wygenerować po zakończeniu zawodów"
+        )
+
+    categories = (
+        (
+            category["name"],
+            result_category_payload(competition, category["id"], db, include_license=True),
+        )
+        for category in competition_pdf_result_categories(competition, db)
+        if category["type"] == "discipline"
+    )
+    filename = f"wyniki-{competition.id}-{pdf_filename_slug(competition.name)}.xlsx"
+    return Response(
+        content=build_results_workbook(categories),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
             "Cache-Control": "no-store",
