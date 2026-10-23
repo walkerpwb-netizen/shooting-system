@@ -614,6 +614,7 @@ export default function AdminClient({
   const [adReportPdfDownloading, setAdReportPdfDownloading] = useState(false);
   const [testPdfDownloading, setTestPdfDownloading] = useState(false);
   const [competitionResultsPdfDownloadingId, setCompetitionResultsPdfDownloadingId] = useState<number | null>(null);
+  const [competitionResultsExcelDownloadingId, setCompetitionResultsExcelDownloadingId] = useState<number | null>(null);
   const [competitionPzssPdfDownloadingId, setCompetitionPzssPdfDownloadingId] = useState<number | null>(null);
   const [competitionCopyingId, setCompetitionCopyingId] = useState<number | null>(null);
   const [expandedCompetitionId, setExpandedCompetitionId] = useState<number | null>(null);
@@ -1423,6 +1424,46 @@ export default function AdminClient({
       setMessage("Błąd połączenia z serwerem ❌");
     } finally {
       setCompetitionResultsPdfDownloadingId(null);
+    }
+  }
+
+  async function downloadCompetitionResultsExcel(competition: AdminCompetition) {
+    const token = getAccessToken();
+
+    try {
+      setMessage("");
+      setCompetitionResultsExcelDownloadingId(competition.id);
+
+      const response = await fetch(
+        apiUrl(`/organizer/competitions/${competition.id}/results.xlsx`),
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        setMessage(data?.detail || "Nie udało się wygenerować pliku Excel ❌");
+        return;
+      }
+
+      const blob = await response.blob();
+      const fileUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = fileUrl;
+      link.download = `wyniki-${competition.id}-${competitionPdfSafeName(competition)}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(fileUrl);
+      setMessage("Plik Excel z wynikami wygenerowany ✅");
+    } catch (error) {
+      console.error(error);
+      setMessage("Błąd połączenia z serwerem ❌");
+    } finally {
+      setCompetitionResultsExcelDownloadingId(null);
     }
   }
 
@@ -4149,6 +4190,18 @@ export default function AdminClient({
                               {competitionPzssPdfDownloadingId === competition.id
                                 ? "Generuję..."
                                 : "Komunikaty dla PZSS"}
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => downloadCompetitionResultsExcel(competition)}
+                              disabled={competitionResultsExcelDownloadingId === competition.id}
+                              title="Pobierz czyste dane wyników — każda konkurencja w osobnym arkuszu"
+                              className="bg-emerald-700 hover:bg-emerald-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-3 py-2 rounded-lg text-sm font-semibold transition"
+                            >
+                              {competitionResultsExcelDownloadingId === competition.id
+                                ? "Generuję..."
+                                : "Excel wyników"}
                             </button>
                           </>
                         )}
