@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import QrCode from "@/components/QrCode";
+import LicenseStartsCard, { type LicenseStarts } from "@/components/LicenseStartsCard";
 import QrCodeScanner from "@/components/QrCodeScanner";
 import { apiUrl } from "@/lib/api";
 import { getAccessToken, clearStoredAuth, notifyAuthChange } from "@/lib/auth";
@@ -29,6 +30,7 @@ type VerifiedPzssClub = {
 };
 
 type UserProfile = {
+  license_starts?: LicenseStarts | null;
   email: string;
   role: string;
   roles: string[];
@@ -1519,6 +1521,8 @@ export default function ProfilePage() {
               {message}
             </p>
           )}
+
+          {!isPzssClubProfile && <LicenseStartsCard status={profile.license_starts} />}
 
           {isPzssClubProfile ? (
             <ClubProfileCard profile={profile} />

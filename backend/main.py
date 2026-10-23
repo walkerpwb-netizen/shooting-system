@@ -2915,6 +2915,7 @@ def private_user_response(user: User, db, message: str = ""):
         "license_uuid": getattr(user, "license_uuid", "") or "",
         "license_club_code": getattr(user, "license_club_code", "") or "",
         "achievements": user_achievements(user.email, db),
+        "license_starts": user_license_starts(user, db),
     })
 
     if message:
@@ -7221,6 +7222,63 @@ def user_competition_statistics(user: User, db):
         "total_points_sum": format_points(total_points_sum),
         "ammunition_usage": ammunition_usage_from_results(eligible_results, disciplines_by_id),
         "updated_at": datetime.now(APP_TIMEZONE).isoformat(),
+    }
+
+
+def user_license_starts(user: User, db):
+    if (
+        is_pzss_club_account(user)
+        or bool(getattr(user, "no_license", 0))
+        or not (user.license_number or "").strip()
+    ):
+        return None
+
+    today = datetime.now(APP_TIMEZONE).date()
+    requirements = {"pistol": 4, "rifle": 2, "shotgun": 2}
+    counts = dict.fromkeys(requirements, 0)
+    # A start is a recorded result in a discipline, not a registration or stage.
+    # Distinct disciplines avoid counting duplicate participant entries twice.
+    rows = (
+        db.query(Competition.date, Discipline)
+        .select_from(DisciplineResult)
+        .join(Competition, Competition.id == DisciplineResult.competition_id)
+        .join(Discipline, Discipline.id == DisciplineResult.discipline_id)
+        .join(CompetitionParticipant, CompetitionParticipant.id == DisciplineResult.participant_id)
+        .filter(
+            Competition.status == "completed",
+            Discipline.competition_id == Competition.id,
+            CompetitionParticipant.competition_id == Competition.id,
+            CompetitionParticipant.user_email == user.email,
+            or_(
+                CompetitionParticipant.entry_type == "shooter",
+                CompetitionParticipant.entry_type.is_(None),
+            ),
+            func.trim(DisciplineResult.points) != "",
+        )
+        .distinct()
+        .all()
+    )
+
+    for competition_date, discipline in rows:
+        parsed_date = parse_competition_date(competition_date)
+        if not parsed_date or not (parsed_date.year == today.year and parsed_date.date() <= today):
+            continue
+        firearm_type = discipline_firearm_type(discipline)
+        if firearm_type in counts:
+            counts[firearm_type] += 1
+
+    categories = {
+        firearm_type: {
+            "required": required,
+            "completed": counts[firearm_type],
+            "missing": max(required - counts[firearm_type], 0),
+        }
+        for firearm_type, required in requirements.items()
+    }
+    return {
+        "year": today.year,
+        "complete": all(category["missing"] == 0 for category in categories.values()),
+        "categories": categories,
     }
 
 
@@ -16273,6 +16331,7 @@ def user_profile_response(profile_user: User, current_user: Optional[User], db):
     if can_view_private:
         response.update({
             "email": profile_user.email,
+            "license_starts": user_license_starts(profile_user, db),
             "role": primary_role(roles),
             "roles": roles,
             "is_active": bool(profile_user.is_active),
@@ -16397,6 +16456,7 @@ def get_participant_profile(
     if can_view_profile_private and participant_user:
         response.update({
             "email": participant_user.email,
+            "license_starts": user_license_starts(participant_user, db),
             "role": primary_role(roles),
             "roles": roles,
             "is_active": bool(participant_user.is_active),

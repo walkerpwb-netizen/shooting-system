@@ -5,10 +5,12 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 
 import AchievementsSection, { type Achievement } from "@/app/achievements/AchievementsSection";
+import LicenseStartsCard, { type LicenseStarts } from "@/components/LicenseStartsCard";
 import { apiUrl } from "@/lib/api";
 import { getAccessToken } from "@/lib/auth";
 
 type ParticipantProfile = {
+  license_starts?: LicenseStarts | null;
   participant_id: number;
   user_id?: number;
   first_name: string;
@@ -274,6 +276,8 @@ export default function ParticipantProfilePage() {
               )}
             </div>
           </section>
+
+          {showPrivateData && <LicenseStartsCard status={profile.license_starts} />}
 
           <section className="mb-8 rounded-2xl border border-zinc-200 bg-zinc-50/80 p-5 text-center dark:border-red-950 dark:bg-zinc-950/70 sm:p-6">
             <p className="text-sm font-bold uppercase tracking-wide text-red-700 dark:text-red-300">
