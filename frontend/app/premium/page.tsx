@@ -64,7 +64,7 @@ export default async function PremiumPage() {
           <div><h2 className="font-black text-emerald-300">3. Sprawdź podsumowanie</h2><p className="mt-2 leading-7 text-green-100">Po uruchomieniu sprzedaży zapłacisz przez Autopay. Obecnie rzeczywiste płatności są wyłączone.</p></div>
         </section>
         <p className="mt-8 leading-7 text-green-100">Zakup dotyczy wyłącznie wybranej usługi. Premium nie jest opłatą startową za zawody. Bez dodatkowej opłaty lub pakietu rocznego organizator może mieć jedno aktywne opublikowane wydarzenie — zawody lub szkolenie. Szkice są bez limitu. Jednorazowa opłata obejmuje publikację jednego dodatkowego wydarzenia.</p>
-        <AutopayPaymentInfo />
+        <AutopayPaymentInfo wideDesktop />
         <nav aria-label="Informacje o zakupie Premium" className="mt-6 flex flex-wrap gap-6 font-semibold text-emerald-200 underline underline-offset-4">
           <Link href="/premium/regulamin">Regulamin Premium i dane sprzedawcy</Link>
           <Link href="/polityka-prywatnosci">Polityka prywatności</Link>
