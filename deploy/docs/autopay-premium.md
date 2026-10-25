@@ -4,6 +4,8 @@ Publiczna oferta: https://system-strzelecki.pl/premium
 
 Regulamin i dane sprzedawcy: https://system-strzelecki.pl/premium/regulamin
 
+Dane sprzedawcy i forma działalności są również widoczne w ogólnym regulaminie `/regulamin`; obie strony korzystają z tych samych danych API. Oficjalny baner metod płatności z materiałów Autopay jest wyświetlany na ofercie, podsumowaniu i w obu regulaminach. Towarzyszy mu informacja o wyłączonych rzeczywistych płatnościach i dostępności metod dopiero po zatwierdzeniu.
+
 Ceny i funkcje są pobierane z istniejących ustawień `/settings/premium`, zarządzanych w panelu administratora. Frontend nie ma zapasowych cen. W razie braku API pokazuje błąd. Logowanie, rejestracja i aktywacja zachowują wybór pakietu przez istniejący parametr `next`.
 
 ## Stan tej wersji
@@ -46,6 +48,12 @@ Dane sprzedawcy przekazane przez właściciela są domyślnie publikowane w regu
 6. Sprawdź, że uprawnienia i termin prawdziwego Premium pozostały bez zmian. Zwykły użytkownik nie może rozpocząć testu, nawet przez bezpośrednie wywołanie API.
 
 Testy automatyczne: `cd backend && venv/bin/python3 -m unittest discover -s tests -v`. Nie zastępują pełnego testu z operatorem i jego danymi sandbox.
+
+## Wznowienie weryfikacji według e-maila Autopay
+
+E-mail przekazany przez właściciela wskazuje na brak dostępnych produktów/usług i brak możliwości sprawdzenia procesu zakupowego. Prosi także o formę działalności nierejestrowanej, imię i nazwisko w regulaminie oraz oficjalny baner metod płatności. Publiczna oferta zawiera dwa pakiety w wariantach miesięcznym i rocznym, z opisami i aktualnymi cenami. Wybór, logowanie/rejestrację i podsumowanie można sprawdzić bez uruchamiania płatności. Pełny test z bramką nadal wymaga konfiguracji sandbox i uzgodnienia z operatorem dostępu testowego; nie deklaruj pełnego procesu jako zweryfikowanego wyłącznie na podstawie obecności oferty i regulaminu.
+
+Po zakończeniu prac właściciel musi poinformować Autopay, aby operator wznowił weryfikację. Samo wdrożenie nie wznawia procesu po stronie Autopay. Wiadomość określa ważność przelewu weryfikacyjnego na 30 dni; po tym czasie proces trzeba rozpocząć ponownie. Ostateczny wynik weryfikacji zależy od operatora.
 
 ## Osobne uruchomienie po zatwierdzeniu operatora
 

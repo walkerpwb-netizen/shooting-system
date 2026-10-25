@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import AutopayPaymentInfo from "@/components/AutopayPaymentInfo";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { apiUrl } from "@/lib/api";
@@ -123,6 +124,7 @@ export default function CheckoutClient({ packageType, period, orderId }: { packa
           </>}
         </>}
         {message && <p role="alert" className="mt-6 rounded-xl border border-red-300 p-4 text-red-100">{message}</p>}
+        <AutopayPaymentInfo />
       </div>
     </main>
   );

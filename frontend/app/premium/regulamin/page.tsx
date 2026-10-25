@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import AutopayPaymentInfo from "@/components/AutopayPaymentInfo";
+import PremiumSellerDetails from "@/components/PremiumSellerDetails";
 import { getPremiumData, type PremiumCommerce } from "@/lib/premiumCommerce";
 
 export const dynamic = "force-dynamic";
@@ -74,15 +76,10 @@ export default async function PremiumTermsPage() {
         <header><Link href="/premium" className="text-emerald-200 underline print:text-black">Pakiety i cennik Premium</Link><h1 className="mt-5 text-4xl font-black">Regulamin Premium</h1><p className="mt-3">Wersja {commerce?.terms_version || "2026-10-25"}. Sprzedaż w przygotowaniu — płatności rzeczywiste wyłączone.</p></header>
         <section className="space-y-3 leading-7">
           <h2 className="text-2xl font-bold">1. Sprzedawca i kontakt</h2>
-          {seller?.complete ? <address className="space-y-2 not-italic">
-            <p><strong>{seller.name}</strong> — osoba fizyczna prowadząca działalność nierejestrowaną, bez wpisu do CEIDG.</p>
-            <p className="whitespace-pre-line">Adres do korespondencji i reklamacji: {seller.address}</p>
-            <p>E-mail: <a className="underline" href={`mailto:${seller.email}`}>{seller.email}</a></p>
-            <p>Telefon: <a className="underline" href={`tel:${seller.phone.replace(/[^+\d]/g, "")}`}>{seller.phone}</a></p>
-            {seller.nip && <p>NIP: {seller.nip}</p>}
-          </address> : <div className="rounded-xl border border-amber-300/40 p-4 text-amber-100 print:text-black"><strong>Dane sprzedawcy oczekują na uzupełnienie.</strong> Sprzedawcą będzie osoba fizyczna prowadząca działalność nierejestrowaną. Przed rozpoczęciem sprzedaży zostaną opublikowane imię i nazwisko, adres, e-mail i telefon kontaktowy oraz NIP, jeśli został nadany. Do tego czasu sprzedaż pozostaje wyłączona.{seller?.email && <p className="mt-2">Kontakt z serwisem: <a className="underline" href={`mailto:${seller.email}`}>{seller.email}</a></p>}</div>}
+          <PremiumSellerDetails seller={seller} />
         </section>
         {sections.map((section) => <section key={section.title} className="space-y-3 leading-7"><h2 className="text-2xl font-bold">{section.title}</h2>{section.paragraphs.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}</section>)}
+        <AutopayPaymentInfo />
         <section className="space-y-3 leading-7"><h2 className="text-2xl font-bold">Załącznik — wzór odstąpienia od umowy</h2><div className="space-y-3 rounded-xl border border-green-700 p-5"><p>Adresat: sprzedawca wskazany w punkcie 1 Regulaminu Premium.</p><p>Niniejszym informuję o odstąpieniu od umowy o świadczenie usługi Premium.</p><p>Data zawarcia umowy / numer zamówienia: …</p><p>Imię i nazwisko, adres oraz e-mail konta: …</p><p>Data: …</p><p>Podpis konsumenta (tylko przy przesłaniu na papierze): …</p></div></section>
         <nav className="flex flex-wrap gap-5 text-emerald-200 underline print:text-black"><Link href="/regulamin">Regulamin serwisu</Link><Link href="/polityka-prywatnosci">Polityka prywatności</Link><Link href="/kontakt">Kontakt</Link><a href="https://polubowne.uokik.gov.pl/">Pozasądowe rozwiązywanie sporów — UOKiK</a></nav>
       </article>

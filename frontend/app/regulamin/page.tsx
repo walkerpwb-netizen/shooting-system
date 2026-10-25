@@ -1,11 +1,16 @@
 import Link from "next/link";
+import AutopayPaymentInfo from "@/components/AutopayPaymentInfo";
+import PremiumSellerDetails from "@/components/PremiumSellerDetails";
+import { getPremiumData, type PremiumCommerce } from "@/lib/premiumCommerce";
+
+export const dynamic = "force-dynamic";
 
 const sections = [
   {
     title: "§1 Postanowienia ogólne",
     items: [
       "Regulamin określa zasady korzystania z serwisu internetowego System-Strzelecki",
-      "Właścicielem i administratorem serwisu jest właściciel domeny System-Strzelecki",
+      "Dane usługodawcy i sprzedawcy Premium podano na początku tego regulaminu.",
       "Serwis służy do organizacji, obsługi i publikacji wyników zawodów strzeleckich oraz prowadzenia rankingów i statystyk.",
     ],
   },
@@ -74,7 +79,8 @@ const sections = [
   },
 ];
 
-export default function TermsPage() {
+export default async function TermsPage() {
+  const commerce = await getPremiumData<PremiumCommerce>("/premium/commerce");
   return (
     <main className="min-h-screen bg-white px-6 py-10 text-zinc-950 dark:bg-black dark:text-white">
       <article className="mx-auto w-full max-w-4xl">
@@ -87,6 +93,11 @@ export default function TermsPage() {
         </h1>
 
         <div className="space-y-8 rounded-2xl border border-zinc-200 bg-zinc-50 p-6 text-base leading-7 text-zinc-700 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-200">
+          <section>
+            <h2 className="mb-3 text-2xl font-bold text-zinc-950 dark:text-white">Dane usługodawcy i sprzedawcy Premium</h2>
+            <PremiumSellerDetails seller={commerce?.seller} />
+            <p className="mt-4">Warunki usług Premium, płatności, reklamacji i odstąpienia od umowy określa <Link href="/premium/regulamin" className="font-semibold underline">Regulamin Premium</Link>. Aktualna oferta i ceny są dostępne na stronie <Link href="/premium" className="font-semibold underline">Premium i cennik</Link>.</p>
+          </section>
           {sections.map((section) => (
             <section key={section.title}>
               <h2 className="mb-3 text-2xl font-bold text-zinc-950 dark:text-white">
@@ -102,6 +113,7 @@ export default function TermsPage() {
               </ol>
             </section>
           ))}
+          <AutopayPaymentInfo />
         </div>
 
         <Link

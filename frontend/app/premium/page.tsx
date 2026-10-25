@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import AutopayPaymentInfo from "@/components/AutopayPaymentInfo";
 import { getPremiumData, premiumPackageNames, premiumPrice, type PremiumPrices } from "@/lib/premiumCommerce";
 
 export const dynamic = "force-dynamic";
@@ -59,6 +60,7 @@ export default async function PremiumPage() {
           <div><h2 className="font-black text-emerald-300">3. Sprawdź podsumowanie</h2><p className="mt-2 leading-7 text-green-100">Po uruchomieniu sprzedaży zapłacisz przez Autopay. Obecnie rzeczywiste płatności są wyłączone.</p></div>
         </section>
         <p className="mt-8 leading-7 text-green-100">Zakup dotyczy wyłącznie wybranego pakietu. Premium nie jest opłatą startową za zawody. Bez Premium organizator może publikować jedne aktywne zawody jednocześnie, a liczba szkiców jest nieograniczona.</p>
+        <AutopayPaymentInfo />
         <nav aria-label="Informacje o zakupie Premium" className="mt-6 flex flex-wrap gap-6 font-semibold text-emerald-200 underline underline-offset-4">
           <Link href="/premium/regulamin">Regulamin Premium i dane sprzedawcy</Link>
           <Link href="/polityka-prywatnosci">Polityka prywatności</Link>
