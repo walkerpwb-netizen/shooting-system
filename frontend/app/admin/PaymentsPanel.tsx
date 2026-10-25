@@ -20,6 +20,8 @@ type PaymentReport = {
   years: number[]; annual: Total; lifetime: Total; matching: Total;
   months: (Total & { month: number; label: string })[]; entries: Receipt[];
   quarters: Quarter[]; fee_note: string; limit_note: string; limit_source_url: string;
+  payment_guard: { year: number; quarter: number; percent: number; blocked: boolean;
+    stop_at: string | null; received: string; reserved: string; remaining: string | null };
   report_note: string; tax_source_url: string;
 };
 
@@ -134,6 +136,13 @@ export default function PaymentsPanel() {
           <h3 className="text-xl font-bold">Kwartały {data.year} — wpłaty a limit działalności nierejestrowanej</h3>
           <p className="font-semibold text-amber-100">Prowizje nie pomniejszają przychodu liczonego do limitu.</p>
           <p className="leading-7 text-zinc-300">{data.limit_note}</p>
+          {environment === "production" && <div className="space-y-2 rounded-xl border border-amber-500/60 bg-amber-950/30 p-4" aria-label="Automatyczna blokada nowych wpłat">
+            <h4 className="font-bold">Blokada nowych wpłat przy {data.payment_guard.percent}% limitu — {data.payment_guard.quarter}. kwartał {data.payment_guard.year}</h4>
+            <p className="font-bold text-amber-100">{data.payment_guard.blocked ? "Nowe wpłaty zablokowane — komunikat o pracach serwisowych." : "Próg blokady nie został osiągnięty."}</p>
+            <p>Próg: {data.payment_guard.stop_at === null ? "Nie ustalono — nowe wpłaty zablokowane" : formatMoney(data.payment_guard.stop_at)} · Wpłaty: {formatMoney(data.payment_guard.received)} · Zarezerwowane w rozpoczętych zamówieniach: {formatMoney(data.payment_guard.reserved)}</p>
+            {data.payment_guard.remaining !== null && <p>Maksymalna kwota kolejnego zamówienia: <strong>{formatMoney(data.payment_guard.remaining)}</strong></p>}
+            <p className="text-sm text-zinc-300">Odrzucamy też zakup, który dopiero osiągnąłby próg. Kwoty rozpoczętych rzeczywistych zamówień są zarezerwowane do potwierdzenia wpłaty. Blokada dotyczy nowych prób; potwierdzenia już wykonanych płatności są nadal zapisywane.</p>
+          </div>}
           <div className="grid gap-4 md:grid-cols-2">{data.quarters.map((item) => {
             const warning = ["warning", "reached", "exceeded"].includes(item.status);
             return <article key={item.quarter} aria-label={`Kwartał ${item.quarter}`} className={`min-w-0 space-y-3 rounded-xl border p-4 ${warning ? "border-amber-500 bg-amber-950/30" : "border-zinc-700"}`}>

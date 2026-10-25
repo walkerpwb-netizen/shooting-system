@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import AutopayPaymentInfo from "@/components/AutopayPaymentInfo";
-import { getPremiumData, premiumOfferDetails, premiumPackageNames, premiumPrice, type PremiumPrices } from "@/lib/premiumCommerce";
+import { getPremiumData, PAYMENT_MAINTENANCE_MESSAGE, premiumOfferDetails, premiumPackageNames, premiumPrice, type PremiumCommerce, type PremiumPrices } from "@/lib/premiumCommerce";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
@@ -11,7 +11,10 @@ export const metadata: Metadata = {
 };
 
 export default async function PremiumPage() {
-  const prices = await getPremiumData<PremiumPrices>("/settings/premium");
+  const [prices, commerce] = await Promise.all([
+    getPremiumData<PremiumPrices>("/settings/premium"), getPremiumData<PremiumCommerce>("/premium/commerce"),
+  ]);
+  const unavailable = commerce?.payments_temporarily_unavailable !== false;
   return (
     <main className="min-h-screen bg-gradient-to-b from-green-950 to-zinc-950 px-5 py-12 text-white sm:px-8">
       <div className="mx-auto max-w-6xl">
@@ -19,7 +22,7 @@ export default async function PremiumPage() {
         <h1 className="mt-4 text-4xl font-black sm:text-6xl">Więcej możliwości.<br />Twój pakiet Premium.</h1>
         <p className="mt-6 max-w-3xl text-lg leading-8 text-green-100">Rozwijaj swoją pasję strzelecką lub publikuj więcej zawodów i szkoleń. Wybierz dostęp Premium dla strzelca, jednorazową dodatkową publikację albo roczny pakiet organizatora bez limitu. Bez automatycznego odnawiania.</p>
         <div className="mt-8 rounded-2xl border border-amber-300/40 bg-amber-300/10 p-5 text-amber-100" role="status">
-          <strong>Przygotowujemy sprzedaż Premium.</strong> Płatności zostaną udostępnione po pozytywnej weryfikacji Autopay. Teraz możesz sprawdzić ofertę i przygotować zakup. Nie pobieramy opłat.
+          {unavailable ? <strong>{commerce?.payment_unavailable_message || PAYMENT_MAINTENANCE_MESSAGE}</strong> : <><strong>Przygotowujemy sprzedaż Premium.</strong> Płatności zostaną udostępnione po pozytywnej weryfikacji Autopay. Teraz możesz sprawdzić ofertę i przygotować zakup. Nie pobieramy opłat.</>}
         </div>
         {!prices ? (
           <p role="alert" className="my-10 rounded-xl border border-red-300/40 p-6">Nie udało się pobrać cennika. Odśwież stronę lub <Link className="underline" href="/kontakt">skontaktuj się z nami</Link>.</p>
@@ -49,7 +52,7 @@ export default async function PremiumPage() {
                         {kind === "organizer" && period === "yearly" && (
                           <p className="mt-3 text-sm font-bold text-emerald-200">W cenie: Premium Strzelca na ten sam okres.</p>
                         )}
-                        <Link href={`/premium/zakup?pakiet=${kind}&okres=${offer.queryPeriod}`} className="mt-5 block rounded-xl bg-emerald-300 px-4 py-3 text-center font-black text-green-950 transition hover:bg-white">Kup Premium<span className="sr-only"> — {premiumPackageNames[kind]}, {offer.summary}</span></Link>
+                        {unavailable ? <button type="button" disabled className="mt-5 block w-full cursor-not-allowed rounded-xl bg-zinc-700 px-4 py-3 text-center font-bold text-zinc-200">Wpłata niedostępna<span className="sr-only"> — {premiumPackageNames[kind]}, {offer.summary}</span></button> : <Link href={`/premium/zakup?pakiet=${kind}&okres=${offer.queryPeriod}`} className="mt-5 block rounded-xl bg-emerald-300 px-4 py-3 text-center font-black text-green-950 transition hover:bg-white">Kup Premium<span className="sr-only"> — {premiumPackageNames[kind]}, {offer.summary}</span></Link>}
                       </div>;
                     })}
                   </div>

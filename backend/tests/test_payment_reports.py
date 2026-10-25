@@ -4,7 +4,7 @@ import json
 import os
 import unittest
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date
+from datetime import date, datetime, timezone
 from io import BytesIO, StringIO
 from unittest.mock import patch
 from urllib.parse import urlsplit
@@ -25,6 +25,7 @@ from payment_reports import (
     estimated_fee, monthly_totals, payment_overview, receipt_query, record_autopay_receipt, year_query,
 )
 from premium_payments import payment_hash, process_itn
+from payment_limits import ensure_payment_capacity, payment_limit_state
 
 
 class PaymentReportsTests(unittest.TestCase):
@@ -323,6 +324,57 @@ class PaymentReportsTests(unittest.TestCase):
         self.assertIn("szacunkowe", rows[-2][0])
         self.assertIn("przed prowizjami", rows[-1][0])
 
+    def test_payment_brake_uses_gross_and_checks_prospective_amount_to_a_grosz(self):
+        now = datetime(2026, 10, 25, tzinfo=timezone.utc)
+        self.receipt("10272.81", "brake")
+        self.receipt("99999.00", "test", environment="sandbox")
+        state = payment_limit_state(self.db, now)
+        self.assertEqual(state["stop_at"], "10272.83")
+        self.assertEqual(state["remaining"], "0.01")
+        self.assertFalse(state["blocked"])
+        ensure_payment_capacity(self.db, 1, now)  # 10272.82: strictly below 95%
+        with self.assertRaises(HTTPException) as error:
+            ensure_payment_capacity(self.db, 2, now)  # would reach 95%
+        self.assertEqual(error.exception.status_code, 503)
+        self.assertEqual(error.exception.detail, "Trwają prace serwisowe. Wpłata jest w tym momencie niedostępna.")
+        self.assertEqual(error.exception.headers["Cache-Control"], "no-store")
+        self.receipt("0.02", "over95")
+        self.assertTrue(payment_limit_state(self.db, now)["blocked"])
+
+    def test_pending_production_links_reserve_capacity_until_receipt_replaces_reservation(self):
+        now = datetime(2026, 10, 25, tzinfo=timezone.utc)
+        self.receipt("10000.00", "settled")
+        pending = self.order("200.00")
+        pending.created_at = "2026-09-30T12:00:00Z"  # still payable in the next quarter
+        pending.status = "failed"  # a failed attempt does not prove the gateway link was cancelled
+        self.db.commit()
+        self.order("99999.00", environment="sandbox")
+        state = payment_limit_state(self.db, now)
+        self.assertEqual(state["reserved"], "200.00")
+        self.assertEqual(state["remaining"], "72.82")
+        with self.assertRaises(HTTPException):
+            ensure_payment_capacity(self.db, 7283, now)
+        record_autopay_receipt(pending, self.transaction(pending, "settled2"), self.db)
+        self.db.commit()
+        state = payment_limit_state(self.db, now)
+        self.assertEqual(state["received"], "10200.00")
+        self.assertEqual(state["reserved"], "0.00")
+        self.assertEqual(state["committed"], "10200.00")
+
+    def test_payment_brake_uses_polish_quarters_and_fails_closed_for_unknown_year(self):
+        self.receipt("10300.00", "q1", paid="20260331235959")
+        before = datetime(2026, 3, 31, 21, 59, 59, tzinfo=timezone.utc)
+        after = datetime(2026, 3, 31, 22, 0, tzinfo=timezone.utc)  # midnight in Poland
+        self.assertTrue(payment_limit_state(self.db, before)["blocked"])
+        self.assertFalse(payment_limit_state(self.db, after)["blocked"])
+        self.assertEqual(payment_limit_state(self.db, after)["quarter"], 2)
+        unknown = datetime(2027, 1, 1, tzinfo=timezone.utc)
+        state = payment_limit_state(self.db, unknown)
+        self.assertTrue(state["blocked"])
+        self.assertIsNone(state["stop_at"])
+        with self.assertRaises(HTTPException):
+            ensure_payment_capacity(self.db, 1, unknown)
+
 
 @unittest.skipUnless(os.environ.get("TEST_POSTGRES_URL"), "TEST_POSTGRES_URL is not configured")
 class PostgresPaymentReportsTests(PaymentReportsTests):
@@ -375,6 +427,35 @@ class PostgresPaymentReportsTests(PaymentReportsTests):
         self.concurrent_itns(["parallel1", "parallel2", "parallel3", "parallel4"])
         self.assertEqual(self.db.query(AutopayReceipt).count(), 4)
         self.assertEqual(payment_overview(self.db, 2026, "sandbox")["annual"]["amount"], "40.00")
+
+    def test_concurrent_new_orders_cannot_both_consume_the_same_capacity(self):
+        self.receipt("10200.00", "alreadyPaid")
+        user_id = self.user.id
+        barrier = Barrier(2)
+        sessions = sessionmaker(bind=self.engine, autoflush=False)
+        now = datetime(2026, 10, 25, tzinfo=timezone.utc)
+
+        def reserve(_):
+            with sessions() as db:
+                barrier.wait(timeout=10)
+                try:
+                    ensure_payment_capacity(db, 5000, now)
+                    db.add(PremiumOrder(id=uuid4().hex, user_id=user_id, package="shooter", period="monthly",
+                        amount="50.00", currency="PLN", environment="production", service_id="test",
+                        status="pending", created_at=now.isoformat(), terms_version="test",
+                        terms_accepted_at=now.isoformat(), offer_snapshot="{}"))
+                    db.commit()
+                    return "reserved"
+                except HTTPException as error:
+                    db.rollback()
+                    self.assertEqual(error.status_code, 503)
+                    return "blocked"
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(reserve, range(2)))
+        self.assertCountEqual(results, ["reserved", "blocked"])
+        self.db.expire_all()
+        self.assertEqual(payment_limit_state(self.db, now)["reserved"], "50.00")
 
 
 if __name__ == "__main__":

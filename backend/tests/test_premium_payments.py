@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import unittest
+from datetime import datetime, timezone
 from unittest.mock import patch
 from urllib.parse import urlencode
 from xml.etree.ElementTree import fromstring
@@ -19,6 +20,7 @@ from premium_payments import (
     CheckoutData, TERMS_VERSION, build_premium_router, create_sandbox_order,
     payment_hash, process_itn, sandbox_config, seller_details,
 )
+from payment_reports import record_autopay_receipt
 
 
 ENV = {
@@ -31,6 +33,8 @@ ENV = {
 
 class PremiumPaymentTests(unittest.TestCase):
     def setUp(self):
+        self.clock = patch("payment_limits.current_time", return_value=datetime(2026, 10, 25, tzinfo=timezone.utc))
+        self.clock.start()
         self.environment = patch.dict(os.environ, ENV)
         self.environment.start()
         self.engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
@@ -51,6 +55,7 @@ class PremiumPaymentTests(unittest.TestCase):
         self.db.close()
         self.engine.dispose()
         self.environment.stop()
+        self.clock.stop()
 
     def checkout(self, data=None, user=None):
         return create_sandbox_order(data or self.data, user or self.admin, self.db,
@@ -261,6 +266,41 @@ class PremiumPaymentTests(unittest.TestCase):
         ):
             with self.subTest(expected=expected):
                 self.assertEqual(self.request("POST", "/premium/autopay/itn", body, content_type)[0], expected)
+
+    def test_checkout_brake_is_enforced_on_server_but_does_not_block_existing_itn_or_status(self):
+        existing = self.checkout()["order_id"]
+        seed = self.db.get(PremiumOrder, self.checkout()["order_id"])
+        seed.environment, seed.amount = "production", "10272.83"
+        self.db.commit()
+        transaction = fromstring(self.notification(seed.id, amount=seed.amount)).find(".//transaction")
+        record_autopay_receipt(seed, transaction, self.db)
+        self.db.commit()
+        status, body = self.request("GET", "/premium/commerce")
+        public = json.loads(body)
+        self.assertTrue(public["payments_temporarily_unavailable"])
+        self.assertEqual(public["payment_unavailable_message"], "Trwają prace serwisowe. Wpłata jest w tym momencie niedostępna.")
+        for private in ("received", "reserved", "committed", "limit", "stop_at", "quarter"):
+            self.assertNotIn(private, public)
+        status, body = self.request("POST", "/premium/checkout", self.data.model_dump_json().encode(), authorized=True)
+        self.assertEqual(status, 503)
+        self.assertEqual(json.loads(body)["detail"], public["payment_unavailable_message"])
+        self.assertEqual(self.db.query(PremiumOrder).count(), 2)
+        # Previously issued test payments must still be acknowledged and recorded.
+        process_itn(self.notification(existing), self.db, sandbox_config())
+        status, body = self.request("GET", f"/premium/orders/{existing}", authorized=True)
+        self.assertEqual((status, json.loads(body)["status"]), (200, "paid"))
+
+    def test_checkout_rejects_a_new_order_that_would_cross_threshold(self):
+        seed = self.db.get(PremiumOrder, self.checkout()["order_id"])
+        seed.environment, seed.amount = "production", "10270.00"
+        self.db.commit()
+        transaction = fromstring(self.notification(seed.id, amount=seed.amount)).find(".//transaction")
+        record_autopay_receipt(seed, transaction, self.db)
+        self.db.commit()
+        self.assertFalse(json.loads(self.request("GET", "/premium/commerce")[1])["payments_temporarily_unavailable"])
+        status, _ = self.request("POST", "/premium/checkout", self.data.model_dump_json().encode(), authorized=True)
+        self.assertEqual(status, 503)
+        self.assertEqual(self.db.query(PremiumOrder).count(), 1)
 
 
 if __name__ == "__main__":

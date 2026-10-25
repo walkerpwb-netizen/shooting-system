@@ -16,12 +16,12 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from sqlalchemy import extract, func, or_
 
 from models import AutopayReceipt, User
+from payment_limits import (
+    LIMIT_SOURCE, QUARTER_LIMITS_GROSZ, acquire_payment_limit_lock, payment_limit_state,
+)
 
 WARSAW = ZoneInfo("Europe/Warsaw")
 TAX_SOURCE = "https://podatki.gov.pl/podatki-osobiste/pit/informacje-podstawowe/co-jest-opodatkowane/dochody-z-dzialalnosci-nierejestrowanej"
-LIMIT_SOURCE = "https://podatki.gov.pl/poradniki-i-informatory/dzialalnosc-nierejestrowana"
-# Verified 2026 rules. Never silently reuse a year's legal threshold in another year.
-QUARTER_LIMITS_GROSZ = {2026: 1081350}
 FEE_TARIFF = "Standard: 1,19% + 0,34 zł"
 FEE_NOTE = (
     "Prowizje i kwoty po prowizji są szacunkowe: Standard 1,19% + 0,34 zł od każdej wpłaty, "
@@ -82,6 +82,7 @@ def record_autopay_receipt(order, transaction, db):
             raise InvalidOperation
     except (ValueError, InvalidOperation):
         raise HTTPException(400, "Niepoprawna data lub kwota wpłaty Autopay.")
+    acquire_payment_limit_lock(db)
     existing = db.query(AutopayReceipt).filter_by(
         environment=order.environment, service_id=order.service_id, remote_id=remote_id,
     ).first()
@@ -195,6 +196,7 @@ def payment_overview(db, year, environment, month=None, search="", page=1, page_
         "months": months, "quarters": quarterly_totals(months, year), "entries": [serialize_receipt(row) for row in rows],
         "report_note": REPORT_NOTE, "tax_source_url": TAX_SOURCE,
         "fee_note": FEE_NOTE, "limit_note": LIMIT_NOTE, "limit_source_url": LIMIT_SOURCE,
+        "payment_guard": payment_limit_state(db),
     }
 
 

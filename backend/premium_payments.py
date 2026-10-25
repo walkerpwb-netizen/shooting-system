@@ -23,6 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from models import PremiumOrder
 from premium_access import apply_paid_premium_order, included_premium_packages
 from payment_reports import record_autopay_receipt
+from payment_limits import ensure_payment_capacity, payment_limit_state
 
 TERMS_VERSION = "2026-10-25"
 ITN_FIELDS = (
@@ -98,6 +99,7 @@ def create_sandbox_order(data, user, db, get_prices, is_admin):
         raise HTTPException(400, "Pakiet nie ma poprawnej ceny. Skontaktuj się z administratorem.")
     if data.expected_price != amount_text:
         raise HTTPException(409, "Cena uległa zmianie. Odśwież stronę i sprawdź zamówienie.")
+    ensure_payment_capacity(db, int(Decimal(amount_text) * 100))
     order = PremiumOrder(
         id=uuid4().hex, user_id=user.id, package=data.package, period=data.period,
         amount=amount_text, currency="PLN", environment="sandbox", service_id=config["service"],
@@ -188,13 +190,18 @@ def build_premium_router(get_db, get_current_user, get_prices, is_admin):
     router = APIRouter(prefix="/premium", tags=["Premium"])
 
     @router.get("/commerce")
-    def commerce():
+    def commerce(response: Response, db=Depends(get_db)):
+        response.headers["Cache-Control"] = "no-store"
+        availability = payment_limit_state(db)
         return {"sales_enabled": False, "verification_status": "pending",
                 "sandbox_ready": sandbox_config()["ready"], "seller": seller_details(),
-                "terms_version": TERMS_VERSION}
+                "terms_version": TERMS_VERSION,
+                "payments_temporarily_unavailable": availability["blocked"],
+                "payment_unavailable_message": availability["message"]}
 
     @router.post("/checkout")
     def checkout(data: CheckoutData, user=Depends(get_current_user), db=Depends(get_db)):
+        ensure_payment_capacity(db, 0)
         return create_sandbox_order(data, user, db, get_prices, is_admin)
 
     @router.get("/orders/{order_id}")

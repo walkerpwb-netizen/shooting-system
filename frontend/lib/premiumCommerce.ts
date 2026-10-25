@@ -13,8 +13,12 @@ export type PremiumCommerce = {
   verification_status: string;
   sandbox_ready: boolean;
   terms_version: string;
+  payments_temporarily_unavailable: boolean;
+  payment_unavailable_message: string;
   seller: { name: string; address: string; email: string; phone: string; nip: string; business_type: string; complete: boolean };
 };
+
+export const PAYMENT_MAINTENANCE_MESSAGE = "Trwają prace serwisowe. Wpłata jest w tym momencie niedostępna.";
 
 export async function getPremiumData<T>(path: string): Promise<T | null> {
   try {
