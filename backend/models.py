@@ -281,6 +281,8 @@ class AutopayReceipt(Base):
     remote_id = Column(String(20), nullable=False)
     environment = Column(String(10), nullable=False)
     amount_grosz = Column(Integer, nullable=False)
+    estimated_fee_grosz = Column(Integer, nullable=False)
+    fee_tariff = Column(String(100), nullable=False)
     currency = Column(String(3), nullable=False)
     paid_on = Column(Date, nullable=False)
     paid_at = Column(String, nullable=False)

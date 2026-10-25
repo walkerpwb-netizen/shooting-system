@@ -1,6 +1,6 @@
 # Wpłaty Autopay i raport roczny
 
-Panel administratora: `/admin?tab=payments`. Zakres uzgodniony z właścicielem: **wyłącznie wpłaty klientów przez Autopay**, bez ręcznych wpłat i kosztów. Nie są wliczane opłaty startowe rozliczane poza Autopay przez organizatorów, przelewy weryfikacyjne sprzedawcy ani zbiorcze wypłaty operatora na konto bankowe.
+Panel administratora: `/admin?tab=payments`. Zakres uzgodniony z właścicielem: **wyłącznie wpłaty klientów przez Autopay**, bez ręcznych wpłat i ogólnej ewidencji kosztów. Rozszerzenie: szacunek prowizji operatora według wskazanego przez właściciela planu Standard oraz pomocnicza kwartalna kontrola wpłat. Nie są wliczane opłaty startowe rozliczane poza Autopay przez organizatorów, przelewy weryfikacyjne sprzedawcy ani zbiorcze wypłaty operatora na konto bankowe.
 
 ## Rejestracja
 
@@ -16,18 +16,29 @@ W chwili wdrożenia nie było wcześniejszych zamówień Premium w bazie produkc
 
 - Lista: data wpłaty, płatnik, e-mail konta, usługa, kwota, RemoteID, ServiceID i numer zamówienia.
 - Filtry: rok, miesiąc, środowisko, wyszukiwanie; stronicowanie po 50 wpłat.
-- Sumy: cały rok, liczba wpłat w roku, wynik filtrów, wszystkie lata i 12 miesięcy.
-- Roczny Excel: arkusze Podsumowanie, Miesiące i Wpłaty.
-- Roczny CSV: UTF-8 z BOM, separator średnik, kwoty z przecinkiem i suma roczna.
+- Sumy wpłat, szacunkowych prowizji i kwot po prowizjach: cały rok, wynik filtrów, wszystkie lata i 12 miesięcy. Cztery kwartały są niezależne od filtrów miesiąca, wyszukiwania i stronicowania.
+- Roczny Excel: arkusze Podsumowanie, Miesiące, Wpłaty i Kwartały. Prowizje i kwoty po prowizjach są oznaczone jako szacunek.
+- Roczny CSV: UTF-8 z BOM, separator średnik, kwoty z przecinkiem, suma roczna oraz osobne kolumny prowizji, kwot po prowizjach i taryfy szacunku.
 - Eksport obejmuje cały wybrany rok niezależnie od filtra miesiąca, wyszukiwania i strony listy.
 - Eksport rozliczeniowy jest dostępny **wyłącznie dla rzeczywistych wpłat**. Sandbox ma osobny widok, a próba eksportu testów jest odrzucana przez API.
 - Lista i eksport wymagają autoryzacji administratora i są zwracane z `Cache-Control: no-store`. Brak interfejsu do ręcznego dodawania, zmieniania i usuwania wpłat.
 
 ## Zakres podatkowy
 
-To zestawienie otrzymanych kwot klientów **przed potrąceniem prowizji**, pomocniczo do PIT-36. Nie zawiera kosztów ani zwrotów klientom. Nie wylicza dochodu lub podatku i nie tworzy deklaracji PIT. Przed rozliczeniem trzeba uzgodnić wpłaty z dokumentami Autopay oraz uwzględnić zwroty, prowizje i inne udokumentowane koszty poza tym zestawieniem. Weryfikacja limitu działalności nierejestrowanej opiera się na przychodzie należnym, więc ten raport wpłat nie zastępuje jej ewidencji.
+Wpłaty pozostają wykazane w pełnej kwocie **przed prowizjami**. Osobno wykazujemy szacunek prowizji Standard: **1,19% + 0,34 zł za każdą skuteczną transakcję**. Obliczenia są całkowitoliczbowe w groszach, zaokrąglane half-up osobno dla każdej transakcji, a następnie sumowane. Kwota po prowizji to wpłata minus ten szacunek, a nie potwierdzenie wypłaty na bank. Przy zapisie wpłaty zachowujemy niezmienny szacunek i nazwę taryfy; duplikat ITN nie przelicza historii według późniejszego cennika. Migracja uzupełnia wcześniejsze wpłaty tym samym **szacunkiem**, bez tworzenia fikcyjnych dokumentów kosztowych.
 
-Źródła zasad ujęcia przychodów i kosztów:
+Szacunek prowizji nie pochodzi z dokumentu operatora. Przed PIT-36 trzeba uzgodnić go z rzeczywiście poniesionymi i udokumentowanymi opłatami Autopay. Raport nie zawiera innych kosztów ani zwrotów, nie oblicza podatku i nie jest deklaracją PIT.
 
-- Ministerstwo Finansów, aktualizacja 30.09.2026: https://podatki.gov.pl/podatki-osobiste/pit/informacje-podstawowe/co-jest-opodatkowane/dochody-z-dzialalnosci-nierejestrowanej
-- https://podatki.gov.pl/poradniki-i-informatory/dzialalnosc-nierejestrowana
+### Kontrola kwartalna
+
+W 2026 r. limit wynosi **10 813,50 zł na kwartał kalendarzowy** (225% minimalnego wynagrodzenia 4 806 zł). Dotyczy **przychodu należnego**, także jeszcze nieotrzymanego. Prowizje i inne koszty nie zmniejszają jego wykorzystania.
+
+Panel i arkusz Kwartały zestawiają pełne wpłaty z tym limitem, prezentują margines według wpłat oraz szacunkowe prowizje i kwoty po prowizjach. Ostrzeżenie pojawia się przy co najmniej 80%, osiągnięciu i przekroczeniu limitu. Dokładnie 100% oznacza osiągnięcie, a nie przekroczenie. Sumy wykorzystują polską datę płatności operatora; sandbox jest odseparowany i nie jest eksportowany do rozliczeń. Dla lat bez zweryfikowanej reguły limitu nie przenosimy wartości z 2026 r.; przed 2026 r. obowiązywał limit miesięczny.
+
+**To pomocniczy licznik wpłat, nie pełna ewidencja przychodu należnego.** Nie uwzględnia niezapłaconych należności, sprzedaży poza systemem ani korekt i zwrotów. Różnica daty powstania należności i zapłaty może zmienić przypisanie do kwartału. Dodatni margines na ekranie nie gwarantuje zachowania limitu całej działalności. Nie dodano ręcznych należności ani automatycznej blokady sprzedaży.
+
+Źródła (zweryfikowano 25.10.2026):
+
+- Ministerstwo Finansów, przychody i koszty PIT-36: https://podatki.gov.pl/podatki-osobiste/pit/informacje-podstawowe/co-jest-opodatkowane/dochody-z-dzialalnosci-nierejestrowanej
+- Ministerstwo Finansów, przychód należny i limit kwartalny 2026: https://podatki.gov.pl/poradniki-i-informatory/dzialalnosc-nierejestrowana
+- Autopay, taryfa (informacja o limicie miesięcznym na tej stronie jest nieaktualna dla 2026 r.): https://developers.autopay.pl/online/dzialalnosc-nierejestrowana

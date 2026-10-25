@@ -22,7 +22,7 @@ from database import Base
 from models import AutopayReceipt, PremiumOrder, User
 from payment_reports import (
     build_payments_csv, build_payments_router, build_payments_workbook,
-    monthly_totals, payment_overview, receipt_query, record_autopay_receipt, year_query,
+    estimated_fee, monthly_totals, payment_overview, receipt_query, record_autopay_receipt, year_query,
 )
 from premium_payments import payment_hash, process_itn
 
@@ -84,7 +84,7 @@ class PaymentReportsTests(unittest.TestCase):
         self.receipt("0.20", "two")
         self.receipt("999.99", "sandbox", environment="sandbox")
         overview = payment_overview(self.db, 2026, "production")
-        self.assertEqual(overview["annual"], {"count": 2, "amount": "0.30"})
+        self.assertEqual(overview["annual"], {"count": 2, "amount": "0.30", "estimated_fee": "0.68", "estimated_net": "-0.38"})
         self.assertEqual(overview["lifetime"], overview["annual"])
         self.assertEqual(overview["months"][9]["amount"], "0.30")
         self.assertEqual(payment_overview(self.db, 2026, "sandbox")["annual"]["amount"], "999.99")
@@ -145,7 +145,7 @@ class PaymentReportsTests(unittest.TestCase):
         self.receipt("10.00", "january", paid="20260110120000")
         self.receipt("20.00", "october", paid="20261010120000")
         result = payment_overview(self.db, 2026, "production", month=10, page_size=1)
-        self.assertEqual(result["matching"], {"count": 1, "amount": "20.00"})
+        self.assertEqual(result["matching"], {"count": 1, "amount": "20.00", "estimated_fee": "0.58", "estimated_net": "19.42"})
         self.assertEqual(result["annual"]["amount"], "30.00")
         self.assertEqual(result["entries"][0]["remote_id"], "october")
         self.assertEqual(len(payment_overview(self.db, 2026, "production", page=2, page_size=1)["entries"]), 1)
@@ -175,7 +175,7 @@ class PaymentReportsTests(unittest.TestCase):
         query = year_query(receipt_query(self.db, "production"), 2026)
         entries = query.order_by(AutopayReceipt.id).all()
         workbook = load_workbook(BytesIO(build_payments_workbook(entries, 2026, monthly_totals(query), {"name": "Piotr Bronny"})))
-        self.assertEqual(workbook.sheetnames, ["Podsumowanie", "Miesiące", "Wpłaty"])
+        self.assertEqual(workbook.sheetnames, ["Podsumowanie", "Miesiące", "Wpłaty", "Kwartały"])
         self.assertEqual(workbook["Podsumowanie"]["B7"].value, 30.3)
         self.assertEqual(workbook["Wpłaty"].max_row, 3)
         self.assertEqual(workbook["Wpłaty"]["B2"].data_type, "s")
@@ -185,12 +185,12 @@ class PaymentReportsTests(unittest.TestCase):
         self.assertTrue(raw.startswith(b"\xef\xbb\xbf"))
         rows = list(csv.reader(StringIO(raw.decode("utf-8-sig")), delimiter=";"))
         self.assertTrue(rows[1][1].startswith("'=HYPERLINK"))
-        self.assertEqual(rows[-2][4], "30,30")
+        self.assertEqual(rows[-4][4], "30,30")
         self.assertNotIn("999,99", raw.decode("utf-8-sig"))
 
     def test_empty_year_has_zero_summary_and_downloadable_workbook(self):
         result = payment_overview(self.db, 2026, "production")
-        self.assertEqual(result["annual"], {"count": 0, "amount": "0.00"})
+        self.assertEqual(result["annual"], {"count": 0, "amount": "0.00", "estimated_fee": "0.00", "estimated_net": "0.00"})
         workbook = load_workbook(BytesIO(build_payments_workbook([], 2026, result["months"], {})))
         self.assertEqual(workbook["Podsumowanie"]["B7"].value, 0)
         self.assertEqual(workbook["Wpłaty"].max_row, 1)
@@ -247,6 +247,81 @@ class PaymentReportsTests(unittest.TestCase):
     def test_http_rejects_invalid_filters(self):
         for query in ("year=0", "month=13", "environment=all", "page=0", "page_size=10000"):
             self.assertEqual(self.request(f"/admin/payments?{query}", "admin")[0], 422)
+
+    def test_fee_rounding_is_per_transaction_and_snapshot_survives_tariff_change(self):
+        self.assertEqual(estimated_fee(10000), 153)
+        self.assertEqual(estimated_fee(50000), 629)
+        self.assertEqual(estimated_fee(50), 35)
+        self.assertEqual(estimated_fee(99999999), 1190034)
+        # Two 0.43 zł receipts: round percentage per transaction (2 grosz), not on their sum (1 grosz).
+        first = self.receipt("0.43", "round1")
+        self.receipt("0.43", "round2")
+        result = payment_overview(self.db, 2026, "production")
+        self.assertEqual(result["annual"]["estimated_fee"], "0.70")
+        self.assertEqual(estimated_fee(86), 35)
+        with patch("payment_reports.estimated_fee", return_value=999), patch("payment_reports.FEE_TARIFF", "Future tariff"):
+            record_autopay_receipt(self.db.get(PremiumOrder, first.order_id),
+                                   self.transaction(self.db.get(PremiumOrder, first.order_id), "round1"), self.db)
+            self.assertEqual(first.estimated_fee_grosz, 35)
+            self.assertEqual(first.fee_tariff, "Standard: 1,19% + 0,34 zł")
+            self.receipt("100.00", "newtariff")
+        entries = payment_overview(self.db, 2026, "production")["entries"]
+        self.assertEqual(entries[0]["estimated_fee"], "9.99")
+        self.assertEqual(entries[0]["fee_tariff"], "Future tariff")
+
+    def test_quarters_use_gross_not_net_and_are_independent_of_filters(self):
+        self.receipt("8650.80", "q1", paid="20260331235959")  # exactly 80%
+        self.receipt("10813.50", "q2", paid="20260401000000")  # equal, not exceeded
+        self.receipt("10813.51", "q3", paid="20260930235959")  # exceeded by a grosz
+        self.receipt("100.00", "q4", paid="20261001000000")
+        self.receipt("99999.00", "testonly", environment="sandbox")
+        self.receipt("90000.00", "previous", paid="20251231235959")
+        result = payment_overview(self.db, 2026, "production", month=10, search="q4", page_size=1)
+        q1, q2, q3, q4 = result["quarters"]
+        self.assertEqual([q["status"] for q in result["quarters"]], ["warning", "reached", "exceeded", "below"])
+        self.assertEqual(q1["used_percent"], 80)
+        self.assertEqual(q2["remaining"], "0.00")
+        self.assertEqual(q3["remaining"], "-0.01")
+        self.assertLess(float(q3["estimated_net"]), float(q3["limit"]))
+        self.assertEqual(q4["amount"], "100.00")
+        self.assertEqual(q4["estimated_fee"], "1.53")
+        self.assertEqual(q4["estimated_net"], "98.47")
+        self.assertEqual(q4["remaining"], "10713.50")
+        self.assertEqual(result["matching"]["count"], 1)
+        self.assertIn("jeszcze niezapłaconych", result["limit_note"])
+
+    def test_unknown_year_does_not_reuse_2026_limit(self):
+        for year in (2025, 2027):
+            self.receipt("100.00", f"year{year}", paid=f"{year}0101120000")
+            quarters = payment_overview(self.db, year, "production")["quarters"]
+            self.assertEqual(quarters[0]["amount"], "100.00")
+            for quarter in quarters:
+                self.assertIsNone(quarter["limit"])
+                self.assertIsNone(quarter["remaining"])
+                self.assertIsNone(quarter["used_percent"])
+                self.assertEqual(quarter["status"], "unknown")
+
+    def test_exports_include_fees_net_and_gross_quarterly_margin(self):
+        self.receipt("100.00", "one", paid="20260101120000")
+        self.receipt("500.00", "two", paid="20260401120000")
+        self.receipt("999.99", "excluded", environment="sandbox")
+        code, _, body = self.request("/admin/payments/report?year=2026", "admin")
+        self.assertEqual(code, 200)
+        workbook = load_workbook(BytesIO(body))
+        self.assertEqual(workbook["Podsumowanie"]["B8"].value, 7.82)
+        self.assertEqual(workbook["Podsumowanie"]["B12"].value, 592.18)
+        self.assertEqual(workbook["Wpłaty"]["J2"].value, 1.53)
+        self.assertEqual(workbook["Wpłaty"]["K2"].value, 98.47)
+        self.assertEqual(workbook["Miesiące"]["D5"].value, 6.29)
+        self.assertEqual(workbook["Kwartały"]["C2"].value, 100)
+        self.assertEqual(workbook["Kwartały"]["F2"].value, 10813.5)
+        self.assertEqual(workbook["Kwartały"]["G2"].value, 10713.5)
+        code, _, body = self.request("/admin/payments/report?year=2026&format=csv", "admin")
+        rows = list(csv.reader(StringIO(body.decode("utf-8-sig")), delimiter=";"))
+        self.assertEqual(rows[1][9:12], ["1,53", "98,47", "Standard: 1,19% + 0,34 zł"])
+        self.assertEqual(rows[-4][9:11], ["7,82", "592,18"])
+        self.assertIn("szacunkowe", rows[-2][0])
+        self.assertIn("przed prowizjami", rows[-1][0])
 
 
 @unittest.skipUnless(os.environ.get("TEST_POSTGRES_URL"), "TEST_POSTGRES_URL is not configured")
