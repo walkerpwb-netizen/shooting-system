@@ -93,7 +93,7 @@ export default function PaymentsPanel() {
   const pages = data ? Math.max(1, Math.ceil(data.matching.count / data.page_size)) : 1;
 
   return (
-    <section className="min-w-0 space-y-6 text-white" aria-label="Kontrola wpłat Autopay">
+    <section className="min-w-0 space-y-6 rounded-2xl bg-zinc-950 p-4 text-white sm:p-6" aria-label="Kontrola wpłat Autopay">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div><h2 className="text-3xl font-black">Wpłaty Autopay</h2><p className="mt-2 max-w-3xl leading-7 text-zinc-300">Potwierdzone wpłaty klientów za Premium, z datą płatności podaną przez Autopay. Kwoty przed potrąceniem prowizji operatora.</p></div>
         <button type="button" onClick={() => setRevision((value) => value + 1)} disabled={loading} className={buttonClass}>Odśwież wpłaty</button>
