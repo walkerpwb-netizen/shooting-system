@@ -779,10 +779,6 @@ export default function Navbar() {
           Zawody
         </Link>
 
-        <Link href="/premium" className="font-bold text-amber-200">
-          Premium
-        </Link>
-
         <Link
           href="/live-results"
           onClick={guardPremiumLink}
@@ -885,6 +881,10 @@ export default function Navbar() {
           Mapa strzelnic
         </Link>
 
+        <Link href="/premium" className="font-bold text-amber-200">
+          Premium
+        </Link>
+
       </div>
 
       <div className="flex w-full min-w-0 items-center justify-between gap-5 border-t border-green-800 pt-3 lg:w-auto lg:border-t-0 lg:pt-0">
@@ -978,10 +978,6 @@ export default function Navbar() {
                 className="py-3"
               >
                 Home
-              </Link>
-
-              <Link href="/premium" onClick={() => setMobileMenuOpen(false)} className="py-3 font-bold text-amber-200">
-                Premium i cennik
               </Link>
 
               <Link
@@ -1283,6 +1279,9 @@ export default function Navbar() {
                   </div>
                 </>
               )}
+              <Link href="/premium" onClick={() => setMobileMenuOpen(false)} className="py-3 font-bold text-amber-200">
+                Premium i cennik
+              </Link>
             </div>
 
             <div className="mt-4 border-t border-green-800 pt-4">
