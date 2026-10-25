@@ -22,6 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from models import PremiumOrder
 from premium_access import apply_paid_premium_order, included_premium_packages
+from payment_reports import record_autopay_receipt
 
 TERMS_VERSION = "2026-10-25"
 ITN_FIELDS = (
@@ -152,7 +153,7 @@ def process_itn(xml, db, config):
     confirmations = []
     for transaction in transactions:
         order_id = transaction.findtext("orderID")
-        order = db.query(PremiumOrder).filter_by(id=order_id).with_for_update().first()
+        order = db.query(PremiumOrder).filter_by(id=order_id).populate_existing().with_for_update().first()
         status = transaction.findtext("paymentStatus")
         valid = bool(
             order and order.environment == "sandbox" and order.service_id == service
@@ -160,6 +161,8 @@ def process_itn(xml, db, config):
             and order.currency == transaction.findtext("currency")
             and status in ("SUCCESS", "PENDING", "FAILURE")
         )
+        if valid and status == "SUCCESS":
+            record_autopay_receipt(order, transaction, db)
         if valid and order.status != "paid":
             order.status = {"SUCCESS": "paid", "PENDING": "pending", "FAILURE": "failed"}[status]
             order.remote_id = transaction.findtext("remoteID")
@@ -167,6 +170,7 @@ def process_itn(xml, db, config):
                 order.paid_at = datetime.now(timezone.utc).isoformat()
                 apply_paid_premium_order(order, db)
             # Sandbox transactions never grant or extend real Premium rights.
+        db.flush()
         confirmations.append((order_id, "CONFIRMED" if valid else "NOTCONFIRMED"))
     db.commit()
     reply = Element("confirmationList")

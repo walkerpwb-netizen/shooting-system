@@ -106,6 +106,7 @@ const sections = [
     content: [
       "Dane konta przechowywane są przez okres posiadania konta.",
       "Dane zamówień i dokumentacja sprzedaży Premium są przechowywane przez okres niezbędny do wykonania umowy, obsługi reklamacji, realizacji obowiązków podatkowych i rachunkowych oraz do upływu właściwych terminów przedawnienia roszczeń. Usunięcie konta nie powoduje usunięcia dokumentacji, którą należy zachować na podstawie prawa.",
+      "Historia potwierdzonych wpłat Autopay obejmuje kwotę, datę wpłaty, identyfikatory transakcji i zamówienia, nazwę usługi oraz imię, nazwisko i e-mail konta dostępne w chwili wpłaty. Jest dostępna wyłącznie administratorowi do kontroli wpłat i sporządzania zestawień rozliczeniowych. Transakcje testowe są oddzielone od rzeczywistych i nie są uwzględniane w zestawieniu do rozliczenia podatkowego.",
       "Wyniki zawodów oraz dane niezbędne do zachowania historii sportowej mogą być przechowywane również po usunięciu konta użytkownika.",
     ],
   },

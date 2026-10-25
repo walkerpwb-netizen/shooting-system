@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Float, Index, Integer, String, ForeignKey, Text, UniqueConstraint
+from sqlalchemy import Column, Date, Float, Index, Integer, String, ForeignKey, Text, UniqueConstraint
 
 from database import Base
 
@@ -265,6 +265,31 @@ class PremiumOrder(Base):
     entitlement_starts_at = Column(String, nullable=True)
     entitlement_ends_at = Column(String, nullable=True)
     entitlements_applied_at = Column(String, nullable=True)
+
+
+class AutopayReceipt(Base):
+    __tablename__ = "autopay_receipts"
+    __table_args__ = (
+        UniqueConstraint("environment", "service_id", "remote_id", name="uq_autopay_receipt_transaction"),
+        Index("ix_autopay_receipts_environment_paid_on", "environment", "paid_on"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    order_id = Column(String(32), ForeignKey("premium_orders.id", ondelete="SET NULL"), nullable=True)
+    order_reference = Column(String(32), nullable=False)
+    service_id = Column(String(10), nullable=False)
+    remote_id = Column(String(20), nullable=False)
+    environment = Column(String(10), nullable=False)
+    amount_grosz = Column(Integer, nullable=False)
+    currency = Column(String(3), nullable=False)
+    paid_on = Column(Date, nullable=False)
+    paid_at = Column(String, nullable=False)
+    provider_payment_date = Column(String(14), nullable=False)
+    recorded_at = Column(String, nullable=False)
+    package = Column(String(20), nullable=False)
+    period = Column(String(10), nullable=False)
+    payer_name = Column(String(255), nullable=False)
+    payer_email = Column(String(255), nullable=False)
 
 
 class AppSetting(Base):

@@ -13,8 +13,9 @@ import { notifyShootingRangeSubmissionsChange } from "@/lib/shootingRangeNotific
 import QrCodeScanner from "@/components/QrCodeScanner";
 import TargetPhotoScanner from "@/zdjęcie tarczy/TargetPhotoScanner";
 import PzssClubRejectionDialog from "./PzssClubRejectionDialog";
+import PaymentsPanel from "./PaymentsPanel";
 
-type AdminTab = "users" | "pzss-clubs" | "competitions" | "shooting-ranges" | "settings" | "premium" | "ads" | "monitoring" | "codex" | "qr-scanner" | "target-photo" | "pdf-test" | "test-data";
+type AdminTab = "users" | "pzss-clubs" | "competitions" | "shooting-ranges" | "settings" | "premium" | "payments" | "ads" | "monitoring" | "codex" | "qr-scanner" | "target-photo" | "pdf-test" | "test-data";
 type UserSortField = "name" | "status" | "role" | "club" | "account" | "phone";
 type SortDirection = "asc" | "desc";
 type CodexChatRole = "user" | "assistant";
@@ -760,6 +761,10 @@ export default function AdminClient({
       return;
     }
 
+    if (activeTab === "payments") {
+      return;
+    }
+
     async function loadAdminData() {
       try {
         const [usersResponse, pzssClubsResponse, competitionsResponse, shootingRangeSubmissionsResponse, shootingRangesResponse, tableSettingsResponse, uiSettingsResponse, profileSettingsResponse, premiumSettingsResponse, activationEmailResponse, monitoringResponse, adReportResponse] = await Promise.all([
@@ -996,7 +1001,7 @@ export default function AdminClient({
     return () => {
       ignore = true;
     };
-  }, [router]);
+  }, [router, activeTab]);
 
   async function updateUserPremiumDisabled(
     userId: number,
@@ -3471,7 +3476,7 @@ export default function AdminClient({
           </div>
         )}
 
-        {loading ? (
+        {activeTab === "payments" ? <PaymentsPanel /> : loading ? (
           <p className="text-gray-400">
             Ładowanie panelu administratora...
           </p>

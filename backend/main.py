@@ -14,7 +14,8 @@ from database import SessionLocal
 from result_store import save_discipline_result
 from results_excel import build_results_workbook
 from config import settings
-from premium_payments import build_premium_router
+from premium_payments import build_premium_router, seller_details
+from payment_reports import build_payments_router
 from premium_access import effective_premium_until, effective_premium_until_iso, included_premium_packages
 from mailer import (
     ACTIVATION_LINK_PLACEHOLDER,
@@ -10247,6 +10248,7 @@ app.include_router(build_premium_router(
     get_db, get_current_user, get_premium_settings,
     lambda user: "admin" in get_user_roles(user),
 ))
+app.include_router(build_payments_router(get_db, get_current_admin, seller_details))
 
 
 @app.get("/home-posts")
