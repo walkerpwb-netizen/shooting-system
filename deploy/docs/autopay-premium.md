@@ -8,6 +8,8 @@ Dane sprzedawcy i forma działalności są również widoczne w ogólnym regulam
 
 Ceny i funkcje są pobierane z istniejących ustawień `/settings/premium`, zarządzanych w panelu administratora. Frontend nie ma zapasowych cen. W razie braku API pokazuje błąd. Logowanie, rejestracja i aktywacja zachowują wybór pakietu przez istniejący parametr `next`.
 
+`shooter.monthly_price` oznacza miesięczny dostęp Strzelca, natomiast istniejące pole `organizer.monthly_price` oznacza **jednorazową cenę za jedną dodatkową publikację zawodów lub szkolenia**. Nazwa pola organizatora jest historyczna i nie wyznacza czasu dostępu. `organizer.yearly_price` jest ceną rocznego pakietu publikacji bez limitu. Publiczna ścieżka zakupu dodatkowej publikacji używa `okres=publication`; stare linki `pakiet=organizer&okres=monthly` pozostają obsługiwane jako ta sama jednorazowa publikacja. Istniejące testowe API i rekordy zamówień zachowują historyczne oznaczenie `period=monthly`, które przy wyświetlaniu jest interpretowane łącznie z typem pakietu.
+
 ## Stan tej wersji
 
 Rzeczywista sprzedaż jest wyłączona. API zawsze zwraca `sales_enabled: false`. Kod nie ma produkcyjnej bramki i nie przyjmuje trybu `production`. Samo wpisanie produkcyjnych kluczy nie uruchomi płatności. Nie zmieniaj tego przed pozytywną weryfikacją Autopay i osobnym wdrożeniem uruchamiającym sprzedaż.
@@ -51,7 +53,7 @@ Testy automatyczne: `cd backend && venv/bin/python3 -m unittest discover -s test
 
 ## Wznowienie weryfikacji według e-maila Autopay
 
-E-mail przekazany przez właściciela wskazuje na brak dostępnych produktów/usług i brak możliwości sprawdzenia procesu zakupowego. Prosi także o formę działalności nierejestrowanej, imię i nazwisko w regulaminie oraz oficjalny baner metod płatności. Publiczna oferta zawiera dwa pakiety w wariantach miesięcznym i rocznym, z opisami i aktualnymi cenami. Wybór, logowanie/rejestrację i podsumowanie można sprawdzić bez uruchamiania płatności. Pełny test z bramką nadal wymaga konfiguracji sandbox i uzgodnienia z operatorem dostępu testowego; nie deklaruj pełnego procesu jako zweryfikowanego wyłącznie na podstawie obecności oferty i regulaminu.
+E-mail przekazany przez właściciela wskazuje na brak dostępnych produktów/usług i brak możliwości sprawdzenia procesu zakupowego. Prosi także o formę działalności nierejestrowanej, imię i nazwisko w regulaminie oraz oficjalny baner metod płatności. Publiczna oferta zawiera miesięczny i roczny pakiet Strzelca oraz jednorazową dodatkową publikację i roczny pakiet Organizatora bez limitu, z opisami i aktualnymi cenami. Wybór, logowanie/rejestrację i podsumowanie można sprawdzić bez uruchamiania płatności. Pełny test z bramką nadal wymaga konfiguracji sandbox i uzgodnienia z operatorem dostępu testowego; nie deklaruj pełnego procesu jako zweryfikowanego wyłącznie na podstawie obecności oferty i regulaminu.
 
 Po zakończeniu prac właściciel musi poinformować Autopay, aby operator wznowił weryfikację. Samo wdrożenie nie wznawia procesu po stronie Autopay. Wiadomość określa ważność przelewu weryfikacyjnego na 30 dni; po tym czasie proces trzeba rozpocząć ponownie. Ostateczny wynik weryfikacji zależy od operatora.
 
@@ -60,6 +62,8 @@ Po zakończeniu prac właściciel musi poinformować Autopay, aby operator wznow
 Wymaga potwierdzonej zgody Autopay, danych produkcyjnych i osobnego wdrożenia. Należy wtedy wdrożyć rozdzielone konfiguracje i uprawnienia dla obu środowisk, rozdzielone okresy uprawnień Strzelca i Organizatora (obecny model użytkownika dzieli jedno `premium_until`), atomową i idempotentną aktywację wyłącznie z podpisanego produkcyjnego ITN, wyraźną datę rozpoczęcia i zakończenia przed zamówieniem, opcjonalne żądanie wcześniejszego rozpoczęcia usługi, finalny przycisk z obowiązkiem zapłaty, potwierdzenie umowy i regulamin w e-mailu na trwałym nośniku oraz obsługę zwrotów i odstąpień. Nie podłączaj testowego SUCCESS do istniejącego wspólnego `premium_until`.
 
 Regulamin przewiduje 14 dni na odstąpienie i ustawowe rozliczenie proporcjonalne wyłącznie po wyraźnym żądaniu wcześniejszego rozpoczęcia usługi oraz przekazaniu wymaganych informacji; nie stosuje domyślnego zrzeczenia się praw konsumenta. Wersja obowiązująca przy zamówieniu powinna być zachowana w całości przy uruchomieniu sprzedaży, razem z ceną, zakresem usługi i zgodami.
+
+Jednorazowa publikacja organizatora wymaga osobnego uprawnienia przypisanego do konkretnego wydarzenia. Nie może przedłużać `premium_until` ani nadawać miesięcznego dostępu lub nieograniczonej liczby publikacji. Przed uruchomieniem sprzedaży trzeba wdrożyć powiązanie zamówienia z wydarzeniem i wykorzystanie opłaty tylko do tej publikacji.
 
 Źródła integracji i wymagań:
 

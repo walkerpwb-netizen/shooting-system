@@ -12,15 +12,15 @@ const sections = [
     title: "2. Przedmiot usługi i wymagania techniczne",
     paragraphs: [
       "Premium jest odpłatną usługą cyfrową rozszerzającą funkcje konta w Systemie Strzeleckim. Pakiet Strzelca i pakiet Organizatora są odrębnymi usługami. Zakres wybranego pakietu i jego cena są prezentowane na stronie Premium oraz w podsumowaniu przed złożeniem zamówienia.",
-      "Premium Organizatora umożliwia publikowanie więcej niż jednych aktywnych zawodów jednocześnie. Panel organizatora, tworzenie szkiców bez limitu, obsługa sędziów, wyników, PDF, raportów i statystyk pozostają bezpłatne. Premium nie obejmuje opłat startowych pobieranych przez organizatorów zawodów.",
+      "Organizator może wybrać jednorazową opłatę za publikację jednych dodatkowych zawodów lub jednego szkolenia, gdy ma już aktywne opublikowane wydarzenie, albo roczny pakiet bez limitu jednoczesnych publikacji. Każde kolejne dodatkowe wydarzenie wymaga osobnej opłaty albo aktywnego pakietu rocznego. Panel organizatora, tworzenie szkiców bez limitu, obsługa sędziów, wyników, PDF, raportów i statystyk pozostają bezpłatne. Premium nie obejmuje opłat startowych pobieranych przez organizatorów zawodów.",
       "Do korzystania z usługi potrzebne są: aktywne konto, dostęp do Internetu, aktualna przeglądarka obsługująca JavaScript, pliki cookie sesji i pamięć lokalną oraz działający adres e-mail. Premium nie wymaga instalowania dodatkowego płatnego oprogramowania. Użytkownik nie może dostarczać treści bezprawnych ani naruszać bezpieczeństwa systemu.",
     ],
   },
   {
     title: "3. Ceny i zawarcie umowy",
     paragraphs: [
-      "Aktualny cennik jest dostępny publicznie pod adresem /premium. Podane kwoty w PLN są całkowitymi cenami do zapłaty za wybrany okres, z uwzględnieniem podatków, jeżeli mają zastosowanie. Serwis nie dolicza kosztów dostawy. Cena za rok dotyczy całego roku, a nie miesięcznej raty.",
-      "Po uruchomieniu sprzedaży użytkownik wybierze pakiet i okres, zaloguje się lub zarejestruje i aktywuje konto, sprawdzi zakres i całkowitą cenę oraz zaakceptuje Regulamin Premium. Ostateczne zamówienie będzie wymagało osobnego, jednoznacznego potwierdzenia obowiązku zapłaty. Zmiana ceny przed potwierdzeniem wymaga ponownego sprawdzenia i akceptacji podsumowania.",
+      "Aktualny cennik jest dostępny publicznie pod adresem /premium. Podane kwoty w PLN są całkowitymi cenami do zapłaty za wybrany okres dostępu albo jedną dodatkową publikację, z uwzględnieniem podatków, jeżeli mają zastosowanie. Serwis nie dolicza kosztów dostawy. Cena za rok dotyczy całego roku, a nie miesięcznej raty.",
+      "Po uruchomieniu sprzedaży użytkownik wybierze usługę (pakiet dostępu lub jednorazową dodatkową publikację), zaloguje się lub zarejestruje i aktywuje konto, sprawdzi zakres i całkowitą cenę oraz zaakceptuje Regulamin Premium. Ostateczne zamówienie będzie wymagało osobnego, jednoznacznego potwierdzenia obowiązku zapłaty. Zmiana ceny przed potwierdzeniem wymaga ponownego sprawdzenia i akceptacji podsumowania.",
       "Umowa zostanie zawarta po potwierdzeniu skutecznej płatności przez operatora. Potwierdzenie warunków umowy i regulamin na trwałym nośniku zostaną przekazane na e-mail konta. Późniejsza zmiana cennika nie zmienia ceny zawartej umowy. Na żądanie kupującego sprzedawca wystawia dokument sprzedaży zgodnie z przepisami.",
     ],
   },
@@ -33,11 +33,11 @@ const sections = [
     ],
   },
   {
-    title: "5. Okres dostępu i zakończenie usługi",
+    title: "5. Okres dostępu, dodatkowa publikacja i zakończenie usługi",
     paragraphs: [
-      "Pakiet jest przewidziany na jeden miesiąc albo jeden rok, zgodnie z wyborem w podsumowaniu. Opłata jest jednorazowa. Brak automatycznego odnawiania, cyklicznego obciążania rachunku lub karty i obowiązku zakupu kolejnego okresu.",
-      "Po uruchomieniu sprzedaży dostęp będzie aktywowany po potwierdzeniu płatności: przed upływem terminu do odstąpienia wyłącznie na wyraźne żądanie użytkownika, a w pozostałych przypadkach po upływie tego terminu. Dokładna data rozpoczęcia i zakończenia dostępu będzie podana przed zamówieniem i w potwierdzeniu umowy.",
-      "Po zakończeniu opłaconego okresu wygasają funkcje objęte Premium, a konto zachowuje dostęp do funkcji bezpłatnych. Zakończenie Premium samo w sobie nie usuwa konta ani zapisanych wyników. Zakończenie usługi wcześniej, reklamacje i odstąpienie można zgłosić sprzedawcy pod danymi z punktu 1.",
+      "Pakiet Strzelca jest przewidziany na jeden miesiąc albo jeden rok. Roczny pakiet Organizatora zapewnia publikacje bez limitu przez jeden rok. Organizator może zamiast pakietu rocznego wybrać jednorazową opłatę za publikację jednych dodatkowych zawodów lub jednego szkolenia. Opłata za taką publikację dotyczy wyłącznie jednego konkretnego wydarzenia i nie daje miesięcznego dostępu ani nielimitowanych publikacji. Brak automatycznego odnawiania, cyklicznego obciążania rachunku lub karty i obowiązku ponownego zakupu.",
+      "Po uruchomieniu sprzedaży realizacja usługi rozpocznie się po potwierdzeniu płatności: przed upływem terminu do odstąpienia wyłącznie na wyraźne żądanie użytkownika, a w pozostałych przypadkach po upływie tego terminu. W przypadku pakietów czasowych dokładna data rozpoczęcia i zakończenia dostępu będzie podana przed zamówieniem i w potwierdzeniu umowy. Jednorazowa dodatkowa publikacja zostanie przypisana do wybranych zawodów lub szkolenia.",
+      "Po zakończeniu opłaconego okresu pakietu czasowego wygasają objęte nim funkcje Premium, a konto zachowuje dostęp do funkcji bezpłatnych. Zakończenie Premium samo w sobie nie usuwa konta ani zapisanych wyników. Zakończenie usługi wcześniej, reklamacje i odstąpienie można zgłosić sprzedawcy pod danymi z punktu 1.",
     ],
   },
   {

@@ -32,3 +32,30 @@ export function premiumPrice(value: string) {
 }
 
 export const premiumPackageNames = { shooter: "Premium Strzelca", organizer: "Premium Organizatora" };
+
+export function premiumOfferDetails(packageType: "shooter" | "organizer", period: "monthly" | "yearly") {
+  // The existing organizer monthly_price field stores a one-off publication price.
+  if (packageType === "organizer") {
+    return period === "monthly" ? {
+      title: "Dodatkowa publikacja",
+      summary: "Jedne dodatkowe zawody lub szkolenie",
+      priceCaption: "Jednorazowa opłata za jedną dodatkową publikację",
+      description: "Opłata za publikację jednych dodatkowych zawodów lub jednego szkolenia, gdy masz już opublikowane aktywne wydarzenie. Każda kolejna dodatkowa publikacja wymaga osobnej opłaty albo rocznego pakietu bez limitu.",
+      queryPeriod: "publication",
+    } : {
+      title: "Roczny pakiet bez limitu",
+      summary: "1 rok — publikacje bez limitu",
+      priceCaption: "Łączna cena za rok bez limitu publikacji",
+      description: "Nielimitowana liczba jednocześnie opublikowanych zawodów i szkoleń przez rok.",
+      queryPeriod: "yearly",
+    };
+  }
+
+  return {
+    title: period === "monthly" ? "Dostęp na miesiąc" : "Dostęp na rok",
+    summary: period === "monthly" ? "1 miesiąc" : "1 rok",
+    priceCaption: "Łączna cena za cały okres",
+    description: "Jednorazowa opłata za cały okres.",
+    queryPeriod: period,
+  };
+}

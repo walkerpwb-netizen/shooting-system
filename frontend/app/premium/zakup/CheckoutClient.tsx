@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import { apiUrl } from "@/lib/api";
 import { getValidAccessToken } from "@/lib/auth";
 import { buildAuthPath, storeAuthRedirectPath } from "@/lib/authRedirect";
-import { premiumPackageNames, premiumPrice, type PremiumCommerce, type PremiumPrices } from "@/lib/premiumCommerce";
+import { premiumOfferDetails, premiumPackageNames, premiumPrice, type PremiumCommerce, type PremiumPrices } from "@/lib/premiumCommerce";
 
 type Order = { id: string; package: "shooter" | "organizer"; period: "monthly" | "yearly"; amount: string; status: string; environment: string };
 
@@ -21,7 +21,8 @@ export default function CheckoutClient({ packageType, period, orderId }: { packa
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [order, setOrder] = useState<Order | null>(null);
-  const nextPath = orderId ? `/premium/zakup?OrderID=${encodeURIComponent(orderId)}` : `/premium/zakup?pakiet=${packageType}&okres=${period}`;
+  const offer = premiumOfferDetails(packageType, period);
+  const nextPath = orderId ? `/premium/zakup?OrderID=${encodeURIComponent(orderId)}` : `/premium/zakup?pakiet=${packageType}&okres=${offer.queryPeriod}`;
 
   useEffect(() => {
     let ignore = false;
@@ -100,7 +101,7 @@ export default function CheckoutClient({ packageType, period, orderId }: { packa
         {loading ? <p className="mt-6" role="status">Ładowanie podsumowania…</p> : <>
           <p className="mt-6 rounded-xl border border-amber-300/40 bg-amber-300/10 p-4 leading-7 text-amber-100"><strong>Sprzedaż oczekuje na zatwierdzenie Autopay.</strong> Rzeczywiste płatności są wyłączone. Obecnie nie można opłacić ani aktywować pakietu przez zakup.</p>
           {order ? <div className="mt-6 space-y-3" aria-live="polite">
-            <p>{premiumPackageNames[order.package]} — {order.period === "monthly" ? "miesiąc" : "rok"}</p>
+            <p>{premiumPackageNames[order.package]} — {premiumOfferDetails(order.package, order.period).summary}</p>
             <p>Kwota testowa: <strong>{premiumPrice(order.amount)}</strong></p>
             <p>Numer: <span className="break-all">{order.id}</span></p>
             <p>Status: <strong>{order.status === "paid" ? "Płatność testowa potwierdzona" : order.status === "failed" ? "Testowa próba nieudana" : "Oczekiwanie na potwierdzenie Autopay"}</strong></p>
@@ -108,9 +109,9 @@ export default function CheckoutClient({ packageType, period, orderId }: { packa
             <button onClick={() => window.location.reload()} className="rounded-xl bg-emerald-300 px-5 py-3 font-bold text-green-950">Odśwież status</button>
           </div> : prices && commerce && <>
             <h2 className="mt-6 text-2xl font-bold">{premiumPackageNames[packageType]}</h2>
-            <p className="mt-3">Okres: {period === "monthly" ? "1 miesiąc" : "1 rok"}</p>
+            <p className="mt-3">{packageType === "organizer" && period === "monthly" ? "Usługa" : "Okres"}: {offer.summary}</p>
             <p className="mt-3 text-2xl font-black">Łącznie: {premiumPrice(prices[packageType][`${period}_price`])}</p>
-            <p className="mt-3 leading-7 text-green-100">Jednorazowa opłata za cały okres. Bez automatycznego odnawiania. Aktualnie nie składamy zamówienia z obowiązkiem zapłaty.</p>
+            <p className="mt-3 leading-7 text-green-100">{offer.description} Bez automatycznego odnawiania. Aktualnie nie składamy zamówienia z obowiązkiem zapłaty.</p>
             <Link href="/premium/regulamin" className="mt-5 block text-emerald-200 underline">Przeczytaj Regulamin Premium i dane sprzedawcy</Link>
             <Link href="/polityka-prywatnosci" className="mt-3 block text-emerald-200 underline">Polityka prywatności</Link>
             {isAdmin && <section className="mt-8 rounded-xl border border-blue-300/40 bg-blue-300/10 p-5">
