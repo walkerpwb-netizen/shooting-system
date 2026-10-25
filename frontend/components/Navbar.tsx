@@ -779,6 +779,10 @@ export default function Navbar() {
           Zawody
         </Link>
 
+        <Link href="/premium" className="font-bold text-amber-200">
+          Premium
+        </Link>
+
         <Link
           href="/live-results"
           onClick={guardPremiumLink}
@@ -974,6 +978,10 @@ export default function Navbar() {
                 className="py-3"
               >
                 Home
+              </Link>
+
+              <Link href="/premium" onClick={() => setMobileMenuOpen(false)} className="py-3 font-bold text-amber-200">
+                Premium i cennik
               </Link>
 
               <Link

@@ -56,6 +56,7 @@ const sections = [
       "kontaktu z użytkownikiem",
       "zapewnienia bezpieczeństwa serwisu",
       "dochodzenia lub obrony roszczeń",
+      "obsługi zamówień Premium, płatności, reklamacji i odstąpień od umowy oraz dokumentacji sprzedaży po uruchomieniu sprzedaży",
     ],
   },
   {
@@ -84,6 +85,9 @@ const sections = [
       {
         intro: "Dane nie są sprzedawane osobom trzecim.",
       },
+      {
+        intro: "Planowanym operatorem płatności Premium jest Autopay S.A. Dane niezbędne do realizacji płatności (identyfikator zamówienia, kwota, waluta i e-mail konta) są przekazywane operatorowi w celu obsługi transakcji. Operator może przekazać serwisowi status płatności i dane płatnika; w testach dane płatnika nie są zapisywane. Obecnie płatności rzeczywiste są wyłączone; testy są dostępne tylko dla administratora w środowisku testowym. Dane karty i bankowości elektronicznej są podawane operatorowi, a serwis ich nie przechowuje. Informacje o przetwarzaniu danych przez operatora: https://autopay.pl/polityka-prywatnosci.",
+      },
     ],
   },
   {
@@ -93,6 +97,7 @@ const sections = [
     ],
     items: [
       "art. 6 ust. 1 lit. b RODO - wykonanie umowy o świadczenie usług drogą elektroniczną",
+      "art. 6 ust. 1 lit. c RODO - wypełnienie obowiązków prawnych związanych z dokumentacją sprzedaży i prawami konsumenta",
       "art. 6 ust. 1 lit. f RODO - prawnie uzasadniony interes administratora polegający na prowadzeniu serwisu oraz publikacji wyników sportowych",
     ],
   },
@@ -100,6 +105,7 @@ const sections = [
     title: "6. Okres przechowywania danych",
     content: [
       "Dane konta przechowywane są przez okres posiadania konta.",
+      "Dane zamówień i dokumentacja sprzedaży Premium są przechowywane przez okres niezbędny do wykonania umowy, obsługi reklamacji, realizacji obowiązków podatkowych i rachunkowych oraz do upływu właściwych terminów przedawnienia roszczeń. Usunięcie konta nie powoduje usunięcia dokumentacji, którą należy zachować na podstawie prawa.",
       "Wyniki zawodów oraz dane niezbędne do zachowania historii sportowej mogą być przechowywane również po usunięciu konta użytkownika.",
     ],
   },

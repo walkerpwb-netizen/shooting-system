@@ -14,6 +14,7 @@ from database import SessionLocal
 from result_store import save_discipline_result
 from results_excel import build_results_workbook
 from config import settings
+from premium_payments import build_premium_router
 from mailer import (
     ACTIVATION_LINK_PLACEHOLDER,
     MailConfigurationError,
@@ -1210,6 +1211,9 @@ def normalize_premium_price(value: str):
             status_code=400,
             detail="Cena premium musi być poprawną liczbą"
         )
+
+    if not price.is_finite():
+        raise HTTPException(status_code=400, detail="Cena premium musi być skończoną liczbą")
 
     if price < 0:
         raise HTTPException(
@@ -10243,6 +10247,12 @@ def get_public_profile_settings(db=Depends(get_db)):
 @app.get("/settings/premium")
 def get_public_premium_settings(db=Depends(get_db)):
     return get_premium_settings(db)
+
+
+app.include_router(build_premium_router(
+    get_db, get_current_user, get_premium_settings,
+    lambda user: "admin" in get_user_roles(user),
+))
 
 
 @app.get("/home-posts")

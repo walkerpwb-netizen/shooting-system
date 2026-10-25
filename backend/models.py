@@ -241,6 +241,26 @@ class User(Base):
     )
 
 
+class PremiumOrder(Base):
+    __tablename__ = "premium_orders"
+
+    id = Column(String(32), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    package = Column(String(20), nullable=False)
+    period = Column(String(10), nullable=False)
+    amount = Column(String(20), nullable=False)
+    currency = Column(String(3), nullable=False)
+    environment = Column(String(10), nullable=False)
+    service_id = Column(String(10), nullable=False)
+    status = Column(String(20), nullable=False)
+    remote_id = Column(String(20), nullable=True)
+    created_at = Column(String, nullable=False)
+    paid_at = Column(String, nullable=True)
+    terms_version = Column(String(30), nullable=False)
+    terms_accepted_at = Column(String, nullable=False)
+    offer_snapshot = Column(Text, nullable=False)
+
+
 class AppSetting(Base):
     __tablename__ = "app_settings"
 

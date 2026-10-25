@@ -4,6 +4,14 @@ import SocialMediaIcons from "./SocialMediaIcons";
 
 const footerLinks = [
   {
+    href: "/premium",
+    label: "Premium i cennik",
+  },
+  {
+    href: "/premium/regulamin",
+    label: "Regulamin Premium",
+  },
+  {
     href: "/regulamin",
     label: "Regulamin",
   },
@@ -27,7 +35,7 @@ export default function Footer() {
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
         <nav
           aria-label="Linki prawne"
-          className="flex flex-col gap-3 text-sm font-semibold text-green-100 sm:flex-row sm:items-center sm:gap-6"
+          className="flex flex-col gap-3 text-sm font-semibold text-green-100 sm:flex-row sm:flex-wrap sm:items-center sm:gap-6"
         >
           {footerLinks.map((link) => (
             <Link

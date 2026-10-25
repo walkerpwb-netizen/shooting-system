@@ -10,6 +10,16 @@ const siteUrl = (
 
 const staticRoutes = [
   {
+    path: "/premium",
+    priority: 0.8,
+    changeFrequency: "daily",
+  },
+  {
+    path: "/premium/regulamin",
+    priority: 0.5,
+    changeFrequency: "monthly",
+  },
+  {
     path: "/",
     priority: 1,
     changeFrequency: "daily",
