@@ -113,6 +113,9 @@ class PremiumPaymentTests(unittest.TestCase):
                 self.assertEqual(order.terms_version, TERMS_VERSION)
                 self.assertTrue(order.terms_accepted_at)
                 self.assertIn("ranking", order.offer_snapshot)
+                self.assertEqual(json.loads(order.offer_snapshot)["included_packages"],
+                                 ["organizer", "shooter"] if kind == "organizer" and period == "yearly"
+                                 else ["shooter"] if kind == "shooter" else [])
                 self.assertNotIn("sandbox-test-secret", str(result))
                 self.assertEqual(result["fields"]["Hash"], hashlib.sha256(
                     f"12345|{order.id}|{price}|PLN|admin@example.test|sandbox-test-secret".encode()).hexdigest())
@@ -126,6 +129,17 @@ class PremiumPaymentTests(unittest.TestCase):
             self.assertEqual(reply.findtext("hash"), payment_hash(["12345", order_id, "CONFIRMED"], sandbox_config()))
             self.assertEqual(self.db.get(PremiumOrder, order_id).status, "paid")
         self.assertEqual(self.admin.premium_until, "2026-12-31T23:59:59+01:00")
+        self.assertIsNone(self.admin.premium_shooter_paid_until)
+        self.assertIsNone(self.admin.premium_organizer_paid_until)
+
+    def test_annual_organizer_sandbox_success_never_activates_either_package(self):
+        data = self.data.model_copy(update={"package": "organizer", "period": "yearly", "expected_price": "123.45"})
+        order_id = self.checkout(data)["order_id"]
+        process_itn(self.notification(order_id, amount="123.45"), self.db, sandbox_config())
+        self.db.refresh(self.admin)
+        self.assertIsNone(self.admin.premium_organizer_paid_until)
+        self.assertIsNone(self.admin.premium_shooter_paid_until)
+        self.assertIsNone(self.db.get(PremiumOrder, order_id).entitlements_applied_at)
 
     def test_wrong_amount_currency_order_or_status_never_confirms(self):
         order_id = self.checkout()["order_id"]

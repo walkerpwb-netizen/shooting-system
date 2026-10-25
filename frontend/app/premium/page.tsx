@@ -46,6 +46,9 @@ export default async function PremiumPage() {
                         <h3 className="font-bold text-green-100">{offer.title}</h3>
                         <p className="mt-3 text-3xl font-black">{premiumPrice(pack[`${period}_price`])}</p>
                         <p className="mt-2 text-sm text-green-200">{offer.priceCaption}</p>
+                        {kind === "organizer" && period === "yearly" && (
+                          <p className="mt-3 text-sm font-bold text-emerald-200">W cenie: Premium Strzelca na ten sam okres.</p>
+                        )}
                         <Link href={`/premium/zakup?pakiet=${kind}&okres=${offer.queryPeriod}`} className="mt-5 block rounded-xl bg-emerald-300 px-4 py-3 text-center font-black text-green-950 transition hover:bg-white">Kup Premium<span className="sr-only"> — {premiumPackageNames[kind]}, {offer.summary}</span></Link>
                       </div>;
                     })}

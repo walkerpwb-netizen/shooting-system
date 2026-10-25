@@ -51,6 +51,7 @@ type UserProfile = {
   organizer_name: string;
   requested_role: string;
   premium_until: string;
+  premium_organizer_until?: string;
   premium_disabled: boolean;
   premium_organizer_disabled: boolean;
   profile_photo_url: string;
@@ -1502,7 +1503,7 @@ export default function ProfilePage() {
               />
 
               <PremiumStatusBar
-                premiumUntil={profile.premium_until}
+                premiumUntil={profile.premium_organizer_until ?? profile.premium_until}
                 premiumDisabled={profile.premium_organizer_disabled}
                 label="PREMIUM ORGANIZATORA"
               />

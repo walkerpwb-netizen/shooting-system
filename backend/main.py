@@ -15,6 +15,7 @@ from result_store import save_discipline_result
 from results_excel import build_results_workbook
 from config import settings
 from premium_payments import build_premium_router
+from premium_access import effective_premium_until, effective_premium_until_iso, included_premium_packages
 from mailer import (
     ACTIVATION_LINK_PLACEHOLDER,
     MailConfigurationError,
@@ -1481,6 +1482,7 @@ def get_premium_settings(db):
             "yearly_price": str(stored_package.get("yearly_price") or defaults["yearly_price"]),
             "features": features,
             "available_features": PREMIUM_FEATURES[package_type],
+            "yearly_included_packages": included_premium_packages(package_type, "yearly"),
         }
 
     return packages
@@ -2744,7 +2746,8 @@ def public_user(user: User):
         "last_seen": user.last_seen or "",
         "requested_role": user.requested_role or "",
         "password_reset_required": bool(user.password_reset_required),
-        "premium_until": getattr(user, "premium_until", "") or "",
+        "premium_until": effective_premium_until_iso(user),
+        "premium_organizer_until": effective_premium_until_iso(user, "organizer"),
         "premium_disabled": bool(getattr(user, "premium_disabled", 0)),
         "premium_organizer_disabled": bool(getattr(user, "premium_organizer_disabled", 0)),
         "profile_photo_url": getattr(user, "profile_photo_url", "") or "",
@@ -2865,7 +2868,9 @@ def admin_user_profile_info(user: User):
             {
                 "title": "Premium",
                 "rows": [
-                    admin_user_info_row("Premium do", getattr(user, "premium_until", "")),
+                    admin_user_info_row("Premium do", effective_premium_until_iso(user)),
+                    admin_user_info_row("Premium organizatora do", effective_premium_until_iso(user, "organizer")),
+                    admin_user_info_row("Premium wspólne (dotychczasowy dostęp) do", getattr(user, "premium_until", "")),
                     admin_user_info_row("Premium strzelca ręcznie wyłączone", bool(getattr(user, "premium_disabled", 0))),
                     admin_user_info_row("Premium organizatora ręcznie wyłączone", bool(getattr(user, "premium_organizer_disabled", 0))),
                 ],
@@ -7836,18 +7841,7 @@ def premium_end_of_year_iso():
 
 
 def premium_until_datetime(user: Optional[User]):
-    if not user or not getattr(user, "premium_until", None):
-        return None
-
-    try:
-        value = datetime.fromisoformat(user.premium_until)
-    except ValueError:
-        return None
-
-    if value.tzinfo is None:
-        return value.replace(tzinfo=APP_TIMEZONE)
-
-    return value.astimezone(APP_TIMEZONE)
+    return effective_premium_until(user)
 
 
 def has_active_premium(user: Optional[User]):
@@ -7866,7 +7860,7 @@ def has_active_organizer_premium(user: Optional[User]):
     if not user or getattr(user, "premium_organizer_disabled", 0):
         return False
 
-    premium_until = premium_until_datetime(user)
+    premium_until = effective_premium_until(user, "organizer")
 
     if not premium_until:
         return False
@@ -10976,7 +10970,7 @@ def public_pzss_club(user: User):
         "activation_seconds_remaining": activation_seconds_remaining_for_user(user),
         "online_status": "online" if is_user_online(user) else "offline",
         "last_seen": user.last_seen or "",
-        "premium_until": getattr(user, "premium_until", "") or "",
+        "premium_until": effective_premium_until_iso(user, "organizer"),
         "premium_organizer_disabled": bool(getattr(user, "premium_organizer_disabled", 0)),
         "created_label": user.email,
     }

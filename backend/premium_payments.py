@@ -21,6 +21,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from models import PremiumOrder
+from premium_access import apply_paid_premium_order, included_premium_packages
 
 TERMS_VERSION = "2026-10-25"
 ITN_FIELDS = (
@@ -101,7 +102,10 @@ def create_sandbox_order(data, user, db, get_prices, is_admin):
         amount=amount_text, currency="PLN", environment="sandbox", service_id=config["service"],
         status="pending", created_at=datetime.now(timezone.utc).isoformat(),
         terms_version=TERMS_VERSION, terms_accepted_at=datetime.now(timezone.utc).isoformat(),
-        offer_snapshot=json.dumps(package, ensure_ascii=False),
+        offer_snapshot=json.dumps({
+            **package,
+            "included_packages": included_premium_packages(data.package, data.period),
+        }, ensure_ascii=False),
     )
     db.add(order)
     db.commit()
@@ -161,6 +165,7 @@ def process_itn(xml, db, config):
             order.remote_id = transaction.findtext("remoteID")
             if status == "SUCCESS":
                 order.paid_at = datetime.now(timezone.utc).isoformat()
+                apply_paid_premium_order(order, db)
             # Sandbox transactions never grant or extend real Premium rights.
         confirmations.append((order_id, "CONFIRMED" if valid else "NOTCONFIRMED"))
     db.commit()
@@ -193,8 +198,12 @@ def build_premium_router(get_db, get_current_user, get_prices, is_admin):
         order = db.query(PremiumOrder).filter_by(id=order_id, user_id=user.id).first()
         if not order:
             raise HTTPException(404, "Nie znaleziono zamówienia.")
-        return {k: getattr(order, k) for k in (
-            "id", "package", "period", "amount", "currency", "status", "environment", "created_at", "paid_at")}
+        return {
+            **{k: getattr(order, k) for k in (
+                "id", "package", "period", "amount", "currency", "status", "environment", "created_at", "paid_at",
+                "entitlement_starts_at", "entitlement_ends_at")},
+            "included_packages": json.loads(order.offer_snapshot).get("included_packages", []),
+        }
 
     @router.post("/autopay/itn")
     async def itn(request: Request, db=Depends(get_db)):

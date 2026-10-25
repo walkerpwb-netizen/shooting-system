@@ -5,6 +5,7 @@ export type PremiumPackage = {
   yearly_price: string;
   features: string[];
   available_features: { id: string; label: string }[];
+  yearly_included_packages?: ("shooter" | "organizer")[];
 };
 export type PremiumPrices = Record<"shooter" | "organizer", PremiumPackage>;
 export type PremiumCommerce = {
@@ -46,7 +47,7 @@ export function premiumOfferDetails(packageType: "shooter" | "organizer", period
       title: "Roczny pakiet bez limitu",
       summary: "1 rok — publikacje bez limitu",
       priceCaption: "Łączna cena za rok bez limitu publikacji",
-      description: "Nielimitowana liczba jednocześnie opublikowanych zawodów i szkoleń przez rok.",
+      description: "Nielimitowana liczba jednocześnie opublikowanych zawodów i szkoleń przez rok. W cenie otrzymujesz również Premium Strzelca na ten sam okres, bez dodatkowej opłaty.",
       queryPeriod: "yearly",
     };
   }

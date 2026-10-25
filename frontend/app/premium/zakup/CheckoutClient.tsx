@@ -102,6 +102,7 @@ export default function CheckoutClient({ packageType, period, orderId }: { packa
           <p className="mt-6 rounded-xl border border-amber-300/40 bg-amber-300/10 p-4 leading-7 text-amber-100"><strong>Sprzedaż oczekuje na zatwierdzenie Autopay.</strong> Rzeczywiste płatności są wyłączone. Obecnie nie można opłacić ani aktywować pakietu przez zakup.</p>
           {order ? <div className="mt-6 space-y-3" aria-live="polite">
             <p>{premiumPackageNames[order.package]} — {premiumOfferDetails(order.package, order.period).summary}</p>
+            {order.package === "organizer" && order.period === "yearly" && <p>W cenie: Premium Strzelca na ten sam okres.</p>}
             <p>Kwota testowa: <strong>{premiumPrice(order.amount)}</strong></p>
             <p>Numer: <span className="break-all">{order.id}</span></p>
             <p>Status: <strong>{order.status === "paid" ? "Płatność testowa potwierdzona" : order.status === "failed" ? "Testowa próba nieudana" : "Oczekiwanie na potwierdzenie Autopay"}</strong></p>

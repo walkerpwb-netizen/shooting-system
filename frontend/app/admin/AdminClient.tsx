@@ -72,6 +72,7 @@ type AdminUser = {
   requested_role: string;
   password_reset_required: boolean;
   premium_until: string;
+  premium_organizer_until?: string;
   premium_disabled: boolean;
   premium_organizer_disabled: boolean;
   status: "online" | "offline";
@@ -3326,6 +3327,9 @@ export default function AdminClient({
               />
               <span className="text-xl font-black text-green-100">zł</span>
             </div>
+            {packageType === "organizer" && (
+              <span className="mt-3 block text-sm font-semibold text-emerald-200">W cenie: Premium Strzelca na ten sam okres.</span>
+            )}
           </label>
         </div>
 
@@ -3789,11 +3793,14 @@ export default function AdminClient({
                   </label>
 
                   <p className={
-                    Boolean(user.premium_disabled) || Boolean(user.premium_organizer_disabled)
+                    Boolean(user.premium_disabled)
                       ? "text-red-300"
                       : "text-gray-400"
                   }>
-                    do {formatPremiumUntil(user.premium_until)}
+                    Strzelec do {formatPremiumUntil(user.premium_until)}
+                  </p>
+                  <p className={user.premium_organizer_disabled ? "text-red-300" : "text-gray-400"}>
+                    Organizator do {formatPremiumUntil(user.premium_organizer_until ?? user.premium_until)}
                   </p>
                 </div>
 

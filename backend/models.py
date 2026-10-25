@@ -182,6 +182,9 @@ class User(Base):
         nullable=True,
     )
 
+    premium_shooter_paid_until = Column(String, nullable=True)
+    premium_organizer_paid_until = Column(String, nullable=True)
+
     premium_disabled = Column(
         Integer,
         default=0,
@@ -259,6 +262,9 @@ class PremiumOrder(Base):
     terms_version = Column(String(30), nullable=False)
     terms_accepted_at = Column(String, nullable=False)
     offer_snapshot = Column(Text, nullable=False)
+    entitlement_starts_at = Column(String, nullable=True)
+    entitlement_ends_at = Column(String, nullable=True)
+    entitlements_applied_at = Column(String, nullable=True)
 
 
 class AppSetting(Base):
