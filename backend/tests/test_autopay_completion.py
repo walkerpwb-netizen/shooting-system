@@ -267,6 +267,7 @@ class AutopayCompletionTests(unittest.TestCase):
         self.assertTrue(self.admin.premium_shooter_paid_until)
 
     def test_refund_request_is_not_completion_and_retry_uses_same_message_id(self):
+        self.db.autoflush = False  # Match the application's SessionLocal.
         order = self.pay(self.checkout()['order_id'])
         ids = []
         def accepted(config, path, fields, **kwargs):

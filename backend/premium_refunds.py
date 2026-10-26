@@ -79,6 +79,9 @@ def refresh_refund(order, db, config):
         refund.updated_at = datetime.now(timezone.utc).isoformat()
         refund.status = "done" if provider_status == "DONE" else "failed" if provider_status.startswith("CANCELED_") else "accepted"
     if refund.status == "done":
+        # SessionLocal disables autoflush. Include this newly confirmed refund
+        # in the aggregate before deciding whether the order is fully refunded.
+        db.flush()
         order = db.query(PremiumOrder).filter_by(id=order.id).populate_existing().with_for_update().one()
         received = db.query(func.coalesce(func.sum(AutopayReceipt.amount_grosz), 0)).filter(
             AutopayReceipt.order_reference == order.id, AutopayReceipt.environment == order.environment).scalar()
