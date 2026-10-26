@@ -53,7 +53,9 @@ Po uzyskaniu kompletu danych ustaw `AUTOPAY_MODE=sandbox`. Brak danych, nieznany
 
 Adresy do konfiguracji po stronie Autopay:
 
-- ITN (POST, formularz `transactions` zawierający XML w Base64): `https://system-strzelecki.pl/api/premium/autopay/itn`
+- ITN sandbox (portal testowy; POST formularza `transactions` z XML w Base64): `https://system-strzelecki.pl/api/premium/autopay/sandbox/itn`
+- ITN production (portal główny; przygotowany endpoint pozostaje zablokowany do osobnego uruchomienia): `https://system-strzelecki.pl/api/premium/autopay/production/itn`
+- Starszy `/api/premium/autopay/itn` to wyłącznie alias sandbox; nie wpisuj go jako produkcyjnego ITN.
 - Powrót przeglądarki (bez parametrów): `https://system-strzelecki.pl/premium/zakup`
 
 Autopay dopisuje `ServiceID`, `OrderID` i `Hash` do adresu powrotu. Backend weryfikuje podpis powrotu i właściciela zamówienia. Sam powrót nie oznacza zapłaty; stan pochodzi ze zweryfikowanego ITN albo podpisanej odpowiedzi API statusu.
@@ -113,3 +115,7 @@ Zwrot używa trwałego MessageID i kwoty istniejącej wpłaty. Przyjęcie zlecen
 Karta konfiguracji zawiera test SMTP do zalogowanego administratora oraz odczytowy test `gatewayList/v3` z sandboxem. Test połączenia nie inicjuje płatności i nie dowodzi odbioru ITN. Pełny odbiór wymaga przejścia bramki testowej, prawidłowego ITN i podpisanego powrotu, ponowienia ITN, negatywnego scenariusza, anulowania i zwrotu. Testy sandbox nie nadają rzeczywistych uprawnień.
 
 Ustawienia u operatora: testportal.autopay.eu/panel → Ustawienia serwisu → Konfiguracja techniczna → Edytuj → Inny/dedykowany. Tam trzeba ustawić adres ITN i powrotu. Jeżeli pól lub dostępu brakuje, właściciel prosi platnosci@autopay.pl o konfigurację; nie przesyła klucza w wiadomości. Zapis naszego panelu nie zmienia ustawień operatora.
+
+Kontrola z operatorem 26.10.2026: odczytowe gatewayList/v3 na testpay.autopay.eu zwróciło SERVICE_NOT_FOUND dla zapisanego ID. Właściciel potwierdził brak dostępu do testowego portalu oraz zapisanie adresów tylko w portalu głównym; weryfikacja nadal trwa. Do pełnego testu sandbox operator musi aktywować serwis oraz właściwy ITN na środowisku testowym. Ten wynik nie potwierdza niepoprawności klucza — serwisu nie znaleziono. Nie przełączamy testów na rzeczywiste wpłaty.
+
+Odczytowe gatewayList/v3 w produkcji zwróciło OK, zgodność serviceID i messageID oraz pustą listę kanałów. Nie utworzono transakcji. To potwierdza komunikację z produkcją, ale nie zatwierdzenie sprzedaży ani gotowość metod płatności.

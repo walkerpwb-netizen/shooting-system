@@ -300,6 +300,10 @@ class AutopayCompletionTests(unittest.TestCase):
             return json.dumps(result).encode()
         with patch('autopay_api.post_xml', side_effect=gateway):
             self.assertEqual(test_connection(sandbox_config())['available_channels'], 1)
+        with patch('autopay_api.post_xml', return_value=b'{"result":"ERROR","errorStatus":"SERVICE_NOT_FOUND"}'):
+            with self.assertRaises(HTTPException) as error:
+                test_connection(sandbox_config())
+            self.assertIn('SERVICE_NOT_FOUND', error.exception.detail)
         self.assertEqual(self.db.query(PremiumOrder).count(), 0)
 
     def test_network_transport_has_fixed_host_timeout_header_and_never_sends_plain_key(self):

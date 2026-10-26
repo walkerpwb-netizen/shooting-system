@@ -99,6 +99,8 @@ def test_connection(config):
         result = json.loads(post_xml(config, "/gatewayList/v3", fields, json_body=True))
     except (ValueError, UnicodeError):
         raise HTTPException(502, "Autopay nie zwrócił poprawnej odpowiedzi testowej.") from None
+    if isinstance(result, dict) and result.get("result") == "ERROR" and result.get("errorStatus") == "SERVICE_NOT_FOUND":
+        raise HTTPException(502, "Autopay sandbox: SERVICE_NOT_FOUND. Operator nie rozpoznaje tego ID w środowisku testowym. Poproś Autopay o aktywowanie serwisu na testpay.autopay.eu i dostęp do portalu testowego.")
     # gatewayList/v3 intentionally has no response Hash; TLS authenticates the fixed host.
     if (not isinstance(result, dict) or result.get("result") != "OK" or str(result.get("serviceID")) != config["service"]
             or result.get("messageID") != fields["MessageID"] or not isinstance(result.get("gatewayList", []), list)):
