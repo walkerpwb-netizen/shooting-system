@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import SocialMediaIcons from "./SocialMediaIcons";
+import SupportLink from "./SupportLink";
 
 const footerLinks = [
   {
@@ -46,6 +47,7 @@ export default function Footer() {
               {link.label}
             </Link>
           ))}
+          <SupportLink className="transition hover:text-white" />
         </nav>
 
         <SocialMediaIcons compact />

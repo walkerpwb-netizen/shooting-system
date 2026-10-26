@@ -25,6 +25,7 @@ import {
   SHOOTING_RANGE_SUBMISSIONS_CHANGE_STORAGE_KEY,
 } from "@/lib/shootingRangeNotifications";
 import SocialMediaIcons from "./SocialMediaIcons";
+import SupportLink from "./SupportLink";
 
 type PublicCompetition = {
   status: string;
@@ -885,6 +886,8 @@ export default function Navbar() {
           Premium
         </Link>
 
+        <SupportLink className="font-bold text-emerald-200" />
+
       </div>
 
       <div className="flex w-full min-w-0 items-center justify-between gap-5 border-t border-green-800 pt-3 lg:w-auto lg:border-t-0 lg:pt-0">
@@ -1290,6 +1293,10 @@ export default function Navbar() {
               <Link href="/premium" onClick={() => setMobileMenuOpen(false)} className="py-3 font-bold text-amber-200">
                 Premium i cennik
               </Link>
+              <SupportLink
+                onClick={() => setMobileMenuOpen(false)}
+                className="py-3 font-bold text-emerald-200"
+              />
             </div>
 
             <div className="mt-4 border-t border-green-800 pt-4">
