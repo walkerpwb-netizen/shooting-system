@@ -770,7 +770,7 @@ export default function Navbar() {
     <>
     <nav className="ui-navbar hidden w-full bg-green-900 text-white px-4 py-3 sm:px-6 lg:block">
       <div className="ui-navbar-inner flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-base">
+      <div className="flex min-w-0 flex-wrap items-center gap-x-5 gap-y-2 text-base lg:flex-1">
 
         <Link href="/">
           Home
