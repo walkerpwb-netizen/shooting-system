@@ -21,6 +21,8 @@ import { getDirectionsHref, hasMapCoordinates } from "@/lib/maps";
 type Competition = {
   id: number;
   name: string;
+  event_type?: "competition" | "training";
+  description?: string;
   date: string;
   location: string;
   latitude: number | null;
@@ -228,6 +230,7 @@ export default function OrganizerCompetitionPage() {
   const competitionId = Number(params.competitionId);
 
   const [competition, setCompetition] = useState<Competition | null>(null);
+  const isTraining = competition?.event_type === "training";
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [judgeLicenseSearch, setJudgeLicenseSearch] = useState("");
@@ -270,7 +273,7 @@ export default function OrganizerCompetitionPage() {
       const data = await response.json();
 
       if (!response.ok) {
-        setMessage(data.detail || "Nie udało się pobrać zawodów ❌");
+        setMessage(data.detail || "Nie udało się pobrać wydarzenia ❌");
         return;
       }
 
@@ -1037,7 +1040,9 @@ export default function OrganizerCompetitionPage() {
     }
 
     const confirmed = window.confirm(
-      `Czy usunąć zawodnika "${participant.display_name}" z listy tych zawodów?`
+      isTraining
+        ? `Czy usunąć uczestnika "${participant.display_name}" z listy tego szkolenia?`
+        : `Czy usunąć zawodnika "${participant.display_name}" z listy tych zawodów?`
     );
 
     if (!confirmed) {
@@ -1061,11 +1066,11 @@ export default function OrganizerCompetitionPage() {
       const data = await response.json();
 
       if (!response.ok) {
-        setMessage(data.detail || "Nie udało się usunąć zawodnika ❌");
+        setMessage(data.detail || (isTraining ? "Nie udało się usunąć uczestnika ❌" : "Nie udało się usunąć zawodnika ❌"));
         return;
       }
 
-      setMessage("Zawodnik usunięty z listy zawodów ✅");
+      setMessage(isTraining ? "Uczestnik usunięty z listy szkolenia ✅" : "Zawodnik usunięty z listy zawodów ✅");
       fetchOrganizerCompetition();
     } catch (error) {
       console.error(error);
@@ -1096,12 +1101,12 @@ export default function OrganizerCompetitionPage() {
               href={`/organizer?admin_edit_competition_id=${competition.id}`}
               className="ml-0 inline-flex bg-green-700 hover:bg-green-600 text-white px-5 py-3 rounded-xl font-bold shadow-lg shadow-green-950/30 transition sm:ml-3"
             >
-              Edytuj dane zawodów
+              {isTraining ? "Edytuj dane szkolenia" : "Edytuj dane zawodów"}
             </Link>
           )}
 
           <h1 className="text-5xl font-bold text-white mb-2">
-            {competition?.name || "Szczegóły zawodów"}
+            {competition?.name || "Szczegóły wydarzenia"}
           </h1>
 
           {competition && (
@@ -1113,7 +1118,7 @@ export default function OrganizerCompetitionPage() {
                   target="_blank"
                   rel="noopener noreferrer"
                   className="underline decoration-green-500/70 underline-offset-4 transition hover:text-green-300"
-                  title="Nawiguj do miejsca zawodów"
+                  title={isTraining ? "Nawiguj do miejsca szkolenia" : "Nawiguj do miejsca zawodów"}
                 >
                   {competition.location}
                 </a>
@@ -1133,11 +1138,11 @@ export default function OrganizerCompetitionPage() {
 
         {loading ? (
           <p className="text-gray-400">
-            Ładowanie zawodów...
+            Ładowanie wydarzenia...
           </p>
         ) : !competition ? (
           <p className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 text-gray-300">
-            Nie znaleziono tych zawodów w Twoim panelu.
+            Nie znaleziono tego wydarzenia w Twoim panelu.
           </p>
         ) : (
           <div className="grid xl:grid-cols-[1fr_1fr] gap-6">
@@ -1190,7 +1195,7 @@ export default function OrganizerCompetitionPage() {
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex text-left underline decoration-green-700/60 underline-offset-4 transition hover:text-green-700"
-                    title="Nawiguj do miejsca zawodów"
+                    title={isTraining ? "Nawiguj do miejsca szkolenia" : "Nawiguj do miejsca zawodów"}
                   >
                     📍 {competition.location}
                   </a>
@@ -1203,14 +1208,26 @@ export default function OrganizerCompetitionPage() {
                 {competition.sponsors && (
                   <p>🤝 Sponsorzy: {competition.sponsors}</p>
                 )}
-                <p>🎯 Dyscypliny: {competition.disciplines_count}</p>
+                {!isTraining && <p>🎯 Dyscypliny: {competition.disciplines_count}</p>}
                 {competition.participant_limit && (
                   <p>
-                    👥 Limit zawodników: {competition.participants.length}/{competition.participant_limit}
+                    👥 {isTraining ? "Limit uczestników" : "Limit zawodników"}: {competition.participants.length}/{competition.participant_limit}
                   </p>
                 )}
               </div>
 
+              {isTraining && competition.description?.trim() && (
+                <div className="mt-6 border-t border-gray-200 pt-5">
+                  <h3 className="text-xl font-bold mb-3">
+                    Opis i przebieg szkolenia
+                  </h3>
+                  <p className="whitespace-pre-wrap break-words text-gray-700">
+                    {competition.description}
+                  </p>
+                </div>
+              )}
+
+              {!isTraining && (
               <div className="mt-6 border-t border-gray-200 pt-5">
                 <h3 className="text-xl font-bold mb-3">
                   Konkurencje
@@ -1252,9 +1269,12 @@ export default function OrganizerCompetitionPage() {
                   ))}
                 </div>
               </div>
+              )}
             </section>
 
-            <section id="judges" className="scroll-mt-24 space-y-6">
+            <section className="space-y-6">
+              {!isTraining && (
+              <div id="judges" className="scroll-mt-24 space-y-6">
               <div className="bg-white rounded-3xl p-6 text-black shadow-xl">
                 <h2 className="text-2xl font-bold mb-4">
                   Skład Sędziowski
@@ -1464,12 +1484,14 @@ export default function OrganizerCompetitionPage() {
                   Przypisz sędziego
                 </button>
               </div>
+              </div>
+              )}
 
               <div className="bg-white rounded-3xl p-6 text-black shadow-xl">
                 <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3 mb-4">
                   <div>
                     <h2 className="text-2xl font-bold">
-                      Zawodnicy
+                      {isTraining ? "Uczestnicy" : "Zawodnicy"}
                     </h2>
                     <p className="text-gray-500">
                       Suma opłat: {formatFee(participantsTotalFee)}
@@ -1494,7 +1516,7 @@ export default function OrganizerCompetitionPage() {
                   Otwórz listę obecności i opłat
                 </Link>
 
-                {canViewCompetitionResults(competition.status) && (
+                {!isTraining && canViewCompetitionResults(competition.status) && (
                   <Link
                     href={`/organizer/${competition.id}/results`}
                     className="block w-full bg-zinc-900 hover:bg-zinc-800 text-white text-center py-3 rounded-xl font-bold mb-4 transition"
@@ -1503,7 +1525,7 @@ export default function OrganizerCompetitionPage() {
                   </Link>
                 )}
 
-                {squadDisciplines.length > 0 && (
+                {!isTraining && squadDisciplines.length > 0 && (
                   <div className="mb-4 rounded-2xl border border-gray-200 bg-gray-50 p-4">
                     <div className="mb-4">
                       <h3 className="text-xl font-bold">
@@ -1775,7 +1797,7 @@ export default function OrganizerCompetitionPage() {
                   </div>
                 )}
 
-                {competition.status === "started" && (
+                {!isTraining && competition.status === "started" && (
                   <div className="mb-4">
                     <button
                       type="button"
@@ -2035,7 +2057,7 @@ export default function OrganizerCompetitionPage() {
 
                 {competition.participants.length === 0 ? (
                   <p className="text-gray-500">
-                    Brak zapisanych zawodników.
+                    {isTraining ? "Brak zapisanych uczestników." : "Brak zapisanych zawodników."}
                   </p>
                 ) : (
                   <div className="space-y-2">
@@ -2067,7 +2089,7 @@ export default function OrganizerCompetitionPage() {
                             type="button"
                             onClick={() => removeParticipant(participant)}
                             className="bg-red-700 hover:bg-red-600 text-white w-8 h-8 rounded-full font-black leading-none transition"
-                            aria-label="Usuń zawodnika z listy zawodów"
+                            aria-label={isTraining ? "Usuń uczestnika z listy szkolenia" : "Usuń zawodnika z listy zawodów"}
                           >
                             ×
                           </button>
