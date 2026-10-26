@@ -1221,7 +1221,7 @@ export default function OrganizerCompetitionPage() {
                   <h3 className="text-xl font-bold mb-3">
                     Opis i przebieg szkolenia
                   </h3>
-                  <p className="whitespace-pre-wrap break-words text-gray-700">
+                  <p className="whitespace-pre-wrap text-gray-700 [overflow-wrap:anywhere]">
                     {competition.description}
                   </p>
                 </div>
