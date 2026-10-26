@@ -16,7 +16,7 @@ export default async function PremiumTermsPage() {
   return (
     <main className="min-h-screen px-5 py-12 text-white print:bg-white print:text-black">
       <article className="mx-auto max-w-4xl space-y-8 rounded-3xl border border-green-800 bg-green-950 p-6 sm:p-10 print:border-0 print:bg-white">
-        <header><Link href="/premium" className="text-emerald-200 underline print:text-black">Pakiety i cennik Premium</Link><h1 className="mt-5 text-4xl font-black">Regulamin Premium</h1><p className="mt-3">Wersja {commerce?.terms_version || "2026-10-26"}. Sprzedaż w przygotowaniu — płatności rzeczywiste wyłączone.</p></header>
+        <header><Link href="/premium" className="text-emerald-200 underline print:text-black">Pakiety i cennik Premium</Link><h1 className="mt-5 text-4xl font-black">Regulamin Premium</h1><p className="mt-3">Wersja {commerce?.terms_version || "2026-10-26.2"}.</p></header>
         <section className="space-y-3 leading-7">
           <h2 className="text-2xl font-bold">1. Sprzedawca i kontakt</h2>
           <PremiumSellerDetails seller={seller} />

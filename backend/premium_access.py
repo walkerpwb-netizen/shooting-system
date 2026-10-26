@@ -57,9 +57,8 @@ def add_premium_period(start, period):
 def apply_paid_premium_order(order, db):
     """Apply a verified production order in its caller's transaction.
 
-    Autopay production remains disabled in this release. Sandbox notifications
-    call this same function but can never change real account entitlements.
-    The production ITN adapter must authenticate and validate the payment first.
+    Sandbox notifications can never change real account entitlements.
+    The production ITN adapter authenticates and validates the payment first.
     """
     if order.environment != "production" or order.status != "paid" or order.refunded_at:
         return False
@@ -115,8 +114,10 @@ def has_paid_publication(user, competition, db):
 
 
 def activate_due_premium_orders(user, db):
-    for order in db.query(PremiumOrder).filter_by(user_id=user.id, environment="production", status="paid").filter(
-            PremiumOrder.entitlements_applied_at.is_(None)).order_by(PremiumOrder.created_at, PremiumOrder.id).all():
+    orders = db.query(PremiumOrder).filter_by(user_id=user.id, environment="production", status="paid").filter(
+            PremiumOrder.entitlements_applied_at.is_(None)).all()
+    orders.sort(key=lambda order: (parse_premium_datetime(order.service_starts_at) or parse_premium_datetime(order.paid_at), order.created_at, order.id))
+    for order in orders:
         apply_paid_premium_order(order, db)
 
 

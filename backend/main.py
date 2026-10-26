@@ -11446,7 +11446,7 @@ def admin_create_user(
         password_reset_token=None,
         password_reset_expires_at=None,
         password_reset_required=0,
-        premium_until=premium_end_of_year_iso(),
+        premium_until=None,
         premium_disabled=0,
         premium_organizer_disabled=0,
     )
@@ -12269,7 +12269,7 @@ def register(
         created_at=utc_now_iso(),
         activation_token=activation_token,
         activation_expires_at=new_activation_expires_at(),
-        premium_until=premium_end_of_year_iso(),
+        premium_until=None,
     )
 
     db.add(new_user)

@@ -1,4 +1,4 @@
-"""Autopay preparation: sandbox only. Production payments are intentionally unavailable."""
+"""Autopay checkout and verified notifications, isolated by environment."""
 
 import base64
 import binascii
@@ -21,12 +21,9 @@ from models import Competition, PremiumMailOutbox, PremiumNotification, PremiumO
 from premium_access import apply_paid_premium_order, included_premium_packages
 from payment_reports import record_autopay_receipt
 from payment_limits import acquire_payment_limit_lock, ensure_payment_capacity, payment_limit_state
-from autopay_config import read_configuration, sandbox_allowed, valid_environment
+from autopay_config import read_configuration, sandbox_allowed, production_allowed, valid_environment
 from premium_contract import TERMS_VERSION, contract_snapshot, make_quote, terms_sections, verify_quote
 from premium_mail import deliver_pending_confirmations, queue_confirmation
-
-# Production is deliberately not enabled by credentials or an admin checkbox.
-PRODUCTION_RELEASE_ENABLED = False
 
 
 def seller_details():
@@ -54,9 +51,19 @@ def sandbox_config():
         return {"ready": False, "service": "", "key": "", "gateway": "", "algorithm": "sha256"}
 
 
+def production_config():
+    try:
+        value = read_configuration()
+        section = value["production"]
+        return {"ready": value["mode"] == "production" and production_allowed(value),
+                "service": section["service_id"], "key": section["shared_key"], "gateway": section["gateway_url"],
+                "algorithm": section["algorithm"], "environment": "production",
+                "provider_timezone": value.get("provider_timezone", "CET"), "validity_minutes": value.get("validity_minutes", 15)}
+    except HTTPException:
+        return {"ready": False}
+
+
 def notification_config(environment):
-    if environment == "production" and not PRODUCTION_RELEASE_ENABLED:
-        raise HTTPException(503, "Produkcja Autopay oczekuje na zatwierdzenie i osobne uruchomienie.")
     value = read_configuration()
     section = value[environment]
     if not valid_environment(environment, section):
@@ -114,11 +121,23 @@ def current_amount(data, db, get_prices):
 
 
 def create_sandbox_order(data, user, db, get_prices, is_admin):
-    config = sandbox_config()
+    return create_order(data, user, db, get_prices, is_admin, sandbox_config())
+
+
+def create_production_order(data, user, db, get_prices, is_admin):
+    return create_order(data, user, db, get_prices, is_admin, production_config())
+
+
+def create_order(data, user, db, get_prices, is_admin, config):
     if not config["ready"]:
-        raise HTTPException(503, "Sprzedaż Premium oczekuje na zatwierdzenie Autopay. Płatności są wyłączone.")
-    if not user.is_active or not is_admin(user):
+        raise HTTPException(503, "Płatności są chwilowo niedostępne. Spróbuj ponownie później.")
+    environment = config["environment"]
+    if not user.is_active:
+        raise HTTPException(403, "Aktywuj konto przed zakupem Premium.")
+    if environment == "sandbox" and not is_admin(user):
         raise HTTPException(403, "Testy Autopay są dostępne wyłącznie dla aktywnego administratora.")
+    if environment == "production" and not data.quote_token:
+        raise HTTPException(400, "Odśwież podsumowanie i zaakceptuj aktualne warunki zakupu.")
     if not data.terms_accepted or data.terms_version != TERMS_VERSION:
         raise HTTPException(400, "Zaakceptuj aktualny Regulamin Premium.")
     package, amount_text = current_amount(data, db, get_prices)
@@ -127,20 +146,21 @@ def create_sandbox_order(data, user, db, get_prices, is_admin):
         from mailer import is_mail_configured
         if not is_mail_configured():
             raise HTTPException(400, "Poczta systemowa nie jest gotowa do testu potwierdzenia e-mail.")
-    quote = verify_quote(data.quote_token, data, user, amount_text) if data.quote_token else make_quote(
-        user, data.package, data.period, amount_text, data.early_start_requested, data.competition_id, seller_details())
-    ensure_payment_capacity(db, int(Decimal(amount_text) * 100))
+    quote = verify_quote(data.quote_token, data, user, amount_text, environment=environment) if data.quote_token else make_quote(
+        user, data.package, data.period, amount_text, data.early_start_requested, data.competition_id, seller_details(), environment=environment)
+    acquire_payment_limit_lock(db)
     existing = db.query(PremiumOrder).filter_by(request_id=quote["id"]).first()
     if existing:
-        if existing.user_id != user.id or existing.environment != "sandbox":
+        if existing.user_id != user.id or existing.environment != environment:
             raise HTTPException(409, "Nieprawidłowy identyfikator zamówienia.")
         if existing.provider_closed_at or existing.status == "paid" or datetime.fromisoformat(existing.gateway_valid_until) <= datetime.now(timezone.utc):
             raise HTTPException(409, "Zamówienie jest zamknięte lub wygasło. Sprawdź jego status.")
         return gateway_response(existing, user, config)
+    ensure_payment_capacity(db, int(Decimal(amount_text) * 100))
     valid_until = datetime.now(timezone.utc) + timedelta(minutes=config.get("validity_minutes", 15))
     order = PremiumOrder(
         id=uuid4().hex, user_id=user.id, package=data.package, period=data.period,
-        amount=amount_text, currency="PLN", environment="sandbox", service_id=config["service"],
+        amount=amount_text, currency="PLN", environment=environment, service_id=config["service"],
         status="pending", created_at=datetime.now(timezone.utc).isoformat(),
         terms_version=TERMS_VERSION, terms_accepted_at=datetime.now(timezone.utc).isoformat(),
         competition_id=data.competition_id, early_start_requested=int(data.early_start_requested),
@@ -163,7 +183,7 @@ def gateway_response(order, user, config):
     fields = {"ServiceID": config["service"], "OrderID": order.id, "Amount": order.amount,
               "Currency": order.currency, "CustomerEmail": user.email, "ValidityTime": validity, "LinkValidityTime": validity}
     fields["Hash"] = payment_hash(fields.values(), config)
-    return {"order_id": order.id, "environment": "sandbox", "gateway_url": config["gateway"], "fields": fields}
+    return {"order_id": order.id, "environment": order.environment, "gateway_url": config["gateway"], "fields": fields}
 
 
 def process_itn(xml, db, config, *, allow_batch=False):
@@ -179,6 +199,7 @@ def process_itn(xml, db, config, *, allow_batch=False):
         valid = bool(order and order.environment == config.get("environment", "sandbox") and order.service_id == service
                      and order.amount == transaction.findtext("amount") and order.currency == transaction.findtext("currency")
                      and status in ("SUCCESS", "PENDING", "FAILURE"))
+        first_success = valid and status == "SUCCESS" and order.status != "paid"
         if valid and status == "SUCCESS":
             try:
                 record_autopay_receipt(order, transaction, db, config.get("provider_timezone", "Europe/Warsaw"))
@@ -194,6 +215,14 @@ def process_itn(xml, db, config, *, allow_batch=False):
                 from premium_access import add_premium_period, parse_premium_datetime
                 paid = parse_premium_datetime(order.paid_at)
                 start = max(parse_premium_datetime(order.service_starts_at), paid if order.early_start_requested else paid + timedelta(days=14))
+                if first_success and order.environment == "production" and not (order.package == "organizer" and order.period == "monthly"):
+                    from models import User
+                    from premium_access import effective_premium_until
+                    from premium_contract import queued_access_until
+                    owner = db.get(User, order.user_id)
+                    if owner:
+                        previous = [effective_premium_until(owner, order.package), queued_access_until(owner, order.package, db, order.id)]
+                        start = max([start] + [end for end in previous if end])
                 if not order.entitlements_applied_at:
                     order.service_starts_at = start.isoformat()
                     order.service_ends_at = None if order.package == "organizer" and order.period == "monthly" else add_premium_period(start, order.period).isoformat()
@@ -239,13 +268,14 @@ def build_premium_router(get_db, get_current_user, get_prices, is_admin):
             raise HTTPException(403, "Aktywuj konto przed przygotowaniem zakupu.")
         _, amount = current_amount(data, db, get_prices)
         checkout_event(data, user, db)
-        return make_quote(user, data.package, data.period, amount, data.early_start_requested, data.competition_id, seller_details())
+        return make_quote(user, data.package, data.period, amount, data.early_start_requested, data.competition_id, seller_details(),
+                          environment="production" if production_config()["ready"] else "sandbox", db=db)
 
     @router.get("/commerce")
     def commerce(response: Response, db=Depends(get_db)):
         response.headers["Cache-Control"] = "no-store"
         availability = payment_limit_state(db)
-        return {"sales_enabled": False, "verification_status": "pending",
+        return {"sales_enabled": production_config()["ready"], "verification_status": "managed_by_operator",
                 "sandbox_ready": sandbox_config()["ready"], "seller": seller_details(),
                 "terms_version": TERMS_VERSION,
                 "payments_temporarily_unavailable": availability["blocked"],
@@ -253,7 +283,8 @@ def build_premium_router(get_db, get_current_user, get_prices, is_admin):
 
     @router.post("/checkout")
     def checkout(data: CheckoutData, user=Depends(get_current_user), db=Depends(get_db)):
-        ensure_payment_capacity(db, 0)
+        if production_config()["ready"]:
+            return create_production_order(data, user, db, get_prices, is_admin)
         return create_sandbox_order(data, user, db, get_prices, is_admin)
 
     @router.get("/orders/{order_id}")

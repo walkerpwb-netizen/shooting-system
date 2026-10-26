@@ -70,6 +70,8 @@ class UserLifecycleTests(unittest.TestCase):
                 self.assertFalse(user.is_active)
                 self.assertIsNone(user.activated_at)
                 self.assertIsNone(user.shooter_since)
+                if not club:
+                    self.assertIsNone(user.premium_until)
 
     def test_email_activation_records_time_for_users_and_clubs(self):
         for club in (False, True):
@@ -103,6 +105,8 @@ class UserLifecycleTests(unittest.TestCase):
         self.assertEqual(user.created_at, CREATED)
         self.assertEqual(user.activated_at, CREATED)
         self.assertIsNone(user.shooter_since)
+
+        self.assertIsNone(user.premium_until)
 
     def test_profile_completion_records_shooter_time_once(self):
         user = self.register()

@@ -31,19 +31,20 @@ class EnvironmentData(BaseModel):
 class ConfigurationData(BaseModel):
     model_config = ConfigDict(extra="forbid")
     revision: int = Field(ge=0)
-    mode: Literal["disabled", "sandbox"]
+    mode: Literal["disabled", "sandbox", "production"]
     sandbox: EnvironmentData
     production: EnvironmentData
     provider_timezone: Literal["CET", "Europe/Warsaw"] = "CET"
     validity_minutes: int = Field(default=15, ge=5, le=60)
     callbacks_configured: bool = False
+    production_callbacks_configured: bool = False
     merchant_model_confirmed: bool = True
     shared_credentials_confirmed: bool = False
 
 
 def environment_defaults():
     value = {"revision": 0, "mode": os.getenv("AUTOPAY_MODE", "disabled").strip(), "updated_at": "", "updated_by": ""}
-    if value["mode"] not in ("disabled", "sandbox"):
+    if value["mode"] not in ("disabled", "sandbox", "production"):
         value["mode"] = "disabled"
     for name in GATEWAYS:
         prefix = f"AUTOPAY_{name.upper()}_"
@@ -71,6 +72,12 @@ def sandbox_allowed(value):
         not credentials_are_shared(value) or value.get("shared_credentials_confirmed", False))
 
 
+def production_allowed(value):
+    from mailer import is_mail_configured
+    return bool(valid_environment("production", value["production"]) and value.get("merchant_model_confirmed", True)
+                and value.get("production_callbacks_configured", False) and is_mail_configured())
+
+
 def read_configuration():
     """A saved file is authoritative, including an explicitly cleared key or disabled mode."""
     try:
@@ -85,7 +92,7 @@ def read_configuration():
             if not stat.S_ISREG(info.st_mode) or info.st_size > 16384 or stat.S_IMODE(info.st_mode) & 0o077:
                 raise ValueError
             value = json.load(handle)
-        if (not isinstance(value, dict) or value.get("mode") not in ("disabled", "sandbox")
+        if (not isinstance(value, dict) or value.get("mode") not in ("disabled", "sandbox", "production")
                 or type(value.get("revision")) is not int or value["revision"] < 1):
             raise ValueError
         for name in GATEWAYS:
@@ -105,8 +112,8 @@ def configuration_status(value):
     from mailer import is_mail_configured
     # No saved secret (even a fragment) is ever sent back to the browser.
     return {
-        "revision": value["revision"], "mode": value["mode"], "sales_enabled": False,
-        "verification_status": "pending", "sandbox_ready": value["mode"] == "sandbox" and sandbox_allowed(value),
+        "revision": value["revision"], "mode": value["mode"], "sales_enabled": value["mode"] == "production" and production_allowed(value),
+        "verification_status": "managed_by_operator", "sandbox_ready": value["mode"] == "sandbox" and sandbox_allowed(value),
         "updated_at": value.get("updated_at", ""), "updated_by": value.get("updated_by", ""),
         **{name: {**{k: value[name][k] for k in ("service_id", "gateway_url", "algorithm")},
                   "key_configured": bool(value[name]["shared_key"]), "complete": valid_environment(name, value[name])}
@@ -117,6 +124,7 @@ def configuration_status(value):
         "provider_timezone": value.get("provider_timezone", "CET"),
         "validity_minutes": value.get("validity_minutes", 15),
         "callbacks_configured": value.get("callbacks_configured", False),
+        "production_callbacks_configured": value.get("production_callbacks_configured", False),
         "merchant_model_confirmed": value.get("merchant_model_confirmed", True),
         "smtp_ready": bool(is_mail_configured()),
         "credentials_shared": credentials_are_shared(value),
@@ -143,6 +151,7 @@ def save_configuration(data, admin):
                      "updated_at": datetime.now(timezone.utc).isoformat(), "updated_by": admin.email,
                      "provider_timezone": data.provider_timezone, "validity_minutes": data.validity_minutes,
                      "callbacks_configured": data.callbacks_configured, "merchant_model_confirmed": data.merchant_model_confirmed,
+                     "production_callbacks_configured": data.production_callbacks_configured,
                      "shared_credentials_confirmed": data.shared_credentials_confirmed}
             for name in GATEWAYS:
                 section = getattr(data, name)
@@ -162,6 +171,8 @@ def save_configuration(data, admin):
                 raise HTTPException(400, "Ta integracja wymaga potwierdzonego modelu Merchanta, bez doliczania prowizji klientowi.")
             if data.mode == "sandbox" and not sandbox_allowed(value):
                 raise HTTPException(400, "Potwierdź zgodę Autopay na wspólne dane sandbox i produkcji albo wpisz osobne dane testowe.")
+            if data.mode == "production" and not production_allowed(value):
+                raise HTTPException(400, "Sprzedaż wymaga kompletnych danych produkcji, potwierdzonego adresu produkcyjnego ITN i powrotu, modelu Merchanta oraz skonfigurowanej poczty.")
             fd, temp_name = tempfile.mkstemp(prefix=".autopay-", dir=path.parent)
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
                 os.fchmod(handle.fileno(), 0o600)
@@ -253,6 +264,6 @@ def build_autopay_settings_router(get_current_admin, get_db=None):
             pending_mail = db.query(PremiumMailOutbox).filter(PremiumMailOutbox.sent_at.is_(None)).count()
             return {"notifications": [{k: getattr(row, k) for k in ("environment", "service_id", "order_reference", "remote_id",
                     "payment_status", "confirmation", "first_seen_at", "last_seen_at", "deliveries")} for row in notifications],
-                    "pending_confirmation_emails": pending_mail, "production_released": False}
+                    "pending_confirmation_emails": pending_mail, "production_released": True}
 
     return router

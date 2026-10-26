@@ -12,9 +12,9 @@ from uuid import uuid4
 from fastapi import HTTPException
 
 from config import settings
-from premium_access import add_premium_period, effective_premium_until
+from premium_access import add_premium_period, effective_premium_until, parse_premium_datetime
 
-TERMS_VERSION = "2026-10-26"
+TERMS_VERSION = "2026-10-26.2"
 EARLY_START_TEXT = (
     "Żądam rozpoczęcia świadczenia usługi przed upływem 14 dni na odstąpienie od umowy. "
     "Przyjmuję do wiadomości, że przy odstąpieniu po rozpoczęciu usługi zapłacę za świadczenie "
@@ -35,16 +35,33 @@ def _encode(value):
     return base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
 
 
-def make_quote(user, package, period, amount, early_start, competition_id, seller):
+def queued_access_until(user, package, db, exclude_order=None):
+    from models import PremiumOrder
+    query = db.query(PremiumOrder).filter_by(user_id=user.id, environment="production", status="paid").filter(
+        PremiumOrder.refunded_at.is_(None), PremiumOrder.service_ends_at.is_not(None))
+    if exclude_order:
+        query = query.filter(PremiumOrder.id != exclude_order)
+    dates = [parse_premium_datetime(row.service_ends_at) for row in query.all()
+             if row.package == package or (package == "shooter" and row.package == "organizer" and row.period == "yearly")]
+    return max((date for date in dates if date), default=None)
+
+
+def make_quote(user, package, period, amount, early_start, competition_id, seller, *, environment="sandbox", db=None):
     issued = now()
     start = issued if early_start else issued + timedelta(days=14)
     existing = effective_premium_until(user, package)
     if existing and not (package == "organizer" and period == "monthly"):
         start = max(start, existing)
-    value = {"id": str(uuid4()), "user_id": user.id, "package": package, "period": period,
+    if db is not None and environment == "production" and not (package == "organizer" and period == "monthly"):
+        queued = queued_access_until(user, package, db)
+        if queued:
+            start = max(start, queued)
+    value = {"id": str(uuid4()), "user_id": user.id, "package": package, "period": period, "environment": environment,
              "amount": amount, "early_start_requested": bool(early_start), "competition_id": competition_id,
              "terms_version": TERMS_VERSION, "issued_at": issued.isoformat(),
              "expires_at": (issued + timedelta(minutes=15)).isoformat(), "service_starts_at": start.isoformat(),
+             "existing_access_until": existing.isoformat() if existing and existing > issued else None,
+             "renews_existing_access": bool(existing and existing > issued and not (package == "organizer" and period == "monthly")),
              "service_ends_at": None if package == "organizer" and period == "monthly" else add_premium_period(start, period).isoformat(),
              "seller": seller, "terms_digest": hashlib.sha256(json.dumps(terms_sections(), ensure_ascii=False).encode()).hexdigest()}
     encoded = _encode(json.dumps(value, separators=(",", ":"), ensure_ascii=False).encode())
@@ -52,14 +69,14 @@ def make_quote(user, package, period, amount, early_start, competition_id, selle
     return {**value, "quote_token": encoded + "." + _encode(signature), "early_start_text": EARLY_START_TEXT}
 
 
-def verify_quote(token, data, user, amount):
+def verify_quote(token, data, user, amount, *, environment="sandbox"):
     try:
         encoded, signature = token.split(".")
         expected = _encode(hmac.new(settings.secret_key.encode(), encoded.encode(), hashlib.sha256).digest())
         if not hmac.compare_digest(expected, signature):
             raise ValueError
         value = json.loads(base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)))
-        if (value["user_id"] != user.id or value["package"] != data.package or value["period"] != data.period
+        if (value.get("environment") != environment or value["user_id"] != user.id or value["package"] != data.package or value["period"] != data.period
                 or value["amount"] != amount or value["competition_id"] != data.competition_id
                 or value["early_start_requested"] != data.early_start_requested or value["terms_version"] != TERMS_VERSION
                 or datetime.fromisoformat(value["expires_at"]) <= now()

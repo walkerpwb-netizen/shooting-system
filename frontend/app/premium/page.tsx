@@ -22,7 +22,7 @@ export default async function PremiumPage() {
         <h1 className="mt-4 text-4xl font-black sm:text-6xl">Więcej możliwości.<br />Twój pakiet Premium.</h1>
         <p className="mt-6 max-w-3xl text-lg leading-8 text-green-100">Rozwijaj swoją pasję strzelecką lub publikuj więcej zawodów i szkoleń. Wybierz dostęp Premium dla strzelca, jednorazową dodatkową publikację albo roczny pakiet organizatora bez limitu. Bez automatycznego odnawiania.</p>
         <div className="mt-8 rounded-2xl border border-amber-300/40 bg-amber-300/10 p-5 text-amber-100" role="status">
-          {unavailable ? <strong>{commerce?.payment_unavailable_message || PAYMENT_MAINTENANCE_MESSAGE}</strong> : <><strong>Przygotowujemy sprzedaż Premium.</strong> Płatności zostaną udostępnione po pozytywnej weryfikacji Autopay. Teraz możesz sprawdzić ofertę i przygotować zakup. Nie pobieramy opłat.</>}
+          {unavailable ? <strong>{commerce?.payment_unavailable_message || PAYMENT_MAINTENANCE_MESSAGE}</strong> : <><strong>Wybierz Premium i kup dostęp przez Autopay.</strong> Dotychczas przyznane okresy Premium pozostają ważne. Zakup przed końcem obecnego dostępu przedłuża go o wybrany okres.</>}
         </div>
         {!prices ? (
           <p role="alert" className="my-10 rounded-xl border border-red-300/40 p-6">Nie udało się pobrać cennika. Odśwież stronę lub <Link className="underline" href="/kontakt">skontaktuj się z nami</Link>.</p>
@@ -64,7 +64,7 @@ export default async function PremiumPage() {
         <section className="mt-10 grid gap-6 rounded-3xl border border-green-300/20 bg-black/20 p-6 sm:grid-cols-3 sm:p-8" aria-label="Jak kupić Premium">
           <div><h2 className="font-black text-emerald-300">1. Wybierz ofertę</h2><p className="mt-2 leading-7 text-green-100">Strzelec wybiera miesiąc lub rok dostępu. Organizator wybiera jednorazową dodatkową publikację albo roczny pakiet bez limitu. Cennik jest aktualizowany na bieżąco.</p></div>
           <div><h2 className="font-black text-emerald-300">2. Zaloguj się</h2><p className="mt-2 leading-7 text-green-100">Użyj swojego konta lub zarejestruj nowe. Po aktywacji wrócisz do wybranego pakietu.</p></div>
-          <div><h2 className="font-black text-emerald-300">3. Sprawdź podsumowanie</h2><p className="mt-2 leading-7 text-green-100">Po uruchomieniu sprzedaży zapłacisz przez Autopay. Obecnie rzeczywiste płatności są wyłączone.</p></div>
+          <div><h2 className="font-black text-emerald-300">3. Sprawdź podsumowanie</h2><p className="mt-2 leading-7 text-green-100">Sprawdź cenę, okres dostępu i regulamin, a następnie wybierz „Kupuję i płacę”. Metodę płatności wybierzesz w Autopay.</p></div>
         </section>
         <p className="mt-8 leading-7 text-green-100">Zakup dotyczy wyłącznie wybranej usługi. Premium nie jest opłatą startową za zawody. Bez dodatkowej opłaty lub pakietu rocznego organizator może mieć jedno aktywne opublikowane wydarzenie — zawody lub szkolenie. Szkice są bez limitu. Jednorazowa opłata obejmuje publikację jednego dodatkowego wydarzenia.</p>
         <AutopayPaymentInfo wideDesktop />
