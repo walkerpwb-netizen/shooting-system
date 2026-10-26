@@ -22,6 +22,7 @@ CREATED = "2026-10-16T16:39:39+00:00"
 ACTIVATED = "2026-10-16T16:40:00+00:00"
 SHOOTER = "2026-10-16T16:45:00+00:00"
 LATER = "2026-10-17T10:00:00+00:00"
+WELCOME_PREMIUM = "2026-12-31T23:59:59+01:00"
 
 
 class UserLifecycleTests(unittest.TestCase):
@@ -57,6 +58,7 @@ class UserLifecycleTests(unittest.TestCase):
             patch("main.send_activation_email"),
             patch("main.notify_admin_about_registered_user"),
             patch("main.utc_now_iso", return_value=CREATED),
+            patch("main.premium_end_of_year_iso", return_value=WELCOME_PREMIUM),
         ):
             register(form, db=self.db)
         return self.db.query(User).filter_by(email=data["email"]).one()
@@ -70,8 +72,7 @@ class UserLifecycleTests(unittest.TestCase):
                 self.assertFalse(user.is_active)
                 self.assertIsNone(user.activated_at)
                 self.assertIsNone(user.shooter_since)
-                if not club:
-                    self.assertIsNone(user.premium_until)
+                self.assertEqual(user.premium_until, WELCOME_PREMIUM)
 
     def test_email_activation_records_time_for_users_and_clubs(self):
         for club in (False, True):
@@ -95,7 +96,7 @@ class UserLifecycleTests(unittest.TestCase):
             self.assertEqual(user.activated_at, ACTIVATED)
 
     def test_admin_created_account_is_activated_at_creation(self):
-        with patch("main.utc_now_iso", return_value=CREATED):
+        with patch("main.utc_now_iso", return_value=CREATED), patch("main.premium_end_of_year_iso", return_value=WELCOME_PREMIUM):
             main.admin_create_user(
                 main.AdminCreateUserData(email="manual@example.test", password="test-password"),
                 admin=self.admin, db=self.db,
@@ -106,7 +107,17 @@ class UserLifecycleTests(unittest.TestCase):
         self.assertEqual(user.activated_at, CREATED)
         self.assertIsNone(user.shooter_since)
 
-        self.assertIsNone(user.premium_until)
+        self.assertEqual(user.premium_until, WELCOME_PREMIUM)
+
+    def test_welcome_premium_ends_in_2026_and_does_not_restart_in_2027(self):
+        for current, expected in (
+            (datetime(2026, 10, 26, tzinfo=main.APP_TIMEZONE), WELCOME_PREMIUM),
+            (datetime(2026, 12, 31, 23, 59, 59, tzinfo=main.APP_TIMEZONE), WELCOME_PREMIUM),
+            (datetime(2027, 1, 1, tzinfo=main.APP_TIMEZONE), None),
+        ):
+            with self.subTest(current=current), patch("main.datetime", wraps=datetime) as clock:
+                clock.now.return_value = current
+                self.assertEqual(main.premium_end_of_year_iso(), expected)
 
     def test_profile_completion_records_shooter_time_once(self):
         user = self.register()

@@ -14,7 +14,7 @@ from fastapi import HTTPException
 from config import settings
 from premium_access import add_premium_period, effective_premium_until, parse_premium_datetime
 
-TERMS_VERSION = "2026-10-26.2"
+TERMS_VERSION = "2026-10-26.3"
 EARLY_START_TEXT = (
     "Żądam rozpoczęcia świadczenia usługi przed upływem 14 dni na odstąpienie od umowy. "
     "Przyjmuję do wiadomości, że przy odstąpieniu po rozpoczęciu usługi zapłacę za świadczenie "

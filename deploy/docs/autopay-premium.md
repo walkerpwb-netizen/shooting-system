@@ -5,7 +5,7 @@ Konfiguracja administratora: `/admin?tab=autopay`; wpłaty i raporty: `/admin?ta
 
 ## Sprzedaż od 26.10.2026
 
-Na polecenie właściciela aplikacja obsługuje produkcyjny zakup dla aktywnych użytkowników. Nie zmienia istniejących okresów Premium. Nowe zwykłe konta (rejestracja lub utworzenie przez administratora) nie otrzymują już automatycznego Premium do końca roku. Oddzielna rejestracja klubu PZSS pozostaje bez zmian.
+Na polecenie właściciela aplikacja obsługuje produkcyjny zakup dla aktywnych użytkowników. Nie zmienia istniejących okresów Premium. Konta tworzone w 2026 roku (rejestracja, utworzenie przez administratora i rejestracja klubu PZSS) otrzymują automatyczne darmowe Premium do 31.12.2026, 23:59:59 czasu polskiego. Promocja nie odnawia się automatycznie dla kont zakładanych w 2027 roku. Zakupy pozostają dostępne i przedłużają bieżący dostęp. Celowo utworzone konto testowe autopay@autopay.pl zachowuje 0 dni Premium, zgodnie z osobnym poleceniem właściciela.
 
 Zakup przed końcem obecnego okresu przedłuża dostęp. Podsumowanie wyjaśnia zachowanie bieżącego okresu i pokazuje kupowane daty; 31.12.2026 nie jest datą uruchomienia sklepu. Ceny i funkcje pochodzą z `/settings/premium`, bez zapasowych cen we frontendzie. `organizer.monthly_price` to historyczna nazwa ceny jednej dodatkowej publikacji zawodów/szkolenia, a nie miesięcznej usługi. Publikacja jest przypisana do własnego szkicu wydarzenia. Roczny pakiet Organizatora zawiera Premium Strzelca na ten sam okres, bez skracania dłuższego dostępu.
 
