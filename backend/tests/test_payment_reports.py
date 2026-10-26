@@ -114,8 +114,7 @@ class PaymentReportsTests(unittest.TestCase):
         order = self.order(environment="sandbox")
         self.itn(order, status="PENDING")
         self.itn(order, status="FAILURE")
-        with self.assertRaises(HTTPException):
-            self.itn(order, tamper=True)
+        self.assertEqual(fromstring(self.itn(order, tamper=True)).findtext(".//confirmation"), "NOTCONFIRMED")
         unknown = self.order(environment="sandbox")
         self.db.delete(unknown)
         self.db.commit()

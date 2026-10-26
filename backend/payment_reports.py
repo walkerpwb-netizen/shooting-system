@@ -16,6 +16,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from sqlalchemy import extract, func, or_
 
 from models import AutopayReceipt, User
+from autopay_protocol import parse_payment_date
 from payment_limits import (
     LIMIT_SOURCE, QUARTER_LIMITS_GROSZ, acquire_payment_limit_lock, payment_limit_state,
 )
@@ -64,16 +65,14 @@ def receipt_description(package, period):
     return "Premium Strzelca — rok" if period == "yearly" else "Premium Strzelca — miesiąc"
 
 
-def record_autopay_receipt(order, transaction, db):
+def record_autopay_receipt(order, transaction, db, provider_zone="Europe/Warsaw"):
     """Called only after ITN signature, service, order, currency and amount validation."""
     remote_id = transaction.findtext("remoteID", "")
     payment_date = transaction.findtext("paymentDate", "")
     if not re.fullmatch(r"[A-Za-z0-9]{1,20}", remote_id) or not re.fullmatch(r"[0-9]{14}", payment_date):
         raise HTTPException(400, "Niepoprawny identyfikator lub data wpłaty Autopay.")
     try:
-        paid_at = datetime.strptime(payment_date, "%Y%m%d%H%M%S").replace(tzinfo=WARSAW)
-        if not 2000 <= paid_at.year <= 2100:
-            raise ValueError
+        paid_at = parse_payment_date(payment_date, provider_zone)
         amount = Decimal(transaction.findtext("amount", ""))
         if not amount.is_finite() or amount <= 0 or amount != amount.quantize(Decimal("0.01")):
             raise InvalidOperation

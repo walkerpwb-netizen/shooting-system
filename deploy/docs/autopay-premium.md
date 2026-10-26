@@ -14,7 +14,7 @@ Roczny pakiet Organizatora obejmuje automatycznie Premium Strzelca na tym samym 
 
 Model użytkownika zachowuje dotychczasowe wspólne `premium_until` i dodaje niezależne `premium_shooter_paid_until` oraz `premium_organizer_paid_until`. Efektywny termin Strzelca to najpóźniejszy z trzech terminów, Organizatora — późniejszy z dawnego wspólnego terminu i opłaconego terminu Organizatora. Istniejące okresy i ręczne blokady administratora pozostają zachowane. Profil i panel administratora pokazują właściwy termin dla każdego pakietu.
 
-`premium_access.apply_paid_premium_order` obsługuje nadanie i przedłużenie pakietów w transakcji wywołującego, z blokadą zamówienia i użytkownika oraz trwałym znacznikiem jednorazowej realizacji. Aktywuje wyłącznie opłacone zamówienie **produkcyjne**, po uprzedniej weryfikacji przez adapter płatności. Wywołanie z obecnego ITN sandbox jest bezskuteczne dla uprawnień. Przyszły produkcyjny adapter ITN musi sprawdzić autentyczność, serwis, środowisko, walutę i kwotę przed użyciem tej funkcji; samo jej istnienie nie włącza sprzedaży. Odnowienie przed wygaśnięciem przedłuża dostęp od dotychczasowej daty końca. Powtórzenie tego samego zamówienia nie nalicza kolejnego okresu.
+`premium_access.apply_paid_premium_order` obsługuje nadanie i przedłużenie pakietów w transakcji wywołującego, z blokadą zamówienia i użytkownika oraz trwałym znacznikiem jednorazowej realizacji. Aktywuje wyłącznie opłacone zamówienie **produkcyjne**, po uprzedniej weryfikacji przez adapter płatności. Wywołanie z obecnego ITN sandbox jest bezskuteczne dla uprawnień. Przygotowany adapter sprawdza autentyczność, serwis, środowisko, walutę i kwotę; produkcyjny endpoint pozostaje zablokowany stałą PRODUCTION_RELEASE_ENABLED=False. Samo istnienie funkcji nie włącza sprzedaży. Odnowienie przed wygaśnięciem przedłuża dostęp od dotychczasowej daty końca. Powtórzenie tego samego zamówienia nie nalicza kolejnego okresu.
 
 ## Stan tej wersji
 
@@ -49,14 +49,14 @@ AUTOPAY_SANDBOX_GATEWAY_URL=
 AUTOPAY_SANDBOX_HASH_ALGORITHM=sha256
 ```
 
-Po uzyskaniu kompletu danych ustaw `AUTOPAY_MODE=sandbox`. Brak danych, nieznany algorytm, inny host, HTTP lub tryb produkcyjny pozostawia bramkę zablokowaną. Nie używaj kluczy produkcyjnych do testów. Ta wersja obsługuje podstawowy ITN i domyślne rozszerzenie `customerData`, a także `addressIP`, `customerNumber` i `title`. Nie włączaj dodatkowych rozszerzeń ITN (np. płatności cyklicznych, koszyka, preautoryzacji, cardData, opłaty doliczanej klientowi) bez implementacji i testów. SHA256 i SHA512 są obsługiwane; ustaw algorytm uzgodniony z operatorem.
+Po uzyskaniu kompletu danych ustaw `AUTOPAY_MODE=sandbox`. Brak danych, nieznany algorytm, inny host, HTTP lub tryb produkcyjny pozostawia bramkę zablokowaną. Danych produkcyjnych używaj w sandboxie wyłącznie po wyraźnym potwierdzeniu Autopay. Właściciel potwierdził 26.10.2026, że operator dopuścił ten sam ID i klucz w obu środowiskach; w panelu należy zapisać to potwierdzenie. Hosty i skutki transakcji pozostają rozdzielone. Ta wersja obsługuje podstawowy ITN i domyślne rozszerzenie `customerData`, a także `addressIP`, `customerNumber` i `title`. Nie włączaj dodatkowych rozszerzeń ITN (np. płatności cyklicznych, koszyka, preautoryzacji, cardData, opłaty doliczanej klientowi) bez implementacji i testów. SHA256 i SHA512 są obsługiwane; ustaw algorytm uzgodniony z operatorem.
 
 Adresy do konfiguracji po stronie Autopay:
 
 - ITN (POST, formularz `transactions` zawierający XML w Base64): `https://system-strzelecki.pl/api/premium/autopay/itn`
 - Powrót przeglądarki (bez parametrów): `https://system-strzelecki.pl/premium/zakup`
 
-Autopay dopisuje `OrderID` do adresu powrotu. Strona pobiera zapisany status przez uwierzytelnione API; nie ufa parametrom `Hash` ani rzekomemu statusowi w URL. Zamówienie odczyta wyłącznie jego właściciel.
+Autopay dopisuje `ServiceID`, `OrderID` i `Hash` do adresu powrotu. Backend weryfikuje podpis powrotu i właściciela zamówienia. Sam powrót nie oznacza zapłaty; stan pochodzi ze zweryfikowanego ITN albo podpisanej odpowiedzi API statusu.
 
 Dane sprzedawcy przekazane przez właściciela są domyślnie publikowane w regulaminie. Można je nadpisać przez `PREMIUM_SELLER_NAME`, `PREMIUM_SELLER_ADDRESS`, `PREMIUM_SELLER_EMAIL`, `PREMIUM_SELLER_PHONE`, `PREMIUM_SELLER_NIP`. Nie publikuj PESEL. Brak NIP nie jest uzupełniany fikcyjną wartością. Potwierdzenie, że Autopay zaakceptuje konkretną działalność nierejestrowaną, pozostaje po stronie operatora.
 
@@ -79,11 +79,11 @@ Po zakończeniu prac właściciel musi poinformować Autopay, aby operator wznow
 
 ## Osobne uruchomienie po zatwierdzeniu operatora
 
-Wymaga potwierdzonej zgody Autopay, danych produkcyjnych i osobnego wdrożenia. Należy wtedy wdrożyć rozdzielone konfiguracje dla obu środowisk, podłączyć przygotowaną atomową i idempotentną aktywację pakietów wyłącznie do zweryfikowanego produkcyjnego ITN, podać wyraźną datę rozpoczęcia i zakończenia przed zamówieniem, opcjonalne żądanie wcześniejszego rozpoczęcia usługi, finalny przycisk z obowiązkiem zapłaty, potwierdzenie umowy i regulamin w e-mailu na trwałym nośniku oraz obsługę zwrotów i odstąpień. Nie podłączaj testowego SUCCESS do uprawnień użytkownika.
+Wymaga potwierdzonej zgody Autopay, danych produkcyjnych i osobnego wdrożenia. Konfiguracje środowisk, podpisane oferty z datami i zgodami, e-mail z pełnym regulaminem, aktywacja oraz mechanizm zwrotów są przygotowane i testowane. Nadal wymagane są osobne uruchomienie produkcyjnego checkoutu, finalny przycisk z obowiązkiem zapłaty, dopuszczenie bramki produkcyjnej w CSP, weryfikacja ustawień i test produkcyjny uzgodniony z operatorem. Obsługa zgłoszeń odstąpienia pozostaje po stronie sprzedawcy. Nie podłączaj testowego SUCCESS do uprawnień użytkownika.
 
 Regulamin przewiduje 14 dni na odstąpienie i ustawowe rozliczenie proporcjonalne wyłącznie po wyraźnym żądaniu wcześniejszego rozpoczęcia usługi oraz przekazaniu wymaganych informacji; nie stosuje domyślnego zrzeczenia się praw konsumenta. Wersja obowiązująca przy zamówieniu powinna być zachowana w całości przy uruchomieniu sprzedaży, razem z ceną, zakresem usługi i zgodami.
 
-Jednorazowa publikacja organizatora wymaga osobnego uprawnienia przypisanego do konkretnego wydarzenia. Nie może przedłużać `premium_until` ani nadawać miesięcznego dostępu lub nieograniczonej liczby publikacji. Przed uruchomieniem sprzedaży trzeba wdrożyć powiązanie zamówienia z wydarzeniem i wykorzystanie opłaty tylko do tej publikacji.
+Jednorazowa publikacja organizatora wymaga osobnego uprawnienia przypisanego do konkretnego wydarzenia. Nie może przedłużać `premium_until` ani nadawać miesięcznego dostępu lub nieograniczonej liczby publikacji. Powiązanie zamówienia z własnym szkicem wydarzenia oraz uprawnienie do tej jednej publikacji są wdrożone i sprawdzone w testach. Sandbox pokazuje planowany efekt bez nadawania uprawnień.
 
 Źródła integracji i wymagań:
 
@@ -92,3 +92,24 @@ Jednorazowa publikacja organizatora wymaga osobnego uprawnienia przypisanego do 
 - https://biznes.gov.pl/pl/portal/00146
 - https://prawakonsumenta.uokik.gov.pl/pytania-i-odpowiedzi/odstapienie-od-umowy/
 - https://biznes.gov.pl/pl/firma/zakladanie-firmy/chce-wiedziec-jak-zalozyc-wlasna-firme/dzialalnosc-nierejestrowa-oraz-inne-sytuacje-w-ktorych-nie-trzeba-rejestrowac-firmy
+
+
+## Uzupełnienia protokołu i scenariusze odbioru (26.10.2026)
+
+ITN dopuszcza dokładnie jedną transakcję. Podpisana odpowiedź `transactionStatus` może zawierać do 50 wpłat tego samego zamówienia. Dla poprawnego XML z niezgodnym podpisem lub serwisem zwracane jest HTTP 200 z podpisanym NOTCONFIRMED, bez zmian w bazie. Błędny XML i przekroczenie rozmiaru są odrzucane. Rejestr diagnostyczny przechowuje tylko zweryfikowane metadane i skrót komunikatu, bez surowego XML i danych bankowych; powtórzenia mają licznik.
+
+Nowe adresy ITN: `/api/premium/autopay/sandbox/itn` i przygotowany, nadal zablokowany `/api/premium/autopay/production/itn`. Dotychczasowy `/api/premium/autopay/itn` pozostaje aliasem sandbox. Powiadomienia rozpoczętej transakcji są przyjmowane również po wyłączeniu nowych zakupów, jeżeli zachowano dane środowiska. Zmiana klucza, ID lub algorytmu jest blokowana przy niezakończonych zamówieniach.
+
+Model prowizji: Merchant, potwierdzony przez właściciela; klient płaci cenę pakietu. Domyślna interpretacja paymentDate to stałe CET według dokumentacji operatora. Europe/Warsaw jest dostępne wyłącznie jako jawna opcja uzgodniona z operatorem. Zapisana surowa data wpłaty pozostaje dostępna do kontroli; historyczne rekordy nie są przeliczane.
+
+Podsumowanie ma podpisaną ofertę ważną 15 minut. Powtórne wysłanie tej samej oferty nie tworzy drugiego zamówienia. Snapshot obejmuje pełny regulamin z `backend/premium_terms.json` (to samo źródło co publiczna strona), sprzedawcę, cenę, zakres, wydarzenie, daty i jawne zgody. Wcześniejsze rozpoczęcie jest niezaznaczone. Bez żądania usługa rozpoczyna się najwcześniej 14 dni po potwierdzonej wpłacie. Odnowienie nie skraca istniejącego dostępu. Opóźniona płatność koryguje daty od faktycznej wpłaty.
+
+Potwierdzenie ma trwałą kolejkę i pełną treść regulaminu, warunki oraz wzór odstąpienia. W sandboxie wysyłka wymaga osobnego zaznaczenia przez administratora; test nie jest umową odpłatną. SMTP nie opóźnia potwierdzenia ITN. Błąd wysyłki można ponowić z podsumowania; aktywacja przygotowanego produkcyjnego zamówienia czeka na skuteczne wysłanie i datę początku. Rzadki przypadek przyjęcia przez SMTP i awarii zapisu może spowodować ponowne wysłanie wiadomości.
+
+Bramka otrzymuje podpisane `ValidityTime` i `LinkValidityTime` (domyślnie 15 minut, konfiguracja 5–60). Sprawdzenie statusu jest ograniczone do jednego wywołania na 15 sekund. Anulowanie używa trwale zapisanego MessageID; dopiero podpisane `CANCELED_FULLY` zwalnia rezerwację limitu. Sam upływ czasu lokalnego ani błąd sieci nie zwalniają rezerwacji.
+
+Zwrot używa trwałego MessageID i kwoty istniejącej wpłaty. Przyjęcie zlecenia nie oznacza zwrotu pieniędzy: dopiero podpisane `outDetails/v2` ze statusem DONE potwierdza wykonanie. Po pełnym zwrocie wszystkich wpłat zamówienia przygotowana obsługa produkcyjna cofa jego uprawnienia, zachowując inne zakupy. Pierwotne wpłaty nie są usuwane; sandbox nie wpływa na realne prawa ani raport produkcyjny. Opcjonalne ISTN nie jest aktywowane — status zwrotu sprawdza administrator. Przed produkcją należy uzgodnić obsługę zwrotów w raportowaniu podatkowym.
+
+Karta konfiguracji zawiera test SMTP do zalogowanego administratora oraz odczytowy test `gatewayList/v3` z sandboxem. Test połączenia nie inicjuje płatności i nie dowodzi odbioru ITN. Pełny odbiór wymaga przejścia bramki testowej, prawidłowego ITN i podpisanego powrotu, ponowienia ITN, negatywnego scenariusza, anulowania i zwrotu. Testy sandbox nie nadają rzeczywistych uprawnień.
+
+Ustawienia u operatora: testportal.autopay.eu/panel → Ustawienia serwisu → Konfiguracja techniczna → Edytuj → Inny/dedykowany. Tam trzeba ustawić adres ITN i powrotu. Jeżeli pól lub dostępu brakuje, właściciel prosi platnosci@autopay.pl o konfigurację; nie przesyła klucza w wiadomości. Zapis naszego panelu nie zmienia ustawień operatora.

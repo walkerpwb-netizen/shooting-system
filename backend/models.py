@@ -265,6 +265,63 @@ class PremiumOrder(Base):
     entitlement_starts_at = Column(String, nullable=True)
     entitlement_ends_at = Column(String, nullable=True)
     entitlements_applied_at = Column(String, nullable=True)
+    competition_id = Column(Integer, ForeignKey("competitions.id", ondelete="SET NULL"), nullable=True, index=True)
+    publication_granted_at = Column(String, nullable=True)
+    early_start_requested = Column(Integer, nullable=False, default=0, server_default="0")
+    service_starts_at = Column(String, nullable=True)
+    service_ends_at = Column(String, nullable=True)
+    gateway_valid_until = Column(String, nullable=True)
+    provider_closed_at = Column(String, nullable=True)
+    cancel_message_id = Column(String(32), nullable=True)
+    last_status_check_at = Column(String, nullable=True)
+    contract_snapshot = Column(Text, nullable=True)
+    fulfillment_preview = Column(Text, nullable=True)
+    request_id = Column(String(36), nullable=True, unique=True)
+    refunded_at = Column(String, nullable=True)
+
+
+class PremiumNotification(Base):
+    __tablename__ = "premium_notifications"
+    id = Column(Integer, primary_key=True)
+    digest = Column(String(64), nullable=False, unique=True)
+    environment = Column(String(10), nullable=False)
+    service_id = Column(String(10), nullable=False)
+    order_reference = Column(String(32), nullable=False)
+    remote_id = Column(String(20), nullable=False)
+    payment_status = Column(String(20), nullable=False)
+    confirmation = Column(String(25), nullable=False)
+    first_seen_at = Column(String, nullable=False)
+    last_seen_at = Column(String, nullable=False)
+    deliveries = Column(Integer, nullable=False, default=1)
+
+
+class PremiumMailOutbox(Base):
+    __tablename__ = "premium_mail_outbox"
+    id = Column(Integer, primary_key=True)
+    order_id = Column(String(32), ForeignKey("premium_orders.id", ondelete="SET NULL"), nullable=True, unique=True)
+    recipient = Column(String(255), nullable=False)
+    subject = Column(String(255), nullable=False)
+    body = Column(Text, nullable=False)
+    created_at = Column(String, nullable=False)
+    sent_at = Column(String, nullable=True)
+    attempted_at = Column(String, nullable=True)
+    attempts = Column(Integer, nullable=False, default=0)
+    error = Column(String(255), nullable=True)
+
+
+class PremiumRefund(Base):
+    __tablename__ = "premium_refunds"
+    id = Column(String(32), primary_key=True)
+    order_id = Column(String(32), ForeignKey("premium_orders.id", ondelete="SET NULL"), nullable=True)
+    receipt_id = Column(Integer, ForeignKey("autopay_receipts.id", ondelete="SET NULL"), nullable=True)
+    remote_id = Column(String(20), nullable=False)
+    environment = Column(String(10), nullable=False)
+    amount_grosz = Column(Integer, nullable=False)
+    status = Column(String(20), nullable=False)
+    provider_status = Column(String(100), nullable=True)
+    provider_remote_id = Column(String(100), nullable=True)
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, nullable=False)
 
 
 class AutopayReceipt(Base):

@@ -17,7 +17,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from database import Base
-from models import PremiumOrder, User
+from models import Competition, PremiumOrder, User
 from premium_payments import (
     CheckoutData, TERMS_VERSION, build_premium_router, create_sandbox_order,
     payment_hash, process_itn, sandbox_config, seller_details,
@@ -51,6 +51,9 @@ class PremiumPaymentTests(unittest.TestCase):
                           premium_until="2026-12-31T23:59:59+01:00")
         self.db.add(self.admin)
         self.db.commit()
+        self.event = Competition(name="Test", date="2026-11-30", location="Test", created_by=self.admin.email, status="draft")
+        self.db.add(self.event)
+        self.db.commit()
         self.prices = {kind: {"monthly_price": "12.34", "yearly_price": "123.45", "features": ["ranking"]}
                        for kind in ("shooter", "organizer")}
         self.data = CheckoutData(package="shooter", period="monthly", expected_price="12.34",
@@ -65,7 +68,10 @@ class PremiumPaymentTests(unittest.TestCase):
         self.config_directory.cleanup()
 
     def checkout(self, data=None, user=None):
-        return create_sandbox_order(data or self.data, user or self.admin, self.db,
+        data = data or self.data
+        if data.package == "organizer" and data.period == "monthly" and data.competition_id is None:
+            data = data.model_copy(update={"competition_id": self.event.id})
+        return create_sandbox_order(data, user or self.admin, self.db,
                                     lambda db: self.prices, lambda user: user.role == "admin")
 
     def notification(self, order_id, amount="12.34", currency="PLN", status="SUCCESS", service="12345"):
@@ -130,7 +136,7 @@ class PremiumPaymentTests(unittest.TestCase):
                                  else ["shooter"] if kind == "shooter" else [])
                 self.assertNotIn("sandbox-test-secret", str(result))
                 self.assertEqual(result["fields"]["Hash"], hashlib.sha256(
-                    f"12345|{order.id}|{price}|PLN|admin@example.test|sandbox-test-secret".encode()).hexdigest())
+                    f"12345|{order.id}|{price}|PLN|admin@example.test|{result['fields']['ValidityTime']}|{result['fields']['LinkValidityTime']}|sandbox-test-secret".encode()).hexdigest())
 
     def test_signed_itn_is_idempotent_and_never_grants_real_premium(self):
         order_id = self.checkout()["order_id"]
@@ -164,8 +170,11 @@ class PremiumPaymentTests(unittest.TestCase):
     def test_bad_signatures_wrong_service_and_xml_attacks_are_rejected(self):
         order_id = self.checkout()["order_id"]
         valid = self.notification(order_id)
-        for xml in (valid.replace(b"SUCCESS", b"FAILURE"), self.notification(order_id, service="999"),
-                    b"<!DOCTYPE x [<!ENTITY x 'attack'>]><transactionList>&x;</transactionList>",
+        for xml in (valid.replace(b"SUCCESS", b"FAILURE"), self.notification(order_id, service="999")):
+            reply = fromstring(process_itn(xml, self.db, sandbox_config()))
+            self.assertEqual(reply.findtext(".//confirmation"), "NOTCONFIRMED")
+            self.assertEqual(self.db.get(PremiumOrder, order_id).status, "pending")
+        for xml in (b"<!DOCTYPE x [<!ENTITY x 'attack'>]><transactionList>&x;</transactionList>",
                     b"<broken", valid.replace(b"<amount>", b"<extra>1</extra><amount>")):
             with self.subTest(xml=xml[:70]), self.assertRaises(HTTPException):
                 process_itn(xml, self.db, sandbox_config())
@@ -186,9 +195,8 @@ class PremiumPaymentTests(unittest.TestCase):
         order_id = self.checkout()["order_id"]
         xml = self.notification(order_id)
         original_hash = fromstring(xml).findtext("hash")
-        with self.assertRaises(HTTPException) as error:
-            process_itn(xml.replace(original_hash.encode(), "ą".encode()), self.db, sandbox_config())
-        self.assertEqual(error.exception.status_code, 400)
+        reply = fromstring(process_itn(xml.replace(original_hash.encode(), "ą".encode()), self.db, sandbox_config()))
+        self.assertEqual(reply.findtext(".//confirmation"), "NOTCONFIRMED")
 
     def test_status_endpoint_is_scoped_to_order_owner_and_does_not_mutate_it(self):
         order_id = self.checkout()["order_id"]

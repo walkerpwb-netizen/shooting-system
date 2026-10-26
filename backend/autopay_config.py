@@ -1,6 +1,7 @@
 """Admin-only credentials stored atomically in a private, Git-ignored server file."""
 
 import fcntl
+import hmac
 import json
 import os
 import re
@@ -33,6 +34,11 @@ class ConfigurationData(BaseModel):
     mode: Literal["disabled", "sandbox"]
     sandbox: EnvironmentData
     production: EnvironmentData
+    provider_timezone: Literal["CET", "Europe/Warsaw"] = "CET"
+    validity_minutes: int = Field(default=15, ge=5, le=60)
+    callbacks_configured: bool = False
+    merchant_model_confirmed: bool = True
+    shared_credentials_confirmed: bool = False
 
 
 def environment_defaults():
@@ -53,6 +59,16 @@ def environment_defaults():
 def valid_environment(name, section):
     return bool(re.fullmatch(r"[0-9]{1,10}", section["service_id"]) and section["shared_key"]
                 and section["gateway_url"] == GATEWAYS[name] and section["algorithm"] in ("sha256", "sha512"))
+
+
+def credentials_are_shared(value):
+    return bool(value["sandbox"]["shared_key"] and value["sandbox"]["service_id"] == value["production"]["service_id"]
+                and hmac.compare_digest(value["sandbox"]["shared_key"], value["production"]["shared_key"]))
+
+
+def sandbox_allowed(value):
+    return value.get("merchant_model_confirmed", True) and valid_environment("sandbox", value["sandbox"]) and (
+        not credentials_are_shared(value) or value.get("shared_credentials_confirmed", False))
 
 
 def read_configuration():
@@ -86,16 +102,25 @@ def read_configuration():
 
 
 def configuration_status(value):
+    from mailer import is_mail_configured
     # No saved secret (even a fragment) is ever sent back to the browser.
     return {
         "revision": value["revision"], "mode": value["mode"], "sales_enabled": False,
-        "verification_status": "pending", "sandbox_ready": value["mode"] == "sandbox" and valid_environment("sandbox", value["sandbox"]),
+        "verification_status": "pending", "sandbox_ready": value["mode"] == "sandbox" and sandbox_allowed(value),
         "updated_at": value.get("updated_at", ""), "updated_by": value.get("updated_by", ""),
         **{name: {**{k: value[name][k] for k in ("service_id", "gateway_url", "algorithm")},
                   "key_configured": bool(value[name]["shared_key"]), "complete": valid_environment(name, value[name])}
            for name in GATEWAYS},
         "notification_url": "https://system-strzelecki.pl/api/premium/autopay/itn",
         "return_url": "https://system-strzelecki.pl/premium/zakup",
+        "notification_urls": {name: f"https://system-strzelecki.pl/api/premium/autopay/{name}/itn" for name in GATEWAYS},
+        "provider_timezone": value.get("provider_timezone", "CET"),
+        "validity_minutes": value.get("validity_minutes", 15),
+        "callbacks_configured": value.get("callbacks_configured", False),
+        "merchant_model_confirmed": value.get("merchant_model_confirmed", True),
+        "smtp_ready": bool(is_mail_configured()),
+        "credentials_shared": credentials_are_shared(value),
+        "shared_credentials_confirmed": value.get("shared_credentials_confirmed", False),
     }
 
 
@@ -115,7 +140,10 @@ def save_configuration(data, admin):
             if data.revision != old["revision"]:
                 raise HTTPException(409, "Konfiguracja została zmieniona w innym oknie. Wczytaj ją ponownie przed zapisem.")
             value = {"revision": old["revision"] + 1, "mode": data.mode,
-                     "updated_at": datetime.now(timezone.utc).isoformat(), "updated_by": admin.email}
+                     "updated_at": datetime.now(timezone.utc).isoformat(), "updated_by": admin.email,
+                     "provider_timezone": data.provider_timezone, "validity_minutes": data.validity_minutes,
+                     "callbacks_configured": data.callbacks_configured, "merchant_model_confirmed": data.merchant_model_confirmed,
+                     "shared_credentials_confirmed": data.shared_credentials_confirmed}
             for name in GATEWAYS:
                 section = getattr(data, name)
                 key = section.shared_key.get_secret_value()
@@ -130,6 +158,10 @@ def save_configuration(data, admin):
                                "shared_key": "" if section.remove_key else key or old[name]["shared_key"]}
             if data.mode == "sandbox" and not valid_environment("sandbox", value["sandbox"]):
                 raise HTTPException(400, "Aby włączyć testy, uzupełnij ID serwisu, klucz i poprawną bramkę sandbox.")
+            if data.mode == "sandbox" and not data.merchant_model_confirmed:
+                raise HTTPException(400, "Ta integracja wymaga potwierdzonego modelu Merchanta, bez doliczania prowizji klientowi.")
+            if data.mode == "sandbox" and not sandbox_allowed(value):
+                raise HTTPException(400, "Potwierdź zgodę Autopay na wspólne dane sandbox i produkcji albo wpisz osobne dane testowe.")
             fd, temp_name = tempfile.mkstemp(prefix=".autopay-", dir=path.parent)
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
                 os.fchmod(handle.fileno(), 0o600)
@@ -151,7 +183,7 @@ def save_configuration(data, admin):
             Path(temp_name).unlink(missing_ok=True)
 
 
-def build_autopay_settings_router(get_current_admin):
+def build_autopay_settings_router(get_current_admin, get_db=None):
     router = APIRouter(prefix="/admin/settings/autopay", tags=["Konfiguracja Autopay"])
 
     def active_admin(admin=Depends(get_current_admin)):
@@ -159,13 +191,15 @@ def build_autopay_settings_router(get_current_admin):
             raise HTTPException(403, "Konfiguracja Autopay wymaga aktywnego konta administratora.")
         return admin
 
+    db_dependency = get_db if get_db is not None else lambda: None
+
     @router.get("")
     def get_settings(response: Response, admin=Depends(active_admin)):
         response.headers["Cache-Control"] = "no-store"
         return configuration_status(read_configuration())
 
     @router.put("")
-    async def update_settings(request: Request, response: Response, admin=Depends(active_admin)):
+    async def update_settings(request: Request, response: Response, admin=Depends(active_admin), db=Depends(db_dependency)):
         body = bytearray()
         async for chunk in request.stream():
             body.extend(chunk)
@@ -177,6 +211,48 @@ def build_autopay_settings_router(get_current_admin):
             # FastAPI's default 422 includes input values. Never echo credential inputs.
             raise HTTPException(400, "Niepoprawny formularz konfiguracji Autopay. Sprawdź wymagane pola.") from None
         response.headers["Cache-Control"] = "no-store"
+        if db is not None:
+            from models import PremiumOrder
+            from payment_limits import acquire_payment_limit_lock
+            acquire_payment_limit_lock(db)
+            current = read_configuration()
+            for name in GATEWAYS:
+                section = getattr(data, name)
+                new_key = "" if section.remove_key else section.shared_key.get_secret_value() or current[name]["shared_key"]
+                changed = any((section.service_id.strip() != current[name]["service_id"],
+                    section.algorithm != current[name]["algorithm"], new_key != current[name]["shared_key"]))
+                if changed and db.query(PremiumOrder.id).filter(PremiumOrder.environment == name,
+                        PremiumOrder.provider_closed_at.is_(None), PremiumOrder.status.notin_(["paid", "cancelled"])).first():
+                    raise HTTPException(409, f"Najpierw potwierdź lub anuluj rozpoczęte transakcje {name}. Zmiana ID, klucza lub algorytmu mogłaby uniemożliwić odbiór ich wyników.")
         return save_configuration(data, admin)
+
+    @router.post("/test-email")
+    def test_email(response: Response, admin=Depends(active_admin)):
+        from mailer import send_email
+        response.headers["Cache-Control"] = "no-store"
+        try:
+            send_email(admin.email, "[TEST] Autopay — poczta Systemu Strzeleckiego",
+                       "Test potwierdzeń Autopay. Ta wiadomość nie potwierdza płatności ani zakupu Premium.", copy_to_admin=False)
+        except Exception:
+            raise HTTPException(503, "Nie udało się wysłać wiadomości testowej. Sprawdź konfigurację poczty systemu.") from None
+        return {"message": "Wiadomość testowa została wysłana na adres Twojego konta administratora."}
+
+    @router.post("/test-connection")
+    def connection_test(response: Response, admin=Depends(active_admin)):
+        from autopay_api import test_connection
+        from premium_payments import notification_config
+        response.headers["Cache-Control"] = "no-store"
+        return test_connection(notification_config("sandbox"))
+
+    if get_db is not None:
+        @router.get("/diagnostics")
+        def diagnostics(response: Response, admin=Depends(active_admin), db=Depends(get_db)):
+            from models import PremiumMailOutbox, PremiumNotification
+            response.headers["Cache-Control"] = "no-store"
+            notifications = db.query(PremiumNotification).order_by(PremiumNotification.id.desc()).limit(20).all()
+            pending_mail = db.query(PremiumMailOutbox).filter(PremiumMailOutbox.sent_at.is_(None)).count()
+            return {"notifications": [{k: getattr(row, k) for k in ("environment", "service_id", "order_reference", "remote_id",
+                    "payment_status", "confirmation", "first_seen_at", "last_seen_at", "deliveries")} for row in notifications],
+                    "pending_confirmation_emails": pending_mail, "production_released": False}
 
     return router

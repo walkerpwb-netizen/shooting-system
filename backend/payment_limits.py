@@ -46,6 +46,7 @@ def payment_limit_state(db, now=None):
     # There is no timed release without confirmed cancellation by the provider.
     pending_amounts = db.query(PremiumOrder.amount).filter(
         PremiumOrder.environment == "production", PremiumOrder.currency == "PLN",
+        PremiumOrder.provider_closed_at.is_(None),
         ~exists().where(AutopayReceipt.order_reference == PremiumOrder.id,
                         AutopayReceipt.environment == "production"),
     ).all()

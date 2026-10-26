@@ -17,7 +17,7 @@ from config import settings
 from premium_payments import build_premium_router, seller_details
 from payment_reports import build_payments_router
 from autopay_config import build_autopay_settings_router
-from premium_access import effective_premium_until, effective_premium_until_iso, included_premium_packages
+from premium_access import effective_premium_until, effective_premium_until_iso, included_premium_packages, has_paid_publication, activate_due_premium_orders
 from mailer import (
     ACTIVATION_LINK_PLACEHOLDER,
     MailConfigurationError,
@@ -7917,6 +7917,9 @@ def require_organizer_publication_slot(
     if has_active_organizer_premium(user):
         return
 
+    if has_paid_publication(user, competition, db):
+        return
+
     premium_settings = get_premium_settings(db)
     organizer_package = premium_settings["organizer"]
 
@@ -9463,6 +9466,7 @@ def get_current_user(
             detail="Użytkownik nie istnieje"
         )
 
+    activate_due_premium_orders(user, db)
     user.last_seen = datetime.now(timezone.utc).isoformat()
     db.commit()
 
@@ -9495,6 +9499,7 @@ def get_optional_current_user(
     if not user:
         return None
 
+    activate_due_premium_orders(user, db)
     user.last_seen = datetime.now(timezone.utc).isoformat()
     db.commit()
 
@@ -10250,7 +10255,7 @@ app.include_router(build_premium_router(
     lambda user: "admin" in get_user_roles(user),
 ))
 app.include_router(build_payments_router(get_db, get_current_admin, seller_details))
-app.include_router(build_autopay_settings_router(get_current_admin))
+app.include_router(build_autopay_settings_router(get_current_admin, get_db))
 
 
 @app.get("/home-posts")
