@@ -12,3 +12,4 @@ backend/shooting.db
 !.env.example
 backend/*.db.backup-*
 backend/uploads/
+backend/.private/

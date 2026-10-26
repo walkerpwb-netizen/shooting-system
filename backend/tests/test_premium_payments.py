@@ -4,6 +4,8 @@ import hashlib
 import json
 import os
 import unittest
+import tempfile
+from pathlib import Path
 from datetime import datetime, timezone
 from unittest.mock import patch
 from urllib.parse import urlencode
@@ -33,6 +35,9 @@ ENV = {
 
 class PremiumPaymentTests(unittest.TestCase):
     def setUp(self):
+        self.config_directory = tempfile.TemporaryDirectory()
+        self.config_path_patch = patch("autopay_config.CONFIG_PATH", Path(self.config_directory.name) / "autopay.json")
+        self.config_path_patch.start()
         self.clock = patch("payment_limits.current_time", return_value=datetime(2026, 10, 25, tzinfo=timezone.utc))
         self.clock.start()
         self.environment = patch.dict(os.environ, ENV)
@@ -56,6 +61,8 @@ class PremiumPaymentTests(unittest.TestCase):
         self.engine.dispose()
         self.environment.stop()
         self.clock.stop()
+        self.config_path_patch.stop()
+        self.config_directory.cleanup()
 
     def checkout(self, data=None, user=None):
         return create_sandbox_order(data or self.data, user or self.admin, self.db,

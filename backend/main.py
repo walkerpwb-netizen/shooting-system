@@ -16,6 +16,7 @@ from results_excel import build_results_workbook
 from config import settings
 from premium_payments import build_premium_router, seller_details
 from payment_reports import build_payments_router
+from autopay_config import build_autopay_settings_router
 from premium_access import effective_premium_until, effective_premium_until_iso, included_premium_packages
 from mailer import (
     ACTIVATION_LINK_PLACEHOLDER,
@@ -10249,6 +10250,7 @@ app.include_router(build_premium_router(
     lambda user: "admin" in get_user_roles(user),
 ))
 app.include_router(build_payments_router(get_db, get_current_admin, seller_details))
+app.include_router(build_autopay_settings_router(get_current_admin))
 
 
 @app.get("/home-posts")

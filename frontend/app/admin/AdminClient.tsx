@@ -14,8 +14,9 @@ import QrCodeScanner from "@/components/QrCodeScanner";
 import TargetPhotoScanner from "@/zdjęcie tarczy/TargetPhotoScanner";
 import PzssClubRejectionDialog from "./PzssClubRejectionDialog";
 import PaymentsPanel from "./PaymentsPanel";
+import AutopaySettingsPanel from "./AutopaySettingsPanel";
 
-type AdminTab = "users" | "pzss-clubs" | "competitions" | "shooting-ranges" | "settings" | "premium" | "payments" | "ads" | "monitoring" | "codex" | "qr-scanner" | "target-photo" | "pdf-test" | "test-data";
+type AdminTab = "users" | "pzss-clubs" | "competitions" | "shooting-ranges" | "settings" | "premium" | "payments" | "autopay" | "ads" | "monitoring" | "codex" | "qr-scanner" | "target-photo" | "pdf-test" | "test-data";
 type UserSortField = "name" | "status" | "role" | "club" | "account" | "phone";
 type SortDirection = "asc" | "desc";
 type CodexChatRole = "user" | "assistant";
@@ -761,7 +762,7 @@ export default function AdminClient({
       return;
     }
 
-    if (activeTab === "payments") {
+    if (activeTab === "payments" || activeTab === "autopay") {
       return;
     }
 
@@ -3476,7 +3477,7 @@ export default function AdminClient({
           </div>
         )}
 
-        {activeTab === "payments" ? <PaymentsPanel /> : loading ? (
+        {activeTab === "autopay" ? <AutopaySettingsPanel /> : activeTab === "payments" ? <PaymentsPanel /> : loading ? (
           <p className="text-gray-400">
             Ładowanie panelu administratora...
           </p>

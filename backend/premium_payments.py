@@ -10,7 +10,7 @@ import re
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Literal
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs
 from uuid import uuid4
 from xml.etree.ElementTree import Element, SubElement, tostring
 
@@ -24,6 +24,7 @@ from models import PremiumOrder
 from premium_access import apply_paid_premium_order, included_premium_packages
 from payment_reports import record_autopay_receipt
 from payment_limits import ensure_payment_capacity, payment_limit_state
+from autopay_config import read_configuration, valid_environment
 
 TERMS_VERSION = "2026-10-25"
 ITN_FIELDS = (
@@ -50,21 +51,15 @@ def seller_details():
 
 
 def sandbox_config():
-    # No production host or production credentials are accepted in this release.
-    mode = os.getenv("AUTOPAY_MODE", "disabled").strip()
-    service = os.getenv("AUTOPAY_SANDBOX_SERVICE_ID", "").strip()
-    key = os.getenv("AUTOPAY_SANDBOX_SHARED_KEY", "").strip()
-    gateway = os.getenv("AUTOPAY_SANDBOX_GATEWAY_URL", "").strip()
-    algorithm = os.getenv("AUTOPAY_SANDBOX_HASH_ALGORITHM", "sha256").strip().lower()
-    parsed = urlparse(gateway)
-    valid = (
-        mode == "sandbox" and re.fullmatch(r"[0-9]{1,10}", service)
-        and key and parsed.scheme == "https" and parsed.netloc == "testpay.autopay.eu"
-        and parsed.path not in ("", "/") and not parsed.query and not parsed.fragment
-        and algorithm in ("sha256", "sha512")
-    )
-    return {"ready": bool(valid), "service": service, "key": key,
-            "gateway": gateway, "algorithm": algorithm}
+    # Stored production credentials are preparation only, never used by this adapter.
+    try:
+        value = read_configuration()
+        section = value["sandbox"]
+        ready = value["mode"] == "sandbox" and valid_environment("sandbox", section)
+        return {"ready": bool(ready), "service": section["service_id"], "key": section["shared_key"],
+                "gateway": section["gateway_url"], "algorithm": section["algorithm"]}
+    except HTTPException:
+        return {"ready": False, "service": "", "key": "", "gateway": "", "algorithm": "sha256"}
 
 
 def payment_hash(values, config):

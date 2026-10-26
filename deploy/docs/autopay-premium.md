@@ -18,13 +18,27 @@ Model użytkownika zachowuje dotychczasowe wspólne `premium_until` i dodaje nie
 
 ## Stan tej wersji
 
-Rzeczywista sprzedaż jest wyłączona. API zawsze zwraca `sales_enabled: false`. Kod nie ma produkcyjnej bramki i nie przyjmuje trybu `production`. Samo wpisanie produkcyjnych kluczy nie uruchomi płatności. Nie zmieniaj tego przed pozytywną weryfikacją Autopay i osobnym wdrożeniem uruchamiającym sprzedaż.
+Rzeczywista sprzedaż jest wyłączona. API zawsze zwraca `sales_enabled: false`. Adapter nie obsługuje produkcyjnego checkoutu i nie przyjmuje trybu `production`; adres i klucz produkcyjny można jedynie zapisać do późniejszego uruchomienia. Samo wpisanie produkcyjnych kluczy nie uruchomi płatności. Nie zmieniaj tego przed pozytywną weryfikacją Autopay i osobnym wdrożeniem uruchamiającym sprzedaż.
 
 Sandbox jest dostępny wyłącznie aktywnemu administratorowi. Zamówienia testowe mają `environment=sandbox`, zapisują cenę i ofertę z chwili testu oraz wersję i datę akceptacji regulaminu. Zweryfikowany ITN aktualizuje tylko zamówienie testowe; **nigdy nie nadaje ani nie przedłuża praw Premium**. Powrót przeglądarki nie zmienia statusu zamówienia.
 
+## Konfiguracja w panelu administratora
+
+Karta **Konfiguracja Autopay**: `/admin?tab=autopay`, dostępna w nawigacji administratora na komputerze i w menu mobilnym. API: GET/PUT `/admin/settings/autopay`, wyłącznie z uwierzytelnieniem i rolą administratora. Organizator nie ma dostępu do odczytu ani zapisu.
+
+Formularz zawiera osobne dane sandbox i produkcji: ID serwisu, adres startu transakcji, SHA256/SHA512 i klucz konfiguracji. Adresy ITN i powrotu są generowane i wyświetlane do skopiowania do portalu Autopay. Tryb ma wyłącznie opcje `disabled` i `sandbox`. Zapis kompletu produkcyjnego nie uruchamia prawdziwych płatności i nie zmienia wyniku weryfikacji. Tryb sandbox wymaga pełnych danych testowych i działa tylko dla aktywnego administratora, z zachowaniem blokady kwartalnej 95%.
+
+Zapis trafia atomowo do `backend/.private/autopay.json` (katalog 0700, plik 0600, właściciel procesu backendu); katalog jest wyłączony z Git i nie jest katalogiem statycznym serwera WWW. Plik zawiera klucze w jawnej postaci, tak jak lokalny `.env`, i wymaga takiej samej ochrony oraz ograniczenia dostępu do kopii zapasowych. API nigdy nie zwraca zapisanego klucza ani jego fragmentu: tylko `key_configured`. Puste pole zachowuje poprzedni klucz, nowa wartość go zastępuje, zaznaczenie „Usuń zapisany klucz” usuwa. Zmiana ID serwisu lub algorytmu wymaga ponownego podania klucza albo jego jawnego usunięcia. Nie dodano odszyfrowania/podglądu klucza w przeglądarce. Walidacja nie odbija danych wejściowych w błędach. Dane nie trafiają do localStorage ani logów. Samo pole password chroni widok formularza, a przesyłanie danych do backendu odbywa się przez HTTPS.
+
+Zapis ma blokadę plikową, kontrolę rewizji dla równoczesnej edycji, zapis przez plik tymczasowy i atomic replace. W razie konfliktu konfiguracja nie jest nadpisywana; trzeba wczytać ją ponownie. Odczyt odrzuca uszkodzony plik, symlink i zbyt szerokie prawa pliku. Uszkodzony magazyn wyłącza gotowość sandboxa zamiast przywracać potencjalnie nieaktualne dane środowiskowe.
+
+Backend odczytuje konfigurację przy obsłudze żądania, więc zapis działa bez restartu. Dane formularza stają się nadrzędne wobec `AUTOPAY_*` z `.env`, również gdy klucz usunięto lub wybrano wyłączenie integracji. Ustawienia `.env` są używane wyłącznie przed pierwszym zapisem w panelu. Wdrożenia zachowują prywatny plik. Polityka CSP pozwala formularzowi testowemu wysłać POST wyłącznie do własnej domeny lub `https://testpay.autopay.eu`; host produkcyjny nadal nie jest dopuszczony do startu płatności.
+
+Przed aktywacją pełnej sprzedaży trzeba osobno wdrożyć produkcyjną integrację i jej wymagania opisane poniżej. Dane ze zrzutu produkcyjnego nie są automatycznie przepisywane do formularza ani zapisywane w repozytorium.
+
 ## Konfiguracja testowa
 
-W `backend/.env` ustaw dane **testowe otrzymane od Autopay**. Nie umieszczaj sekretów w Git. Po zmianie konfiguracji zrestartuj backend.
+Preferowany jest formularz powyżej. Alternatywnie, przed pierwszym zapisem w panelu, w `backend/.env` ustaw dane **testowe otrzymane od Autopay**. Nie umieszczaj sekretów w Git. Po zmianie konfiguracji zrestartuj backend.
 
 ```dotenv
 AUTOPAY_MODE=disabled
