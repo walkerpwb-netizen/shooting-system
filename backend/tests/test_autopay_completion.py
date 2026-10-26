@@ -207,7 +207,13 @@ class AutopayCompletionTests(unittest.TestCase):
 
     def test_mail_outbox_is_idempotent_and_delivery_failure_can_be_retried_without_real_email(self):
         data, _ = self.quoted(test_email_requested=True)
-        order = self.pay(self.checkout(data)['order_id'])
+        with patch('mailer.is_mail_configured', return_value=False):
+            with self.assertRaises(HTTPException) as error:
+                self.checkout(data)
+            self.assertEqual(error.exception.status_code, 400)
+            self.assertEqual(self.db.query(PremiumOrder).count(), 0)
+        with patch('mailer.is_mail_configured', return_value=True):
+            order = self.pay(self.checkout(data)['order_id'])
         process_itn(self.notification(order.id), self.db, sandbox_config())
         self.assertEqual(self.db.query(PremiumMailOutbox).count(), 1)
         factory = sessionmaker(bind=self.engine)
