@@ -234,6 +234,19 @@ reload_frontend() {
 reload_nginx() {
   local nginx_changed=0
 
+  log "Installing maintenance controls (preserving current mode)"
+  run sudo install -m 755 "$REPO_DIR/deploy/scripts/maintenance.py" /usr/local/bin/maintenance
+  run sudo /usr/local/bin/maintenance install
+  run sudo install -d -m 755 /var/lib/shooting-system/maintenance/public /etc/nginx/snippets
+  run sudo install -m 644 "$REPO_DIR/deploy/maintenance/index.html" /var/lib/shooting-system/maintenance/public/index.html
+  run sudo install -m 644 "$REPO_DIR/deploy/maintenance/recovery.js" /var/lib/shooting-system/maintenance/public/recovery.js
+
+  for snippet in http server; do
+    if sync_file_with_backup "$REPO_DIR/deploy/nginx/maintenance-$snippet.conf" "/etc/nginx/snippets/shooting-maintenance-$snippet.conf" "deploy"; then
+      nginx_changed=1
+    fi
+  done
+
   log "Validating nginx config"
   if sync_file_with_backup "$REPO_DIR/$NGINX_CONF_SRC" "$NGINX_CONF_DST" "deploy"; then
     nginx_changed=1
@@ -250,14 +263,36 @@ reload_nginx() {
   run systemctl is-active nginx
 }
 
+check_public_access() {
+  local status restricted expected code path
+  status=$(curl -fsS --max-time 15 https://system-strzelecki.pl/maintenance/status) || return 1
+  restricted=$(printf '%s' "$status" | python3 -c 'import json,sys; print(json.load(sys.stdin)["restricted"])') || return 1
+  case "$restricted" in
+    0) expected=200 ;;
+    1) expected=503 ;;
+    *) echo "Unexpected maintenance status: $status" >&2; return 1 ;;
+  esac
+  for path in / /api/health; do
+    code=$(curl -sS --max-time 15 -o /dev/null -w '%{http_code}' "https://system-strzelecki.pl$path") || return 1
+    if [[ "$code" != "$expected" ]]; then
+      echo "Unexpected public response for $path: $code (expected $expected)" >&2
+      return 1
+    fi
+  done
+}
+
 run_health_checks() {
   log "Running health checks"
   run systemctl is-active postgresql
   run_with_retry curl -fsS http://127.0.0.1:8000/health
   printf '\n'
-  run_with_retry curl -fsS https://system-strzelecki.pl/api/health
+  # Local TLS requests exercise nginx + upstreams even while public access is blocked.
+  run_with_retry curl -fsS --resolve system-strzelecki.pl:443:127.0.0.1 https://system-strzelecki.pl/api/health
   printf '\n'
-  run_with_retry curl -fsSI https://system-strzelecki.pl/
+  run_with_retry curl -fsSI --resolve system-strzelecki.pl:443:127.0.0.1 https://system-strzelecki.pl/
+  run_with_retry curl -fsS --resolve system-strzelecki.pl:443:127.0.0.1 https://system-strzelecki.pl/maintenance/status
+  printf '\n'
+  run_with_retry check_public_access
 }
 
 main() {
@@ -266,6 +301,7 @@ main() {
   require_command pm2
   require_command curl
   require_command flock
+  require_command python3
 
   exec 9>"$LOCK_FILE"
   flock -n 9 || fail "Another deploy is already running: $LOCK_FILE"

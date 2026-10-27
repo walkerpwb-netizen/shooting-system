@@ -20,6 +20,11 @@ It performs the same operational steps every time:
 8. Syncs the tracked systemd/nginx config files when they changed.
 9. Restarts backend, reloads frontend through PM2, validates nginx, and runs health checks.
 
+The nginx step installs `maintenance` and the standalone maintenance page. The
+current maintenance state and allowed IPs survive every deploy and server restart.
+Health checks use local TLS requests through nginx so that an intentional public
+maintenance page does not fail deployment. See [maintenance commands](maintenance.md).
+
 ## Current repository setup required
 
 The VPS currently has `env-config` as the production branch, but GitHub must also have that branch before automated deploys can pull from it:

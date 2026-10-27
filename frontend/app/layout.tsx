@@ -4,6 +4,7 @@ import Footer from "@/components/Footer";
 import Navbar from "@/components/Navbar";
 import AppNavigation from "@/components/AppNavigation";
 import GlobalUiSettings from "./components/GlobalUiSettings";
+import MaintenanceGuard from "./components/MaintenanceGuard";
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://system-strzelecki.pl";
 
@@ -78,6 +79,7 @@ export default function RootLayout({
       className="dark h-full antialiased"
     >
       <body className="min-h-full">
+        <MaintenanceGuard />
         <GlobalUiSettings />
         <AppNavigation />
         <Navbar />

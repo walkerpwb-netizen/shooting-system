@@ -15,7 +15,13 @@ echo
 
 echo
 echo "== Public frontend =="
-curl -fsSI https://system-strzelecki.pl | sed -n '1,20p'
+# A public 503 is intentional while maintenance is enabled.
+curl -sSI https://system-strzelecki.pl | sed -n '1,20p'
+echo
+echo "== Maintenance =="
+maintenance status
+curl -fsS https://system-strzelecki.pl/maintenance/status
+echo
 
 echo
 echo "== Disk =="

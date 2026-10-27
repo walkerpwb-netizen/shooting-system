@@ -21,3 +21,13 @@ When checking backend Python files on this server, use `python3`; the `python` c
 
 If GitHub Actions fails, inspect the failed job, fix the cause, push a follow-up commit, and monitor the new run. If logs are not accessible, report the inaccessible logs and at least identify the failing job and step from the available Actions summary.
 <!-- END:nextjs-agent-rules -->
+
+# Production maintenance mode
+
+The server provides `maintenance on --allow IP`, `maintenance on --ssh`,
+`maintenance status`, `maintenance allow-add IP`, `maintenance allow-remove IP`,
+and `maintenance off`. See `../deploy/docs/maintenance.md` for operations.
+Runtime state lives outside git and survives deploys. Never disable maintenance
+automatically after a change or deployment; wait for the user's instruction.
+When enabling it from this chat, use the user's confirmed public browser IP;
+do not infer it from the server's outbound IP or an agent's SSH connection.

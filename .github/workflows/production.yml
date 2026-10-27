@@ -102,12 +102,28 @@ jobs:
           TEST_POSTGRES_URL: ${{ env.DATABASE_URL }}
         run: python -m unittest discover -s tests -v
 
+  maintenance:
+    name: Maintenance controls and nginx rules
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+      - name: Install nginx for isolated configuration checks
+        run: sudo apt-get update && sudo apt-get install -y nginx
+      - name: Test maintenance access and rollback
+        run: python3 -m unittest discover -s deploy/tests -v
+      - name: Test maintenance recovery screen
+        run: node --test deploy/tests/recovery.test.cjs
+      - name: Check deploy script syntax
+        run: bash -n deploy/scripts/deploy-production.sh
+
   deploy:
     name: Deploy production
     runs-on: ubuntu-latest
     needs:
       - frontend
       - backend
+      - maintenance
     if: >-
       github.ref == 'refs/heads/env-config' &&
       (github.event_name == 'workflow_dispatch' || github.event_name == 'push')
