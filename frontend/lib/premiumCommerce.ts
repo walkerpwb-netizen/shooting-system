@@ -11,7 +11,6 @@ export type PremiumPrices = Record<"shooter" | "organizer", PremiumPackage>;
 export type PremiumCommerce = {
   sales_enabled: boolean;
   verification_status: string;
-  sandbox_ready: boolean;
   terms_version: string;
   payments_temporarily_unavailable: boolean;
   payment_unavailable_message: string;

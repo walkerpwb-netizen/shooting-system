@@ -14,7 +14,7 @@ from fastapi import HTTPException
 from config import settings
 from premium_access import add_premium_period, effective_premium_until, parse_premium_datetime
 
-TERMS_VERSION = "2026-10-26.3"
+TERMS_VERSION = "2026-10-28"
 EARLY_START_TEXT = (
     "Żądam rozpoczęcia świadczenia usługi przed upływem 14 dni na odstąpienie od umowy. "
     "Przyjmuję do wiadomości, że przy odstąpieniu po rozpoczęciu usługi zapłacę za świadczenie "
@@ -46,7 +46,9 @@ def queued_access_until(user, package, db, exclude_order=None):
     return max((date for date in dates if date), default=None)
 
 
-def make_quote(user, package, period, amount, early_start, competition_id, seller, *, environment="sandbox", db=None):
+def make_quote(user, package, period, amount, early_start, competition_id, seller, *, environment="production", db=None):
+    if environment != "production":
+        raise HTTPException(400, "Nieobsługiwane środowisko płatności.")
     issued = now()
     start = issued if early_start else issued + timedelta(days=14)
     existing = effective_premium_until(user, package)
@@ -69,7 +71,7 @@ def make_quote(user, package, period, amount, early_start, competition_id, selle
     return {**value, "quote_token": encoded + "." + _encode(signature), "early_start_text": EARLY_START_TEXT}
 
 
-def verify_quote(token, data, user, amount, *, environment="sandbox"):
+def verify_quote(token, data, user, amount, *, environment="production"):
     try:
         encoded, signature = token.split(".")
         expected = _encode(hmac.new(settings.secret_key.encode(), encoded.encode(), hashlib.sha256).digest())
@@ -87,18 +89,17 @@ def verify_quote(token, data, user, amount, *, environment="sandbox"):
         raise HTTPException(409, "Podsumowanie wygasło lub uległo zmianie. Odśwież ofertę i sprawdź warunki zakupu.") from None
 
 
-def contract_snapshot(quote, user, package, event=None, *, test_email_requested=False):
+def contract_snapshot(quote, user, package, event=None):
     return json.dumps({**{k: v for k, v in quote.items() if k != "quote_token"},
                        "email": user.email, "offer": package, "terms": terms_sections(),
                        "early_start_text": EARLY_START_TEXT if quote["early_start_requested"] else "Nie żądam wcześniejszego rozpoczęcia.",
-                       "event": {"id": event.id, "name": event.name} if event else None,
-                       "test_email_requested": test_email_requested}, ensure_ascii=False)
+                       "event": {"id": event.id, "name": event.name} if event else None}, ensure_ascii=False)
 
 
 def contract_text(order):
     value = json.loads(order.contract_snapshot)
     seller = value["seller"]
-    lines = ["TEST SANDBOX — NIE JEST UMOWĄ ODPŁATNĄ" if order.environment == "sandbox" else "Potwierdzenie zakupu Premium",
+    lines = ["Potwierdzenie zakupu Premium",
              f"Zamówienie: {order.id}", f"Usługa: {order.package} / {order.period}",
              f"Kwota: {order.amount} {order.currency}", f"Sprzedawca: {seller['name']}, {seller['address']}",
              f"Kontakt: {seller['email']}, {seller['phone']}", f"Forma: {seller['business_type']}",

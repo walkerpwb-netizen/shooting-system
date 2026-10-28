@@ -319,7 +319,7 @@ def build_payments_router(get_db, get_current_admin, seller_details):
     @router.get("")
     def overview(
         response: Response, year: int | None = Query(default=None, ge=2000, le=2100),
-        environment: Literal["production", "sandbox"] = "production",
+        environment: Literal["production"] = "production",
         month: int | None = Query(default=None, ge=1, le=12),
         search: str = Query(default="", max_length=100), page: int = Query(default=1, ge=1),
         page_size: int = Query(default=50, ge=1, le=100),

@@ -16,7 +16,7 @@ type Receipt = {
   estimated_fee: string; estimated_net: string; fee_tariff: string;
 };
 type PaymentReport = {
-  year: number; environment: "production" | "sandbox"; page: number; page_size: number;
+  year: number; environment: "production"; page: number; page_size: number;
   years: number[]; annual: Total; lifetime: Total; matching: Total;
   months: (Total & { month: number; label: string })[]; entries: Receipt[];
   quarters: Quarter[]; fee_note: string; limit_note: string; limit_source_url: string;
@@ -42,7 +42,6 @@ export default function PaymentsPanel() {
   const currentQuarter = Math.ceil(Number(new Intl.DateTimeFormat("en", { month: "numeric", timeZone: "Europe/Warsaw" }).format(new Date())) / 3);
   const [year, setYear] = useState(currentYear);
   const [month, setMonth] = useState("");
-  const [environment, setEnvironment] = useState<"production" | "sandbox">("production");
   const [searchDraft, setSearchDraft] = useState("");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -59,7 +58,7 @@ export default function PaymentsPanel() {
       setLoading(true);
       setError("");
       try {
-        const query = new URLSearchParams({ year: String(year), environment, page: String(page), search });
+        const query = new URLSearchParams({ year: String(year),  page: String(page), search });
         if (month) query.set("month", month);
         const response = await authFetch(apiUrl(`/admin/payments?${query}`), { cache: "no-store", signal: controller.signal });
         const body = await response.json();
@@ -73,10 +72,10 @@ export default function PaymentsPanel() {
     }
     void load();
     return () => { ignore = true; controller.abort(); };
-  }, [year, month, environment, search, page, revision]);
+  }, [year, month,  search, page, revision]);
 
   async function exportReport(format: "xlsx" | "csv") {
-    if (exporting || environment !== "production") return;
+    if (exporting) return;
     setExporting(format);
     setError("");
     try {
@@ -108,15 +107,13 @@ export default function PaymentsPanel() {
         <button type="button" onClick={() => setRevision((value) => value + 1)} disabled={loading} className={buttonClass}>Odśwież wpłaty</button>
       </header>
 
-      <form className="grid gap-4 rounded-2xl border border-zinc-800 bg-zinc-900 p-5 md:grid-cols-2 xl:grid-cols-[auto_auto_auto_minmax(12rem,1fr)_auto]" onSubmit={(event) => { event.preventDefault(); setPage(1); setSearch(searchDraft.trim()); }}>
+      <form className="grid gap-4 rounded-2xl border border-zinc-800 bg-zinc-900 p-5 md:grid-cols-2 xl:grid-cols-[auto_auto_minmax(12rem,1fr)_auto]" onSubmit={(event) => { event.preventDefault(); setPage(1); setSearch(searchDraft.trim()); }}>
         <label className="space-y-2"><span className="block font-semibold">Rok</span><select className={inputClass} value={year} onChange={(event) => { setYear(Number(event.target.value)); setPage(1); }}>{years.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
         <label className="space-y-2"><span className="block font-semibold">Miesiąc</span><select className={inputClass} value={month} onChange={(event) => { setMonth(event.target.value); setPage(1); }}><option value="">Cały rok</option>{monthNames.map((name, index) => <option key={name} value={index + 1}>{name}</option>)}</select></label>
-        <label className="space-y-2"><span className="block font-semibold">Rodzaj wpłat</span><select className={inputClass} value={environment} onChange={(event) => { setEnvironment(event.target.value as "production" | "sandbox"); setPage(1); }}><option value="production">Rzeczywiste</option><option value="sandbox">Testowe — sandbox</option></select></label>
         <label className="space-y-2"><span className="block font-semibold">Szukaj płatnika lub transakcji</span><input className={inputClass} value={searchDraft} maxLength={100} onChange={(event) => setSearchDraft(event.target.value)} placeholder="Nazwisko, e-mail, ID lub zamówienie" /></label>
         <button type="submit" className={`${buttonClass} self-end`}>Szukaj</button>
       </form>
 
-      {environment === "sandbox" && <p role="status" className="rounded-xl border border-amber-500/50 bg-amber-500/10 p-4 font-bold text-amber-100">Widok TESTOWY. Te transakcje nie są rzeczywistymi wpłatami i nie trafiają do raportu rocznego do PIT-36.</p>}
       {error && <p role="alert" className="rounded-xl border border-red-500 p-4 text-red-100">{error}</p>}
       {loading ? <p role="status" className="py-6 text-zinc-300">Ładowanie wpłat…</p> : data && <>
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -129,14 +126,14 @@ export default function PaymentsPanel() {
             ["Prowizje po filtrach — szacunek", formatMoney(data.matching.estimated_fee)],
             ["Po prowizjach po filtrach — szacunek", formatMoney(data.matching.estimated_net)],
             ["Suma wpłat — wszystkie lata", formatMoney(data.lifetime.amount)],
-          ].map(([label, value]) => <div key={label} className="rounded-2xl border border-green-900 bg-green-950/40 p-5"><p className="text-sm text-green-100">{label}{environment === "sandbox" ? " (testowe)" : ""}</p><p className="mt-3 break-words text-2xl font-black">{value}</p></div>)}
+          ].map(([label, value]) => <div key={label} className="rounded-2xl border border-green-900 bg-green-950/40 p-5"><p className="text-sm text-green-100">{label}</p><p className="mt-3 break-words text-2xl font-black">{value}</p></div>)}
         </div>
 
         <section className="space-y-4 rounded-2xl border border-zinc-800 bg-zinc-900 p-5" aria-label="Kwartalna kontrola limitu">
           <h3 className="text-xl font-bold">Kwartały {data.year} — wpłaty a limit działalności nierejestrowanej</h3>
           <p className="font-semibold text-amber-100">Prowizje nie pomniejszają przychodu liczonego do limitu.</p>
           <p className="leading-7 text-zinc-300">{data.limit_note}</p>
-          {environment === "production" && <div className="space-y-2 rounded-xl border border-amber-500/60 bg-amber-950/30 p-4" aria-label="Automatyczna blokada nowych wpłat">
+          {data.payment_guard && <div className="space-y-2 rounded-xl border border-amber-500/60 bg-amber-950/30 p-4" aria-label="Automatyczna blokada nowych wpłat">
             <h4 className="font-bold">Blokada nowych wpłat przy {data.payment_guard.percent}% limitu — {data.payment_guard.quarter}. kwartał {data.payment_guard.year}</h4>
             <p className="font-bold text-amber-100">{data.payment_guard.blocked ? "Nowe wpłaty zablokowane — komunikat o pracach serwisowych." : "Próg blokady nie został osiągnięty."}</p>
             <p>Próg: {data.payment_guard.stop_at === null ? "Nie ustalono — nowe wpłaty zablokowane" : formatMoney(data.payment_guard.stop_at)} · Wpłaty: {formatMoney(data.payment_guard.received)} · Zarezerwowane w rozpoczętych zamówieniach: {formatMoney(data.payment_guard.reserved)}</p>
@@ -146,7 +143,7 @@ export default function PaymentsPanel() {
           <div className="grid gap-4 md:grid-cols-2">{data.quarters.map((item) => {
             const warning = ["warning", "reached", "exceeded"].includes(item.status);
             return <article key={item.quarter} aria-label={`Kwartał ${item.quarter}`} className={`min-w-0 space-y-3 rounded-xl border p-4 ${warning ? "border-amber-500 bg-amber-950/30" : "border-zinc-700"}`}>
-              <h4 className="text-lg font-bold">{item.quarter}. kwartał {data.year}{data.year === currentYear && item.quarter === currentQuarter ? " — bieżący" : ""}{environment === "sandbox" ? " (testowy)" : ""}</h4>
+              <h4 className="text-lg font-bold">{item.quarter}. kwartał {data.year}{data.year === currentYear && item.quarter === currentQuarter ? " — bieżący" : ""}</h4>
               <p>Pełne wpłaty: <strong className="text-emerald-200">{formatMoney(item.amount)}</strong></p>
               <p className="text-sm text-zinc-300">Prowizje: ~{formatMoney(item.estimated_fee)} · Po prowizjach: ~{formatMoney(item.estimated_net)}</p>
               {item.limit !== null && item.remaining !== null && item.used_percent !== null ? <>
@@ -167,8 +164,8 @@ export default function PaymentsPanel() {
           <p className="mt-3 leading-7 text-amber-100">{data.fee_note}</p>
           <p className="mt-2 text-sm text-zinc-400">Eksport zawiera cały wybrany rok, niezależnie od wyszukiwania i filtra miesiąca. Daty rozliczane są w czasie polskim. Excel zawiera podsumowanie, miesiące, kwartały i pełną listę wpłat.</p>
           <div className="mt-4 flex flex-wrap gap-3">
-            <button type="button" className={buttonClass} disabled={!!exporting || environment !== "production"} onClick={() => void exportReport("xlsx")}>{exporting === "xlsx" ? "Generowanie…" : "Pobierz raport roczny Excel"}</button>
-            <button type="button" className={buttonClass} disabled={!!exporting || environment !== "production"} onClick={() => void exportReport("csv")}>{exporting === "csv" ? "Generowanie…" : "Pobierz listę roczną CSV"}</button>
+            <button type="button" className={buttonClass} disabled={!!exporting} onClick={() => void exportReport("xlsx")}>{exporting === "xlsx" ? "Generowanie…" : "Pobierz raport roczny Excel"}</button>
+            <button type="button" className={buttonClass} disabled={!!exporting} onClick={() => void exportReport("csv")}>{exporting === "csv" ? "Generowanie…" : "Pobierz listę roczną CSV"}</button>
           </div>
           <a className="mt-4 inline-block text-emerald-200 underline" href={data.tax_source_url} target="_blank" rel="noopener noreferrer">Zasady rozliczenia działalności nierejestrowanej — Ministerstwo Finansów</a>
         </section>

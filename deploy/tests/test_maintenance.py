@@ -225,17 +225,16 @@ class NginxTests(unittest.TestCase):
             code, _, _ = request("/api/me", headers={"X-Forwarded-For": "192.0.2.1", "X-Real-IP": "127.0.0.1", "Forwarded": "for=192.0.2.1"})
             self.assertEqual(code, 503)
 
-    def test_only_exact_autopay_post_routes_are_exempt(self):
+    def test_only_production_autopay_post_is_exempt(self):
         with self.site() as request:
-            for environment in ("", "sandbox/", "production/"):
-                path = f"/api/premium/autopay/{environment}itn"
-                code, _, body = request(path + "?environment=sandbox", "POST")
-                self.assertEqual(code, 200)
-                self.assertEqual(json.loads(body)["method"], "POST")
-                self.assertEqual(json.loads(body)["path"], path.removeprefix("/api") + "?environment=sandbox")
-                self.assertEqual(request(path)[0], 503)
-                self.assertEqual(request(path + "/extra", "POST")[0], 503)
-            self.assertEqual(request("/api/premium/autopay/fake/itn", "POST")[0], 503)
+            path = "/api/premium/autopay/production/itn"
+            code, _, body = request(path, "POST")
+            self.assertEqual(code, 200)
+            self.assertEqual(json.loads(body)["method"], "POST")
+            self.assertEqual(json.loads(body)["path"], path.removeprefix("/api"))
+            self.assertEqual(request(path)[0], 503)
+            for removed in ("/api/premium/autopay/itn", "/api/premium/autopay/sandbox/itn", path + "/extra", "/api/premium/autopay/fake/itn"):
+                self.assertEqual(request(removed, "POST")[0], 503)
 
     def test_recovery_assets_work_without_upstreams_and_do_not_leak_ips(self):
         with self.site(allowed_ips=["192.0.2.1"]) as request:

@@ -275,7 +275,6 @@ class PremiumOrder(Base):
     cancel_message_id = Column(String(32), nullable=True)
     last_status_check_at = Column(String, nullable=True)
     contract_snapshot = Column(Text, nullable=True)
-    fulfillment_preview = Column(Text, nullable=True)
     request_id = Column(String(36), nullable=True, unique=True)
     refunded_at = Column(String, nullable=True)
 

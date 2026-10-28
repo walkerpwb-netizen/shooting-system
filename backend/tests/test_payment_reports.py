@@ -83,12 +83,12 @@ class PaymentReportsTests(unittest.TestCase):
     def test_exact_sums_and_environment_separation(self):
         self.receipt("0.10", "one")
         self.receipt("0.20", "two")
-        self.receipt("999.99", "sandbox", environment="sandbox")
+        self.receipt("999.99", "retired", environment="retired")
         overview = payment_overview(self.db, 2026, "production")
         self.assertEqual(overview["annual"], {"count": 2, "amount": "0.30", "estimated_fee": "0.68", "estimated_net": "-0.38"})
         self.assertEqual(overview["lifetime"], overview["annual"])
         self.assertEqual(overview["months"][9]["amount"], "0.30")
-        self.assertEqual(payment_overview(self.db, 2026, "sandbox")["annual"]["amount"], "999.99")
+        self.assertEqual(payment_overview(self.db, 2026, "retired")["annual"]["amount"], "999.99")
 
     def test_payment_year_uses_provider_date_in_poland_not_notification_arrival(self):
         december = self.receipt("10.00", "dec", paid="20251231235959")
@@ -100,22 +100,22 @@ class PaymentReportsTests(unittest.TestCase):
         self.assertEqual(payment_overview(self.db, 2026, "production")["annual"]["amount"], "20.00")
 
     def test_duplicate_notification_counts_once_but_two_payments_for_one_order_count_twice(self):
-        order = self.order(environment="sandbox")
+        order = self.order(environment="production")
         for _ in range(3):
             self.itn(order)
         self.assertEqual(self.db.query(AutopayReceipt).count(), 1)
         self.itn(order, remote="remote2")
         self.assertEqual(self.db.query(AutopayReceipt).count(), 2)
-        self.assertEqual(payment_overview(self.db, 2026, "sandbox")["annual"]["amount"], "20.00")
+        self.assertEqual(payment_overview(self.db, 2026, "production")["annual"]["amount"], "20.00")
         self.assertEqual(order.status, "paid")
-        self.assertIsNone(self.user.premium_organizer_paid_until)
+        self.assertIsNotNone(self.user.premium_organizer_paid_until)
 
     def test_pending_failure_bad_hash_and_unknown_order_do_not_create_receipts(self):
-        order = self.order(environment="sandbox")
+        order = self.order(environment="production")
         self.itn(order, status="PENDING")
         self.itn(order, status="FAILURE")
         self.assertEqual(fromstring(self.itn(order, tamper=True)).findtext(".//confirmation"), "NOTCONFIRMED")
-        unknown = self.order(environment="sandbox")
+        unknown = self.order(environment="production")
         self.db.delete(unknown)
         self.db.commit()
         reply = self.itn(unknown, remote="unknown")
@@ -171,7 +171,7 @@ class PaymentReportsTests(unittest.TestCase):
         self.db.commit()
         self.receipt("10.10", "one")
         self.receipt("20.20", "two")
-        self.receipt("999.99", "test", environment="sandbox")
+        self.receipt("999.99", "test", environment="retired")
         query = year_query(receipt_query(self.db, "production"), 2026)
         entries = query.order_by(AutopayReceipt.id).all()
         workbook = load_workbook(BytesIO(build_payments_workbook(entries, 2026, monthly_totals(query), {"name": "Piotr Bronny"})))
@@ -227,9 +227,9 @@ class PaymentReportsTests(unittest.TestCase):
         body = b"".join(item.get("body", b"") for item in result if item["type"] == "http.response.body")
         return start["status"], dict(start["headers"]), body
 
-    def test_http_routes_require_admin_and_export_excludes_sandbox(self):
+    def test_http_routes_require_admin_and_export_excludes_retired(self):
         self.receipt("12.34", "real")
-        self.receipt("99.99", "test", environment="sandbox")
+        self.receipt("99.99", "test", environment="retired")
         for path in ("/admin/payments?year=2026", "/admin/payments/report?year=2026&format=csv"):
             self.assertEqual(self.request(path)[0], 401)
             self.assertEqual(self.request(path, "organizer")[0], 403)
@@ -242,7 +242,7 @@ class PaymentReportsTests(unittest.TestCase):
         self.assertEqual(code, 200)
         self.assertIn(b"autopay-wplaty-2026.xlsx", headers[b"content-disposition"])
         self.assertEqual(load_workbook(BytesIO(body))["Podsumowanie"]["B7"].value, 12.34)
-        self.assertEqual(self.request("/admin/payments/report?year=2026&environment=sandbox", "admin")[0], 422)
+        self.assertEqual(self.request("/admin/payments/report?year=2026&environment=retired", "admin")[0], 422)
 
     def test_http_rejects_invalid_filters(self):
         for query in ("year=0", "month=13", "environment=all", "page=0", "page_size=10000"):
@@ -274,7 +274,7 @@ class PaymentReportsTests(unittest.TestCase):
         self.receipt("10813.50", "q2", paid="20260401000000")  # equal, not exceeded
         self.receipt("10813.51", "q3", paid="20260930235959")  # exceeded by a grosz
         self.receipt("100.00", "q4", paid="20261001000000")
-        self.receipt("99999.00", "testonly", environment="sandbox")
+        self.receipt("99999.00", "testonly", environment="retired")
         self.receipt("90000.00", "previous", paid="20251231235959")
         result = payment_overview(self.db, 2026, "production", month=10, search="q4", page_size=1)
         q1, q2, q3, q4 = result["quarters"]
@@ -304,7 +304,7 @@ class PaymentReportsTests(unittest.TestCase):
     def test_exports_include_fees_net_and_gross_quarterly_margin(self):
         self.receipt("100.00", "one", paid="20260101120000")
         self.receipt("500.00", "two", paid="20260401120000")
-        self.receipt("999.99", "excluded", environment="sandbox")
+        self.receipt("999.99", "excluded", environment="retired")
         code, _, body = self.request("/admin/payments/report?year=2026", "admin")
         self.assertEqual(code, 200)
         workbook = load_workbook(BytesIO(body))
@@ -326,7 +326,7 @@ class PaymentReportsTests(unittest.TestCase):
     def test_payment_brake_uses_gross_and_checks_prospective_amount_to_a_grosz(self):
         now = datetime(2026, 10, 25, tzinfo=timezone.utc)
         self.receipt("10272.81", "brake")
-        self.receipt("99999.00", "test", environment="sandbox")
+        self.receipt("99999.00", "test", environment="retired")
         state = payment_limit_state(self.db, now)
         self.assertEqual(state["stop_at"], "10272.83")
         self.assertEqual(state["remaining"], "0.01")
@@ -347,7 +347,7 @@ class PaymentReportsTests(unittest.TestCase):
         pending.created_at = "2026-09-30T12:00:00Z"  # still payable in the next quarter
         pending.status = "failed"  # a failed attempt does not prove the gateway link was cancelled
         self.db.commit()
-        self.order("99999.00", environment="sandbox")
+        self.order("99999.00", environment="retired")
         state = payment_limit_state(self.db, now)
         self.assertEqual(state["reserved"], "200.00")
         self.assertEqual(state["remaining"], "72.82")
@@ -393,7 +393,7 @@ class PostgresPaymentReportsTests(PaymentReportsTests):
         self.admin_engine.dispose()
 
     def concurrent_itns(self, remote_ids):
-        order = self.order(environment="sandbox")
+        order = self.order(environment="production")
         order_id = order.id
         barrier = Barrier(len(remote_ids))
         sessions = sessionmaker(bind=self.engine, autoflush=False)
@@ -420,12 +420,12 @@ class PostgresPaymentReportsTests(PaymentReportsTests):
     def test_concurrent_repeated_itn_is_counted_once(self):
         self.concurrent_itns(["same"] * 4)
         self.assertEqual(self.db.query(AutopayReceipt).count(), 1)
-        self.assertEqual(payment_overview(self.db, 2026, "sandbox")["annual"]["amount"], "10.00")
+        self.assertEqual(payment_overview(self.db, 2026, "production")["annual"]["amount"], "10.00")
 
     def test_concurrent_different_transactions_for_one_order_are_all_counted(self):
         self.concurrent_itns(["parallel1", "parallel2", "parallel3", "parallel4"])
         self.assertEqual(self.db.query(AutopayReceipt).count(), 4)
-        self.assertEqual(payment_overview(self.db, 2026, "sandbox")["annual"]["amount"], "40.00")
+        self.assertEqual(payment_overview(self.db, 2026, "production")["annual"]["amount"], "40.00")
 
     def test_concurrent_new_orders_cannot_both_consume_the_same_capacity(self):
         self.receipt("10200.00", "alreadyPaid")

@@ -57,7 +57,6 @@ def add_premium_period(start, period):
 def apply_paid_premium_order(order, db):
     """Apply a verified production order in its caller's transaction.
 
-    Sandbox notifications can never change real account entitlements.
     The production ITN adapter authenticates and validates the payment first.
     """
     if order.environment != "production" or order.status != "paid" or order.refunded_at:

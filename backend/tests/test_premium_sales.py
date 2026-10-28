@@ -7,7 +7,7 @@ from xml.etree.ElementTree import fromstring, tostring
 from fastapi import HTTPException
 from models import AutopayReceipt, PremiumMailOutbox, PremiumOrder
 from premium_contract import make_quote
-from premium_payments import create_production_order, process_itn, seller_details, sandbox_config, payment_hash
+from premium_payments import create_production_order, process_itn, seller_details, production_config, payment_hash
 from autopay_config import ConfigurationData, read_configuration, save_configuration
 from test_premium_payments import PremiumPaymentTests
 
@@ -22,7 +22,7 @@ class PremiumSalesTests(unittest.TestCase):
         self.db.autoflush = False
         self.admin.role, self.admin.roles = 'shooter', 'user,shooter'
         self.db.commit()
-        self.config = {**sandbox_config(), 'ready': True, 'environment': 'production', 'gateway': 'https://pay.autopay.eu/payment'}
+        self.config = {**production_config(), 'ready': True, 'environment': 'production', 'gateway': 'https://pay.autopay.eu/payment'}
         ready = patch('premium_payments.production_config', return_value=self.config)
         ready.start(); self.addCleanup(ready.stop)
 
@@ -33,7 +33,7 @@ class PremiumSalesTests(unittest.TestCase):
         return data.model_copy(update={'quote_token': q['quote_token']}), q
 
     def buy(self, data):
-        return create_production_order(data, self.admin, self.db, lambda db: self.prices, lambda user: user.role == 'admin')
+        return create_production_order(data, self.admin, self.db, lambda db: self.prices)
 
     def test_existing_free_access_is_preserved_and_shooter_can_buy_extension_now(self):
         self.enable(); old = self.admin.premium_until
@@ -79,10 +79,10 @@ class PremiumSalesTests(unittest.TestCase):
         process_itn(self.notification(first),self.db,self.config)
         self.assertEqual(self.db.get(PremiumOrder,first).service_ends_at, first_end)
 
-    def test_sandbox_quote_cannot_be_used_for_real_payment_and_http_checkout_allows_shooter(self):
+    def test_unknown_environment_cannot_issue_quotes_and_http_checkout_allows_shooter(self):
         self.enable()
-        q = make_quote(self.admin, 'shooter', 'monthly', '12.34', False, None, seller_details())
-        with self.assertRaises(HTTPException):self.buy(self.data.model_copy(update={'quote_token': q['quote_token']}))
+        with self.assertRaises(HTTPException):
+            make_quote(self.admin, 'shooter', 'monthly', '12.34', False, None, seller_details(), environment='unsupported')
         data, q = self.quoted()
         status, body = self.request('POST', '/premium/checkout', data.model_dump_json().encode(), authorized=True)
         self.assertEqual(status, 200, body); self.assertEqual(json.loads(body)['environment'], 'production')
@@ -100,7 +100,7 @@ class PremiumSalesTests(unittest.TestCase):
         from types import SimpleNamespace
         value=read_configuration()
         payload={'revision':0,'mode':'production','production_callbacks_configured':True,'merchant_model_confirmed':True,
-                 **{n:{**value[n], 'shared_key':'synthetic-'+n,'service_id':'12345' if n=='sandbox' else '67890'} for n in ['sandbox','production']}}
+                 **{n:{**value[n], 'shared_key':'synthetic-'+n,'service_id':'67890'} for n in ['production']}}
         admin=SimpleNamespace(email='admin@example.test')
         with patch('mailer.is_mail_configured', return_value=False):
             with self.assertRaises(HTTPException):save_configuration(ConfigurationData.model_validate(payload),admin)

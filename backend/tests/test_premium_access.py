@@ -91,8 +91,8 @@ class PremiumAccessTests(unittest.TestCase):
         self.assertFalse(main.has_active_premium(self.user))
         self.assertFalse(main.has_active_organizer_premium(self.user))
 
-    def test_sandbox_pending_and_failed_orders_never_grant_real_entitlements(self):
-        for environment, status in (("sandbox", "paid"), ("production", "pending"), ("production", "failed")):
+    def test_unknown_environment_pending_and_failed_orders_never_grant_entitlements(self):
+        for environment, status in (("retired", "paid"), ("production", "pending"), ("production", "failed")):
             with self.subTest(environment=environment, status=status):
                 order = self.order(environment=environment, status=status)
                 self.assertFalse(self.apply(order))

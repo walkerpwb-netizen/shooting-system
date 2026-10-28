@@ -8,14 +8,14 @@ from xml.etree.ElementTree import fromstring, tostring
 from fastapi import HTTPException
 from sqlalchemy.orm import sessionmaker
 
-from autopay_api import cancel_unpaid_order, post_xml, refresh_order, test_connection
+from autopay_api import cancel_unpaid_order, post_xml, refresh_order, check_connection
 from autopay_protocol import parse_payment_date
 from models import AutopayReceipt, Competition, PremiumMailOutbox, PremiumNotification, PremiumOrder, PremiumRefund
 from payment_limits import payment_limit_state
 from premium_access import apply_paid_premium_order, has_paid_publication
 from premium_contract import TERMS_VERSION, contract_snapshot, make_quote, terms_sections
 from premium_mail import deliver_pending_confirmations, queue_confirmation
-from premium_payments import CheckoutData, create_sandbox_order, payment_hash, process_itn, sandbox_config, seller_details
+from premium_payments import CheckoutData, create_production_order, payment_hash, process_itn, production_config, seller_details
 from premium_refunds import refresh_refund, request_refund
 from test_premium_payments import PremiumPaymentTests
 
@@ -34,11 +34,11 @@ class AutopayCompletionTests(unittest.TestCase):
         return data.model_copy(update={"quote_token": q["quote_token"]}), q
 
     def pay(self, order_id):
-        process_itn(self.notification(order_id), self.db, sandbox_config())
+        process_itn(self.notification(order_id), self.db, production_config())
         return self.db.get(PremiumOrder, order_id)
 
     def production_config(self):
-        return {**sandbox_config(), "environment": "production", "gateway": "https://pay.autopay.eu/payment"}
+        return {**production_config(), "environment": "production", "gateway": "https://pay.autopay.eu/payment"}
 
     def test_quote_cannot_be_tampered_reused_by_another_user_or_used_after_expiry(self):
         data, q = self.quoted(early_start_requested=True)
@@ -67,16 +67,16 @@ class AutopayCompletionTests(unittest.TestCase):
         self.assertEqual(first['order_id'], again['order_id'])
         self.assertEqual(self.db.query(PremiumOrder).count(), 1)
         self.assertEqual(first['fields']['ValidityTime'], first['fields']['LinkValidityTime'])
-        self.assertEqual(first['fields']['Hash'], payment_hash([v for k, v in first['fields'].items() if k != 'Hash'], sandbox_config()))
+        self.assertEqual(first['fields']['Hash'], payment_hash([v for k, v in first['fields'].items() if k != 'Hash'], production_config()))
         order = self.db.get(PremiumOrder, first['order_id'])
         self.assertGreaterEqual(datetime.fromisoformat(order.service_starts_at), datetime.fromisoformat(q['issued_at']) + timedelta(days=14))
         self.assertEqual(json.loads(order.contract_snapshot)['terms_version'], TERMS_VERSION)
         self.assertEqual(json.loads(order.contract_snapshot)['terms'], terms_sections())
 
-    def test_single_publication_requires_own_draft_and_sandbox_never_grants_it(self):
+    def test_single_publication_requires_own_draft_and_waits_for_start_and_mail(self):
         data = self.data.model_copy(update={'package': 'organizer', 'period': 'monthly'})
         with self.assertRaises(HTTPException):
-            create_sandbox_order(data, self.admin, self.db, lambda db: self.prices, lambda user: True)
+            create_production_order(data, self.admin, self.db, lambda db: self.prices)
         foreign = Competition(name='Foreign', date='2026-11-30', location='Test', created_by='other@example.test', status='draft')
         self.db.add(foreign); self.db.commit()
         with self.assertRaises(HTTPException):
@@ -86,9 +86,7 @@ class AutopayCompletionTests(unittest.TestCase):
         self.assertEqual(order.competition_id, self.event.id)
         self.assertIsNone(order.publication_granted_at)
         self.assertFalse(has_paid_publication(self.admin, self.event, self.db))
-        preview = json.loads(order.fulfillment_preview)
-        self.assertEqual(preview['competition_id'], self.event.id)
-        self.assertFalse(preview['real_access_granted'])
+        self.assertEqual(json.loads(order.contract_snapshot)['event']['id'], self.event.id)
 
     def test_early_start_choice_is_explicit_and_preserved_in_contract(self):
         self.admin.premium_until = None
@@ -107,7 +105,7 @@ class AutopayCompletionTests(unittest.TestCase):
 
     def test_signed_return_is_required_when_return_parameters_are_present_and_never_marks_paid(self):
         order_id = self.checkout()['order_id']
-        config = sandbox_config()
+        config = production_config()
         data = {'service_id': config['service'], 'hash': payment_hash([config['service'], order_id], config)}
         code, body = self.request('POST', f'/premium/orders/{order_id}/verify-return', json.dumps(data).encode(), authorized=True)
         self.assertEqual(code, 200)
@@ -123,11 +121,11 @@ class AutopayCompletionTests(unittest.TestCase):
         xml = self.notification(order_id).replace(b'SUCCESS', b'FAILURE')
         from urllib.parse import urlencode
         encoded = urlencode({'transactions': base64.b64encode(xml).decode()}).encode()
-        code, body = self.request('POST', '/premium/autopay/sandbox/itn', encoded, 'application/x-www-form-urlencoded')
+        code, body = self.request('POST', '/premium/autopay/production/itn', encoded, 'application/x-www-form-urlencoded')
         self.assertEqual(code, 200)
         reply = fromstring(body)
         self.assertEqual(reply.findtext('.//confirmation'), 'NOTCONFIRMED')
-        self.assertEqual(reply.findtext('hash'), payment_hash(['12345', order_id, 'NOTCONFIRMED'], sandbox_config()))
+        self.assertEqual(reply.findtext('hash'), payment_hash(['12345', order_id, 'NOTCONFIRMED'], production_config()))
         self.assertEqual(self.db.query(PremiumNotification).count(), 0)
         self.assertEqual(self.db.query(AutopayReceipt).count(), 0)
 
@@ -138,12 +136,12 @@ class AutopayCompletionTests(unittest.TestCase):
         second.find('remoteID').text = 'remote456'
         root.find('transactions').append(second)
         values = ['12345'] + [node.text for tx in root.find('transactions') for node in tx]
-        root.find('hash').text = payment_hash(values, sandbox_config())
+        root.find('hash').text = payment_hash(values, production_config())
         xml = tostring(root)
         with self.assertRaises(HTTPException):
-            process_itn(xml, self.db, sandbox_config())
-        process_itn(xml, self.db, sandbox_config(), allow_batch=True)
-        process_itn(xml, self.db, sandbox_config(), allow_batch=True)
+            process_itn(xml, self.db, production_config())
+        process_itn(xml, self.db, production_config(), allow_batch=True)
+        process_itn(xml, self.db, production_config(), allow_batch=True)
         self.assertEqual(self.db.query(AutopayReceipt).count(), 2)
         self.assertEqual(self.db.query(PremiumNotification).count(), 2)
         self.assertEqual([r.deliveries for r in self.db.query(PremiumNotification).all()], [2, 2])
@@ -154,8 +152,8 @@ class AutopayCompletionTests(unittest.TestCase):
         order = self.db.get(PremiumOrder, self.checkout()['order_id'])
         xml = self.notification(order.id).replace(b'20261025200000', b'20260331233000')
         root = fromstring(xml)
-        root.find('hash').text = payment_hash(['12345'] + [n.text for n in root.find('.//transaction')], sandbox_config())
-        process_itn(tostring(root), self.db, sandbox_config())
+        root.find('hash').text = payment_hash(['12345'] + [n.text for n in root.find('.//transaction')], production_config())
+        process_itn(tostring(root), self.db, production_config())
         receipt = self.db.query(AutopayReceipt).one()
         self.assertEqual(receipt.paid_on.isoformat(), '2026-04-01')
         self.assertEqual(receipt.provider_payment_date, '20260331233000')
@@ -164,14 +162,14 @@ class AutopayCompletionTests(unittest.TestCase):
         order = self.db.get(PremiumOrder, self.checkout()['order_id'])
         with patch('autopay_api.post_xml', return_value=self.notification(order.id).replace(b'SUCCESS', b'FAILURE')):
             with self.assertRaises(HTTPException):
-                refresh_order(order, self.db, sandbox_config())
+                refresh_order(order, self.db, production_config())
         self.assertEqual(order.status, 'pending')
         order.last_status_check_at = None; self.db.commit()
         with patch('autopay_api.post_xml', return_value=self.notification(order.id)):
-            refresh_order(order, self.db, sandbox_config())
+            refresh_order(order, self.db, production_config())
         self.assertEqual(order.status, 'paid')
         with self.assertRaises(HTTPException) as error:
-            refresh_order(order, self.db, sandbox_config())
+            refresh_order(order, self.db, production_config())
         self.assertEqual(error.exception.status_code, 429)
 
     def test_verified_cancellation_releases_reservation_only_after_operator_confirms_all(self):
@@ -206,15 +204,15 @@ class AutopayCompletionTests(unittest.TestCase):
         self.assertEqual(payment_limit_state(self.db, datetime(2026,10,26,tzinfo=timezone.utc))['reserved'], '12.34')
 
     def test_mail_outbox_is_idempotent_and_delivery_failure_can_be_retried_without_real_email(self):
-        data, _ = self.quoted(test_email_requested=True)
+        data, _ = self.quoted()
         with patch('mailer.is_mail_configured', return_value=False):
             with self.assertRaises(HTTPException) as error:
                 self.checkout(data)
-            self.assertEqual(error.exception.status_code, 400)
+            self.assertEqual(error.exception.status_code, 503)
             self.assertEqual(self.db.query(PremiumOrder).count(), 0)
         with patch('mailer.is_mail_configured', return_value=True):
             order = self.pay(self.checkout(data)['order_id'])
-        process_itn(self.notification(order.id), self.db, sandbox_config())
+        process_itn(self.notification(order.id), self.db, production_config())
         self.assertEqual(self.db.query(PremiumMailOutbox).count(), 1)
         factory = sessionmaker(bind=self.engine)
         with patch('database.SessionLocal', factory), patch('mailer.send_email', side_effect=RuntimeError('secret-must-not-leak')):
@@ -223,7 +221,7 @@ class AutopayCompletionTests(unittest.TestCase):
         entry = self.db.query(PremiumMailOutbox).one()
         self.assertIsNone(entry.sent_at)
         self.assertNotIn('secret', entry.error)
-        self.assertIn('TEST SANDBOX', entry.body)
+        self.assertIn('Potwierdzenie zakupu Premium', entry.body)
         self.assertIn(terms_sections()[0]['paragraphs'][0], entry.body)
         with patch('database.SessionLocal', factory), patch('mailer.send_email') as send:
             deliver_pending_confirmations(order.id)
@@ -275,8 +273,8 @@ class AutopayCompletionTests(unittest.TestCase):
             return (f'<transactionRefund><serviceID>{config["service"]}</serviceID><messageID>{fields["MessageID"]}</messageID>'
                     f'<hash>{payment_hash([config["service"],fields["MessageID"]],config)}</hash></transactionRefund>').encode()
         with patch('premium_refunds.post_xml', side_effect=accepted):
-            request_refund(order, self.db, sandbox_config())
-            request_refund(order, self.db, sandbox_config())
+            request_refund(order, self.db, production_config())
+            request_refund(order, self.db, production_config())
         self.assertEqual(ids[0], ids[1])
         self.assertEqual(self.db.query(PremiumRefund).one().status, 'accepted')
         self.assertIsNone(order.refunded_at)
@@ -286,13 +284,13 @@ class AutopayCompletionTests(unittest.TestCase):
             result['hash'] = payment_hash(result.values(),config)
             return json.dumps(result).encode()
         with patch('premium_refunds.post_xml', side_effect=done):
-            refresh_refund(order, self.db, sandbox_config())
+            refresh_refund(order, self.db, production_config())
         self.assertEqual(self.db.query(PremiumRefund).one().status, 'done')
         self.assertTrue(order.refunded_at)
         self.assertEqual(self.db.query(AutopayReceipt).count(), 1)
         self.assertEqual(self.admin.premium_until, '2026-12-31T23:59:59+01:00')
 
-    def test_connection_test_does_not_start_payment_and_checks_response_identity(self):
+    def check_connection_test_does_not_start_payment_and_checks_response_identity(self):
         def gateway(config, path, fields, **kwargs):
             self.assertEqual(path, '/gatewayList/v3')
             self.assertTrue(kwargs['json_body'])
@@ -300,33 +298,33 @@ class AutopayCompletionTests(unittest.TestCase):
                       'gatewayList':[{'state':'OK'},{'state':'TEMPORARY_DISABLED'}]}
             return json.dumps(result).encode()
         with patch('autopay_api.post_xml', side_effect=gateway):
-            self.assertEqual(test_connection(sandbox_config())['available_channels'], 1)
+            self.assertEqual(check_connection(production_config())['available_channels'], 1)
         with patch('autopay_api.post_xml', return_value=b'{"result":"ERROR","errorStatus":"SERVICE_NOT_FOUND"}'):
             with self.assertRaises(HTTPException) as error:
-                test_connection(sandbox_config())
+                check_connection(production_config())
             self.assertIn('SERVICE_NOT_FOUND', error.exception.detail)
         self.assertEqual(self.db.query(PremiumOrder).count(), 0)
 
     def test_network_transport_has_fixed_host_timeout_header_and_never_sends_plain_key(self):
-        config = sandbox_config()
+        config = production_config()
         with patch('autopay_api.build_opener') as build:
             build.return_value.open.return_value.__enter__.return_value.read.return_value = b'<ok/>'
             result = post_xml(config, '/webapi/transactionStatus', {'ServiceID':config['service'],'Hash':'test-hash'})
             self.assertEqual(result, b'<ok/>')
             request = build.return_value.open.call_args.args[0]
-            self.assertEqual(request.full_url, 'https://testpay.autopay.eu/webapi/transactionStatus')
+            self.assertEqual(request.full_url, 'https://pay.autopay.eu/webapi/transactionStatus')
             self.assertEqual(request.get_header('Bmheader'), 'pay-bm')
             self.assertNotIn(config['key'].encode(),request.data)
             self.assertEqual(build.return_value.open.call_args.kwargs['timeout'],10)
         with self.assertRaises(HTTPException):
-            post_xml({**config,'gateway':'https://pay.autopay.eu/payment'}, '/webapi/transactionStatus', {})
+            post_xml({**config,'gateway':'https://invalid.example/payment'}, '/webapi/transactionStatus', {})
 
-    def test_production_callbacks_remain_unavailable_before_release(self):
-        from urllib.parse import urlencode
-        form = urlencode({'transactions':base64.b64encode(b'<anything/>').decode()}).encode()
-        code, _ = self.request('POST','/premium/autopay/production/itn',form,'application/x-www-form-urlencoded')
-        self.assertEqual(code,503)
-        self.assertFalse(json.loads(self.request('GET','/premium/commerce')[1])['sales_enabled'])
+    def test_retired_callback_routes_are_not_available(self):
+        for path in ('/premium/autopay/itn', '/premium/autopay/sandbox/itn'):
+            self.assertEqual(self.request('POST',path,b'', 'application/x-www-form-urlencoded')[0],404)
+        form=b'transactions='
+        self.assertEqual(self.request('POST','/premium/autopay/production/itn',form,'application/x-www-form-urlencoded')[0],400)
+        self.assertTrue(json.loads(self.request('GET','/premium/commerce')[1])['sales_enabled'])
 
 
 del PremiumPaymentTests

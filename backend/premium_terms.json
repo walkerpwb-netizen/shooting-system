@@ -20,7 +20,7 @@
     "paragraphs": [
       "Płatności obsługuje Autopay S.A. z siedzibą w Sopocie. Dostępne metody płatności są prezentowane w bramce operatora. Serwis nie przechowuje numerów kart ani danych logowania do banku.",
       "Samo wybranie oferty, logowanie lub wyświetlenie podsumowania nie powoduje obowiązku zapłaty. Obowiązek zapłaty potwierdza przycisk „Kupuję i płacę”. Jeżeli operator nie udostępnia metod płatności, zakup nie może zostać opłacony; brak zapłaty nie uruchamia usługi.",
-      "Testy sandbox są dostępne wyłącznie dla administratora. Nie pobierają rzeczywistych środków i nie aktywują Premium. Sam powrót z bramki nie potwierdza zapłaty; płatność potwierdzamy po weryfikacji podpisanego komunikatu operatora."
+      "Sam powrót z bramki nie potwierdza zapłaty; płatność potwierdzamy po weryfikacji podpisanego komunikatu operatora."
     ]
   },
   {

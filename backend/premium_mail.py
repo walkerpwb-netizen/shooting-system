@@ -11,12 +11,12 @@ def queue_confirmation(order, db):
     if not order.contract_snapshot:
         return
     snapshot = json.loads(order.contract_snapshot)
-    if order.environment == "sandbox" and not snapshot.get("test_email_requested"):
+    if order.environment != "production":
         return
     if db.query(PremiumMailOutbox.id).filter_by(order_id=order.id).first():
         return
     db.add(PremiumMailOutbox(order_id=order.id, recipient=snapshot["email"],
-        subject=("[TEST SANDBOX] " if order.environment == "sandbox" else "") + "Potwierdzenie Premium — System Strzelecki",
+        subject="Potwierdzenie Premium — System Strzelecki",
         body=contract_text(order), created_at=datetime.now(timezone.utc).isoformat(), attempts=0))
     db.flush()
 

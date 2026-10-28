@@ -19,9 +19,9 @@ class NoRedirect(HTTPRedirectHandler):
 
 
 def post_xml(config, path, fields, *, json_body=False):
-    expected_host = "testpay.autopay.eu" if config.get("environment", "sandbox") == "sandbox" else "pay.autopay.eu"
+    expected_host = "pay.autopay.eu"
     gateway = urlsplit(config["gateway"])
-    if gateway.scheme != "https" or gateway.netloc != expected_host:
+    if config.get("environment") != "production" or gateway.scheme != "https" or gateway.netloc != expected_host:
         raise HTTPException(503, "Nieprawidłowe środowisko Autopay.")
     request = Request(f"https://{expected_host}{path}", data=json.dumps(fields).encode() if json_body else urlencode(fields).encode("ascii"), method="POST",
                       headers={"Content-Type": "application/json" if json_body else "application/x-www-form-urlencoded", "BmHeader": "pay-bm"})
@@ -36,7 +36,7 @@ def post_xml(config, path, fields, *, json_body=False):
 
 
 def check_config(order, config):
-    if order.environment != config.get("environment", "sandbox") or order.service_id != config["service"]:
+    if order.environment != config.get("environment", "production") or order.service_id != config["service"]:
         raise HTTPException(409, "Dane Autopay zmieniły się od utworzenia zamówienia. Przywróć właściwą konfigurację tego środowiska.")
 
 
@@ -90,20 +90,18 @@ def cancel_unpaid_order(order, db, config):
         raise HTTPException(409, "Autopay nie potwierdził pełnego anulowania. Sprawdź status płatności; rezerwacja pozostaje zachowana.")
 
 
-def test_connection(config):
-    if config.get("environment") != "sandbox":
-        raise HTTPException(403, "Ten test łączy się wyłącznie ze środowiskiem sandbox.")
+def check_connection(config):
     fields = {"ServiceID": int(config["service"]), "MessageID": uuid4().hex, "Currencies": "PLN", "Language": "PL"}
     fields["Hash"] = payment_hash(fields.values(), config)
     try:
         result = json.loads(post_xml(config, "/gatewayList/v3", fields, json_body=True))
     except (ValueError, UnicodeError):
-        raise HTTPException(502, "Autopay nie zwrócił poprawnej odpowiedzi testowej.") from None
+        raise HTTPException(502, "Autopay nie zwrócił poprawnej odpowiedzi.") from None
     if isinstance(result, dict) and result.get("result") == "ERROR" and result.get("errorStatus") == "SERVICE_NOT_FOUND":
-        raise HTTPException(502, "Autopay sandbox: SERVICE_NOT_FOUND. Operator nie rozpoznaje tego ID w środowisku testowym. Poproś Autopay o aktywowanie serwisu na testpay.autopay.eu i dostęp do portalu testowego.")
+        raise HTTPException(502, "Autopay: SERVICE_NOT_FOUND. Operator nie rozpoznaje zapisanego ID serwisu. Sprawdź konfigurację w głównym portalu Autopay.")
     # gatewayList/v3 intentionally has no response Hash; TLS authenticates the fixed host.
     if (not isinstance(result, dict) or result.get("result") != "OK" or str(result.get("serviceID")) != config["service"]
             or result.get("messageID") != fields["MessageID"] or not isinstance(result.get("gatewayList", []), list)):
-        raise HTTPException(502, "Autopay nie potwierdził danych sandbox. Sprawdź ID, klucz, algorytm i aktywność testowego serwisu u operatora.")
-    return {"message": "Połączenie z sandboxem działa. Pełny test wymaga jeszcze płatności testowej i odebrania ITN.",
+        raise HTTPException(502, "Autopay nie potwierdził konfiguracji. Sprawdź ID, klucz, algorytm i aktywność serwisu u operatora.")
+    return {"message": "Połączenie z Autopay działa. Sprawdzenie nie rozpoczyna płatności ani nie potwierdza zaksięgowania wpłaty.",
             "available_channels": sum(1 for row in result.get("gatewayList", []) if isinstance(row, dict) and row.get("state") == "OK")}

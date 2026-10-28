@@ -21,7 +21,7 @@ from models import Competition, PremiumMailOutbox, PremiumNotification, PremiumO
 from premium_access import apply_paid_premium_order, included_premium_packages
 from payment_reports import record_autopay_receipt
 from payment_limits import acquire_payment_limit_lock, ensure_payment_capacity, payment_limit_state
-from autopay_config import read_configuration, sandbox_allowed, production_allowed, valid_environment
+from autopay_config import read_configuration, production_allowed, valid_environment
 from premium_contract import TERMS_VERSION, contract_snapshot, make_quote, terms_sections, verify_quote
 from premium_mail import deliver_pending_confirmations, queue_confirmation
 
@@ -38,19 +38,6 @@ def seller_details():
     return {**seller, "complete": all(seller[k] for k in ("name", "address", "email", "phone"))}
 
 
-def sandbox_config():
-    # Stored production credentials are preparation only, never used by this adapter.
-    try:
-        value = read_configuration()
-        section = value["sandbox"]
-        ready = value["mode"] == "sandbox" and sandbox_allowed(value)
-        return {"ready": bool(ready), "service": section["service_id"], "key": section["shared_key"],
-                "gateway": section["gateway_url"], "algorithm": section["algorithm"], "environment": "sandbox",
-                "provider_timezone": value.get("provider_timezone", "CET"), "validity_minutes": value.get("validity_minutes", 15)}
-    except HTTPException:
-        return {"ready": False, "service": "", "key": "", "gateway": "", "algorithm": "sha256"}
-
-
 def production_config():
     try:
         value = read_configuration()
@@ -63,13 +50,12 @@ def production_config():
         return {"ready": False}
 
 
-def notification_config(environment):
+def notification_config():
+    environment = "production"
     value = read_configuration()
     section = value[environment]
     if not valid_environment(environment, section):
         raise HTTPException(503, "Brak kompletnych danych tego środowiska Autopay.")
-    if environment == "sandbox" and not sandbox_allowed(value):
-        raise HTTPException(503, "Potwierdź u operatora dane środowiska testowego.")
     return {"service": section["service_id"], "key": section["shared_key"], "gateway": section["gateway_url"],
             "algorithm": section["algorithm"], "environment": environment,
             "provider_timezone": value.get("provider_timezone", "CET")}
@@ -87,7 +73,6 @@ class CheckoutData(BaseModel):
     early_start_requested: bool = False
     competition_id: int | None = Field(default=None, gt=0)
     quote_token: str | None = Field(default=None, max_length=6000)
-    test_email_requested: bool = False
 
 
 def checkout_event(data, user, db):
@@ -120,34 +105,20 @@ def current_amount(data, db, get_prices):
     return package, amount_text
 
 
-def create_sandbox_order(data, user, db, get_prices, is_admin):
-    return create_order(data, user, db, get_prices, is_admin, sandbox_config())
-
-
-def create_production_order(data, user, db, get_prices, is_admin):
-    return create_order(data, user, db, get_prices, is_admin, production_config())
-
-
-def create_order(data, user, db, get_prices, is_admin, config):
+def create_production_order(data, user, db, get_prices):
+    config = production_config()
     if not config["ready"]:
         raise HTTPException(503, "Płatności są chwilowo niedostępne. Spróbuj ponownie później.")
     environment = config["environment"]
     if not user.is_active:
         raise HTTPException(403, "Aktywuj konto przed zakupem Premium.")
-    if environment == "sandbox" and not is_admin(user):
-        raise HTTPException(403, "Testy Autopay są dostępne wyłącznie dla aktywnego administratora.")
-    if environment == "production" and not data.quote_token:
+    if not data.quote_token:
         raise HTTPException(400, "Odśwież podsumowanie i zaakceptuj aktualne warunki zakupu.")
     if not data.terms_accepted or data.terms_version != TERMS_VERSION:
         raise HTTPException(400, "Zaakceptuj aktualny Regulamin Premium.")
     package, amount_text = current_amount(data, db, get_prices)
     event = checkout_event(data, user, db)
-    if data.test_email_requested:
-        from mailer import is_mail_configured
-        if not is_mail_configured():
-            raise HTTPException(400, "Poczta systemowa nie jest gotowa do testu potwierdzenia e-mail.")
-    quote = verify_quote(data.quote_token, data, user, amount_text, environment=environment) if data.quote_token else make_quote(
-        user, data.package, data.period, amount_text, data.early_start_requested, data.competition_id, seller_details(), environment=environment)
+    quote = verify_quote(data.quote_token, data, user, amount_text)
     acquire_payment_limit_lock(db)
     existing = db.query(PremiumOrder).filter_by(request_id=quote["id"]).first()
     if existing:
@@ -166,7 +137,7 @@ def create_order(data, user, db, get_prices, is_admin, config):
         competition_id=data.competition_id, early_start_requested=int(data.early_start_requested),
         request_id=quote["id"], service_starts_at=quote["service_starts_at"], service_ends_at=quote["service_ends_at"],
         gateway_valid_until=valid_until.isoformat(),
-        contract_snapshot=contract_snapshot(quote, user, package, event, test_email_requested=data.test_email_requested),
+        contract_snapshot=contract_snapshot(quote, user, package, event),
         offer_snapshot=json.dumps({
             **package,
             "included_packages": included_premium_packages(data.package, data.period),
@@ -187,6 +158,8 @@ def gateway_response(order, user, config):
 
 
 def process_itn(xml, db, config, *, allow_batch=False):
+    if config.get("environment", "production") != "production":
+        raise HTTPException(503, "Nieobsługiwana konfiguracja płatności.")
     service, transactions, authentic = parse_transactions(xml, config, allow_batch=allow_batch)
     if not authentic:
         return confirmation_xml(service, [(tx.findtext("orderID"), "NOTCONFIRMED") for tx in transactions], config)
@@ -196,7 +169,7 @@ def process_itn(xml, db, config, *, allow_batch=False):
         order_id = transaction.findtext("orderID")
         order = db.query(PremiumOrder).filter_by(id=order_id).populate_existing().with_for_update().first()
         status = transaction.findtext("paymentStatus")
-        valid = bool(order and order.environment == config.get("environment", "sandbox") and order.service_id == service
+        valid = bool(order and order.environment == config.get("environment", "production") and order.service_id == service
                      and order.amount == transaction.findtext("amount") and order.currency == transaction.findtext("currency")
                      and status in ("SUCCESS", "PENDING", "FAILURE"))
         first_success = valid and status == "SUCCESS" and order.status != "paid"
@@ -226,21 +199,18 @@ def process_itn(xml, db, config, *, allow_batch=False):
                 if not order.entitlements_applied_at:
                     order.service_starts_at = start.isoformat()
                     order.service_ends_at = None if order.package == "organizer" and order.period == "monthly" else add_premium_period(start, order.period).isoformat()
-                order.fulfillment_preview = json.dumps({"included_packages": included_premium_packages(order.package, order.period),
-                    "competition_id": order.competition_id, "starts_at": order.service_starts_at, "ends_at": order.service_ends_at,
-                    "real_access_granted": False if order.environment == "sandbox" else bool(order.entitlements_applied_at)}, ensure_ascii=False)
                 queue_confirmation(order, db)
             apply_paid_premium_order(order, db)
         db.flush()
         result = "CONFIRMED" if valid else "NOTCONFIRMED"
-        digest = hashlib.sha256(f"{config.get('environment', 'sandbox')}|{order_id}|{transaction.findtext('remoteID')}|".encode() + xml).hexdigest()
+        digest = hashlib.sha256(f"{config.get('environment', 'production')}|{order_id}|{transaction.findtext('remoteID')}|".encode() + xml).hexdigest()
         log = db.query(PremiumNotification).filter_by(digest=digest).first()
         stamp = datetime.now(timezone.utc).isoformat()
         if log:
             log.last_seen_at = stamp
             log.deliveries += 1
         else:
-            db.add(PremiumNotification(digest=digest, environment=config.get("environment", "sandbox"), service_id=service,
+            db.add(PremiumNotification(digest=digest, environment=config.get("environment", "production"), service_id=service,
                 order_reference=order_id, remote_id=transaction.findtext("remoteID"), payment_status=status,
                 confirmation=result, first_seen_at=stamp, last_seen_at=stamp, deliveries=1))
         confirmations.append((order_id, result))
@@ -269,27 +239,25 @@ def build_premium_router(get_db, get_current_user, get_prices, is_admin):
         _, amount = current_amount(data, db, get_prices)
         checkout_event(data, user, db)
         return make_quote(user, data.package, data.period, amount, data.early_start_requested, data.competition_id, seller_details(),
-                          environment="production" if production_config()["ready"] else "sandbox", db=db)
+                          db=db)
 
     @router.get("/commerce")
     def commerce(response: Response, db=Depends(get_db)):
         response.headers["Cache-Control"] = "no-store"
         availability = payment_limit_state(db)
         return {"sales_enabled": production_config()["ready"], "verification_status": "managed_by_operator",
-                "sandbox_ready": sandbox_config()["ready"], "seller": seller_details(),
+                "seller": seller_details(),
                 "terms_version": TERMS_VERSION,
                 "payments_temporarily_unavailable": availability["blocked"],
                 "payment_unavailable_message": availability["message"]}
 
     @router.post("/checkout")
     def checkout(data: CheckoutData, user=Depends(get_current_user), db=Depends(get_db)):
-        if production_config()["ready"]:
-            return create_production_order(data, user, db, get_prices, is_admin)
-        return create_sandbox_order(data, user, db, get_prices, is_admin)
+        return create_production_order(data, user, db, get_prices)
 
     @router.get("/orders/{order_id}")
     def order_status(order_id: str, user=Depends(get_current_user), db=Depends(get_db)):
-        order = db.query(PremiumOrder).filter_by(id=order_id, user_id=user.id).first()
+        order = db.query(PremiumOrder).filter_by(id=order_id, user_id=user.id, environment="production").first()
         if not order:
             raise HTTPException(404, "Nie znaleziono zamówienia.")
         from premium_refunds import refunds_status
@@ -299,61 +267,60 @@ def build_premium_router(get_db, get_current_user, get_prices, is_admin):
                 "entitlement_starts_at", "entitlement_ends_at", "competition_id", "service_starts_at", "service_ends_at",
                 "gateway_valid_until", "provider_closed_at", "refunded_at")},
             "included_packages": json.loads(order.offer_snapshot).get("included_packages", []),
-            "fulfillment_preview": json.loads(order.fulfillment_preview) if order.fulfillment_preview else None,
             "confirmation_email": email_status(order, db),
             "refunds": refunds_status(order, db),
         }
 
     @router.post("/orders/{order_id}/verify-return")
     def verify_return(order_id: str, data: ReturnData, user=Depends(get_current_user), db=Depends(get_db)):
-        order = db.query(PremiumOrder).filter_by(id=order_id, user_id=user.id).first()
+        order = db.query(PremiumOrder).filter_by(id=order_id, user_id=user.id, environment="production").first()
         if not order:
             raise HTTPException(404, "Nie znaleziono zamówienia.")
-        config = notification_config(order.environment)
+        config = notification_config()
         if data.service_id != order.service_id or not signature_matches(data.hash, [data.service_id, order.id], config):
             raise HTTPException(400, "Nieprawidłowy podpis powrotu z Autopay. Status płatności sprawdź na swoim koncie.")
         return {"verified": True}
 
     @router.post("/orders/{order_id}/check")
     def check_order(order_id: str, tasks: BackgroundTasks, user=Depends(get_current_user), db=Depends(get_db)):
-        order = owned_test_order(order_id, user, db, is_admin)
+        order = owned_order(order_id, user, db, is_admin)
         from autopay_api import refresh_order
-        refresh_order(order, db, notification_config(order.environment))
+        refresh_order(order, db, notification_config())
         schedule_confirmation(order.id, tasks, db)
         return order_status(order_id, user, db)
 
     @router.post("/orders/{order_id}/cancel")
     def cancel_order(order_id: str, user=Depends(get_current_user), db=Depends(get_db)):
-        order = owned_test_order(order_id, user, db, is_admin)
+        order = owned_order(order_id, user, db, is_admin)
         from autopay_api import cancel_unpaid_order
-        cancel_unpaid_order(order, db, notification_config(order.environment))
+        cancel_unpaid_order(order, db, notification_config())
         return order_status(order_id, user, db)
 
     @router.post("/orders/{order_id}/resend-confirmation")
     def resend_confirmation(order_id: str, tasks: BackgroundTasks, user=Depends(get_current_user), db=Depends(get_db)):
-        order = owned_test_order(order_id, user, db, is_admin)
+        order = owned_order(order_id, user, db, is_admin)
         schedule_confirmation(order.id, tasks, db)
         return {"message": "Zlecono ponowienie niewysłanego potwierdzenia."}
 
     @router.post("/orders/{order_id}/refund")
     def refund_order(order_id: str, user=Depends(get_current_user), db=Depends(get_db)):
-        order = owned_test_order(order_id, user, db, is_admin)
+        order = owned_order(order_id, user, db, is_admin)
         if not is_admin(user):
             raise HTTPException(403, "Zlecenie zwrotu wymaga administratora.")
         from premium_refunds import request_refund
-        request_refund(order, db, notification_config(order.environment))
+        request_refund(order, db, notification_config())
         return order_status(order_id, user, db)
 
     @router.post("/orders/{order_id}/refund-check")
     def check_refund(order_id: str, user=Depends(get_current_user), db=Depends(get_db)):
-        order = owned_test_order(order_id, user, db, is_admin)
+        order = owned_order(order_id, user, db, is_admin)
         from premium_refunds import refresh_refund
-        refresh_refund(order, db, notification_config(order.environment))
+        refresh_refund(order, db, notification_config())
         return order_status(order_id, user, db)
 
-    @router.post("/autopay/itn")
-    async def itn(request: Request, tasks: BackgroundTasks, db=Depends(get_db), environment: Literal["sandbox", "production"] = "sandbox"):
-        config = notification_config(environment)
+    @router.post("/autopay/production/itn")
+    async def itn(request: Request, tasks: BackgroundTasks, db=Depends(get_db)):
+        config = notification_config()
         body = bytearray()
         async for chunk in request.stream():
             body.extend(chunk)
@@ -377,8 +344,6 @@ def build_premium_router(get_db, get_current_user, get_prices, is_admin):
                     schedule_confirmation(transaction.findtext("orderID"), tasks, db)
         return Response(reply, media_type="application/xml", headers={"Cache-Control": "no-store"})
 
-    router.add_api_route("/autopay/{environment}/itn", itn, methods=["POST"])
-
     return router
 
 
@@ -388,12 +353,12 @@ class ReturnData(BaseModel):
     hash: str = Field(max_length=128)
 
 
-def owned_test_order(order_id, user, db, is_admin):
-    order = db.query(PremiumOrder).filter_by(id=order_id, user_id=user.id).first()
+def owned_order(order_id, user, db, is_admin):
+    order = db.query(PremiumOrder).filter_by(id=order_id, user_id=user.id, environment="production").first()
     if not order:
         raise HTTPException(404, "Nie znaleziono zamówienia.")
-    if not user.is_active or (order.environment == "sandbox" and not is_admin(user)):
-        raise HTTPException(403, "Testy są dostępne wyłącznie aktywnemu administratorowi.")
+    if not user.is_active:
+        raise HTTPException(403, "Aktywuj konto przed obsługą zamówienia.")
     return order
 
 

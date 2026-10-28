@@ -18,18 +18,19 @@ from sqlalchemy.pool import StaticPool
 
 from database import Base
 from models import Competition, PremiumOrder, User
+from premium_contract import make_quote
 from premium_payments import (
-    CheckoutData, TERMS_VERSION, build_premium_router, create_sandbox_order,
-    payment_hash, process_itn, sandbox_config, seller_details,
+    CheckoutData, TERMS_VERSION, build_premium_router, create_production_order,
+    payment_hash, process_itn, production_config, seller_details,
 )
 from payment_reports import record_autopay_receipt
 
 
 ENV = {
-    "AUTOPAY_MODE": "sandbox", "AUTOPAY_SANDBOX_SERVICE_ID": "12345",
-    "AUTOPAY_SANDBOX_SHARED_KEY": "sandbox-test-secret",
-    "AUTOPAY_SANDBOX_GATEWAY_URL": "https://testpay.autopay.eu/payment",
-    "AUTOPAY_SANDBOX_HASH_ALGORITHM": "sha256",
+    "AUTOPAY_MODE": "production", "AUTOPAY_PRODUCTION_SERVICE_ID": "12345",
+    "AUTOPAY_PRODUCTION_SHARED_KEY": "synthetic-payment-key",
+    "AUTOPAY_PRODUCTION_GATEWAY_URL": "https://pay.autopay.eu/payment",
+    "AUTOPAY_PRODUCTION_HASH_ALGORITHM": "sha256", "AUTOPAY_PRODUCTION_CALLBACKS_CONFIGURED": "true",
 }
 
 
@@ -42,11 +43,18 @@ class PremiumPaymentTests(unittest.TestCase):
         self.clock.start()
         self.environment = patch.dict(os.environ, ENV)
         self.environment.start()
+        smtp_ready = patch("mailer.is_mail_configured", return_value=True)
+        smtp_ready.start(); self.addCleanup(smtp_ready.stop)
+        smtp_send = patch("mailer.send_email")
+        smtp_send.start(); self.addCleanup(smtp_send.stop)
         self.engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
         with self.engine.connect() as connection:
             connection.exec_driver_sql("PRAGMA foreign_keys=ON")
         Base.metadata.create_all(self.engine)
-        self.db = sessionmaker(bind=self.engine)()
+        factory = sessionmaker(bind=self.engine, autoflush=False)
+        self.db = factory()
+        mail_db = patch("database.SessionLocal", factory)
+        mail_db.start(); self.addCleanup(mail_db.stop)
         self.admin = User(email="admin@example.test", role="admin", is_active=1,
                           premium_until="2026-12-31T23:59:59+01:00")
         self.db.add(self.admin)
@@ -71,14 +79,18 @@ class PremiumPaymentTests(unittest.TestCase):
         data = data or self.data
         if data.package == "organizer" and data.period == "monthly" and data.competition_id is None:
             data = data.model_copy(update={"competition_id": self.event.id})
-        return create_sandbox_order(data, user or self.admin, self.db,
-                                    lambda db: self.prices, lambda user: user.role == "admin")
+        account = user or self.admin
+        if not data.quote_token:
+            q = make_quote(account, data.package, data.period, data.expected_price, data.early_start_requested,
+                           data.competition_id, seller_details(), db=self.db)
+            data = data.model_copy(update={"quote_token": q["quote_token"]})
+        return create_production_order(data, account, self.db, lambda db: self.prices)
 
-    def notification(self, order_id, amount="12.34", currency="PLN", status="SUCCESS", service="12345"):
-        values = [service, order_id, "remote123", amount, currency, "20261025200000", status]
-        signature = payment_hash(values, sandbox_config())
+    def notification(self, order_id, amount="12.34", currency="PLN", status="SUCCESS", service="12345", remote="remote123"):
+        values = [service, order_id, remote, amount, currency, "20261025200000", status]
+        signature = payment_hash(values, production_config())
         return (f"<transactionList><serviceID>{service}</serviceID><transactions><transaction>"
-                f"<orderID>{order_id}</orderID><remoteID>remote123</remoteID><amount>{amount}</amount>"
+                f"<orderID>{order_id}</orderID><remoteID>{remote}</remoteID><amount>{amount}</amount>"
                 f"<currency>{currency}</currency><paymentDate>20261025200000</paymentDate>"
                 f"<paymentStatus>{status}</paymentStatus></transaction></transactions>"
                 f"<hash>{signature}</hash></transactionList>").encode()
@@ -90,29 +102,28 @@ class PremiumPaymentTests(unittest.TestCase):
         self.assertEqual(payment_hash(["2", "", "100", None, "1.50"], config),
                          payment_hash(["2", "100", "1.50"], config))
 
-    def test_default_disabled_and_production_mode_never_create_orders(self):
-        for mode in ("", "disabled", "production", "live"):
+    def test_disabled_and_unknown_modes_never_create_orders(self):
+        for mode in ("", "disabled", "unsupported", "live"):
             with self.subTest(mode=mode), patch.dict(os.environ, {"AUTOPAY_MODE": mode}):
-                self.assertFalse(sandbox_config()["ready"])
+                self.assertFalse(production_config()["ready"])
                 with self.assertRaises(HTTPException) as error:
                     self.checkout()
                 self.assertEqual(error.exception.status_code, 503)
         self.assertEqual(self.db.query(PremiumOrder).count(), 0)
 
-    def test_rejects_production_and_untrusted_gateway_hosts(self):
-        for url in ("https://pay.autopay.eu/payment", "https://testpay.autopay.eu.evil.test/payment",
-                    "https://testpay.autopay.eu@evil.test/payment", "http://testpay.autopay.eu/payment",
-                    "https://testpay.autopay.eu/", "https://testpay.autopay.eu/payment?redirect=live"):
-            with self.subTest(url=url), patch.dict(os.environ, {"AUTOPAY_SANDBOX_GATEWAY_URL": url}):
-                self.assertFalse(sandbox_config()["ready"])
+    def test_only_exact_production_gateway_is_accepted(self):
+        for url in ("https://pay.autopay.eu.evil.test/payment", "https://pay.autopay.eu@evil.test/payment",
+                    "http://pay.autopay.eu/payment", "https://pay.autopay.eu/", "https://pay.autopay.eu/payment?redirect=other"):
+            with self.subTest(url=url), patch.dict(os.environ, {"AUTOPAY_PRODUCTION_GATEWAY_URL": url}):
+                self.assertFalse(production_config()["ready"])
 
-    def test_only_active_admin_can_start_sandbox(self):
-        for role, active in (("user", 1), ("admin", 0)):
-            self.admin.role, self.admin.is_active = role, active
-            with self.assertRaises(HTTPException) as error:
-                self.checkout()
-            self.assertEqual(error.exception.status_code, 403)
-        self.assertEqual(self.db.query(PremiumOrder).count(), 0)
+    def test_only_active_accounts_can_start_checkout_without_requiring_admin(self):
+        self.admin.role = "user"; self.admin.is_active = 0
+        with self.assertRaises(HTTPException) as error:
+            self.checkout()
+        self.assertEqual(error.exception.status_code, 403)
+        self.admin.is_active = 1
+        self.assertEqual(self.checkout()["environment"], "production")
 
     def test_current_price_and_explicit_current_terms_are_required(self):
         for update, code in (({"expected_price": "0.01"}, 409), ({"terms_accepted": False}, 400),
@@ -134,26 +145,26 @@ class PremiumPaymentTests(unittest.TestCase):
                 self.assertEqual(json.loads(order.offer_snapshot)["included_packages"],
                                  ["organizer", "shooter"] if kind == "organizer" and period == "yearly"
                                  else ["shooter"] if kind == "shooter" else [])
-                self.assertNotIn("sandbox-test-secret", str(result))
+                self.assertNotIn("synthetic-payment-key", str(result))
                 self.assertEqual(result["fields"]["Hash"], hashlib.sha256(
-                    f"12345|{order.id}|{price}|PLN|admin@example.test|{result['fields']['ValidityTime']}|{result['fields']['LinkValidityTime']}|sandbox-test-secret".encode()).hexdigest())
+                    f"12345|{order.id}|{price}|PLN|admin@example.test|{result['fields']['ValidityTime']}|{result['fields']['LinkValidityTime']}|synthetic-payment-key".encode()).hexdigest())
 
-    def test_signed_itn_is_idempotent_and_never_grants_real_premium(self):
+    def test_signed_itn_is_idempotent_and_preserves_existing_access_until_scheduled_start(self):
         order_id = self.checkout()["order_id"]
         self.prices["shooter"]["monthly_price"] = "99.99"
         for status in ("SUCCESS", "SUCCESS", "FAILURE", "PENDING"):
-            reply = fromstring(process_itn(self.notification(order_id, status=status), self.db, sandbox_config()))
+            reply = fromstring(process_itn(self.notification(order_id, status=status), self.db, production_config()))
             self.assertEqual(reply.findtext(".//confirmation"), "CONFIRMED")
-            self.assertEqual(reply.findtext("hash"), payment_hash(["12345", order_id, "CONFIRMED"], sandbox_config()))
+            self.assertEqual(reply.findtext("hash"), payment_hash(["12345", order_id, "CONFIRMED"], production_config()))
             self.assertEqual(self.db.get(PremiumOrder, order_id).status, "paid")
         self.assertEqual(self.admin.premium_until, "2026-12-31T23:59:59+01:00")
         self.assertIsNone(self.admin.premium_shooter_paid_until)
         self.assertIsNone(self.admin.premium_organizer_paid_until)
 
-    def test_annual_organizer_sandbox_success_never_activates_either_package(self):
+    def test_annual_organizer_does_not_activate_before_scheduled_start_and_confirmation(self):
         data = self.data.model_copy(update={"package": "organizer", "period": "yearly", "expected_price": "123.45"})
         order_id = self.checkout(data)["order_id"]
-        process_itn(self.notification(order_id, amount="123.45"), self.db, sandbox_config())
+        process_itn(self.notification(order_id, amount="123.45"), self.db, production_config())
         self.db.refresh(self.admin)
         self.assertIsNone(self.admin.premium_organizer_paid_until)
         self.assertIsNone(self.admin.premium_shooter_paid_until)
@@ -163,7 +174,7 @@ class PremiumPaymentTests(unittest.TestCase):
         order_id = self.checkout()["order_id"]
         for update in ({"amount": "0.01"}, {"currency": "EUR"}, {"order_id": "unknown"}, {"status": "BOGUS"}):
             args = {"order_id": order_id, **update}
-            reply = fromstring(process_itn(self.notification(**args), self.db, sandbox_config()))
+            reply = fromstring(process_itn(self.notification(**args), self.db, production_config()))
             self.assertEqual(reply.findtext(".//confirmation"), "NOTCONFIRMED")
             self.assertEqual(self.db.get(PremiumOrder, order_id).status, "pending")
 
@@ -171,13 +182,13 @@ class PremiumPaymentTests(unittest.TestCase):
         order_id = self.checkout()["order_id"]
         valid = self.notification(order_id)
         for xml in (valid.replace(b"SUCCESS", b"FAILURE"), self.notification(order_id, service="999")):
-            reply = fromstring(process_itn(xml, self.db, sandbox_config()))
+            reply = fromstring(process_itn(xml, self.db, production_config()))
             self.assertEqual(reply.findtext(".//confirmation"), "NOTCONFIRMED")
             self.assertEqual(self.db.get(PremiumOrder, order_id).status, "pending")
         for xml in (b"<!DOCTYPE x [<!ENTITY x 'attack'>]><transactionList>&x;</transactionList>",
                     b"<broken", valid.replace(b"<amount>", b"<extra>1</extra><amount>")):
             with self.subTest(xml=xml[:70]), self.assertRaises(HTTPException):
-                process_itn(xml, self.db, sandbox_config())
+                process_itn(xml, self.db, production_config())
             self.assertEqual(self.db.get(PremiumOrder, order_id).status, "pending")
 
     def test_default_customer_data_is_included_in_signature_and_not_stored(self):
@@ -185,17 +196,17 @@ class PremiumPaymentTests(unittest.TestCase):
         xml = self.notification(order_id)
         original_hash = fromstring(xml).findtext("hash")
         signature = payment_hash(["12345", order_id, "remote123", "12.34", "PLN",
-                                  "20261025200000", "SUCCESS", "Jan", "Testowy", "Nowy Targ"], sandbox_config())
+                                  "20261025200000", "SUCCESS", "Jan", "Testowy", "Nowy Targ"], production_config())
         xml = xml.replace(b"</transaction>", b"<customerData><fName>Jan</fName><lName>Testowy</lName><city>Nowy Targ</city></customerData></transaction>")
         xml = xml.replace(original_hash.encode(), signature.encode())
-        self.assertEqual(fromstring(process_itn(xml, self.db, sandbox_config())).findtext(".//confirmation"), "CONFIRMED")
+        self.assertEqual(fromstring(process_itn(xml, self.db, production_config())).findtext(".//confirmation"), "CONFIRMED")
         self.assertNotIn("Testowy", self.db.get(PremiumOrder, order_id).offer_snapshot)
 
     def test_non_ascii_signature_is_rejected_without_server_error(self):
         order_id = self.checkout()["order_id"]
         xml = self.notification(order_id)
         original_hash = fromstring(xml).findtext("hash")
-        reply = fromstring(process_itn(xml.replace(original_hash.encode(), "ą".encode()), self.db, sandbox_config()))
+        reply = fromstring(process_itn(xml.replace(original_hash.encode(), "ą".encode()), self.db, production_config()))
         self.assertEqual(reply.findtext(".//confirmation"), "NOTCONFIRMED")
 
     def test_status_endpoint_is_scoped_to_order_owner_and_does_not_mutate_it(self):
@@ -221,6 +232,12 @@ class PremiumPaymentTests(unittest.TestCase):
         self.assertIsNone(self.db.get(PremiumOrder, order_id).user_id)
 
     def request(self, method, path, body=b"", content_type="application/json", authorized=False):
+        if method == "POST" and path == "/premium/checkout":
+            data = CheckoutData.model_validate_json(body)
+            if not data.quote_token:
+                q = make_quote(self.admin, data.package, data.period, data.expected_price, data.early_start_requested,
+                               data.competition_id, seller_details(), db=self.db)
+                body = data.model_copy(update={"quote_token": q["quote_token"]}).model_dump_json().encode()
         app = FastAPI()
 
         def current_user(authorization: str | None = Header(default=None)):
@@ -256,7 +273,7 @@ class PremiumPaymentTests(unittest.TestCase):
     def test_http_routes_authentication_checkout_form_itn_and_order_status(self):
         status, body = self.request("GET", "/premium/commerce")
         self.assertEqual(status, 200)
-        self.assertFalse(json.loads(body)["sales_enabled"])
+        self.assertTrue(json.loads(body)["sales_enabled"])
         status, _ = self.request("POST", "/premium/checkout", self.data.model_dump_json().encode())
         self.assertEqual(status, 401)
         status, body = self.request("POST", "/premium/checkout", self.data.model_dump_json().encode(), authorized=True)
@@ -266,7 +283,7 @@ class PremiumPaymentTests(unittest.TestCase):
         self.assertEqual(status, 401)
         xml = self.notification(order_id)
         form = urlencode({"transactions": base64.b64encode(xml).decode()}).encode()
-        status, body = self.request("POST", "/premium/autopay/itn", form, "application/x-www-form-urlencoded")
+        status, body = self.request("POST", "/premium/autopay/production/itn", form, "application/x-www-form-urlencoded")
         self.assertEqual(status, 200)
         self.assertEqual(fromstring(body).findtext(".//confirmation"), "CONFIRMED")
         status, body = self.request("GET", f"/premium/orders/{order_id}", authorized=True)
@@ -280,7 +297,7 @@ class PremiumPaymentTests(unittest.TestCase):
             (b"x" * 65537, "application/x-www-form-urlencoded", 413),
         ):
             with self.subTest(expected=expected):
-                self.assertEqual(self.request("POST", "/premium/autopay/itn", body, content_type)[0], expected)
+                self.assertEqual(self.request("POST", "/premium/autopay/production/itn", body, content_type)[0], expected)
 
     def test_checkout_brake_is_enforced_on_server_but_does_not_block_existing_itn_or_status(self):
         existing = self.checkout()["order_id"]
@@ -300,8 +317,8 @@ class PremiumPaymentTests(unittest.TestCase):
         self.assertEqual(status, 503)
         self.assertEqual(json.loads(body)["detail"], public["payment_unavailable_message"])
         self.assertEqual(self.db.query(PremiumOrder).count(), 2)
-        # Previously issued test payments must still be acknowledged and recorded.
-        process_itn(self.notification(existing), self.db, sandbox_config())
+        # Previously issued payments must still be acknowledged and recorded.
+        process_itn(self.notification(existing, remote="previous123"), self.db, production_config())
         status, body = self.request("GET", f"/premium/orders/{existing}", authorized=True)
         self.assertEqual((status, json.loads(body)["status"]), (200, "paid"))
 

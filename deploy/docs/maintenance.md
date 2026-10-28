@@ -80,8 +80,6 @@ należy poprosić o publiczny adres, zanim zostanie włączona blokada.
 Publicznie dostępne są tylko odczyt statusu `/maintenance/status`, skrypt powrotu
 `/maintenance/recovery.js` oraz istniejące endpointy **POST**:
 
-- `/api/premium/autopay/itn`
-- `/api/premium/autopay/sandbox/itn`
 - `/api/premium/autopay/production/itn`
 
 Backend nadal weryfikuje podpisy Autopay i treść potwierdzeń. Nie ma wyjątku dla

@@ -12,11 +12,10 @@ import { PAYMENT_MAINTENANCE_MESSAGE, premiumOfferDetails, premiumPackageNames, 
 type Order = {
   id: string; package: "shooter" | "organizer"; period: "monthly" | "yearly"; amount: string; status: string; environment: string;
   service_starts_at?: string; service_ends_at?: string; gateway_valid_until?: string; provider_closed_at?: string;
-  fulfillment_preview?: { included_packages: string[]; competition_id: number | null; starts_at: string; ends_at: string | null } | null;
   confirmation_email?: { queued: boolean; sent_at: string | null; error: string | null };
   refunded_at?: string | null; refunds?: { id: string; status: string; amount: string; provider_status: string | null }[];
 };
-type Quote = { environment: "sandbox" | "production"; existing_access_until: string | null; renews_existing_access: boolean; quote_token: string; amount: string; service_starts_at: string; service_ends_at: string | null; expires_at: string; terms_version: string; early_start_text: string };
+type Quote = { environment: "production"; existing_access_until: string | null; renews_existing_access: boolean; quote_token: string; amount: string; service_starts_at: string; service_ends_at: string | null; expires_at: string; terms_version: string; early_start_text: string };
 type Event = { id: number; name: string; event_type: string };
 const button = "min-h-11 rounded-xl bg-emerald-300 px-5 py-3 font-bold text-green-950 disabled:cursor-not-allowed disabled:opacity-50";
 function date(value?: string | null) { return value ? new Intl.DateTimeFormat("pl-PL", { dateStyle: "short", timeStyle: "short", timeZone: "Europe/Warsaw" }).format(new Date(value)) : "—"; }
@@ -30,7 +29,6 @@ export default function CheckoutClient({ packageType, period, orderId, serviceId
   const [isAdmin, setIsAdmin] = useState(false);
   const [accepted, setAccepted] = useState(false);
   const [early, setEarly] = useState(false);
-  const [testEmail, setTestEmail] = useState(false);
   const [events, setEvents] = useState<Event[]>([]);
   const [eventId, setEventId] = useState(initialCompetitionId);
   const [quote, setQuote] = useState<Quote | null>(null);
@@ -123,7 +121,7 @@ export default function CheckoutClient({ packageType, period, orderId, serviceId
       const response = await authFetch(apiUrl("/premium/checkout"), { method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ package: packageType, period, expected_price: quote.amount, terms_version: quote.terms_version,
           terms_accepted: accepted, early_start_requested: early, competition_id: publication ? Number(eventId) : null,
-          quote_token: quote.quote_token, test_email_requested: testEmail }),
+          quote_token: quote.quote_token }),
       });
       const body = await response.json();
       if (!response.ok) {
@@ -131,8 +129,8 @@ export default function CheckoutClient({ packageType, period, orderId, serviceId
         throw new Error(typeof body.detail === "string" ? body.detail : "Nie udało się przygotować zamówienia.");
       }
       const gateway = new URL(body.gateway_url);
-      const expectedGateway = body.environment === "production" ? "https://pay.autopay.eu/payment" : "https://testpay.autopay.eu/payment";
-      if (body.environment !== quote.environment || gateway.href !== expectedGateway) throw new Error("Nieprawidłowe środowisko płatności.");
+      const expectedGateway = "https://pay.autopay.eu/payment";
+      if (body.environment !== "production" || quote.environment !== "production" || gateway.href !== expectedGateway) throw new Error("Nieprawidłowe środowisko płatności.");
       const form = document.createElement("form"); form.method = "POST"; form.action = gateway.href;
       for (const [name, value] of Object.entries(body.fields)) { const input = document.createElement("input"); input.type = "hidden"; input.name = name; input.value = String(value); form.appendChild(input); }
       document.body.appendChild(form); form.submit();
@@ -155,17 +153,16 @@ export default function CheckoutClient({ packageType, period, orderId, serviceId
     <Link href="/premium" className="text-emerald-200 underline">Wróć do pakietów Premium</Link>
     <h1 className="text-3xl font-black">{orderId ? "Status zamówienia" : "Podsumowanie zakupu"}</h1>
     {loading ? <p role="status">Ładowanie podsumowania…</p> : <>
-      <p className="rounded-xl border border-amber-300/40 bg-amber-300/10 p-4 leading-7 text-amber-100" role="status">{commerce?.payments_temporarily_unavailable !== false && !order ? commerce?.payment_unavailable_message || PAYMENT_MAINTENANCE_MESSAGE : <>{(order ? order.environment === "sandbox" : !commerce?.sales_enabled) ? <><strong>Środowisko testowe.</strong> Test nie pobiera pieniędzy ani nie nadaje rzeczywistego Premium.</> : <>Płatność obsługuje Autopay. Premium zostanie przyznane po potwierdzeniu wpłaty, zgodnie z wybranym okresem i datą rozpoczęcia.</>}</>}</p>
+      <p className="rounded-xl border border-amber-300/40 bg-amber-300/10 p-4 leading-7 text-amber-100" role="status">{commerce?.payments_temporarily_unavailable !== false && !order ? commerce?.payment_unavailable_message || PAYMENT_MAINTENANCE_MESSAGE : "Płatność obsługuje Autopay. Premium zostanie przyznane po potwierdzeniu wpłaty, zgodnie z wybranym okresem i datą rozpoczęcia."}</p>
       {order ? <section className="space-y-4" aria-live="polite">
         <h2 className="text-2xl font-bold">{premiumPackageNames[order.package]} — {premiumOfferDetails(order.package, order.period).summary}</h2>
-        <p>Kwota {order.environment === "sandbox" ? "testowa" : "zakupu"}: <strong>{premiumPrice(order.amount)}</strong></p>
+        <p>Kwota zakupu: <strong>{premiumPrice(order.amount)}</strong></p>
         <p className="break-all">Numer: {order.id}</p>
         <p>Status: <strong>{order.status === "paid" ? "Płatność potwierdzona" : order.status === "cancelled" ? "Transakcja anulowana przez Autopay" : order.status === "failed" ? "Próba nieudana — możliwe późniejsze potwierdzenie" : "Oczekiwanie na potwierdzenie Autopay"}</strong></p>
         <p>Planowany początek: {date(order.service_starts_at)}<br />Planowany koniec: {order.service_ends_at ? date(order.service_ends_at) : "jednorazowa publikacja"}<br />Ważność płatności: {date(order.gateway_valid_until)}</p>
-        {order.environment === "sandbox" && order.fulfillment_preview && <div className="rounded-xl border border-blue-300/50 p-4"><h3 className="font-bold">Podgląd realizacji testu — bez aktywacji rzeczywistej usługi</h3><p>Pakiety: {order.fulfillment_preview.included_packages.join(", ") || "jednorazowa publikacja"}</p>{order.fulfillment_preview.competition_id && <p>Wydarzenie ID: {order.fulfillment_preview.competition_id}</p>}<p>Od {date(order.fulfillment_preview.starts_at)}{order.fulfillment_preview.ends_at && ` do ${date(order.fulfillment_preview.ends_at)}`}</p></div>}
         {order.confirmation_email?.queued && <p>Potwierdzenie e-mail: {order.confirmation_email.sent_at ? `wysłane ${date(order.confirmation_email.sent_at)}` : order.confirmation_email.error || "oczekuje na wysyłkę"}</p>}
         {!!order.refunds?.length && <div className="space-y-2 rounded-xl border border-blue-300/50 p-4"><h3 className="font-bold">Zwroty</h3>{order.refunds.map((refund) => <p key={refund.id}>{premiumPrice(refund.amount)} — {refund.status === "done" ? "wykonany przez operatora" : refund.status === "failed" ? "niezrealizowany" : "oczekuje na realizację"}{refund.provider_status ? ` (${refund.provider_status})` : ""}</p>)}<p className="text-sm">Przyjęcie zlecenia zwrotu nie oznacza jeszcze jego wykonania. Potwierdza je status operatora.</p></div>}
-        {isAdmin && order.environment === "sandbox" && order.status === "paid" && <div className="flex flex-wrap gap-3"><button className={button} disabled={busy || !!order.refunded_at} onClick={() => void orderAction("refund")}>Zleć lub ponów zwrot testowy</button>{!!order.refunds?.length && <button className={button} disabled={busy} onClick={() => void orderAction("refund-check")}>Sprawdź wykonanie zwrotu</button>}</div>}
+        {isAdmin && order.status === "paid" && <div className="flex flex-wrap gap-3"><button className={button} disabled={busy || !!order.refunded_at} onClick={() => void orderAction("refund")}>Zleć lub ponów zwrot</button>{!!order.refunds?.length && <button className={button} disabled={busy} onClick={() => void orderAction("refund-check")}>Sprawdź wykonanie zwrotu</button>}</div>}
         <div className="flex flex-wrap gap-3"><button className={button} disabled={busy} onClick={() => void orderAction("refresh")}>Odśwież status</button><button className={button} disabled={busy} onClick={() => void orderAction("check")}>Sprawdź w Autopay</button>{order.status !== "paid" && !order.provider_closed_at && <button className={button} disabled={busy} onClick={() => void orderAction("cancel")}>Anuluj nieopłaconą transakcję</button>}{order.confirmation_email?.queued && !order.confirmation_email.sent_at && <button className={button} disabled={busy} onClick={() => void orderAction("resend-confirmation")}>Ponów wysyłkę potwierdzenia</button>}</div>
       </section> : !orderId && prices && commerce && <>
         <h2 className="text-2xl font-bold">{premiumPackageNames[packageType]}</h2><p>{offer.summary}</p><p className="text-2xl font-black">Łącznie: {premiumPrice(prices[packageType][`${period}_price`])}</p>
@@ -180,10 +177,9 @@ export default function CheckoutClient({ packageType, period, orderId, serviceId
         </div>}
         <button className="text-emerald-200 underline" disabled={quoting} onClick={() => setQuoteRevision((value) => value + 1)}>Odśwież ofertę</button>
         <Link href="/premium/regulamin" target="_blank" rel="noopener noreferrer" className="block text-emerald-200 underline">Regulamin Premium i dane sprzedawcy</Link><Link href="/polityka-prywatnosci" className="block text-emerald-200 underline">Polityka prywatności</Link>
-        {(commerce.sales_enabled || (isAdmin && commerce.sandbox_ready)) && commerce.payments_temporarily_unavailable === false ? <section className="space-y-5 rounded-xl border border-blue-300/50 bg-blue-300/10 p-5"><h3 className="font-bold">{commerce.sales_enabled ? "Zakup Premium" : "Pełny test z Autopay — sandbox"}</h3>
-          <label className="flex items-start gap-3"><input type="checkbox" checked={accepted} onChange={(event) => setAccepted(event.target.checked)} className="mt-1 h-5 w-5 shrink-0" /><span>Akceptuję Regulamin Premium w wersji {quote?.terms_version || commerce.terms_version} {commerce.sales_enabled ? "." : " na potrzeby testu."}</span></label>
-          {!commerce.sales_enabled && <label className="flex items-start gap-3"><input type="checkbox" checked={testEmail} onChange={(event) => setTestEmail(event.target.checked)} className="mt-1 h-5 w-5 shrink-0" /><span>Po sukcesie testu wyślij przykładowe potwierdzenie i regulamin na e-mail mojego konta administratora.</span></label>}
-          <button className={button} disabled={!accepted || !quote || quoting || busy} onClick={() => void startCheckout()}>{busy ? "Przygotowanie płatności…" : commerce.sales_enabled ? `Kupuję i płacę — ${premiumPrice(quote?.amount || prices[packageType][`${period}_price`])}` : "Przejdź do testowego Autopay"}</button>
+        {commerce.sales_enabled && commerce.payments_temporarily_unavailable === false ? <section className="space-y-5 rounded-xl border border-blue-300/50 bg-blue-300/10 p-5"><h3 className="font-bold">Zakup Premium</h3>
+          <label className="flex items-start gap-3"><input type="checkbox" checked={accepted} onChange={(event) => setAccepted(event.target.checked)} className="mt-1 h-5 w-5 shrink-0" /><span>Akceptuję Regulamin Premium w wersji {quote?.terms_version || commerce.terms_version}.</span></label>
+          <button className={button} disabled={!accepted || !quote || quoting || busy} onClick={() => void startCheckout()}>{busy ? "Przygotowanie płatności…" : `Kupuję i płacę — ${premiumPrice(quote?.amount || prices[packageType][`${period}_price`])}`}</button>
         </section> : <p className="rounded-xl border border-blue-300/30 p-4 text-blue-100">{commerce.payments_temporarily_unavailable !== false ? commerce.payment_unavailable_message || PAYMENT_MAINTENANCE_MESSAGE : "Płatności są chwilowo niedostępne. Spróbuj ponownie później."}</p>}
       </>}
     </>}
