@@ -123,7 +123,10 @@ export default function ResultsLeaderboardTable({
           <table className="w-max min-w-full table-auto border-collapse text-left text-sm sm:text-base">
             <thead>
               <tr className="border-b border-zinc-200 bg-zinc-50 text-xs font-bold uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950/50 dark:text-gray-400">
-                <th className="whitespace-nowrap px-4 py-3">Miejsce</th>
+                <th scope="col" className="w-px whitespace-nowrap px-2 py-3 sm:w-auto sm:px-4">
+                  <span aria-hidden="true" className="sm:hidden">#</span>
+                  <span className="sr-only sm:not-sr-only">Miejsce</span>
+                </th>
                 <th className="whitespace-nowrap px-4 py-3">Zawodnik</th>
                 {showDynamicStageScores ? (
                   <>
@@ -162,7 +165,7 @@ export default function ResultsLeaderboardTable({
                   key={shooter.participant_id}
                   className="hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
                 >
-                  <td className="whitespace-nowrap px-4 py-3 text-lg font-black text-green-300">
+                  <td className="whitespace-nowrap px-2 py-3 text-lg font-black text-green-300 sm:px-4">
                     {shooter.place}
                   </td>
 

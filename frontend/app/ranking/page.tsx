@@ -368,7 +368,10 @@ export default function RankingPage() {
               <table className="w-max min-w-full table-auto border-collapse text-left text-sm sm:text-base">
                 <thead>
                   <tr className="bg-red-700 text-sm font-bold uppercase text-white">
-                    <th className="whitespace-nowrap px-4 py-3">Miejsce</th>
+                    <th scope="col" className="w-px whitespace-nowrap px-2 py-3 sm:w-auto sm:px-4">
+                      <span aria-hidden="true" className="sm:hidden">#</span>
+                      <span className="sr-only sm:not-sr-only">Miejsce</span>
+                    </th>
                     <th className="whitespace-nowrap px-4 py-3">Punkty</th>
                     <th className="whitespace-nowrap px-4 py-3">Zawodnik</th>
                     <th className="whitespace-nowrap px-4 py-3">Klub</th>
@@ -381,7 +384,7 @@ export default function RankingPage() {
                       key={`${row.user_id}-${row.place}`}
                       className="hover:bg-red-50/60 dark:hover:bg-red-950/20"
                     >
-                      <td className="whitespace-nowrap px-4 py-4 font-black text-red-700 dark:text-red-300">
+                      <td className="whitespace-nowrap px-2 py-4 font-black text-red-700 dark:text-red-300 sm:px-4">
                         {row.place}
                       </td>
 
