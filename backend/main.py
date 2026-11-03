@@ -4536,6 +4536,7 @@ def public_participant(
         "judge_license_number": judge_license_number if include_private else "",
         "club": club,
         "display_name": display_name,
+        "profile_photo_url": (user.profile_photo_url or "") if user else "",
     }
 
 
@@ -7479,6 +7480,7 @@ def ranking_rows(metric: str, db, voivodeship: str = ""):
 
         rows.append({
             "user_id": user.id,
+            "profile_photo_url": user.profile_photo_url or "",
             "display_name": " ".join([
                 user.last_name or "",
                 user.first_name or "",
@@ -7532,12 +7534,20 @@ def cached_ranking_rows(metric: str, db, voivodeship: str = ""):
         .limit(RANKING_LIMIT)
         .all()
     )
+    # Read current photos without rebuilding cached standings after profile edits.
+    user_ids = {entry.user_id for entry in entries}
+    photos_by_user_id = dict(
+        db.query(User.id, User.profile_photo_url)
+        .filter(User.id.in_(user_ids))
+        .all()
+    ) if user_ids else {}
 
     return {
         "rows": [
             {
                 "place": entry.place,
                 "user_id": entry.user_id,
+                "profile_photo_url": photos_by_user_id.get(entry.user_id) or "",
                 "display_name": entry.display_name,
                 "club": entry.club or "",
                 "voivodeship": entry.voivodeship or "",
@@ -8701,6 +8711,7 @@ def result_category_payload(competition: Competition, category_id: str, db, incl
         row = {
             "participant_id": participant.id,
             "display_name": participant_result_display_name(participant_data),
+            "profile_photo_url": participant_data["profile_photo_url"],
             "first_name": participant_data["first_name"],
             "last_name": participant_data["last_name"],
             "club": participant_data["club"],
@@ -15153,6 +15164,7 @@ def get_judge_discipline_shooters(
 
         shooters.append({
             "participant_id": participant.id,
+            "profile_photo_url": (shooter.profile_photo_url or "") if shooter else "",
             "user_email": participant.user_email if include_private else "",
             "first_name": participant.first_name or (shooter.first_name if shooter else "") or "",
             "last_name": participant.last_name or (shooter.last_name if shooter else "") or "",

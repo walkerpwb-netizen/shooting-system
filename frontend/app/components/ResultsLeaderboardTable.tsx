@@ -1,11 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
+import AthleteProfileLink from "@/components/AthleteProfileLink";
 
 export type ResultShooter = {
   participant_id: number;
   display_name: string;
+  profile_photo_url?: string;
   first_name?: string;
   last_name?: string;
   license_number?: string;
@@ -166,12 +167,12 @@ export default function ResultsLeaderboardTable({
                   </td>
 
                   <td className="whitespace-nowrap px-4 py-3">
-                    <Link
+                    <AthleteProfileLink
                       href={`/profile/${shooter.participant_id}`}
+                      name={shooterName(shooter)}
+                      photoUrl={shooter.profile_photo_url}
                       className="font-semibold text-zinc-950 transition hover:text-green-700 dark:text-white dark:hover:text-green-300"
-                    >
-                      {shooterName(shooter)}
-                    </Link>
+                    />
                   </td>
 
                   {showDynamicStageScores ? (

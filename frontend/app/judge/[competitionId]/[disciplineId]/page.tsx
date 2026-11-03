@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import AthleteProfileLink from "@/components/AthleteProfileLink";
 import QrCodeScanner from "@/components/QrCodeScanner";
 import { apiUrl } from "@/lib/api";
 import { authFetch, getAccessToken, isOrganizer, isPzssClubAccount } from "@/lib/auth";
@@ -122,6 +123,7 @@ type StageScorePayload = {
 };
 
 type Shooter = {
+  profile_photo_url?: string;
   participant_id: number;
   user_email: string;
   first_name: string;
@@ -150,6 +152,7 @@ type OrganizerPreviewDisciplineAssignment = {
 };
 
 type OrganizerPreviewParticipant = {
+  profile_photo_url?: string;
   id: number;
   user_email: string;
   first_name: string;
@@ -632,6 +635,7 @@ function buildOrganizerPreviewShooters(
 
       return {
         participant_id: participant.id,
+        profile_photo_url: participant.profile_photo_url,
         user_email: participant.user_email || `test-${participant.id}@example.test`,
         first_name: participant.first_name || displayNameParts.firstName,
         last_name: participant.last_name || displayNameParts.lastName,
@@ -3768,12 +3772,12 @@ export default function JudgeDisciplinePage() {
                     >
                       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                         <div>
-                          <Link
+                          <AthleteProfileLink
                             href={`/profile/${shooter.participant_id}`}
+                            name={getShooterName(shooter)}
+                            photoUrl={shooter.profile_photo_url}
                             className="text-2xl font-black text-white transition hover:text-green-300"
-                          >
-                            {getShooterName(shooter)}
-                          </Link>
+                          />
                           <p className="mt-1 text-sm text-gray-400">
                             {shooter.club || "brak klubu"} • licencja: {shooter.license_number || "brak"}
                           </p>
@@ -4149,12 +4153,12 @@ export default function JudgeDisciplinePage() {
                     >
                       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                         <div className="min-w-0">
-                          <Link
+                          <AthleteProfileLink
                             href={`/profile/${shooter.participant_id}`}
-                            className="block text-xl font-bold text-white transition hover:text-green-300"
-                          >
-                            {getShooterName(shooter)}
-                          </Link>
+                            name={getShooterName(shooter)}
+                            photoUrl={shooter.profile_photo_url}
+                            className="text-xl font-bold text-white transition hover:text-green-300"
+                          />
 
                           <div className="mt-3 grid gap-2 text-sm text-gray-300 sm:grid-cols-3">
                             <p className="min-w-0">

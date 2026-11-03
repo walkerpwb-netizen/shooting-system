@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import AthleteProfileLink from "@/components/AthleteProfileLink";
 
 import { apiUrl } from "@/lib/api";
 import { getAccessToken } from "@/lib/auth";
@@ -14,6 +14,7 @@ type RankingRow = {
   place: number;
   user_id: number;
   display_name: string;
+  profile_photo_url?: string;
   club: string;
   voivodeship: string;
   points: string;
@@ -389,12 +390,12 @@ export default function RankingPage() {
                       </td>
 
                       <td className="whitespace-nowrap px-4 py-4 font-semibold">
-                        <Link
+                        <AthleteProfileLink
                           href={`/profile/user-${row.user_id}`}
+                          name={row.display_name}
+                          photoUrl={row.profile_photo_url}
                           className="text-zinc-950 underline-offset-4 transition hover:text-red-700 hover:underline dark:text-white dark:hover:text-red-300"
-                        >
-                          {row.display_name}
-                        </Link>
+                        />
                       </td>
 
                       <td className="whitespace-nowrap px-4 py-4 text-zinc-700 dark:text-red-100">

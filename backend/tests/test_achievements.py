@@ -7,7 +7,7 @@ from sqlalchemy.orm import sessionmaker
 from database import Base
 from models import (
     Achievement, AppSetting, Competition, CompetitionParticipant, Discipline,
-    DisciplineResult, ParticipantDiscipline, User,
+    DisciplineResult, ParticipantDiscipline, User, RankingEntry,
 )
 
 
@@ -78,6 +78,43 @@ class AchievementTests(unittest.TestCase):
                 participant_id=participant_id, discipline_id=1,
             ).one().points = str(points)
         self.db.commit()
+
+    def test_results_use_current_profile_photos_in_every_category(self):
+        user = self.db.query(User).filter_by(email="shooter-1@example.test").one()
+        for photo_url in ("/profile-photos/first.webp", "/profile-photos/new.webp", ""):
+            user.profile_photo_url = photo_url
+            self.db.commit()
+            for category in ("discipline-1", "pistol", "overall"):
+                payload = main.result_category_payload(self.competition, category, self.db)
+                rows = {row["participant_id"]: row for row in payload["shooters"]}
+                self.assertEqual(rows[1]["profile_photo_url"], photo_url)
+                self.assertEqual(rows[2]["profile_photo_url"], "")
+
+        # Historical results can outlive the linked account.
+        self.db.delete(user)
+        self.db.commit()
+        payload = main.result_category_payload(self.competition, "overall", self.db)
+        row = next(row for row in payload["shooters"] if row["participant_id"] == 1)
+        self.assertEqual(row["profile_photo_url"], "")
+
+    def test_cached_rankings_read_photo_changes_without_rebuilding_entries(self):
+        user = self.db.query(User).filter_by(email="shooter-1@example.test").one()
+        for scope, region in (("national", ""), ("regional", "mazowieckie")):
+            self.db.add(RankingEntry(
+                scope=scope, voivodeship=region, metric="overall", metric_label="Ogólny",
+                place=1, user_id=user.id, display_name="Test 1 Jan",
+                points="100", points_value="100", updated_at="2026-11-03",
+            ))
+        self.db.commit()
+
+        for photo_url in ("/profile-photos/first.webp", "/profile-photos/new.webp", ""):
+            user.profile_photo_url = photo_url
+            self.db.commit()
+            for region in ("", "mazowieckie"):
+                ranking = main.cached_ranking_rows("overall", self.db, region)
+                self.assertEqual(ranking["rows"][0]["profile_photo_url"], photo_url)
+                self.assertEqual(ranking["rows"][0]["points"], "100")
+                self.assertEqual(ranking["updated_at"], "2026-11-03")
 
     def test_individual_medals_have_weapon_icons_and_direct_result_links(self):
         self.assertEqual(self.award(), 21)

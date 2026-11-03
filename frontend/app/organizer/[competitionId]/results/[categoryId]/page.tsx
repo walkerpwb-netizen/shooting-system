@@ -30,6 +30,7 @@ type OrganizerResultCategory = {
 type OrganizerResultShooter = {
   participant_id: number;
   display_name: string;
+  profile_photo_url?: string;
   first_name: string;
   last_name: string;
   license_number?: string;
