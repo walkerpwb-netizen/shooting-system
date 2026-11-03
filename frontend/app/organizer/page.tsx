@@ -53,6 +53,7 @@ type Competition = {
     name: string;
     description: string;
     discipline_type: string;
+    scoring_type: string;
     discipline_type_label?: string;
     shots_count: number;
     trap_variant: string;
@@ -95,6 +96,7 @@ type Discipline = {
   name: string;
   description: string;
   discipline_type: string;
+  scoring_type: string;
   shots_count: number;
   trap_variant: string;
   trap_series_count: number;
@@ -806,6 +808,7 @@ function OrganizerContent() {
       name: "",
       description: "",
       discipline_type: "",
+      scoring_type: "points",
       shots_count: 0,
       trap_variant: "",
       trap_series_count: 0,
@@ -975,6 +978,7 @@ function OrganizerContent() {
             name: discipline.name,
             description: discipline.description || "",
             discipline_type: discipline.discipline_type || "",
+            scoring_type: discipline.scoring_type || "points",
             shots_count: discipline.shots_count || 0,
             trap_variant: discipline.clay_variant || discipline.trap_variant || "",
             trap_series_count: discipline.clay_series_count || discipline.trap_series_count || 0,
@@ -1941,6 +1945,7 @@ function OrganizerContent() {
                 name: discipline.name,
                 description: discipline.description,
                 discipline_type: discipline.discipline_type,
+                scoring_type: discipline.scoring_type,
                 shots_count: trapDiscipline
                   ? trapShotsCount
                   : dynamicStageDiscipline
@@ -2709,6 +2714,7 @@ function OrganizerContent() {
                             || isPracticalShotgunDisciplineType(selectedDisciplineType)
                           ) {
                             updated[index].one_hand_bonus_enabled = false;
+                            updated[index].scoring_type = "points";
                           }
                           updated[index].stages = isDynamicStageDisciplineType(selectedDisciplineType)
                             ? updated[index].stages.length
@@ -3441,6 +3447,31 @@ function OrganizerContent() {
 
                       {!trapDiscipline && !dynamicStageDiscipline && !practicalShotgunDiscipline && (
                         <>
+                          <label className="mb-3 block font-semibold text-white" htmlFor={`discipline-${index}-scoring`}>
+                            Sposób zapisu wyniku
+                          </label>
+                          <select
+                            id={`discipline-${index}-scoring`}
+                            value={discipline.scoring_type}
+                            onChange={(event) => {
+                              const updated = [...disciplines];
+                              updated[index].scoring_type = event.target.value;
+                              if (event.target.value === "factor") {
+                                updated[index].one_hand_bonus_enabled = false;
+                              }
+                              setDisciplines(updated);
+                            }}
+                            className="w-full rounded-xl border border-zinc-700 bg-zinc-800 p-4 text-white"
+                          >
+                            <option value="points">Punkty</option>
+                            <option value="factor">Faktor</option>
+                          </select>
+                          {discipline.scoring_type === "factor" && (
+                            <p className="mt-2 text-sm leading-6 text-gray-300">
+                              W wynikach zawodów pozostaje faktor. Do rankingu trafiają punkty:
+                              najlepszy faktor w konkurencji daje 100 pkt, a pozostałe proporcjonalnie.
+                            </p>
+                          )}
                           <p className="text-white font-semibold mb-3">
                             Liczba wszystkich strzałów: ocenianych i próbnych
                           </p>
@@ -3470,27 +3501,29 @@ function OrganizerContent() {
                             className={requiredFieldClass(isPositiveNumber(discipline.shots_count))}
                           />
 
-                          <label className="mt-4 flex items-start gap-3 rounded-xl border border-zinc-700 bg-zinc-900 p-4 text-white">
-                            <input
-                              type="checkbox"
-                              checked={discipline.one_hand_bonus_enabled}
-                              onChange={(event) => {
-                                const updated = [...disciplines];
-                                updated[index].one_hand_bonus_enabled = event.target.checked;
-                                setDisciplines(updated);
-                              }}
-                              className="mt-1 h-5 w-5"
-                            />
-                            <span>
-                              <span className="block font-black">
-                                Bonus za strzelanie z jednej ręki +5 pkt
+                          {discipline.scoring_type !== "factor" && (
+                            <label className="mt-4 flex items-start gap-3 rounded-xl border border-zinc-700 bg-zinc-900 p-4 text-white">
+                              <input
+                                type="checkbox"
+                                checked={discipline.one_hand_bonus_enabled}
+                                onChange={(event) => {
+                                  const updated = [...disciplines];
+                                  updated[index].one_hand_bonus_enabled = event.target.checked;
+                                  setDisciplines(updated);
+                                }}
+                                className="mt-1 h-5 w-5"
+                              />
+                              <span>
+                                <span className="block font-black">
+                                  Bonus za strzelanie z jednej ręki +5 pkt
+                                </span>
+                                <span className="mt-1 block text-sm leading-6 text-gray-300">
+                                  Na karcie sędziowania pojawi się opcja zaznaczenia próby jedną ręką.
+                                  System doliczy 5 punktów do wpisanego wyniku.
+                                </span>
                               </span>
-                              <span className="mt-1 block text-sm leading-6 text-gray-300">
-                                Na karcie sędziowania pojawi się opcja zaznaczenia próby jedną ręką.
-                                System doliczy 5 punktów do wpisanego wyniku.
-                              </span>
-                            </span>
-                          </label>
+                            </label>
+                          )}
                         </>
                       )}
 

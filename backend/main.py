@@ -6906,29 +6906,52 @@ def practical_shotgun_hit_factor_value(result: DisciplineResult | None):
     return parse_points(details.get("factor", getattr(result, "points", "") or "0"))
 
 
-def practical_shotgun_points_by_result_id(
+def result_uses_factor(result: DisciplineResult, discipline: Discipline):
+    # Dynamic stages already store converted stage points in DisciplineResult.
+    try:
+        details = json.loads(result.result_data or "{}")
+    except (TypeError, ValueError):
+        details = {}
+
+    if isinstance(details, dict) and details.get("discipline") == "dynamic-stage":
+        return False
+
+    return (
+        (discipline.scoring_type or "").strip().lower() == "factor"
+        or normalize_discipline_type(discipline.discipline_type or "") == PRACTICAL_SHOTGUN_DISCIPLINE_TYPE
+    )
+
+
+def factor_points_by_result_id(
     results: list[DisciplineResult],
     disciplines_by_id: dict[int, Discipline],
     db=None,
 ):
     hit_factors_by_discipline: dict[int, list[tuple[int, Decimal]]] = {}
     requested_result_ids = {result.id for result in results}
-    practical_discipline_ids = {
+    factor_discipline_ids = {
         result.discipline_id
         for result in results
         if (
             result.discipline_id in disciplines_by_id
-            and normalize_discipline_type(
-                disciplines_by_id[result.discipline_id].discipline_type or ""
-            ) == PRACTICAL_SHOTGUN_DISCIPLINE_TYPE
+            and result_uses_factor(result, disciplines_by_id[result.discipline_id])
         )
     }
     source_results = results
 
-    if db and practical_discipline_ids:
+    if db is not None and factor_discipline_ids:
+        # Include competitors without linked accounts when finding the best factor.
         source_results = (
             db.query(DisciplineResult)
-            .filter(DisciplineResult.discipline_id.in_(practical_discipline_ids))
+            .join(CompetitionParticipant, CompetitionParticipant.id == DisciplineResult.participant_id)
+            .filter(
+                DisciplineResult.discipline_id.in_(factor_discipline_ids),
+                CompetitionParticipant.competition_id == DisciplineResult.competition_id,
+                or_(
+                    CompetitionParticipant.entry_type == "shooter",
+                    CompetitionParticipant.entry_type.is_(None),
+                ),
+            )
             .all()
         )
 
@@ -6937,8 +6960,7 @@ def practical_shotgun_points_by_result_id(
 
         if (
             not discipline
-            or normalize_discipline_type(discipline.discipline_type or "")
-            != PRACTICAL_SHOTGUN_DISCIPLINE_TYPE
+            or not result_uses_factor(result, discipline)
         ):
             continue
 
@@ -6969,13 +6991,10 @@ def practical_shotgun_points_by_result_id(
 def result_statistics_points(
     result: DisciplineResult,
     discipline: Discipline,
-    practical_points_by_result_id: dict[int, Decimal] | None = None,
+    factor_points: dict[int, Decimal] | None = None,
 ):
-    if (
-        normalize_discipline_type(discipline.discipline_type or "")
-        == PRACTICAL_SHOTGUN_DISCIPLINE_TYPE
-    ):
-        return (practical_points_by_result_id or {}).get(result.id, Decimal("0"))
+    if result_uses_factor(result, discipline):
+        return (factor_points or {}).get(result.id, Decimal("0"))
 
     return parse_points(result.points)
 
@@ -7176,7 +7195,7 @@ def user_competition_statistics(user: User, db):
         if result.discipline_id in eligible_discipline_ids
     ]
 
-    practical_points_by_result_id = practical_shotgun_points_by_result_id(
+    factor_points = factor_points_by_result_id(
         eligible_results,
         disciplines_by_id,
         db,
@@ -7191,7 +7210,7 @@ def user_competition_statistics(user: User, db):
         points = result_statistics_points(
             result,
             discipline,
-            practical_points_by_result_id,
+            factor_points,
         )
         firearm_type = discipline_firearm_type(discipline)
         discipline_type = normalize_discipline_type(discipline.discipline_type or "")
@@ -7367,7 +7386,7 @@ def user_start_history(user: User, db):
         )
     } if competition_ids else {}
     rows_by_competition = {}
-    practical_points_by_result_id = practical_shotgun_points_by_result_id(
+    factor_points = factor_points_by_result_id(
         results,
         disciplines_by_id,
         db,
@@ -7399,7 +7418,7 @@ def user_start_history(user: User, db):
         points = result_statistics_points(
             result,
             discipline,
-            practical_points_by_result_id,
+            factor_points,
         )
         row["total_points_value"] += points
         row["disciplines"].append({
@@ -7690,9 +7709,10 @@ def rebuild_ranking_entries(db):
         discipline.id: discipline
         for _user, _result, discipline in rows
     }
-    practical_points_by_result_id = practical_shotgun_points_by_result_id(
+    factor_points = factor_points_by_result_id(
         results,
         disciplines_by_id,
+        db,
     )
 
     user_rankings: dict[int, dict] = {}
@@ -7705,7 +7725,7 @@ def rebuild_ranking_entries(db):
         points = result_statistics_points(
             result,
             discipline,
-            practical_points_by_result_id,
+            factor_points,
         )
 
         if points <= 0:
@@ -9414,7 +9434,7 @@ def backfill_participant_total_fees():
 
 def backfill_competition_derived_cache():
     cache_key = "competition_derived_cache_version"
-    cache_version = "2026-10-17-discipline-podium-achievements-v3"
+    cache_version = "2026-11-03-factor-ranking-points-v4"
     db = SessionLocal()
 
     try:
