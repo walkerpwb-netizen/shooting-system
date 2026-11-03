@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import QrCode from "@/components/QrCode";
+import ProfilePhotoPrompt from "@/components/ProfilePhotoPrompt";
 import LicenseStartsCard, { type LicenseStarts } from "@/components/LicenseStartsCard";
 import QrCodeScanner from "@/components/QrCodeScanner";
 import { apiUrl } from "@/lib/api";
@@ -668,6 +669,8 @@ export default function ProfilePage() {
   const [pushPreferencesMessage, setPushPreferencesMessage] = useState("");
   const [message, setMessage] = useState("");
   const [editing, setEditing] = useState(false);
+  const photoEditorRequestedRef = useRef(false);
+  const photoEditorRef = useRef<HTMLDivElement>(null);
   const [licenseScannerOpen, setLicenseScannerOpen] = useState(false);
   const [photoCropUrl, setPhotoCropUrl] = useState("");
   const [photoCropFileName, setPhotoCropFileName] = useState("profile-photo");
@@ -794,7 +797,9 @@ export default function ProfilePage() {
           setOrganizerName(data.organizer_name || "");
           setRoleJudgeLicenseNumber(data.judge_license_number || "");
           setJudgeLicenseValidUntil(data.judge_license_valid_until || "");
-          setEditing(!data.profile_complete);
+          const editPhoto = new URLSearchParams(window.location.search).get("edit") === "photo";
+          photoEditorRequestedRef.current = editPhoto;
+          setEditing(!data.profile_complete || editPhoto);
           void loadPushDevices();
           void loadPushPreferences();
 
@@ -832,6 +837,19 @@ export default function ProfilePage() {
       ignore = true;
     };
   }, [invitedClubId, loadPushDevices, loadPushPreferences, router]);
+
+  useEffect(() => {
+    if (editing && !loading && photoEditorRequestedRef.current && photoEditorRef.current) {
+      photoEditorRef.current.focus({ preventScroll: true });
+      photoEditorRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+      photoEditorRequestedRef.current = false;
+    }
+  }, [editing, loading]);
+
+  function openPhotoEditor() {
+    photoEditorRequestedRef.current = true;
+    setEditing(true);
+  }
 
   useEffect(() => {
     return () => {
@@ -1566,7 +1584,7 @@ export default function ProfilePage() {
                 </button>
               </div>
 
-              <div className="mb-8 max-w-sm">
+              <div id="profile-photo" ref={photoEditorRef} tabIndex={-1} aria-label="Zdjęcie profilowe" className="mb-8 max-w-sm scroll-mt-6 rounded-sm focus:outline-2 focus:outline-offset-4 focus:outline-red-500">
                 <span className="mb-3 block text-sm font-semibold text-red-700 dark:text-red-300">
                   Zdjęcie profilowe
                 </span>
@@ -1971,7 +1989,7 @@ export default function ProfilePage() {
                         className="mx-auto mt-4 flex justify-center [&_svg]:h-auto [&_svg]:w-full [&_svg]:max-w-56"
                       />
 
-                      {profile.profile_photo_url && (
+                      {profile.profile_photo_url ? (
                         <>
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
@@ -1980,6 +1998,8 @@ export default function ProfilePage() {
                             className="mx-auto mt-5 h-40 w-40 border border-zinc-300 object-cover dark:border-red-950"
                           />
                         </>
+                      ) : (
+                        <ProfilePhotoPrompt onClick={openPhotoEditor} className="mx-auto mt-5 h-40 w-40" />
                       )}
                     </div>
                   )}

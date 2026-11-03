@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 
 import AchievementsSection, { type Achievement } from "@/app/achievements/AchievementsSection";
 import LicenseStartsCard, { type LicenseStarts } from "@/components/LicenseStartsCard";
+import ProfilePhotoPrompt from "@/components/ProfilePhotoPrompt";
 import { apiUrl } from "@/lib/api";
 import { getAccessToken } from "@/lib/auth";
 
@@ -245,6 +246,8 @@ export default function ParticipantProfilePage() {
                       className="h-32 w-32 border border-zinc-300 object-cover dark:border-red-950"
                     />
                   </>
+                ) : profile.is_owner ? (
+                  <ProfilePhotoPrompt className="h-32 w-32" />
                 ) : (
                   <div className="flex h-32 w-32 items-center justify-center border border-dashed border-zinc-300 bg-white text-xs font-bold uppercase tracking-wide text-zinc-500 dark:border-red-950 dark:bg-black dark:text-red-300/70">
                     Brak zdjęcia
