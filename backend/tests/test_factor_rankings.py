@@ -219,11 +219,69 @@ class FactorRankingTests(unittest.TestCase):
         self.db.commit()
         self.assertTrue(all(value == 0 for value in main.factor_points_by_result_id(results, {316: discipline}, self.db).values()))
 
+    def test_start_counts_include_zero_scores_and_averages_use_ranking_points(self):
+        self.upgrade()
+        main.rebuild_ranking_entries(self.db)
+        self.db.commit()
+        for region in ("", "mazowieckie"):
+            for metric in ("overall", "shotgun", "practical-shotgun"):
+                direct = main.ranking_rows(metric, self.db, region)["rows"]
+                cached = main.cached_ranking_rows(metric, self.db, region)["rows"]
+                summary = lambda rows: [(r["user_id"], r["points"], r["starts_count"], r["average_points"]) for r in rows]
+                self.assertEqual(summary(direct), summary(cached))
+                first = next(row for row in cached if row["user_id"] == 1)
+                self.assertEqual((first["starts_count"], first["average_points"]),
+                                 (1, "137") if metric == "practical-shotgun" else (4, "76.75"))
+                if metric == "overall":
+                    zero_scores = next(row for row in cached if row["user_id"] == 4)
+                    self.assertEqual((zero_scores["points"], zero_scores["starts_count"], zero_scores["average_points"]),
+                                     ("25", 4, "6.25"))
+
+    def test_start_counts_follow_metric_and_exclude_missing_results_and_ineligible_events(self):
+        self.upgrade()
+        self.db.get(Discipline, 318).discipline_type = "pistol-sport-25m"
+        self.db.query(DisciplineResult).filter_by(participant_id=1, discipline_id=319).one().points = " "
+        self.db.query(DisciplineResult).filter_by(participant_id=1, discipline_id=317).delete()
+        # An actual result in a small field still does not qualify for rankings.
+        self.db.add(Discipline(
+            id=320, competition_id=143, name="Small field", discipline_type="pistol-sport-25m",
+            scoring_type="points", shots_count=7,
+        ))
+        self.db.flush()
+        self.db.add(ParticipantDiscipline(participant_id=1, discipline_id=320, ammo_type="own"))
+        self.db.add(DisciplineResult(
+            competition_id=143, participant_id=1, discipline_id=320,
+            points="100", judge_email="judge@example.test",
+        ))
+        self.db.commit()
+        main.rebuild_ranking_entries(self.db)
+        self.db.commit()
+        for region in ("", "mazowieckie"):
+            for metric, expected in (
+                ("overall", ("120", 2, "60")),
+                ("shotgun", ("50", 1, "50")),
+                ("pistol", ("70", 1, "70")),
+                ("pistol-sport-25m", ("70", 1, "70")),
+            ):
+                for ranking_function in (main.ranking_rows, main.cached_ranking_rows):
+                    rows = ranking_function(metric, self.db, region)["rows"]
+                    row = next(row for row in rows if row["user_id"] == 1)
+                    self.assertEqual((row["points"], row["starts_count"], row["average_points"]), expected)
+            rows = main.cached_ranking_rows("shotgun", self.db, region)["rows"]
+            row = next(row for row in rows if row["user_id"] == 4)
+            self.assertEqual((row["starts_count"], row["average_points"]), (3, "8.33"))
+        self.competition.status = "started"
+        self.db.commit()
+        main.rebuild_ranking_entries(self.db)
+        self.db.commit()
+        self.assertEqual(main.cached_ranking_rows("overall", self.db)["rows"], [])
+        self.assertEqual(main.ranking_rows("overall", self.db)["rows"], [])
+
     def test_existing_cached_rankings_are_rebuilt_once_on_startup(self):
         self.upgrade()
         # Simulate the fractional rankings and cache version from the previous deploy.
         self.db.add(AppSetting(
-            key="competition_derived_cache_version", value="2026-11-03-factor-ranking-points-v4",
+            key="competition_derived_cache_version", value="2026-11-03-whole-ranking-points-v5",
         ))
         self.db.add(RankingEntry(
             scope="national", voivodeship="", metric="overall", metric_label="Ogólny",
@@ -236,6 +294,8 @@ class FactorRankingTests(unittest.TestCase):
             main.backfill_competition_derived_cache()
         self.db.expire_all()
         self.assertEqual(self.db.query(RankingEntry).filter_by(scope="national", metric="overall", user_id=1).one().points, "307")
+        entry = self.db.query(RankingEntry).filter_by(scope="national", metric="overall", user_id=1).one()
+        self.assertEqual(entry.starts_count, 4)
         self.assertEqual(recorded, self.recorded_results())
         with patch("main.SessionLocal", self.sessions), patch("main.refresh_ranking_and_achievement_entries") as refresh:
             main.backfill_competition_derived_cache()

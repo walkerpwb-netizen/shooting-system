@@ -18,6 +18,8 @@ type RankingRow = {
   club: string;
   voivodeship: string;
   points: string;
+  starts_count: number;
+  average_points: string;
 };
 
 type RankingResponse = {
@@ -270,6 +272,10 @@ export default function RankingPage() {
           <p className="mt-3 max-w-3xl text-zinc-600 dark:text-red-100">
             Top 1000 zawodników z najwyższą sumą punktów. Do rankingu wliczają się punkty zdobyte tylko za konkurencje w których wystartowało minimum {minimumDisciplineShooters} zawodników.
           </p>
+          <p className="mt-2 max-w-3xl text-sm text-zinc-600 dark:text-red-100">
+            Liczba konkurencji i średnia dotyczą wybranej klasyfikacji. Średnia to suma punktów
+            podzielona przez liczbę startów w konkurencjach, również tych z wynikiem 0.
+          </p>
         </div>
 
         <div className="mb-6 flex flex-wrap gap-3 border-b border-red-200 pb-5 dark:border-red-950">
@@ -374,6 +380,8 @@ export default function RankingPage() {
                     </th>
                     <th className="whitespace-nowrap px-4 py-3">Punkty</th>
                     <th className="whitespace-nowrap px-4 py-3">Zawodnik</th>
+                    <th scope="col" className="whitespace-nowrap px-4 py-3 text-right">Konkurencje</th>
+                    <th scope="col" className="whitespace-nowrap px-4 py-3 text-right">Średnia pkt</th>
                     <th className="whitespace-nowrap px-4 py-3">Klub</th>
                   </tr>
                 </thead>
@@ -399,6 +407,14 @@ export default function RankingPage() {
                           photoUrl={row.profile_photo_url}
                           className="text-zinc-950 underline-offset-4 transition hover:text-red-700 hover:underline dark:text-white dark:hover:text-red-300"
                         />
+                      </td>
+
+                      <td className="whitespace-nowrap px-4 py-4 text-right tabular-nums text-zinc-700 dark:text-red-100">
+                        {row.starts_count}
+                      </td>
+
+                      <td className="whitespace-nowrap px-4 py-4 text-right tabular-nums text-zinc-700 dark:text-red-100">
+                        {row.average_points.replace(".", ",")}
                       </td>
 
                       <td className="whitespace-nowrap px-4 py-4 text-zinc-700 dark:text-red-100">

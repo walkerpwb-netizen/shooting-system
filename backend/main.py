@@ -7144,6 +7144,7 @@ def user_competition_statistics(user: User, db, *, for_ranking: bool = False):
                 for discipline_type in DETAILED_DISCIPLINE_TYPES
             },
             "total_points_sum": "0",
+            "total_starts_count": 0,
             "ammunition_usage": empty_ammunition_usage(),
             "updated_at": datetime.now(APP_TIMEZONE).isoformat(),
         }
@@ -7190,7 +7191,7 @@ def user_competition_statistics(user: User, db, *, for_ranking: bool = False):
     for discipline in disciplines_by_id.values():
         competition = competitions_by_id.get(discipline.competition_id)
 
-        if not competition:
+        if not competition or (for_ranking and competition.status != "completed"):
             continue
 
         if (
@@ -7203,6 +7204,7 @@ def user_competition_statistics(user: User, db, *, for_ranking: bool = False):
         result
         for result in results
         if result.discipline_id in eligible_discipline_ids
+        and (not for_ranking or (result.points or "").strip())
     ]
 
     factor_points = factor_points_by_result_id(
@@ -7223,6 +7225,8 @@ def user_competition_statistics(user: User, db, *, for_ranking: bool = False):
             discipline,
             factor_points,
         )
+        if for_ranking:
+            points = max(points, Decimal("0"))
         firearm_type = discipline_firearm_type(discipline)
         discipline_type = normalize_discipline_type(discipline.discipline_type or "")
         total_points_sum += points
@@ -7262,6 +7266,7 @@ def user_competition_statistics(user: User, db, *, for_ranking: bool = False):
             for discipline_type, discipline_statistics in discipline_type_statistics.items()
         },
         "total_points_sum": format_points(total_points_sum),
+        "total_starts_count": len(eligible_results),
         "ammunition_usage": ammunition_usage_from_results(eligible_results, disciplines_by_id),
         "updated_at": datetime.now(APP_TIMEZONE).isoformat(),
     }
@@ -7489,6 +7494,16 @@ def ranking_points_for_metric(statistics, metric: str):
     )
 
 
+def ranking_starts_for_metric(statistics, metric: str):
+    if metric == "overall":
+        return statistics["total_starts_count"]
+
+    if metric in statistics["categories"]:
+        return statistics["categories"][metric]["starts_count"]
+
+    return statistics.get("discipline_types", {}).get(metric, empty_statistics_group())["starts_count"]
+
+
 def ranking_rows(metric: str, db, voivodeship: str = ""):
     users_query = db.query(User)
 
@@ -7504,6 +7519,7 @@ def ranking_rows(metric: str, db, voivodeship: str = ""):
 
         statistics = user_competition_statistics(user, db, for_ranking=True)
         points_value = ranking_points_for_metric(statistics, metric)
+        starts_count = ranking_starts_for_metric(statistics, metric)
 
         if points_value <= 0:
             continue
@@ -7521,6 +7537,8 @@ def ranking_rows(metric: str, db, voivodeship: str = ""):
             "voivodeship": user.voivodeship or "",
             "points_value": points_value,
             "points": format_points(points_value),
+            "starts_count": starts_count,
+            "average_points": format_average_points(points_value, starts_count),
         })
 
     rows.sort(
@@ -7582,6 +7600,8 @@ def cached_ranking_rows(metric: str, db, voivodeship: str = ""):
                 "club": entry.club or "",
                 "voivodeship": entry.voivodeship or "",
                 "points": entry.points,
+                "starts_count": entry.starts_count,
+                "average_points": format_average_points(parse_points(entry.points), entry.starts_count),
             }
             for entry in entries
         ],
@@ -7672,6 +7692,7 @@ def add_cached_ranking_entries(
             club=user_ranking["club"],
             points=format_points(points_value),
             points_value=str(points_value),
+            starts_count=user_ranking["starts_count"][metric],
             updated_at=updated_at,
         ))
         inserted_count += 1
@@ -7729,7 +7750,7 @@ def rebuild_ranking_entries(db):
     user_rankings: dict[int, dict] = {}
 
     for user, result, discipline in rows:
-        if not is_profile_complete(user):
+        if not is_profile_complete(user) or not (result.points or "").strip():
             continue
 
         discipline_type = normalize_discipline_type(discipline.discipline_type or "")
@@ -7739,8 +7760,7 @@ def rebuild_ranking_entries(db):
             factor_points,
         )
 
-        if points <= 0:
-            continue
+        points = max(points, Decimal("0"))
 
         user_ranking = user_rankings.setdefault(
             user.id,
@@ -7752,12 +7772,14 @@ def rebuild_ranking_entries(db):
                 "club": user.club or "",
                 "voivodeship": normalize_voivodeship(user.voivodeship or ""),
                 "points": {},
+                "starts_count": {},
             },
         )
 
         user_ranking["points"]["overall"] = (
             user_ranking["points"].get("overall", Decimal("0")) + points
         )
+        user_ranking["starts_count"]["overall"] = user_ranking["starts_count"].get("overall", 0) + 1
 
         firearm_type = DISCIPLINE_TYPE_FIREARM_TYPES.get(discipline_type, "")
 
@@ -7765,11 +7787,13 @@ def rebuild_ranking_entries(db):
             user_ranking["points"][firearm_type] = (
                 user_ranking["points"].get(firearm_type, Decimal("0")) + points
             )
+            user_ranking["starts_count"][firearm_type] = user_ranking["starts_count"].get(firearm_type, 0) + 1
 
         if discipline_type in DETAILED_DISCIPLINE_TYPES:
             user_ranking["points"][discipline_type] = (
                 user_ranking["points"].get(discipline_type, Decimal("0")) + points
             )
+            user_ranking["starts_count"][discipline_type] = user_ranking["starts_count"].get(discipline_type, 0) + 1
 
     voivodeships = {
         user_ranking["voivodeship"]
@@ -9445,7 +9469,7 @@ def backfill_participant_total_fees():
 
 def backfill_competition_derived_cache():
     cache_key = "competition_derived_cache_version"
-    cache_version = "2026-11-03-whole-ranking-points-v5"
+    cache_version = "2026-11-03-ranking-starts-average-v6"
     db = SessionLocal()
 
     try:

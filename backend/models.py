@@ -1483,6 +1483,13 @@ class RankingEntry(Base):
         nullable=False,
     )
 
+    starts_count = Column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+
     updated_at = Column(
         String,
         nullable=False,
