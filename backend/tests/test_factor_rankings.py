@@ -81,7 +81,7 @@ class FactorRankingTests(unittest.TestCase):
                     if discipline_id == 319 else None,
                 ))
         self.db.add(AppSetting(
-            key="competition_derived_cache_version", value="2026-10-17-discipline-podium-achievements-v3",
+            key="competition_derived_cache_version", value="2026-11-03-factor-ranking-points-v4",
         ))
         self.db.commit()
 
@@ -137,12 +137,12 @@ class FactorRankingTests(unittest.TestCase):
                 setattr(entity, field, original)
                 self.db.commit()
 
-    def test_rankings_use_all_competitors_and_preserve_already_converted_stage_points(self):
+    def test_rankings_use_all_competitors_and_round_already_converted_stage_points(self):
         self.upgrade()
         main.rebuild_ranking_entries(self.db)
         self.db.commit()
         for scope in ("national", "regional"):
-            for metric, expected in (("overall", "307.25"), ("shotgun", "307.25"), ("practical-shotgun", "137.25")):
+            for metric, expected in (("overall", "307"), ("shotgun", "307"), ("practical-shotgun", "137")):
                 entry = self.db.query(RankingEntry).filter_by(scope=scope, metric=metric, user_id=1).one()
                 self.assertEqual(entry.points, expected)
         # Decimal commas and zero results use the same conversion.
@@ -155,6 +155,48 @@ class FactorRankingTests(unittest.TestCase):
         cached = main.cached_ranking_rows("overall", self.db)["rows"]
         self.assertEqual([(r["user_id"], r["points"]) for r in direct],
                          [(r["user_id"], r["points"]) for r in cached])
+
+    def test_rounding_each_result_preserves_history_and_sorts_on_whole_points(self):
+        self.upgrade()
+        for participant_id, discipline_id, points in (
+            (1, 319, "137.5"),
+            (3, 318, "0.49"),
+            (3, 319, "0.49"),
+            (5, 319, "10.01"),
+            (6, 319, "10.49"),
+        ):
+            result = self.db.query(DisciplineResult).filter_by(
+                participant_id=participant_id, discipline_id=discipline_id,
+            ).one()
+            result.points = points
+            if discipline_id == 319:
+                result.result_data = json.dumps({"discipline": "dynamic-stage", "stage_points": points})
+        self.db.commit()
+        recorded = self.recorded_results()
+        categories = ("discipline-319", "shotgun", "overall")
+        payloads = {
+            category: main.result_category_payload(self.competition, category, self.db)["shooters"]
+            for category in categories
+        }
+        main.rebuild_ranking_entries(self.db)
+        self.db.commit()
+        self.assertEqual(self.recorded_results(), recorded)
+        for category, payload in payloads.items():
+            self.assertEqual(main.result_category_payload(self.competition, category, self.db)["shooters"], payload)
+        for metric, expected in (("overall", "308"), ("shotgun", "308"), ("practical-shotgun", "138")):
+            for region in ("", "mazowieckie"):
+                direct = main.ranking_rows(metric, self.db, region)["rows"]
+                cached = main.cached_ranking_rows(metric, self.db, region)["rows"]
+                self.assertEqual([(r["user_id"], r["points"]) for r in direct],
+                                 [(r["user_id"], r["points"]) for r in cached])
+                self.assertEqual(next(r["points"] for r in cached if r["user_id"] == 1), expected)
+                self.assertTrue(all("." not in r["points"] for r in cached))
+                self.assertNotIn(3, [r["user_id"] for r in cached])
+                tied = [r for r in cached if r["user_id"] in (5, 6)]
+                self.assertEqual([(r["user_id"], r["points"]) for r in tied], [(5, "10"), (6, "10")])
+        user = self.db.get(User, 1)
+        self.assertEqual(main.user_competition_statistics(user, self.db)["total_points_sum"], "307.5")
+        self.assertEqual(main.user_start_history(user, self.db)["total_points"], "307.5")
 
     def test_factor_rounding_zero_field_and_disqualification_reuse_existing_conversion(self):
         self.upgrade()
@@ -179,11 +221,21 @@ class FactorRankingTests(unittest.TestCase):
 
     def test_existing_cached_rankings_are_rebuilt_once_on_startup(self):
         self.upgrade()
+        # Simulate the fractional rankings and cache version from the previous deploy.
+        self.db.add(AppSetting(
+            key="competition_derived_cache_version", value="2026-11-03-factor-ranking-points-v4",
+        ))
+        self.db.add(RankingEntry(
+            scope="national", voivodeship="", metric="overall", metric_label="Ogólny",
+            place=1, user_id=1, display_name="1 Jan", points="307.25", points_value="307.25",
+            updated_at="2026-11-03",
+        ))
+        self.db.commit()
         recorded = self.recorded_results()
         with patch("main.SessionLocal", self.sessions):
             main.backfill_competition_derived_cache()
         self.db.expire_all()
-        self.assertEqual(self.db.query(RankingEntry).filter_by(scope="national", metric="overall", user_id=1).one().points, "307.25")
+        self.assertEqual(self.db.query(RankingEntry).filter_by(scope="national", metric="overall", user_id=1).one().points, "307")
         self.assertEqual(recorded, self.recorded_results())
         with patch("main.SessionLocal", self.sessions), patch("main.refresh_ranking_and_achievement_entries") as refresh:
             main.backfill_competition_derived_cache()

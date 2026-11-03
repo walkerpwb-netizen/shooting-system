@@ -6999,6 +6999,16 @@ def result_statistics_points(
     return parse_points(result.points)
 
 
+def result_ranking_points(
+    result: DisciplineResult,
+    discipline: Discipline,
+    factor_points: dict[int, Decimal] | None = None,
+):
+    return result_statistics_points(result, discipline, factor_points).quantize(
+        Decimal("1"), rounding=ROUND_HALF_UP,
+    )
+
+
 def format_average_points(total: Decimal, starts_count: int):
     if starts_count <= 0:
         return "0"
@@ -7081,7 +7091,7 @@ def discipline_statistics_shooters_count(
     )
 
 
-def user_competition_statistics(user: User, db):
+def user_competition_statistics(user: User, db, *, for_ranking: bool = False):
     statistics = {
         "pistol": {
             "starts_count": 0,
@@ -7207,7 +7217,8 @@ def user_competition_statistics(user: User, db):
         if not discipline:
             continue
 
-        points = result_statistics_points(
+        points_function = result_ranking_points if for_ranking else result_statistics_points
+        points = points_function(
             result,
             discipline,
             factor_points,
@@ -7491,7 +7502,7 @@ def ranking_rows(metric: str, db, voivodeship: str = ""):
         if not is_profile_complete(user):
             continue
 
-        statistics = user_competition_statistics(user, db)
+        statistics = user_competition_statistics(user, db, for_ranking=True)
         points_value = ranking_points_for_metric(statistics, metric)
 
         if points_value <= 0:
@@ -7722,7 +7733,7 @@ def rebuild_ranking_entries(db):
             continue
 
         discipline_type = normalize_discipline_type(discipline.discipline_type or "")
-        points = result_statistics_points(
+        points = result_ranking_points(
             result,
             discipline,
             factor_points,
@@ -9434,7 +9445,7 @@ def backfill_participant_total_fees():
 
 def backfill_competition_derived_cache():
     cache_key = "competition_derived_cache_version"
-    cache_version = "2026-11-03-factor-ranking-points-v4"
+    cache_version = "2026-11-03-whole-ranking-points-v5"
     db = SessionLocal()
 
     try:
