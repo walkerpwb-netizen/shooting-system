@@ -315,6 +315,8 @@ def build_payments_workbook(entries, year, months, seller):
 
 def build_payments_router(get_db, get_current_admin, seller_details):
     router = APIRouter(prefix="/admin/payments", tags=["Wpłaty Autopay"])
+    from payment_transactions import build_transactions_router
+    router.include_router(build_transactions_router(get_db, get_current_admin))
 
     @router.get("")
     def overview(

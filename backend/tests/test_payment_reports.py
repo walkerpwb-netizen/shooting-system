@@ -195,7 +195,7 @@ class PaymentReportsTests(unittest.TestCase):
         self.assertEqual(workbook["Podsumowanie"]["B7"].value, 0)
         self.assertEqual(workbook["Wpłaty"].max_row, 1)
 
-    def request(self, path, token=None):
+    def request(self, path, token=None, method="GET"):
         app = FastAPI()
 
         def admin(authorization: str | None = Header(default=None)):
@@ -217,7 +217,7 @@ class PaymentReportsTests(unittest.TestCase):
                 result.append(message)
 
             headers = [(b"authorization", f"Bearer {token}".encode())] if token else []
-            await app({"type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": "GET",
+            await app({"type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": method,
                        "scheme": "https", "path": parsed.path, "raw_path": parsed.path.encode(),
                        "root_path": "", "query_string": parsed.query.encode(), "headers": headers,
                        "server": ("example.test", 443), "client": ("127.0.0.1", 1234)}, receive, send)

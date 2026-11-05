@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { apiUrl } from "@/lib/api";
 import { authFetch } from "@/lib/auth";
+import PaymentTransactionsPanel from "./PaymentTransactionsPanel";
 
 type Total = { count: number; amount: string; estimated_fee: string; estimated_net: string };
 type Quarter = Total & {
@@ -103,9 +104,14 @@ export default function PaymentsPanel() {
   return (
     <section className="min-w-0 space-y-6 rounded-2xl bg-zinc-950 p-4 text-white sm:p-6" aria-label="Kontrola wpłat Autopay">
       <header className="flex flex-wrap items-start justify-between gap-4">
-        <div><h2 className="text-3xl font-black">Wpłaty Autopay</h2><p className="mt-2 max-w-3xl leading-7 text-zinc-300">Potwierdzone wpłaty klientów za Premium oraz szacunek prowizji operatora. Do kontroli limitu liczymy pełne kwoty wpłat, przed prowizjami.</p></div>
-        <button type="button" onClick={() => setRevision((value) => value + 1)} disabled={loading} className={buttonClass}>Odśwież wpłaty</button>
+        <div><h2 className="text-3xl font-black">Wpłaty i transakcje Autopay</h2><p className="mt-2 max-w-3xl leading-7 text-zinc-300">Status wszystkich zakupów Premium oraz rozliczenie potwierdzonych wpłat.</p></div>
+        <button type="button" onClick={() => setRevision((value) => value + 1)} disabled={loading} className={buttonClass}>Odśwież rozliczenie</button>
       </header>
+
+      <PaymentTransactionsPanel onPaymentUpdated={() => setRevision((value) => value + 1)} />
+
+      <h3 className="text-2xl font-bold">Rozliczenie potwierdzonych wpłat</h3>
+      <p className="text-zinc-300">Do kontroli limitu liczymy pełne kwoty potwierdzonych wpłat, przed prowizjami.</p>
 
       <form className="grid gap-4 rounded-2xl border border-zinc-800 bg-zinc-900 p-5 md:grid-cols-2 xl:grid-cols-[auto_auto_minmax(12rem,1fr)_auto]" onSubmit={(event) => { event.preventDefault(); setPage(1); setSearch(searchDraft.trim()); }}>
         <label className="space-y-2"><span className="block font-semibold">Rok</span><select className={inputClass} value={year} onChange={(event) => { setYear(Number(event.target.value)); setPage(1); }}>{years.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
