@@ -53,14 +53,17 @@ def parse_transactions(xml, config, *, allow_batch=False):
     for transaction in transactions:
         tags = [node.tag for node in transaction]
         if (transaction.tag != "transaction" or len(tags) != len(set(tags))
-                or tags != [field for field in ITN_FIELDS if field in tags]
+                or any(tag not in ITN_FIELDS for tag in tags)
+                or (not allow_batch and tags != [field for field in ITN_FIELDS if field in tags])
                 or any(len(node) for node in transaction if node.tag != "customerData")
                 or not all(transaction.findtext(field) for field in
                            ("orderID", "remoteID", "amount", "currency", "paymentDate", "paymentStatus"))
                 or not re.fullmatch(r"[A-Za-z0-9]{1,32}", transaction.findtext("orderID", ""))
                 or not re.fullmatch(r"[A-Za-z0-9]{1,20}", transaction.findtext("remoteID", ""))):
             raise HTTPException(400, "Nieobsługiwane pola powiadomienia Autopay.")
-        for node in transaction:
+        # transactionStatus serializes fields in a different order from ITN.
+        # Its signature still uses the documented field numbers, not XML order.
+        for node in sorted(transaction, key=lambda node: ITN_FIELDS.index(node.tag)):
             if node.tag == "customerData":
                 children = [child.tag for child in node]
                 if (len(children) != len(set(children)) or children != [field for field in CUSTOMER_FIELDS if field in children]

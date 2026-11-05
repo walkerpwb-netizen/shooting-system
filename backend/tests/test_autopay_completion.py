@@ -172,6 +172,36 @@ class AutopayCompletionTests(unittest.TestCase):
             refresh_order(order, self.db, production_config())
         self.assertEqual(error.exception.status_code, 429)
 
+    def test_status_response_uses_documented_hash_order_independently_of_xml_order(self):
+        order = self.db.get(PremiumOrder, self.checkout()['order_id'])
+        root = fromstring(self.notification(order.id))
+        transaction = root.find('.//transaction')
+        # Production transactionStatus places amount and currency at the end.
+        for name in ('amount', 'currency'):
+            node = transaction.find(name)
+            transaction.remove(node)
+            transaction.append(node)
+        xml = tostring(root)  # Keep the signature of the canonical field order.
+        with self.assertRaises(HTTPException):
+            process_itn(xml, self.db, production_config())
+        with patch('autopay_api.post_xml', return_value=xml.replace(b'SUCCESS', b'FAILURE')):
+            with self.assertRaises(HTTPException):
+                refresh_order(order, self.db, production_config())
+        self.assertEqual(order.status, 'pending')
+        order.last_status_check_at = None
+        self.db.commit()
+        with patch('autopay_api.post_xml', return_value=xml):
+            refresh_order(order, self.db, production_config())
+        self.assertEqual(order.status, 'paid')
+        self.assertEqual(self.db.query(AutopayReceipt).count(), 1)
+        self.assertEqual(order.service_ends_at, '2027-01-31T23:59:59+01:00')
+        order.last_status_check_at = None
+        self.db.commit()
+        with patch('autopay_api.post_xml', return_value=xml):
+            refresh_order(order, self.db, production_config())
+        self.assertEqual(self.db.query(AutopayReceipt).count(), 1)
+        self.assertEqual(order.service_ends_at, '2027-01-31T23:59:59+01:00')
+
     def test_verified_cancellation_releases_reservation_only_after_operator_confirms_all(self):
         order = self.db.get(PremiumOrder, self.checkout()['order_id'])
         order.environment = 'production'; self.db.commit()
