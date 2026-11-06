@@ -198,6 +198,7 @@ class PremiumAccessTests(unittest.TestCase):
         # Showing the future purchase must not move the fulfillment base forward.
         with patch("premium_access.datetime", wraps=datetime) as clock:
             clock.now.return_value = active_end + timedelta(seconds=1)
+            self.assertEqual(main.public_user(self.user)["premium_coverage_until"], purchased_end)
             self.assertTrue(self.apply(order))
         self.assertEqual(self.user.premium_shooter_paid_until, purchased_end)
         self.assertFalse(self.apply(order))

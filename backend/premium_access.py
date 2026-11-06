@@ -85,15 +85,16 @@ def premium_display_fields(user, orders=None, now=None):
                 continue
             start = parse_premium_datetime(order.service_starts_at)
             end = parse_premium_datetime(order.service_ends_at)
-            if start and end and end > start and end > current_time:
+            if start and end and end > start:
                 periods.append((start, end))
         periods.sort()
-        # A future purchase with a gap cannot turn an expired account active.
-        if coverage_end and coverage_end > current_time:
+        # Keep continuous renewals visible even if the owner has not logged in
+        # since their start. A purchase after a gap cannot bridge that gap.
+        if coverage_end:
             for start, end in periods:
                 if start <= coverage_end:
                     coverage_end = max(coverage_end, end)
-        next_period = periods[0] if periods else (None, None)
+        next_period = next((period for period in periods if period[1] > current_time), (None, None))
         result[f"{prefix}_coverage_until"] = coverage_end.isoformat() if coverage_end else ""
         result[f"{prefix}_scheduled_starts_at"] = next_period[0].isoformat() if next_period[0] else ""
         result[f"{prefix}_scheduled_ends_at"] = next_period[1].isoformat() if next_period[1] else ""
