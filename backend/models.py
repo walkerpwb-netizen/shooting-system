@@ -279,6 +279,7 @@ class PremiumOrder(Base):
     refunded_at = Column(String, nullable=True)
     refund_requested_at = Column(String, nullable=True)
     refund_requested_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    service_schedule_history = Column(Text, nullable=True)
 
 
 class PremiumNotification(Base):

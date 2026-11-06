@@ -7,9 +7,9 @@ from unittest.mock import patch
 from fastapi import HTTPException
 from sqlalchemy.orm import sessionmaker
 
-from models import AutopayReceipt, Competition, PremiumOrder, PremiumRefund, User
-from premium_access import apply_paid_premium_order, effective_premium_until, has_paid_publication, premium_display_fields
-from premium_contract import queued_access_until
+from models import AutopayReceipt, Competition, PremiumMailOutbox, PremiumOrder, PremiumRefund, User
+from premium_access import add_premium_period, apply_paid_premium_order, effective_premium_until, has_paid_publication, premium_display_fields, revoke_order_entitlements
+from premium_contract import contract_snapshot, make_quote, queued_access_until
 from premium_deadlines import withdrawal_deadline
 from premium_refunds import refresh_pending_refunds, refresh_refund, request_refund
 from autopay_protocol import payment_hash
@@ -27,6 +27,7 @@ class PremiumRefundTests(unittest.TestCase):
     order = reports.PaymentReportsTests.order
     receipt = reports.PaymentReportsTests.receipt
     transaction = reports.PaymentReportsTests.transaction
+    itn = reports.PaymentReportsTests.itn
     request = reports.PaymentReportsTests.request
 
     def setUp(self):
@@ -250,6 +251,125 @@ class PremiumRefundTests(unittest.TestCase):
             refresh_refund(order, self.db, CONFIG); refresh_refund(order, self.db, CONFIG)
             self.assertEqual(network.call_count, 1)
             self.assertIsNone(order.refunded_at)
+
+    def renewal(self, start, *, package='shooter', period='monthly', remote='next'):
+        from payment_reports import record_autopay_receipt
+        order = self.order(package=package, period=period)
+        order.status, order.paid_at = 'paid', self.now.isoformat()
+        order.service_starts_at = start
+        order.service_ends_at = add_premium_period(datetime.fromisoformat(start), period).isoformat()
+        record_autopay_receipt(order, self.transaction(order, remote=remote), self.db)
+        self.db.commit()
+        return order
+
+    def first_renewal(self, *, package='shooter', period='monthly'):
+        self.user.premium_until = '2026-12-31T23:59:59+01:00'
+        first = self.paid(package, period)
+        first.service_starts_at = self.user.premium_until
+        first.service_ends_at = add_premium_period(datetime.fromisoformat(first.service_starts_at), period).isoformat()
+        self.db.commit()
+        return first
+
+    def test_refund_first_of_two_renewals_closes_gap_preserves_month_and_replayed_itn(self):
+        first = self.first_renewal()
+        second = self.renewal(first.service_ends_at)
+        from premium_payments import seller_details
+        quote = make_quote(self.user, 'shooter', 'monthly', '10.00', True, None, seller_details())
+        second.contract_snapshot = contract_snapshot(quote, self.user, {})
+        snapshot = second.contract_snapshot
+        original_start, original_end = second.service_starts_at, second.service_ends_at
+        self.db.commit()
+        with patch('premium_refunds.post_xml', side_effect=self.accepted): request_refund(first, self.db, CONFIG)
+        self.assertEqual(second.service_starts_at, '2026-12-31T23:59:59+01:00')
+        self.assertEqual(second.service_ends_at, '2027-01-31T23:59:59+01:00')
+        self.assertEqual(premium_display_fields(self.user)['premium_coverage_until'], second.service_ends_at)
+        self.assertEqual(queued_access_until(self.user, 'shooter', self.db).isoformat(), second.service_ends_at)
+        self.assertIsNone(self.user.premium_shooter_paid_until)
+        self.assertIsNone(second.entitlements_applied_at)
+        history = json.loads(second.service_schedule_history)
+        self.assertEqual(history[0]['previous_starts_at'], original_start)
+        self.assertEqual(history[0]['previous_ends_at'], original_end)
+        self.assertEqual(history[0]['withdrawn_order_id'], first.id)
+        self.assertEqual(second.contract_snapshot, snapshot)
+        # Duplicate signed SUCCESS must not reintroduce the old gap or add access.
+        self.itn(second, remote='next'); self.itn(second, remote='next')
+        self.assertEqual(second.service_ends_at, '2027-01-31T23:59:59+01:00')
+        self.assertEqual(second.contract_snapshot, snapshot)
+        self.assertEqual(len(json.loads(second.service_schedule_history)), 1)
+        self.assertEqual(self.db.query(AutopayReceipt).count(), 2)
+        self.assertEqual(self.db.query(PremiumRefund).count(), 1)
+        # Repair/reconciliation of the same withdrawal is idempotent.
+        revoke_order_entitlements(first, self.db); self.db.commit()
+        self.assertEqual(len(json.loads(second.service_schedule_history)), 1)
+        mail = self.db.query(PremiumMailOutbox).filter_by(order_id=second.id).one()
+        mail.sent_at = self.now.isoformat(); self.db.commit()
+        with patch('premium_access.datetime', wraps=datetime) as clock:
+            clock.now.return_value = datetime(2027, 1, 1, tzinfo=timezone.utc)
+            self.assertTrue(apply_paid_premium_order(second, self.db)); self.db.commit()
+            self.assertFalse(apply_paid_premium_order(second, self.db))
+        self.assertEqual(self.user.premium_shooter_paid_until, '2027-01-31T23:59:59+01:00')
+
+    def test_middle_refund_reflows_only_remaining_dependent_chain(self):
+        first = self.first_renewal()
+        middle = self.renewal(first.service_ends_at)
+        last = self.renewal(middle.service_ends_at, remote='last')
+        future_gap = self.renewal('2027-08-01T00:00:00+02:00', remote='gap')
+        old_first, gap = (first.service_starts_at, first.service_ends_at), (future_gap.service_starts_at, future_gap.service_ends_at)
+        with patch('premium_refunds.post_xml', side_effect=self.accepted): request_refund(middle, self.db, CONFIG)
+        self.assertEqual((first.service_starts_at, first.service_ends_at), old_first)
+        self.assertEqual(last.service_starts_at, first.service_ends_at)
+        self.assertEqual(last.service_ends_at, '2027-02-28T23:59:59+01:00')
+        self.assertEqual((future_gap.service_starts_at, future_gap.service_ends_at), gap)
+        self.assertIsNone(future_gap.service_schedule_history)
+        self.assertEqual(premium_display_fields(self.user)['premium_coverage_until'], last.service_ends_at)
+
+    def test_first_refund_reflows_multiple_months_and_then_last_refund_keeps_the_rest(self):
+        first = self.first_renewal()
+        second = self.renewal(first.service_ends_at)
+        third = self.renewal(second.service_ends_at, remote='third')
+        with patch('premium_refunds.post_xml', side_effect=self.accepted): request_refund(first, self.db, CONFIG)
+        self.assertEqual(second.service_starts_at, self.user.premium_until)
+        self.assertEqual(third.service_starts_at, second.service_ends_at)
+        self.assertEqual(third.service_ends_at, '2027-02-28T23:59:59+01:00')
+        with patch('premium_refunds.post_xml', side_effect=self.accepted): request_refund(third, self.db, CONFIG)
+        self.assertEqual(premium_display_fields(self.user)['premium_coverage_until'], '2027-01-31T23:59:59+01:00')
+        self.assertEqual(len(json.loads(second.service_schedule_history)), 1)
+
+    def test_withdrawn_organizer_bonus_reflows_dependent_shooter(self):
+        organizer = self.first_renewal(package='organizer', period='yearly')
+        shooter = self.renewal(organizer.service_ends_at)
+        with patch('premium_refunds.post_xml', side_effect=self.accepted): request_refund(organizer, self.db, CONFIG)
+        self.assertEqual(shooter.service_starts_at, self.user.premium_until)
+        self.assertEqual(shooter.service_ends_at, '2027-01-31T23:59:59+01:00')
+        fields = premium_display_fields(self.user)
+        self.assertEqual(fields['premium_coverage_until'], shooter.service_ends_at)
+        self.assertEqual(fields['premium_organizer_coverage_until'], self.user.premium_until)
+
+    def test_reflow_respects_delayed_start_and_active_other_purchase(self):
+        first = self.first_renewal()
+        second = self.renewal(first.service_ends_at)
+        # A longer independently granted period must remain the start boundary.
+        self.user.premium_shooter_paid_until = '2027-01-15T00:00:00+01:00'
+        self.db.commit()
+        with patch('premium_refunds.post_xml', side_effect=self.accepted): request_refund(first, self.db, CONFIG)
+        self.assertEqual(second.service_starts_at, self.user.premium_shooter_paid_until)
+        self.assertEqual(second.service_ends_at, '2027-02-15T00:00:00+01:00')
+        self.assertIsNone(second.entitlements_applied_at)
+
+    def test_reflow_never_starts_service_before_14_day_wait_without_request(self):
+        first = self.first_renewal()
+        self.user.premium_until = None
+        first.service_starts_at = (self.now + timedelta(days=1)).isoformat()
+        first.service_ends_at = add_premium_period(datetime.fromisoformat(first.service_starts_at), 'monthly').isoformat()
+        self.db.commit()
+        second = self.renewal(first.service_ends_at)
+        with patch('premium_access.datetime', wraps=datetime) as clock:
+            clock.now.return_value = self.now
+            with patch('premium_refunds.post_xml', side_effect=self.accepted): request_refund(first, self.db, CONFIG)
+        start = datetime.fromisoformat(second.service_starts_at)
+        self.assertEqual(start, self.now + timedelta(days=14))
+        self.assertEqual(datetime.fromisoformat(second.service_ends_at), add_premium_period(start, 'monthly'))
+        self.assertIsNone(second.entitlements_applied_at)
 
 
 class WithdrawalDeadlineTests(unittest.TestCase):

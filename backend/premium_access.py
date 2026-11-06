@@ -1,7 +1,8 @@
 """Premium package rules shared by access checks and payment fulfillment."""
 
 from calendar import monthrange
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+import json
 from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import object_session
@@ -185,17 +186,64 @@ def revoke_fully_refunded_order(order, db):
 def revoke_order_entitlements(order, db):
     """Withdraw only this purchase; the refund itself may still be unsettled."""
     order.publication_granted_at = None
-    if not order.entitlements_applied_at or not included_premium_packages(order.package, order.period):
+    if not included_premium_packages(order.package, order.period):
         return
     if order.environment != "production" or not order.user_id:
         return
+    # Lock dependent orders before the user, matching fulfillment's order -> user
+    # lock order. The caller already holds the withdrawal order and payment lock.
+    db.flush()
+    others = db.query(PremiumOrder).filter(PremiumOrder.user_id == order.user_id, PremiumOrder.environment == "production",
+        PremiumOrder.status == "paid", PremiumOrder.refunded_at.is_(None), PremiumOrder.refund_requested_at.is_(None),
+        PremiumOrder.id != order.id).order_by(PremiumOrder.id).populate_existing().with_for_update().all()
     user = db.query(User).filter_by(id=order.user_id).populate_existing().with_for_update().first()
     if not user:
         return
-    field = "premium_organizer_paid_until" if order.package == "organizer" else "premium_shooter_paid_until"
-    others = db.query(PremiumOrder).filter(PremiumOrder.user_id == user.id, PremiumOrder.environment == "production",
-        PremiumOrder.status == "paid", PremiumOrder.refunded_at.is_(None), PremiumOrder.refund_requested_at.is_(None), PremiumOrder.id != order.id,
-        PremiumOrder.package == order.package, PremiumOrder.entitlements_applied_at.is_not(None)).all()
-    dates = [parse_premium_datetime(row.entitlement_ends_at) for row in others]
-    remaining = max((date for date in dates if date), default=None)
-    setattr(user, field, remaining.isoformat() if remaining else None)
+    if order.entitlements_applied_at:
+        field = "premium_organizer_paid_until" if order.package == "organizer" else "premium_shooter_paid_until"
+        dates = [parse_premium_datetime(row.entitlement_ends_at) for row in others
+                 if row.package == order.package and row.entitlements_applied_at]
+        remaining = max((date for date in dates if date), default=None)
+        setattr(user, field, remaining.isoformat() if remaining else None)
+    reflow_pending_renewals(order, user, others)
+
+
+def reflow_pending_renewals(withdrawn, user, orders):
+    """Close only gaps caused by this withdrawal, keeping paid calendar periods.
+
+    Original contracts/confirmation emails and receipt/refund records are never
+    rewritten. The live schedule has its own append-only adjustment history.
+    """
+    removed_start = parse_premium_datetime(withdrawn.entitlement_starts_at or withdrawn.service_starts_at)
+    removed_end = parse_premium_datetime(withdrawn.entitlement_ends_at or withdrawn.service_ends_at)
+    if not removed_start or not removed_end:
+        return
+    now = datetime.now(PREMIUM_TIMEZONE)
+    changed_ends = {package: {removed_end: removed_start}
+                    for package in included_premium_packages(withdrawn.package, withdrawn.period)}
+    available = {package: effective_premium_until(user, package) for package in ("shooter", "organizer")}
+    pending = [row for row in orders if not row.entitlements_applied_at
+               and included_premium_packages(row.package, row.period)
+               and parse_premium_datetime(row.service_starts_at) and parse_premium_datetime(row.service_ends_at)]
+    pending.sort(key=lambda row: (parse_premium_datetime(row.service_starts_at), row.created_at, row.id))
+    for row in pending:
+        start, end = parse_premium_datetime(row.service_starts_at), parse_premium_datetime(row.service_ends_at)
+        packages = included_premium_packages(row.package, row.period)
+        replacement = changed_ends.get(row.package, {}).get(start)
+        paid = parse_premium_datetime(row.paid_at)
+        if replacement and paid:
+            earliest = paid if row.early_start_requested else paid + timedelta(days=14)
+            new_start = max(date for date in (replacement, earliest, now, available[row.package]) if date)
+            if new_start < start:
+                new_end = add_premium_period(new_start, row.period)
+                history = json.loads(row.service_schedule_history or "[]")
+                history.append({"reason": "earlier_purchase_withdrawn", "withdrawn_order_id": withdrawn.id,
+                    "changed_at": now.isoformat(), "previous_starts_at": row.service_starts_at,
+                    "previous_ends_at": row.service_ends_at, "starts_at": new_start.isoformat(), "ends_at": new_end.isoformat()})
+                row.service_schedule_history = json.dumps(history, ensure_ascii=False)
+                row.service_starts_at, row.service_ends_at = new_start.isoformat(), new_end.isoformat()
+                for package in packages:
+                    changed_ends.setdefault(package, {})[end] = new_end
+                start, end = new_start, new_end
+        for package in packages:
+            available[package] = max(available[package], end) if available[package] else end

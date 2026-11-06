@@ -196,7 +196,7 @@ def process_itn(xml, db, config, *, allow_batch=False):
                     if owner:
                         previous = [effective_premium_until(owner, order.package), queued_access_until(owner, order.package, db, order.id)]
                         start = max([start] + [end for end in previous if end])
-                if not order.entitlements_applied_at:
+                if not order.entitlements_applied_at and not order.service_schedule_history:
                     order.service_starts_at = start.isoformat()
                     order.service_ends_at = None if order.package == "organizer" and order.period == "monthly" else add_premium_period(start, order.period).isoformat()
                 queue_confirmation(order, db)
