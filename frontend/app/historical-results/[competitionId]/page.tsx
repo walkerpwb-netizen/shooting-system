@@ -1,5 +1,6 @@
 "use client";
 
+import PremiumAccessMessage from "@/components/PremiumAccessMessage";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -100,9 +101,7 @@ export default function HistoricalCompetitionPage() {
         </Link>
 
         {message && (
-          <p className="mb-6 rounded-xl border border-red-900 bg-red-950/50 p-4 text-red-100">
-            {message}
-          </p>
+          <PremiumAccessMessage message={message} className="mb-6 rounded-xl border border-red-900 bg-red-950/50 p-4 text-red-100" />
         )}
 
         {loading ? (

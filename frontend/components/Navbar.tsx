@@ -7,7 +7,6 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { apiUrl } from "@/lib/api";
 import {
   isPremiumActive,
-  PREMIUM_EXPIRED_MESSAGE,
   PREMIUM_LOGIN_REQUIRED_MESSAGE,
 } from "@/lib/premium";
 import {
@@ -26,6 +25,7 @@ import {
 } from "@/lib/shootingRangeNotifications";
 import SocialMediaIcons from "./SocialMediaIcons";
 import SupportLink from "./SupportLink";
+import PremiumExpiredDialog from "./PremiumExpiredDialog";
 
 type PublicCompetition = {
   status: string;
@@ -96,6 +96,7 @@ export default function Navbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [hasStartedCompetition, setHasStartedCompetition] = useState(false);
   const [premiumActive, setPremiumActive] = useState(false);
+  const [premiumExpiredDialogOpen, setPremiumExpiredDialogOpen] = useState(false);
   const [pendingClubMembersCount, setPendingClubMembersCount] = useState(0);
   const [pendingShootingRangeSubmissionsCount, setPendingShootingRangeSubmissionsCount] = useState(0);
   const [pendingPzssClubsCount, setPendingPzssClubsCount] = useState(0);
@@ -553,7 +554,11 @@ export default function Navbar() {
 
     event.preventDefault();
     setMobileMenuOpen(false);
-    window.alert(user ? PREMIUM_EXPIRED_MESSAGE : PREMIUM_LOGIN_REQUIRED_MESSAGE);
+    if (user) {
+      setPremiumExpiredDialogOpen(true);
+    } else {
+      window.alert(PREMIUM_LOGIN_REQUIRED_MESSAGE);
+    }
   }
 
   async function openRolePanel(
@@ -768,6 +773,9 @@ export default function Navbar() {
 
   return (
     <>
+    {premiumExpiredDialogOpen && (
+      <PremiumExpiredDialog onClose={() => setPremiumExpiredDialogOpen(false)} />
+    )}
     <nav className="ui-navbar hidden w-full bg-green-900 text-white px-4 py-3 sm:px-6 lg:block">
       <div className="ui-navbar-inner flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
       <div className="flex min-w-0 flex-wrap items-center gap-x-5 gap-y-2 text-base lg:flex-1">

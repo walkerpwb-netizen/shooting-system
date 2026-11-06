@@ -1,5 +1,6 @@
 "use client";
 
+import PremiumAccessMessage from "@/components/PremiumAccessMessage";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -170,9 +171,7 @@ export default function ProfileStatisticsPage() {
         </div>
 
         {message && (
-          <p className="mb-6 border border-red-300 bg-red-50 px-4 py-3 font-medium text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-100">
-            {message}
-          </p>
+          <PremiumAccessMessage message={message} className="mb-6 border border-red-300 bg-red-50 px-4 py-3 font-medium text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-100" />
         )}
 
         {loading ? (

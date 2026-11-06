@@ -1,5 +1,6 @@
 "use client";
 
+import PremiumAccessMessage from "@/components/PremiumAccessMessage";
 import { useEffect, useState } from "react";
 import AthleteProfileLink from "@/components/AthleteProfileLink";
 
@@ -359,9 +360,7 @@ export default function RankingPage() {
         </div>
 
         {message && (
-          <p className="mb-6 border border-yellow-500/50 bg-yellow-400/10 px-4 py-3 text-yellow-900 dark:text-yellow-100">
-            {message}
-          </p>
+          <PremiumAccessMessage message={message} className="mb-6 border border-yellow-500/50 bg-yellow-400/10 px-4 py-3 text-yellow-900 dark:text-yellow-100" />
         )}
 
         {loading ? (

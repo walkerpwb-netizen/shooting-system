@@ -1,5 +1,6 @@
 "use client";
 
+import PremiumAccessMessage from "@/components/PremiumAccessMessage";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
@@ -122,9 +123,7 @@ export default function AchievementsPage() {
         </p>
 
         {message && (
-          <p className="mt-8 border border-red-300 bg-red-50 px-4 py-3 font-medium text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-100">
-            {message}
-          </p>
+          <PremiumAccessMessage message={message} className="mt-8 border border-red-300 bg-red-50 px-4 py-3 font-medium text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-100" />
         )}
 
         {loading ? (
