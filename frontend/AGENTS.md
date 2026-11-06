@@ -31,3 +31,15 @@ Runtime state lives outside git and survives deploys. Never disable maintenance
 automatically after a change or deployment; wait for the user's instruction.
 When enabling it from this chat, use the user's confirmed public browser IP;
 do not infer it from the server's outbound IP or an agent's SSH connection.
+
+For every task that requires changes on the production server:
+
+- Enable maintenance at the start of the work, before operations that change the
+  running application, and always before pushing changes that trigger deployment.
+  If maintenance is already enabled, verify its status and keep it enabled.
+- Use the user's confirmed public browser IP, reusing an address already confirmed
+  in the conversation. Ask for an IP only when no confirmed address is available.
+- After completing the work and deployment checks, leave maintenance enabled.
+- In the final response, explicitly tell the user that maintenance remains enabled
+  and remind them to disable it after finishing their tests (`maintenance off`).
+  Disable maintenance only when the user explicitly asks to do so.
