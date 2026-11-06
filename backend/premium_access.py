@@ -4,6 +4,8 @@ from calendar import monthrange
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
+from sqlalchemy.orm import object_session
+
 from models import Competition, PremiumMailOutbox, PremiumOrder, User
 
 PREMIUM_TIMEZONE = ZoneInfo("Europe/Warsaw")
@@ -45,6 +47,57 @@ def effective_premium_until(user, package="shooter"):
 def effective_premium_until_iso(user, package="shooter"):
     expiration = effective_premium_until(user, package)
     return expiration.isoformat() if expiration else ""
+
+
+def pending_paid_premium_orders(db, user_ids):
+    """Read scheduled purchases once for a profile or an entire admin list."""
+    grouped = {}
+    if not user_ids:
+        return grouped
+    for order in db.query(PremiumOrder).filter(
+        PremiumOrder.user_id.in_(user_ids), PremiumOrder.environment == "production",
+        PremiumOrder.status == "paid", PremiumOrder.refunded_at.is_(None),
+        PremiumOrder.entitlements_applied_at.is_(None), PremiumOrder.service_ends_at.is_not(None),
+    ).all():
+        grouped.setdefault(order.user_id, []).append(order)
+    return grouped
+
+
+def premium_display_fields(user, orders=None, now=None):
+    """Show continuous paid renewals without granting access before their start.
+
+    Authorization and fulfillment continue using effective_premium_until. In
+    particular, displaying January must not make fulfillment add February.
+    """
+    current_time = now or datetime.now(PREMIUM_TIMEZONE)
+    if orders is None:
+        db = object_session(user)
+        orders = pending_paid_premium_orders(db, [user.id]).get(user.id, []) if db else []
+    result = {}
+    for package, prefix in (("shooter", "premium"), ("organizer", "premium_organizer")):
+        active_end = effective_premium_until(user, package)
+        coverage_end = active_end
+        periods = []
+        for order in orders:
+            if (order.user_id != user.id or order.environment != "production" or order.status != "paid"
+                    or order.refunded_at or order.entitlements_applied_at
+                    or package not in included_premium_packages(order.package, order.period)):
+                continue
+            start = parse_premium_datetime(order.service_starts_at)
+            end = parse_premium_datetime(order.service_ends_at)
+            if start and end and end > start and end > current_time:
+                periods.append((start, end))
+        periods.sort()
+        # A future purchase with a gap cannot turn an expired account active.
+        if coverage_end and coverage_end > current_time:
+            for start, end in periods:
+                if start <= coverage_end:
+                    coverage_end = max(coverage_end, end)
+        next_period = periods[0] if periods else (None, None)
+        result[f"{prefix}_coverage_until"] = coverage_end.isoformat() if coverage_end else ""
+        result[f"{prefix}_scheduled_starts_at"] = next_period[0].isoformat() if next_period[0] else ""
+        result[f"{prefix}_scheduled_ends_at"] = next_period[1].isoformat() if next_period[1] else ""
+    return result
 
 
 def add_premium_period(start, period):

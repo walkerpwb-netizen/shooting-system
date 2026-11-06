@@ -6,7 +6,7 @@ from threading import Barrier
 from unittest.mock import patch
 from uuid import uuid4
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import sessionmaker
 
 from database import Base
@@ -14,6 +14,7 @@ from models import PremiumOrder, User
 from premium_access import (
     PREMIUM_TIMEZONE, add_premium_period, apply_paid_premium_order,
     effective_premium_until, effective_premium_until_iso, included_premium_packages,
+    premium_display_fields,
 )
 
 # main runs legacy backfills on import; keep those off the configured database.
@@ -172,6 +173,112 @@ class PremiumAccessTests(unittest.TestCase):
         self.assertEqual(order.status, "paid")
         self.assertTrue(main.has_active_premium(self.user))
         self.assertTrue(main.has_active_organizer_premium(self.user))
+
+    def scheduled_order(self, package="shooter", period="monthly", start=None, status="paid", environment="production"):
+        order = self.order(package=package, period=period, status=status, environment=environment)
+        order.service_starts_at = (start or self.paid_at + timedelta(days=55)).astimezone(PREMIUM_TIMEZONE).isoformat()
+        order.service_ends_at = add_premium_period(datetime.fromisoformat(order.service_starts_at).astimezone(PREMIUM_TIMEZONE), period).isoformat()
+        self.db.commit()
+        return order
+
+    def test_paid_renewal_is_visible_now_and_is_not_added_twice_when_activated(self):
+        active_end = self.paid_at + timedelta(days=55)
+        self.user.premium_until = active_end.isoformat()
+        order = self.scheduled_order(start=active_end)
+        purchased_end = order.service_ends_at
+        for _ in range(3):
+            profile = main.public_user(self.user)
+            self.assertEqual(profile["premium_coverage_until"], purchased_end)
+            self.assertEqual(profile["premium_organizer_coverage_until"], active_end.isoformat())
+            self.assertEqual(profile["premium_until"], active_end.isoformat())
+            self.assertEqual(profile["premium_scheduled_ends_at"], purchased_end)
+        self.assertIsNone(self.user.premium_shooter_paid_until)
+        self.assertIsNone(order.entitlements_applied_at)
+        self.assertFalse(self.apply(order))
+        # Showing the future purchase must not move the fulfillment base forward.
+        with patch("premium_access.datetime", wraps=datetime) as clock:
+            clock.now.return_value = active_end + timedelta(seconds=1)
+            self.assertTrue(self.apply(order))
+        self.assertEqual(self.user.premium_shooter_paid_until, purchased_end)
+        self.assertFalse(self.apply(order))
+        self.assertEqual(main.public_user(self.user)["premium_coverage_until"], purchased_end)
+
+    def test_displayed_coverage_chains_paid_periods_and_drops_refunded_renewal(self):
+        active_end = self.paid_at + timedelta(days=55)
+        self.user.premium_until = active_end.isoformat()
+        first = self.scheduled_order(start=active_end)
+        second = self.scheduled_order(start=datetime.fromisoformat(first.service_ends_at))
+        third = self.scheduled_order(start=datetime.fromisoformat(second.service_ends_at))
+        result = premium_display_fields(self.user, orders=[third, first, second])
+        self.assertEqual(result["premium_coverage_until"], third.service_ends_at)
+        first.refunded_at = self.paid_at.isoformat(); self.db.commit()
+        self.assertEqual(main.public_user(self.user)["premium_coverage_until"], active_end.isoformat())
+
+    def test_future_paid_purchase_does_not_grant_access_or_bridge_a_gap(self):
+        order = self.scheduled_order(start=self.paid_at + timedelta(days=14))
+        for active_end in (None, self.paid_at - timedelta(days=1)):
+            self.user.premium_until = active_end.isoformat() if active_end else None
+            self.db.commit()
+            profile = main.public_user(self.user)
+            self.assertEqual(profile["premium_coverage_until"], self.user.premium_until or "")
+            self.assertEqual(profile["premium_scheduled_starts_at"], order.service_starts_at)
+            self.assertEqual(profile["premium_scheduled_ends_at"], order.service_ends_at)
+            self.assertFalse(main.has_active_premium(self.user))
+        self.user.premium_until = (self.paid_at + timedelta(days=3)).isoformat(); self.db.commit()
+        self.assertEqual(main.public_user(self.user)["premium_coverage_until"], self.user.premium_until)
+
+    def test_unpaid_foreign_retired_and_single_publication_orders_do_not_extend_display(self):
+        active_end = self.paid_at + timedelta(days=55)
+        self.user.premium_until = active_end.isoformat()
+        for status in ("pending", "failed", "cancelled"):
+            self.scheduled_order(status=status)
+        self.scheduled_order(environment="retired")
+        self.scheduled_order(package="organizer", period="monthly")
+        foreign = self.scheduled_order()
+        another_user = User(email="foreign@example.test", is_active=1)
+        self.db.add(another_user); self.db.flush()
+        foreign.user_id = another_user.id
+        self.db.commit()
+        self.assertEqual(premium_display_fields(self.user, orders=[foreign])["premium_coverage_until"], active_end.isoformat())
+        profile = main.public_user(self.user)
+        self.assertEqual(profile["premium_coverage_until"], active_end.isoformat())
+        self.assertEqual(profile["premium_scheduled_ends_at"], "")
+
+    def test_scheduled_organizer_year_includes_shooter_without_shortening_longer_access(self):
+        active_end = self.paid_at + timedelta(days=55)
+        self.user.premium_until = active_end.isoformat()
+        order = self.scheduled_order(package="organizer", period="yearly", start=active_end)
+        profile = main.public_user(self.user)
+        self.assertEqual(profile["premium_coverage_until"], order.service_ends_at)
+        self.assertEqual(profile["premium_organizer_coverage_until"], order.service_ends_at)
+        longer = (active_end + timedelta(days=800)).isoformat()
+        self.user.premium_shooter_paid_until = longer; self.db.commit()
+        self.assertEqual(main.public_user(self.user)["premium_coverage_until"], longer)
+        self.user.premium_disabled = 1
+        self.assertFalse(main.has_active_premium(self.user))
+
+    def test_admin_list_and_info_show_renewal_and_batch_the_order_lookup(self):
+        active_end = self.paid_at + timedelta(days=55)
+        self.user.premium_until = active_end.isoformat()
+        order = self.scheduled_order(start=active_end)
+        for index in range(10):
+            self.db.add(User(email=f"other-{index}@example.test", is_active=1, role="user"))
+        self.db.commit()
+        queries = []
+        def track(connection, cursor, statement, parameters, context, executemany):
+            if "from premium_orders" in statement.lower():
+                queries.append(statement)
+        event.listen(self.engine, "before_cursor_execute", track)
+        try:
+            users = main.admin_get_users(admin=self.user, db=self.db)
+        finally:
+            event.remove(self.engine, "before_cursor_execute", track)
+        self.assertEqual(len(queries), 1)
+        row = next(row for row in users if row["id"] == self.user.id)
+        self.assertEqual(row["premium_coverage_until"], order.service_ends_at)
+        info = main.admin_user_profile_info(self.user)
+        rows = [row for section in info["sections"] for row in section["rows"]]
+        self.assertEqual(next(row["value"] for row in rows if row["label"] == "Premium Strzelca do (z opłaconymi przedłużeniami)"), order.service_ends_at)
 
 
 @unittest.skipUnless(os.environ.get("TEST_POSTGRES_URL"), "TEST_POSTGRES_URL is not configured")

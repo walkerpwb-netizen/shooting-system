@@ -75,6 +75,8 @@ type AdminUser = {
   password_reset_required: boolean;
   premium_until: string;
   premium_organizer_until?: string;
+  premium_coverage_until?: string;
+  premium_organizer_coverage_until?: string;
   premium_disabled: boolean;
   premium_organizer_disabled: boolean;
   status: "online" | "offline";
@@ -3803,10 +3805,12 @@ export default function AdminClient({
                       ? "text-red-300"
                       : "text-gray-400"
                   }>
-                    Strzelec do {formatPremiumUntil(user.premium_until)}
+                    Strzelec do {formatPremiumUntil(user.premium_coverage_until ?? user.premium_until)}
+                    {user.premium_coverage_until && user.premium_coverage_until !== user.premium_until && <span className="block text-xs text-emerald-300">Uwzględnia opłacone przedłużenie</span>}
                   </p>
                   <p className={user.premium_organizer_disabled ? "text-red-300" : "text-gray-400"}>
-                    Organizator do {formatPremiumUntil(user.premium_organizer_until ?? user.premium_until)}
+                    Organizator do {formatPremiumUntil(user.premium_organizer_coverage_until ?? user.premium_organizer_until ?? user.premium_until)}
+                    {user.premium_organizer_coverage_until && user.premium_organizer_coverage_until !== user.premium_organizer_until && <span className="block text-xs text-emerald-300">Uwzględnia opłacone przedłużenie</span>}
                   </p>
                 </div>
 

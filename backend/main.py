@@ -17,7 +17,7 @@ from config import settings
 from premium_payments import build_premium_router, seller_details
 from payment_reports import build_payments_router
 from autopay_config import build_autopay_settings_router
-from premium_access import effective_premium_until, effective_premium_until_iso, included_premium_packages, has_paid_publication, activate_due_premium_orders
+from premium_access import effective_premium_until, effective_premium_until_iso, included_premium_packages, has_paid_publication, activate_due_premium_orders, premium_display_fields, pending_paid_premium_orders
 from mailer import (
     ACTIVATION_LINK_PLACEHOLDER,
     MailConfigurationError,
@@ -2720,7 +2720,7 @@ def pzss_club_display_name(user: User):
     )
 
 
-def public_user(user: User):
+def public_user(user: User, *, premium_orders=None):
     roles = get_user_roles(user)
     activation_deadline = activation_expires_at_for_user(user)
 
@@ -2750,6 +2750,7 @@ def public_user(user: User):
         "password_reset_required": bool(user.password_reset_required),
         "premium_until": effective_premium_until_iso(user),
         "premium_organizer_until": effective_premium_until_iso(user, "organizer"),
+        **premium_display_fields(user, orders=premium_orders),
         "premium_disabled": bool(getattr(user, "premium_disabled", 0)),
         "premium_organizer_disabled": bool(getattr(user, "premium_organizer_disabled", 0)),
         "profile_photo_url": getattr(user, "profile_photo_url", "") or "",
@@ -2797,6 +2798,7 @@ def admin_user_info_datetime(value):
 
 def admin_user_profile_info(user: User):
     roles = get_user_roles(user)
+    premium_display = premium_display_fields(user)
     activation_deadline = activation_expires_at_for_user(user)
 
     return {
@@ -2870,8 +2872,14 @@ def admin_user_profile_info(user: User):
             {
                 "title": "Premium",
                 "rows": [
-                    admin_user_info_row("Premium do", effective_premium_until_iso(user)),
-                    admin_user_info_row("Premium organizatora do", effective_premium_until_iso(user, "organizer")),
+                    admin_user_info_row("Premium Strzelca do (z opłaconymi przedłużeniami)", premium_display["premium_coverage_until"]),
+                    admin_user_info_row("Premium Organizatora do (z opłaconymi przedłużeniami)", premium_display["premium_organizer_coverage_until"]),
+                    admin_user_info_row("Bieżący aktywowany okres Strzelca do", effective_premium_until_iso(user)),
+                    admin_user_info_row("Bieżący aktywowany okres Organizatora do", effective_premium_until_iso(user, "organizer")),
+                    admin_user_info_row("Opłacony kolejny okres Strzelca od", premium_display["premium_scheduled_starts_at"]),
+                    admin_user_info_row("Opłacony kolejny okres Strzelca do", premium_display["premium_scheduled_ends_at"]),
+                    admin_user_info_row("Opłacony kolejny okres Organizatora od", premium_display["premium_organizer_scheduled_starts_at"]),
+                    admin_user_info_row("Opłacony kolejny okres Organizatora do", premium_display["premium_organizer_scheduled_ends_at"]),
                     admin_user_info_row("Premium wspólne (dotychczasowy dostęp) do", getattr(user, "premium_until", "")),
                     admin_user_info_row("Premium strzelca ręcznie wyłączone", bool(getattr(user, "premium_disabled", 0))),
                     admin_user_info_row("Premium organizatora ręcznie wyłączone", bool(getattr(user, "premium_organizer_disabled", 0))),
@@ -11463,8 +11471,9 @@ def admin_get_users(
         .all()
     )
 
+    premium_orders = pending_paid_premium_orders(db, [user.id for user in users])
     return [
-        public_user(user)
+        public_user(user, premium_orders=premium_orders.get(user.id, []))
         for user in users
     ]
 
