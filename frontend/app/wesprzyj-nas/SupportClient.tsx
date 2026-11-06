@@ -1,6 +1,6 @@
 "use client";
 
-import Image from "next/image";
+import AutopayMethodsBanner from "@/components/AutopayMethodsBanner";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore } from "react";
 
@@ -120,14 +120,8 @@ export default function SupportClient() {
             <p id="support-payment-status" className="mt-3 text-sm leading-6 text-green-100">
               Płatności Autopay uruchomimy wkrótce. Obecnie wpłaty są niedostępne.
             </p>
-            <Image
-              src="/payments/autopay-methods.png"
-              alt="Autopay — planowane płatności online"
-              width={485}
-              height={115}
-              unoptimized
-              className="mt-5 h-auto w-full max-w-sm"
-            />
+            <p className="mt-3 text-sm text-green-100">Planowane metody: BLIK i przelew tradycyjny.</p>
+            <div className="mt-5 max-w-sm"><AutopayMethodsBanner /></div>
           </section>
 
           <section aria-labelledby="support-sharing-heading" className="mt-8 border-t border-emerald-200/20 pt-6">

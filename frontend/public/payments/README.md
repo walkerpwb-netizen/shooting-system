@@ -1,14 +1,13 @@
-# Oficjalny baner Autopay
+# Grafiki płatności Autopay
 
-`autopay-methods.png` to oryginalny baner „Najpopularniejsze Metody Płatności”, 485 × 115 px, pobrany 25 października 2026 r. z materiałów operatora wskazanych w e-mailu dotyczącym weryfikacji.
+Baner `components/AutopayMethodsBanner.tsx` prezentuje wyłącznie BLIK i przelew tradycyjny, zgodnie z informacją właściciela o przyznanych metodach (6 listopada 2026 r.). Układ jest responsywnym HTML/CSS; nie przycina ani nie modyfikuje logotypów.
 
-- Materiały i warianty: https://developers.autopay.pl/online/grafiki#najpopularniejsze-metody-platnosci
-- Plik źródłowy: https://developers.autopay.pl/storage/loga/Blik-karty/485x115-pay.png
+Oryginalne materiały operatora, pobrane 6 listopada 2026 r.:
 
-Grafika jest wyświetlana w oryginalnych proporcjach. Towarzyszący jej tekst informuje, że płatności oczekują na pozytywną weryfikację i że poszczególne metody będą zależeć od konfiguracji operatora. Baner nie uruchamia płatności.
+- `autopay-logo.svg`: https://developers.autopay.pl/storage/loga/Logotyp/logo-standard.svg
+- `blik-logo.png`: plik `PBL/Transparent/PNG_t/530_t_BLIK.png` z https://developers.autopay.pl/storage/pobierz/paybylink.zip
+- Strona materiałów: https://developers.autopay.pl/online/grafiki
 
-`autopay-methods-desktop.png` to oficjalny wariant 800 × 132 px, pobrany z tej samej sekcji materiałów operatora:
+Przelew tradycyjny jest oznaczony napisem i neutralną ikoną banku. Baner nie zawiera logotypów kart, portfeli elektronicznych ani poszczególnych banków. Gotowe zestawy „BLIK + przelew” z witryny operatora zawierają logotypy wielu banków, dlatego do prezentacji wyłącznie dwóch metod zastosowano osobne materiały.
 
-- Plik źródłowy: https://developers.autopay.pl/storage/loga/Blik-karty/800x132-pay.png
-
-Strona `/premium` wybiera go przez `<picture>` od szerokości ekranu 1024 px. Baner jest wyśrodkowany i wyświetlany w szerokości do 800 px, w oryginalnych proporcjach. Mniejsze ekrany i pozostałe miejsca wyświetlania zachowują wariant 485 × 115 px. Przeglądarka pobiera grafikę odpowiednią do szerokości ekranu.
+Wspólny komponent jest używany na stronie Premium, w podsumowaniu zakupu, Regulaminie Premium oraz w przygotowywanej sekcji wsparcia. Na stronie Premium baner ma do 800 px szerokości na komputerze, w pozostałych miejscach do 485 px; na małym ekranie logo operatora znajduje się nad dwiema metodami. Stare banery z kartami i portfelami zostały usunięte, a nowe ścieżki plików zapobiegają wyświetlaniu starej grafiki z pamięci podręcznej.
