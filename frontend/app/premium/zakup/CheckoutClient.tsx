@@ -22,7 +22,6 @@ export default function CheckoutClient({ packageType, period, orderId, serviceId
   const router = useRouter();
   const [prices, setPrices] = useState<PremiumPrices | null>(null);
   const [commerce, setCommerce] = useState<PremiumCommerce | null>(null);
-  const [isAdmin, setIsAdmin] = useState(false);
   const [profileEmail, setProfileEmail] = useState("");
   const [accepted, setAccepted] = useState(false);
   const [early, setEarly] = useState(false);
@@ -56,8 +55,6 @@ export default function CheckoutClient({ packageType, period, orderId, serviceId
         const profile = await me.json();
         if (ignore) return;
         setProfileEmail(profile.email);
-        const roles = Array.isArray(profile.roles) ? profile.roles : String(profile.roles || profile.role || "").split(",");
-        setIsAdmin(roles.includes("admin"));
         const pendingId = !orderId ? pendingPremiumCheckout(profile.email) : null;
         if (pendingId) {
           redirecting = true;
@@ -131,9 +128,10 @@ export default function CheckoutClient({ packageType, period, orderId, serviceId
   const watchedOrderId = order?.id;
   const watchedStatus = order?.status;
   const watchedRefund = order?.refunded_at;
+  const watchedRefundRequested = order?.refund_requested_at;
   const watchedEmailSent = order?.confirmation_email?.sent_at;
   useEffect(() => {
-    if (!watchedOrderId || watchedRefund || watchedStatus === "cancelled" || (watchedStatus === "paid" && watchedEmailSent)) return;
+    if (!watchedOrderId || watchedRefund || watchedStatus === "cancelled" || (watchedStatus === "paid" && watchedEmailSent && !watchedRefundRequested)) return;
     const id = watchedOrderId;
     let ignore = false;
     let running = false;
@@ -143,9 +141,9 @@ export default function CheckoutClient({ packageType, period, orderId, serviceId
       try { const r = await authFetch(apiUrl(`/premium/orders/${encodeURIComponent(id)}`), { cache: "no-store" }); if (r.ok) { const body = await r.json(); if (!ignore) setOrder(body); } } catch { /* Manual refresh remains available. */ }
       finally { running = false; }
     }, 5000);
-    const emailTimeout = watchedStatus === "paid" ? window.setTimeout(() => window.clearInterval(interval), 120000) : null;
+    const emailTimeout = watchedStatus === "paid" && !watchedRefundRequested ? window.setTimeout(() => window.clearInterval(interval), 120000) : null;
     return () => { ignore = true; window.clearInterval(interval); if (emailTimeout !== null) window.clearTimeout(emailTimeout); };
-  }, [watchedOrderId, watchedStatus, watchedRefund, watchedEmailSent]);
+  }, [watchedOrderId, watchedStatus, watchedRefund, watchedRefundRequested, watchedEmailSent]);
 
   async function startCheckout() {
     if (!commerce || !quote || !accepted || busy || commerce.payments_temporarily_unavailable !== false) return;
@@ -204,7 +202,6 @@ export default function CheckoutClient({ packageType, period, orderId, serviceId
         {!!order.refunds?.length && <div className="space-y-2 rounded-xl border border-blue-300/50 p-4"><h3 className="font-bold">Zwroty</h3>{order.refunds.map((refund) => <p key={refund.id}>{premiumPrice(refund.amount)} — {refund.status === "done" ? "wykonany przez operatora" : refund.status === "failed" ? "niezrealizowany" : "oczekuje na realizację"}{refund.provider_status ? ` (${refund.provider_status})` : ""}</p>)}<p className="text-sm">Przyjęcie zlecenia zwrotu nie oznacza jeszcze jego wykonania. Potwierdza je status operatora.</p></div>}
           </div>
         </details>
-        {isAdmin && order.status === "paid" && <div className="flex flex-wrap gap-3"><button className={button} disabled={busy || !!order.refunded_at} onClick={() => void orderAction("refund")}>Zleć lub ponów zwrot</button>{!!order.refunds?.length && <button className={button} disabled={busy} onClick={() => void orderAction("refund-check")}>Sprawdź wykonanie zwrotu</button>}</div>}
         <div className="flex flex-wrap gap-3"><button className={button} disabled={busy} onClick={() => void orderAction("refresh")}>Odśwież status</button><button className={button} disabled={busy} onClick={() => void orderAction("check")}>Sprawdź w Autopay</button>{order.status !== "paid" && !order.provider_closed_at && <button className={button} disabled={busy} onClick={() => void orderAction("cancel")}>Anuluj nieopłaconą transakcję</button>}{order.confirmation_email?.queued && !order.confirmation_email.sent_at && <button className={button} disabled={busy} onClick={() => void orderAction("resend-confirmation")}>Ponów wysyłkę potwierdzenia</button>}</div>
       </section> : !orderId && prices && commerce && <>
         <h2 className="text-2xl font-bold">{premiumPackageNames[packageType]}</h2><p>{offer.summary}</p><p className="text-2xl font-black">Łącznie: {premiumPrice(prices[packageType][`${period}_price`])}</p>

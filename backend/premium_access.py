@@ -56,7 +56,7 @@ def pending_paid_premium_orders(db, user_ids):
         return grouped
     for order in db.query(PremiumOrder).filter(
         PremiumOrder.user_id.in_(user_ids), PremiumOrder.environment == "production",
-        PremiumOrder.status == "paid", PremiumOrder.refunded_at.is_(None),
+        PremiumOrder.status == "paid", PremiumOrder.refunded_at.is_(None), PremiumOrder.refund_requested_at.is_(None),
         PremiumOrder.entitlements_applied_at.is_(None), PremiumOrder.service_ends_at.is_not(None),
     ).all():
         grouped.setdefault(order.user_id, []).append(order)
@@ -80,7 +80,7 @@ def premium_display_fields(user, orders=None, now=None):
         periods = []
         for order in orders:
             if (order.user_id != user.id or order.environment != "production" or order.status != "paid"
-                    or order.refunded_at or order.entitlements_applied_at
+                    or order.refunded_at or order.refund_requested_at or order.entitlements_applied_at
                     or package not in included_premium_packages(order.package, order.period)):
                 continue
             start = parse_premium_datetime(order.service_starts_at)
@@ -113,13 +113,13 @@ def apply_paid_premium_order(order, db):
 
     The production ITN adapter authenticates and validates the payment first.
     """
-    if order.environment != "production" or order.status != "paid" or order.refunded_at:
+    if order.environment != "production" or order.status != "paid" or order.refunded_at or order.refund_requested_at:
         return False
     # The application's SessionLocal disables autoflush. Persist a caller's
     # just-verified paid status before refreshing the row under its lock.
     db.flush()
     order = db.query(PremiumOrder).filter_by(id=order.id).populate_existing().with_for_update().one()
-    if order.environment != "production" or order.status != "paid" or order.entitlements_applied_at:
+    if order.environment != "production" or order.status != "paid" or order.refunded_at or order.refund_requested_at or order.entitlements_applied_at:
         return False
     scheduled = parse_premium_datetime(order.service_starts_at)
     if scheduled and datetime.now(PREMIUM_TIMEZONE) < scheduled:
@@ -162,13 +162,13 @@ def has_paid_publication(user, competition, db):
         PremiumOrder.competition_id == competition.id, PremiumOrder.user_id == user.id,
         PremiumOrder.package == "organizer", PremiumOrder.period == "monthly", PremiumOrder.environment == "production",
         PremiumOrder.status == "paid", PremiumOrder.publication_granted_at.is_not(None),
-        PremiumOrder.refunded_at.is_(None),
+        PremiumOrder.refunded_at.is_(None), PremiumOrder.refund_requested_at.is_(None),
     ).first() is not None
 
 
 def activate_due_premium_orders(user, db):
     orders = db.query(PremiumOrder).filter_by(user_id=user.id, environment="production", status="paid").filter(
-            PremiumOrder.entitlements_applied_at.is_(None)).all()
+            PremiumOrder.entitlements_applied_at.is_(None), PremiumOrder.refund_requested_at.is_(None), PremiumOrder.refunded_at.is_(None)).all()
     orders.sort(key=lambda order: (parse_premium_datetime(order.service_starts_at) or parse_premium_datetime(order.paid_at), order.created_at, order.id))
     for order in orders:
         apply_paid_premium_order(order, db)
@@ -178,7 +178,15 @@ def revoke_fully_refunded_order(order, db):
     if order.refunded_at:
         return
     order.refunded_at = datetime.now(timezone.utc).isoformat()
+    if not order.refund_requested_at:
+        revoke_order_entitlements(order, db)
+
+
+def revoke_order_entitlements(order, db):
+    """Withdraw only this purchase; the refund itself may still be unsettled."""
     order.publication_granted_at = None
+    if not order.entitlements_applied_at or not included_premium_packages(order.package, order.period):
+        return
     if order.environment != "production" or not order.user_id:
         return
     user = db.query(User).filter_by(id=order.user_id).populate_existing().with_for_update().first()
@@ -186,7 +194,7 @@ def revoke_fully_refunded_order(order, db):
         return
     field = "premium_organizer_paid_until" if order.package == "organizer" else "premium_shooter_paid_until"
     others = db.query(PremiumOrder).filter(PremiumOrder.user_id == user.id, PremiumOrder.environment == "production",
-        PremiumOrder.status == "paid", PremiumOrder.refunded_at.is_(None), PremiumOrder.id != order.id,
+        PremiumOrder.status == "paid", PremiumOrder.refunded_at.is_(None), PremiumOrder.refund_requested_at.is_(None), PremiumOrder.id != order.id,
         PremiumOrder.package == order.package, PremiumOrder.entitlements_applied_at.is_not(None)).all()
     dates = [parse_premium_datetime(row.entitlement_ends_at) for row in others]
     remaining = max((date for date in dates if date), default=None)

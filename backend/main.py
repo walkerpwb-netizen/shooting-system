@@ -190,6 +190,23 @@ async def expired_activation_accounts_cleanup_loop():
 async def start_expired_activation_accounts_cleanup():
     asyncio.create_task(expired_activation_accounts_cleanup_loop())
 
+
+@app.on_event("startup")
+async def start_refund_status_worker():
+    from premium_refunds import refund_status_loop
+    app.state.refund_status_task = asyncio.create_task(refund_status_loop())
+
+
+@app.on_event("shutdown")
+async def stop_refund_status_worker():
+    task = getattr(app.state, "refund_status_task", None)
+    if task:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
 oauth2_scheme = OAuth2PasswordBearer(
     tokenUrl="login"
 )

@@ -9,13 +9,14 @@ from sqlalchemy import case, func, or_
 
 from models import AutopayReceipt, PremiumNotification, PremiumOrder, PremiumRefund, User
 from payment_reports import receipt_description
+from premium_deadlines import withdrawal_deadline
 
 
 TransactionStatus = Literal["started", "pending", "paid", "failed", "cancelled", "refund_pending", "refunded", "unknown"]
 STATUS_LABELS = {
     "started": "Rozpoczęta", "pending": "Oczekująca", "paid": "Zakończona — opłacona",
-    "failed": "Nieudana", "cancelled": "Anulowana", "refund_pending": "Zwrot w toku",
-    "refunded": "Zwrócona", "unknown": "Nieznany status",
+    "failed": "Nieudana", "cancelled": "Anulowana", "refund_pending": "W trakcie zwrotu",
+    "refunded": "Zwrot zrealizowany", "unknown": "Nieznany status",
 }
 
 
@@ -26,7 +27,7 @@ def transaction_overview(db, *, status=None, search="", page=1, page_size=25):
     ).exists()
     display_status = case(
         (PremiumOrder.refunded_at.is_not(None), "refunded"),
-        ((PremiumOrder.status == "paid") & refund_pending, "refund_pending"),
+        ((PremiumOrder.status == "paid") & (refund_pending | PremiumOrder.refund_requested_at.is_not(None)), "refund_pending"),
         ((PremiumOrder.status == "pending") & PremiumOrder.remote_id.is_(None), "started"),
         (PremiumOrder.status.in_(["pending", "paid", "failed", "cancelled"]), PremiumOrder.status),
         else_="unknown",
@@ -60,8 +61,11 @@ def transaction_overview(db, *, status=None, search="", page=1, page_size=25):
     page = min(page, max(1, (total + page_size - 1) // page_size))
     rows = query.order_by(PremiumOrder.created_at.desc(), PremiumOrder.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
     ids = [order.id for order, _, _ in rows]
-    attempts, receipts = {}, {}
+    attempts, receipts, refunds = {}, {}, {}
     if ids:
+        for refund in db.query(PremiumRefund).filter(PremiumRefund.order_id.in_(ids), PremiumRefund.environment == "production").order_by(PremiumRefund.created_at, PremiumRefund.id).all():
+            refunds.setdefault(refund.order_id, []).append({"id": refund.id, "status": refund.status,
+                "provider_status": refund.provider_status, "error": refund.error})
         for notification in db.query(PremiumNotification).filter(
             PremiumNotification.order_reference.in_(ids), PremiumNotification.environment == "production",
             PremiumNotification.confirmation == "CONFIRMED",
@@ -80,6 +84,7 @@ def transaction_overview(db, *, status=None, search="", page=1, page_size=25):
                              "last_seen_at": attempts.get(key, {}).get("last_seen_at", receipt.recorded_at)}
     entries = []
     for order, user, state in rows:
+        deadline = withdrawal_deadline(order)
         paid = receipts.get(order.id, [])
         payer = paid[0] if paid else None
         order_attempts = [value for (oid, _), value in attempts.items() if oid == order.id]
@@ -95,6 +100,10 @@ def transaction_overview(db, *, status=None, search="", page=1, page_size=25):
             "payer_name": payer.payer_name if payer else " ".join(filter(None, [user.first_name, user.last_name])) if user else "",
             "service_starts_at": order.service_starts_at, "service_ends_at": order.service_ends_at,
             "entitlements_applied_at": order.entitlements_applied_at, "refunded_at": order.refunded_at,
+            "refund_requested_at": order.refund_requested_at,
+            "refund_deadline": deadline.isoformat() if deadline else None,
+            "can_request_refund": bool(state == "paid" and paid and deadline and datetime.now(timezone.utc) < deadline),
+            "refunds": refunds.get(order.id, []),
             "attempts": order_attempts,
             "provider_updated_at": max((value["last_seen_at"] for value in order_attempts if value["last_seen_at"]), default=None),
         })
@@ -125,5 +134,37 @@ def build_transactions_router(get_db, get_current_admin):
         refresh_order(order, db, notification_config())
         schedule_confirmation(order.id, tasks, db)
         return {"message": "Sprawdzono status w Autopay."}
+
+    @router.post("/{order_id}/refund", status_code=202)
+    def refund(order_id: str, response: Response, admin=Depends(get_current_admin), db=Depends(get_db)):
+        response.headers["Cache-Control"] = "no-store"
+        order = db.query(PremiumOrder).filter_by(id=order_id, environment="production").first()
+        if not order:
+            raise HTTPException(404, "Nie znaleziono transakcji.")
+        from premium_refunds import request_refund
+        from premium_payments import notification_config
+        try:
+            request_refund(order, db, notification_config(), admin_id=getattr(admin, "id", None))
+        except HTTPException as error:
+            if error.status_code == 502 and order.refund_requested_at:
+                return {"message": error.detail, "warning": True}
+            raise
+        return {"message": "Zlecono zwrot do Autopay. Premium z tego zakupu zostało wycofane. Trwa oczekiwanie na potwierdzenie zwrotu pieniędzy.", "warning": False}
+
+    @router.post("/{order_id}/refund-check")
+    def refund_check(order_id: str, response: Response, admin=Depends(get_current_admin), db=Depends(get_db)):
+        response.headers["Cache-Control"] = "no-store"
+        order = db.query(PremiumOrder).filter_by(id=order_id, environment="production").first()
+        if not order:
+            raise HTTPException(404, "Nie znaleziono transakcji.")
+        from premium_refunds import refresh_refund
+        from premium_payments import notification_config
+        config = notification_config()
+        ids = [row.id for row in db.query(PremiumRefund).filter_by(order_id=order.id, environment="production").all() if row.status != "done"]
+        if not ids:
+            raise HTTPException(409, "Brak zwrotów oczekujących na sprawdzenie.")
+        for refund_id in ids:
+            refresh_refund(order, db, config, refund_id=refund_id)
+        return {"message": "Sprawdzono wykonanie zwrotu w Autopay."}
 
     return router

@@ -266,7 +266,7 @@ def build_premium_router(get_db, get_current_user, get_prices, is_admin):
             **{k: getattr(order, k) for k in (
                 "id", "package", "period", "amount", "currency", "status", "environment", "created_at", "paid_at",
                 "entitlement_starts_at", "entitlement_ends_at", "competition_id", "service_starts_at", "service_ends_at",
-                "gateway_valid_until", "provider_closed_at", "refunded_at", "entitlements_applied_at")},
+                "gateway_valid_until", "provider_closed_at", "refunded_at", "refund_requested_at", "entitlements_applied_at")},
             "renews_existing_access": bool(contract.get("renews_existing_access")),
             "existing_access_until": contract.get("existing_access_until"),
             "included_packages": json.loads(order.offer_snapshot).get("included_packages", []),

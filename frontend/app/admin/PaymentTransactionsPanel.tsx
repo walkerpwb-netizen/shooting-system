@@ -10,6 +10,8 @@ type Transaction = {
   payer_name: string; payer_email: string; created_at: string; paid_at: string | null;
   service_starts_at: string | null; service_ends_at: string | null; entitlements_applied_at: string | null;
   provider_updated_at: string | null; refunded_at: string | null;
+  refund_requested_at: string | null; refund_deadline: string | null; can_request_refund: boolean;
+  refunds: { id: string; status: string; provider_status: string | null; error: string | null }[];
   attempts: { remote_id: string; provider_status: string; last_seen_at: string | null }[];
 };
 type Overview = {
@@ -17,7 +19,7 @@ type Overview = {
 };
 const labels: Record<Status, string> = {
   started: "Rozpoczęte", pending: "Oczekujące", paid: "Zakończone — opłacone", failed: "Nieudane",
-  cancelled: "Anulowane", refund_pending: "Zwroty w toku", refunded: "Zwrócone", unknown: "Nieznany status",
+  cancelled: "Anulowane", refund_pending: "W trakcie zwrotu", refunded: "Zwrot zrealizowany", unknown: "Nieznany status",
 };
 const input = "min-h-11 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-white";
 const button = "min-h-11 rounded-xl bg-green-700 px-4 py-3 font-bold text-white hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-50";
@@ -28,6 +30,11 @@ function badge(status: Status) {
   return status === "paid" ? "border-emerald-500/60 bg-emerald-950 text-emerald-100" :
     status === "failed" ? "border-red-500/60 bg-red-950 text-red-100" :
     ["started", "pending", "refund_pending"].includes(status) ? "border-amber-500/60 bg-amber-950 text-amber-100" : "border-zinc-600 bg-zinc-800 text-zinc-100";
+}
+
+function refundTimeLeft(deadline: string, currentTime: number) {
+  const seconds = Math.max(0, Math.ceil((new Date(deadline).getTime() - currentTime) / 1000));
+  return `${Math.floor(seconds / 86400)} dni ${Math.floor(seconds % 86400 / 3600)} godz. ${Math.floor(seconds % 3600 / 60)} min ${seconds % 60} s`;
 }
 
 export default function PaymentTransactionsPanel({ onPaymentUpdated }: { onPaymentUpdated: () => void }) {
@@ -42,6 +49,13 @@ export default function PaymentTransactionsPanel({ onPaymentUpdated }: { onPayme
   const [error, setError] = useState("");
   const [checkError, setCheckError] = useState("");
   const [message, setMessage] = useState("");
+  const [currentTime, setCurrentTime] = useState(() => Date.now());
+  const [clockOffset, setClockOffset] = useState(0);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setCurrentTime(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -56,7 +70,7 @@ export default function PaymentTransactionsPanel({ onPaymentUpdated }: { onPayme
         const response = await authFetch(apiUrl(`/admin/payments/transactions?${query}`), { cache: "no-store", signal: controller.signal });
         const body = await response.json();
         if (!response.ok) throw new Error(typeof body.detail === "string" ? body.detail : "Nie udało się pobrać transakcji.");
-        if (!ignore) { setData(body); setError(""); }
+        if (!ignore) { setData(body); setClockOffset(new Date(body.updated_at).getTime() - Date.now()); setError(""); }
       } catch (failure) {
         if (!ignore) setError(failure instanceof Error ? failure.message : "Błąd połączenia z serwerem.");
       } finally {
@@ -83,12 +97,28 @@ export default function PaymentTransactionsPanel({ onPaymentUpdated }: { onPayme
     } finally { setChecking(null); setRevision((value) => value + 1); }
   }
 
+  async function refundAction(entry: Transaction, action: "refund" | "refund-check") {
+    if (checking) return;
+    if (action === "refund" && !entry.refund_requested_at && !window.confirm(`Zlecić pełny zwrot ${entry.amount} ${entry.currency} dla ${entry.payer_email}? Premium z tego zakupu zostanie natychmiast wycofane. Darmowy dostęp i inne zakupy zostaną zachowane.`)) return;
+    setChecking(entry.id); setMessage(""); setCheckError("");
+    try {
+      const response = await authFetch(apiUrl(`/admin/payments/transactions/${encodeURIComponent(entry.id)}/${action}`), { method: "POST" });
+      const body = await response.json();
+      if (!response.ok) throw new Error(typeof body.detail === "string" ? body.detail : "Nie udało się obsłużyć zwrotu.");
+      if (body.warning) setCheckError(body.message); else setMessage(body.message);
+    } catch (failure) {
+      setCheckError(failure instanceof Error ? failure.message : "Brak odpowiedzi serwera. Odśwież listę przed ponowieniem zwrotu.");
+    } finally {
+      setChecking(null); setRevision((value) => value + 1); onPaymentUpdated();
+    }
+  }
+
   const pages = data ? Math.max(1, Math.ceil(data.total / data.page_size)) : 1;
   return <section className="min-w-0 space-y-5 rounded-2xl border border-green-800 bg-green-950/20 p-4 sm:p-5" aria-label="Wszystkie transakcje Autopay">
     <header className="flex flex-wrap items-start justify-between gap-3">
       <div className="min-w-0"><h3 className="text-2xl font-bold">Wszystkie transakcje</h3>
         <p className="mt-2 max-w-3xl leading-7 text-zinc-300">Każde rozpoczęte zamówienie, również bez wpłaty. Przy zakupie znajdziesz zapisane próby płatności Autopay.</p>
-        <p className="mt-2 text-sm text-zinc-400">Lista odświeża się co 30 sekund. Status zmieniają potwierdzenia operatora; przyciskiem „Sprawdź w Autopay” pobierzesz jego odpowiedź teraz.</p>
+        <p className="mt-2 text-sm text-zinc-400">Lista odświeża się co 30 sekund. Wykonanie zleconych zwrotów system sprawdza automatycznie, również po zamknięciu panelu.</p>
       </div>
       <button type="button" className={button} disabled={refreshing} onClick={() => setRevision((value) => value + 1)}>{refreshing ? "Odświeżanie…" : "Odśwież listę"}</button>
     </header>
@@ -114,8 +144,19 @@ export default function PaymentTransactionsPanel({ onPaymentUpdated }: { onPayme
           <div className="min-w-0 space-y-1"><p className="font-bold text-zinc-400">Numer zamówienia</p><p className="break-all font-mono text-xs">{entry.id}</p>{entry.status === "started" && <p className="text-amber-100">Brak potwierdzonej odpowiedzi Autopay.</p>}</div>
         </div>
         {entry.attempts.length > 0 && <div className="space-y-1 text-sm"><p className="font-bold text-zinc-400">Próby płatności Autopay</p>{entry.attempts.map((attempt) => <p key={attempt.remote_id} className="break-words"><span className="break-all font-mono">{attempt.remote_id}</span> — {attempt.provider_status === "SUCCESS" ? "Opłacona" : attempt.provider_status === "FAILURE" ? "Nieudana" : attempt.provider_status === "PENDING" ? "Oczekująca" : attempt.provider_status}</p>)}</div>}
-        {entry.paid_at && <p className="text-sm text-zinc-300">{entry.refunded_at ? `Zwrot zakończony: ${date(entry.refunded_at)}` : entry.entitlements_applied_at ? "Zakup zrealizowany." : `Zakup zapisany; realizacja od ${date(entry.service_starts_at)}.`}{entry.service_ends_at && !entry.refunded_at ? ` Koniec zakupionego okresu: ${date(entry.service_ends_at)}.` : ""}</p>}
-        <button type="button" className={button} disabled={!!checking} onClick={() => void checkTransaction(entry.id)}>{checking === entry.id ? "Sprawdzanie w Autopay…" : "Sprawdź w Autopay"}</button>
+        {entry.paid_at && <p className="text-sm text-zinc-300">{entry.refunded_at ? `Zwrot zrealizowany: ${date(entry.refunded_at)}` : entry.refund_requested_at ? `W trakcie zwrotu od ${date(entry.refund_requested_at)}. Premium z tego zakupu zostało wycofane.` : entry.entitlements_applied_at ? "Zakup zrealizowany." : `Zakup zapisany; realizacja od ${date(entry.service_starts_at)}.`}{entry.service_ends_at && !entry.refunded_at && !entry.refund_requested_at ? ` Koniec zakupionego okresu: ${date(entry.service_ends_at)}.` : ""}</p>}
+        {entry.status === "refund_pending" && (entry.refunds || []).some((refund) => refund.error) && <p role="alert" className="text-sm text-amber-200">Zwrot wymaga uwagi: {[...new Set(entry.refunds.filter((refund) => refund.error).map((refund) => refund.error))].join(" ")}</p>}
+        <div className="flex flex-wrap items-center gap-3">
+          <button type="button" className={button} disabled={!!checking} onClick={() => void checkTransaction(entry.id)}>{checking === entry.id ? "Obsługa transakcji…" : "Sprawdź w Autopay"}</button>
+          {entry.can_request_refund && entry.refund_deadline && currentTime + clockOffset < new Date(entry.refund_deadline).getTime() && <div className="flex flex-wrap items-center gap-2">
+            <button type="button" className={`${button} bg-amber-700 hover:bg-amber-600`} disabled={!!checking} onClick={() => void refundAction(entry, "refund")}>Zleć zwrot do Autopay</button>
+            <small className="text-xs tabular-nums text-zinc-300" title={`Termin odstąpienia: do ${date(new Date(new Date(entry.refund_deadline).getTime() - 1).toISOString())}`} aria-label="Pozostały czas na odstąpienie">{refundTimeLeft(entry.refund_deadline, currentTime + clockOffset)}</small>
+          </div>}
+          {entry.status === "refund_pending" && <>
+            <button type="button" className={button} disabled={!!checking} onClick={() => void refundAction(entry, "refund-check")}>Sprawdź zwrot w Autopay</button>
+            {(entry.refunds || []).some((refund) => refund.status === "requested" || refund.status === "failed") && <button type="button" className={button} disabled={!!checking} onClick={() => void refundAction(entry, "refund")}>Ponów zlecenie zwrotu</button>}
+          </>}
+        </div>
       </article>)}</div>}
       <nav aria-label="Strony wszystkich transakcji" className="flex flex-wrap items-center justify-between gap-3">
         <button type="button" className={button} disabled={refreshing || data.page <= 1} onClick={() => setPage(data.page - 1)}>Poprzednie transakcje</button>

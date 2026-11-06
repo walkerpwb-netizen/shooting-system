@@ -38,7 +38,7 @@ def _encode(value):
 def queued_access_until(user, package, db, exclude_order=None):
     from models import PremiumOrder
     query = db.query(PremiumOrder).filter_by(user_id=user.id, environment="production", status="paid").filter(
-        PremiumOrder.refunded_at.is_(None), PremiumOrder.service_ends_at.is_not(None))
+        PremiumOrder.refunded_at.is_(None), PremiumOrder.refund_requested_at.is_(None), PremiumOrder.service_ends_at.is_not(None))
     if exclude_order:
         query = query.filter(PremiumOrder.id != exclude_order)
     dates = [parse_premium_datetime(row.service_ends_at) for row in query.all()

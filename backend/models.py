@@ -277,6 +277,8 @@ class PremiumOrder(Base):
     contract_snapshot = Column(Text, nullable=True)
     request_id = Column(String(36), nullable=True, unique=True)
     refunded_at = Column(String, nullable=True)
+    refund_requested_at = Column(String, nullable=True)
+    refund_requested_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
 
 class PremiumNotification(Base):
@@ -321,6 +323,8 @@ class PremiumRefund(Base):
     provider_remote_id = Column(String(100), nullable=True)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
+    last_checked_at = Column(String, nullable=True)
+    error = Column(String(255), nullable=True)
 
 
 class AutopayReceipt(Base):

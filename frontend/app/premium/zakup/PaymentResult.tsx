@@ -7,7 +7,7 @@ export type PremiumOrder = {
   entitlements_applied_at?: string | null; renews_existing_access?: boolean; existing_access_until?: string | null;
   included_packages?: string[]; competition_id?: number | null;
   confirmation_email?: { queued: boolean; sent_at: string | null; error: string | null };
-  refunded_at?: string | null; refunds?: { id: string; status: string; amount: string; provider_status: string | null }[];
+  refunded_at?: string | null; refund_requested_at?: string | null; refunds?: { id: string; status: string; amount: string; provider_status: string | null }[];
 };
 
 function date(value?: string | null) {
@@ -16,6 +16,7 @@ function date(value?: string | null) {
 
 export function paymentResultTitle(order: PremiumOrder) {
   if (order.refunded_at) return "Płatność została zwrócona";
+  if (order.refund_requested_at) return "Zwrot płatności w trakcie realizacji";
   if (order.status === "paid") return order.package === "organizer" && order.period === "monthly" ? "Dziękujemy za zakup publikacji!" : "Dziękujemy za zakup Premium!";
   if (order.status === "cancelled") return "Płatność została anulowana";
   if (order.status === "failed") return "Płatność nie została potwierdzona";
@@ -23,14 +24,14 @@ export function paymentResultTitle(order: PremiumOrder) {
 }
 
 export default function PaymentResult({ order }: { order: PremiumOrder }) {
-  const paid = order.status === "paid" && !order.refunded_at;
+  const paid = order.status === "paid" && !order.refunded_at && !order.refund_requested_at;
   const publication = order.package === "organizer" && order.period === "monthly";
-  const pending = !order.refunded_at && !["paid", "cancelled", "failed"].includes(order.status);
+  const pending = !order.refunded_at && !order.refund_requested_at && !["paid", "cancelled", "failed"].includes(order.status);
   const panel = paid ? "border-emerald-400/60 bg-emerald-400/10" : order.refunded_at || order.status === "cancelled" ? "border-zinc-400/50 bg-zinc-400/10" : "border-amber-300/50 bg-amber-300/10";
   return <section aria-label="Wynik płatności" aria-live="polite" className={`space-y-5 rounded-2xl border p-5 sm:p-7 ${panel}`}>
     <div className="flex items-center gap-3">
       <span aria-hidden="true" className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-2xl font-bold ${paid ? "bg-emerald-300 text-green-950" : "bg-white/10 text-white"}`}>{paid ? "✓" : pending ? "…" : "!"}</span>
-      <p className="text-lg font-bold">{paid ? "Płatność potwierdzona" : order.refunded_at ? "Zwrot zakończony" : order.status === "cancelled" ? "Transakcja zamknięta" : pending ? "Sprawdzamy status Twojego zamówienia" : "Próba płatności nieudana"}</p>
+      <p className="text-lg font-bold">{paid ? "Płatność potwierdzona" : order.refunded_at ? "Zwrot zrealizowany" : order.refund_requested_at ? "W trakcie zwrotu" : order.status === "cancelled" ? "Transakcja zamknięta" : pending ? "Sprawdzamy status Twojego zamówienia" : "Próba płatności nieudana"}</p>
     </div>
     <p className="text-green-50"><strong>{publication ? "Dodatkowa publikacja" : premiumPackageNames[order.package]}</strong><span className="mx-2" aria-hidden="true">·</span>{premiumPrice(order.amount)}</p>
     {paid ? <>
@@ -47,6 +48,7 @@ export default function PaymentResult({ order }: { order: PremiumOrder }) {
       {order.package === "organizer" && order.period === "yearly" && order.included_packages?.includes("shooter") && <p className="font-semibold text-emerald-100">W cenie otrzymujesz również Premium Strzelca na ten sam okres.</p>}
       <p className="text-sm leading-6 text-green-100">{order.confirmation_email?.sent_at ? "Potwierdzenie zakupu wysłaliśmy na adres e-mail przypisany do Twojego konta." : "Potwierdzenie zakupu otrzymasz również na adres e-mail przypisany do Twojego konta."}</p>
     </> : order.refunded_at ? <p className="leading-7">Zwrot tej płatności został potwierdzony. Inne zakupione lub przyznane okresy Premium pozostają rozliczane osobno.</p>
+      : order.refund_requested_at ? <p className="leading-7">Zapisaliśmy zwrot tej płatności. Premium z tego zakupu zostało wycofane. Czekamy na potwierdzenie zwrotu pieniędzy przez Autopay. Darmowe Premium i pozostałe zakupy zostały zachowane.</p>
       : order.status === "cancelled" ? <p className="leading-7">Autopay potwierdził anulowanie tej transakcji. Możesz wrócić do pakietów Premium i złożyć nowe zamówienie.</p>
       : order.status === "failed" ? <p className="leading-7">Operator zgłosił nieudaną próbę płatności. Jeżeli środki zostały pobrane, sprawdź status w Autopay przyciskiem poniżej lub skontaktuj się z nami, podając numer zamówienia.</p>
       : <><p className="leading-7">Czekamy na potwierdzenie z Autopay. Ta strona odświeża status automatycznie — gdy wpłata zostanie potwierdzona, zobaczysz tutaj wynik zakupu.</p><p className="text-sm leading-6 text-green-100">Przelew tradycyjny może wymagać więcej czasu na potwierdzenie. Jeżeli płatność została już wykonana, zaczekaj na jej status zamiast płacić ponownie.</p></>}
