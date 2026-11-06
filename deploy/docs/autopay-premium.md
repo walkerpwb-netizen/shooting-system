@@ -30,6 +30,10 @@ U operatora: Ustawienia serwisu → Konfiguracja techniczna → Edytuj → Inny/
 
 CSP dopuszcza formularze wyłącznie do pay.autopay.eu i własnej domeny. Domyślny czas komunikatów to stałe CET według dokumentacji; Europe/Warsaw wymaga jawnego uzgodnienia. Ważność linku/transakcji wynosi domyślnie 15 minut (konfiguracja 5–60).
 
+Po zakupie `/premium/zakup?OrderID=...` pokazuje wynik płatności: podziękowanie dopiero dla potwierdzonego `paid`, daty opłaconego okresu i informację o przyszłym przedłużeniu albo już przyznanym dostępie. Oczekująca płatność jest odczytywana z serwera co 5 sekund. Nieudana próba, anulowanie i zakończony zwrot mają osobne komunikaty. Sam powrót lub jego podpis nie potwierdzają wpłaty.
+
+Przed przejściem do Autopay wpis historii przeglądarki otrzymuje adres wyniku zamówienia. Wskazówka w `sessionStorage` pozwala rozpoznać powrót bez `OrderID`, także po użyciu „Wstecz”; jest związana z adresem e-mail zalogowanego kupującego, ważna 24 godziny i usuwana po odczycie zamówienia. Nie jest dowodem zakupu: API zawsze sprawdza właściciela i stan płatności. Niepełny podpis powrotu nadal podlega weryfikacji. Ekran wyniku nie wymaga dostępności aktualnego cennika.
+
 ## Potwierdzenia, limit i zwroty
 
 ITN zawiera jedną transakcję, `transactionStatus` do 50 transakcji danego zamówienia. Weryfikujemy podpis SHA256/SHA512, serwis, środowisko, kwotę i walutę. Błędny podpis poprawnego XML ma HTTP 200 i podpisane NOTCONFIRMED bez zmiany danych. XML jest ograniczony rozmiarem i chroniony przed DTD. Nie zapisujemy surowych komunikatów ani bankowych danych klienta. Rejestr administratora pokazuje zweryfikowane metadane i liczbę identycznych doręczeń.

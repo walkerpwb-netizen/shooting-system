@@ -218,6 +218,21 @@ class PremiumPaymentTests(unittest.TestCase):
         self.assertEqual(error.exception.status_code, 404)
         self.assertEqual(endpoint(order_id, user=self.admin, db=self.db)["status"], "pending")
 
+    def test_confirmation_exposes_verified_renewal_dates_without_private_contract(self):
+        order_id = self.checkout()["order_id"]
+        process_itn(self.notification(order_id), self.db, production_config())
+        code, payload = self.request("GET", f"/premium/orders/{order_id}", authorized=True)
+        result = json.loads(payload)
+        self.assertEqual(code, 200)
+        self.assertEqual(result["status"], "paid")
+        self.assertTrue(result["renews_existing_access"])
+        self.assertEqual(result["existing_access_until"], "2026-12-31T23:59:59+01:00")
+        self.assertEqual(result["service_ends_at"], "2027-01-31T23:59:59+01:00")
+        self.assertIsNone(result["entitlements_applied_at"])
+        self.assertNotIn("contract_snapshot", result)
+        self.assertNotIn("offer_snapshot", result)
+        self.assertEqual(self.db.get(User, self.admin.id).premium_until, "2026-12-31T23:59:59+01:00")
+
     def test_seller_identity_is_public_and_no_nip_is_invented(self):
         seller = seller_details()
         self.assertTrue(seller["complete"])
