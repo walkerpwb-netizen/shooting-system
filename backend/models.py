@@ -251,6 +251,7 @@ class PremiumOrder(Base):
     user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     package = Column(String(20), nullable=False)
     period = Column(String(10), nullable=False)
+    duration_days = Column(Integer, nullable=True)
     amount = Column(String(20), nullable=False)
     currency = Column(String(3), nullable=False)
     environment = Column(String(10), nullable=False)
@@ -336,6 +337,7 @@ class AutopayReceipt(Base):
     )
 
     id = Column(Integer, primary_key=True)
+    duration_days = Column(Integer, nullable=True)
     order_id = Column(String(32), ForeignKey("premium_orders.id", ondelete="SET NULL"), nullable=True)
     order_reference = Column(String(32), nullable=False)
     service_id = Column(String(10), nullable=False)

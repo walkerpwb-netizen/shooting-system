@@ -24,6 +24,7 @@ from payment_limits import acquire_payment_limit_lock, ensure_payment_capacity, 
 from autopay_config import read_configuration, production_allowed, valid_environment
 from premium_contract import TERMS_VERSION, contract_snapshot, make_quote, terms_sections, verify_quote
 from premium_mail import deliver_pending_confirmations, queue_confirmation
+from premium_daily import daily_offer, daily_purchase, require_daily_offer_access
 
 
 def seller_details():
@@ -66,7 +67,7 @@ def notification_config():
 class CheckoutData(BaseModel):
     model_config = ConfigDict(extra="forbid")
     package: Literal["shooter", "organizer"]
-    period: Literal["monthly", "yearly"]
+    period: Literal["monthly", "yearly", "daily"]
     expected_price: str = Field(max_length=20)
     terms_version: str = Field(max_length=30)
     terms_accepted: bool
@@ -92,6 +93,12 @@ def checkout_event(data, user, db):
 
 
 def current_amount(data, db, get_prices):
+    if data.period == "daily":
+        if data.package != "shooter":
+            raise HTTPException(400, "Oferta dzienna dotyczy wyłącznie Premium Strzelca.")
+        days = daily_purchase(data.expected_price)
+        return {**get_prices(db)["shooter"], **daily_offer(), "duration_days": days,
+                "title": f"Premium Strzelca — {days} dni", "purchase_source": "support"}, data.expected_price
     package = get_prices(db)[data.package]
     try:
         amount = Decimal(package[f"{data.period}_price"])
@@ -106,6 +113,8 @@ def current_amount(data, db, get_prices):
 
 
 def create_production_order(data, user, db, get_prices):
+    if data.period == "daily":
+        require_daily_offer_access(user)
     config = production_config()
     if not config["ready"]:
         raise HTTPException(503, "Płatności są chwilowo niedostępne. Spróbuj ponownie później.")
@@ -130,7 +139,7 @@ def create_production_order(data, user, db, get_prices):
     ensure_payment_capacity(db, int(Decimal(amount_text) * 100))
     valid_until = datetime.now(timezone.utc) + timedelta(minutes=config.get("validity_minutes", 15))
     order = PremiumOrder(
-        id=uuid4().hex, user_id=user.id, package=data.package, period=data.period,
+        id=uuid4().hex, user_id=user.id, package=data.package, period=data.period, duration_days=quote.get("duration_days"),
         amount=amount_text, currency="PLN", environment=environment, service_id=config["service"],
         status="pending", created_at=datetime.now(timezone.utc).isoformat(),
         terms_version=TERMS_VERSION, terms_accepted_at=datetime.now(timezone.utc).isoformat(),
@@ -198,7 +207,7 @@ def process_itn(xml, db, config, *, allow_batch=False):
                         start = max([start] + [end for end in previous if end])
                 if not order.entitlements_applied_at and not order.service_schedule_history:
                     order.service_starts_at = start.isoformat()
-                    order.service_ends_at = None if order.package == "organizer" and order.period == "monthly" else add_premium_period(start, order.period).isoformat()
+                    order.service_ends_at = None if order.package == "organizer" and order.period == "monthly" else add_premium_period(start, order.period, order.duration_days).isoformat()
                 queue_confirmation(order, db)
             apply_paid_premium_order(order, db)
         db.flush()
@@ -232,8 +241,15 @@ def build_premium_router(get_db, get_current_user, get_prices, is_admin):
         return [{"id": row.id, "name": row.name, "event_type": row.event_type} for row in db.query(Competition).filter_by(
             created_by=user.email, status="draft").order_by(Competition.id.desc()).all()]
 
+    @router.get("/support-offer")
+    def support_offer(user=Depends(get_current_user)):
+        require_daily_offer_access(user)
+        return daily_offer()
+
     @router.post("/quote")
     def quote(data: CheckoutData, user=Depends(get_current_user), db=Depends(get_db)):
+        if data.period == "daily":
+            require_daily_offer_access(user)
         if not user.is_active:
             raise HTTPException(403, "Aktywuj konto przed przygotowaniem zakupu.")
         _, amount = current_amount(data, db, get_prices)
@@ -264,7 +280,7 @@ def build_premium_router(get_db, get_current_user, get_prices, is_admin):
         contract = json.loads(order.contract_snapshot or "{}")
         return {
             **{k: getattr(order, k) for k in (
-                "id", "package", "period", "amount", "currency", "status", "environment", "created_at", "paid_at",
+                "id", "package", "period", "duration_days", "amount", "currency", "status", "environment", "created_at", "paid_at",
                 "entitlement_starts_at", "entitlement_ends_at", "competition_id", "service_starts_at", "service_ends_at",
                 "gateway_valid_until", "provider_closed_at", "refunded_at", "refund_requested_at", "entitlements_applied_at")},
             "renews_existing_access": bool(contract.get("renews_existing_access")),

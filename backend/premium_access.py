@@ -27,7 +27,7 @@ def parse_premium_datetime(value):
 def included_premium_packages(package, period):
     if package == "organizer" and period == "yearly":
         return ["organizer", "shooter"]
-    if package == "shooter" and period in ("monthly", "yearly"):
+    if package == "shooter" and period in ("monthly", "yearly", "daily"):
         return ["shooter"]
     # organizer/monthly is the legacy key for one additional publication.
     return []
@@ -102,7 +102,13 @@ def premium_display_fields(user, orders=None, now=None):
     return result
 
 
-def add_premium_period(start, period):
+def add_premium_period(start, period, duration_days=None):
+    if period == "daily":
+        if not isinstance(duration_days, int) or isinstance(duration_days, bool) or duration_days <= 0:
+            raise ValueError("Daily Premium requires a positive number of days")
+        return start.astimezone(PREMIUM_TIMEZONE) + timedelta(days=duration_days)
+    if period not in ("monthly", "yearly"):
+        raise ValueError("Unknown Premium period")
     months = 12 if period == "yearly" else 1
     year, month_index = divmod(start.year * 12 + start.month - 1 + months, 12)
     month = month_index + 1
@@ -147,7 +153,7 @@ def apply_paid_premium_order(order, db):
     current_end = effective_premium_until(user, order.package)
     requested_start = parse_premium_datetime(order.service_starts_at) or paid_at
     extension_start = max(paid_at, requested_start, current_end) if current_end else max(paid_at, requested_start)
-    new_end = add_premium_period(extension_start, order.period)
+    new_end = add_premium_period(extension_start, order.period, order.duration_days)
     field = "premium_organizer_paid_until" if order.package == "organizer" else "premium_shooter_paid_until"
     setattr(user, field, new_end.isoformat())
     # Shooter access automatically includes the organizer's annual paid expiry.
@@ -235,7 +241,7 @@ def reflow_pending_renewals(withdrawn, user, orders):
             earliest = paid if row.early_start_requested else paid + timedelta(days=14)
             new_start = max(date for date in (replacement, earliest, now, available[row.package]) if date)
             if new_start < start:
-                new_end = add_premium_period(new_start, row.period)
+                new_end = add_premium_period(new_start, row.period, row.duration_days)
                 history = json.loads(row.service_schedule_history or "[]")
                 history.append({"reason": "earlier_purchase_withdrawn", "withdrawn_order_id": withdrawn.id,
                     "changed_at": now.isoformat(), "previous_starts_at": row.service_starts_at,

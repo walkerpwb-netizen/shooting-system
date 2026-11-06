@@ -59,7 +59,9 @@ def financial_totals(count, amount, fee):
             "estimated_net": money(int(amount or 0) - int(fee or 0))}
 
 
-def receipt_description(package, period):
+def receipt_description(package, period, duration_days=None):
+    if package == "shooter" and period == "daily":
+        return f"Premium Strzelca — {duration_days} dni (Wesprzyj nas)" if duration_days else "Premium Strzelca — dostęp w dniach (Wesprzyj nas)"
     if package == "organizer":
         return "Roczny Organizator + Premium Strzelca" if period == "yearly" else "Jednorazowa dodatkowa publikacja"
     return "Premium Strzelca — rok" if period == "yearly" else "Premium Strzelca — miesiąc"
@@ -96,7 +98,7 @@ def record_autopay_receipt(order, transaction, db, provider_zone="Europe/Warsaw"
         remote_id=remote_id, environment=order.environment, amount_grosz=grosz, currency=order.currency,
         estimated_fee_grosz=estimated_fee(grosz), fee_tariff=FEE_TARIFF,
         paid_on=paid_at.date(), paid_at=paid_at.isoformat(), provider_payment_date=payment_date,
-        recorded_at=datetime.now(timezone.utc).isoformat(), package=order.package, period=order.period,
+        recorded_at=datetime.now(timezone.utc).isoformat(), package=order.package, period=order.period, duration_days=order.duration_days,
         payer_name=" ".join(filter(None, [payer.first_name, payer.last_name]))[:255] if payer else "",
         payer_email=(payer.email or "")[:255] if payer else "",
     )
@@ -162,7 +164,7 @@ def serialize_receipt(entry):
     return {
         "id": entry.id, "paid_on": entry.paid_on.isoformat(), "paid_at": entry.paid_at,
         "recorded_at": entry.recorded_at, "payer_name": entry.payer_name, "payer_email": entry.payer_email,
-        "description": receipt_description(entry.package, entry.period), "amount": money(entry.amount_grosz),
+        "description": receipt_description(entry.package, entry.period, entry.duration_days), "amount": money(entry.amount_grosz),
         "estimated_fee": money(entry.estimated_fee_grosz),
         "estimated_net": money(entry.amount_grosz - entry.estimated_fee_grosz), "fee_tariff": entry.fee_tariff,
         "currency": entry.currency, "remote_id": entry.remote_id, "service_id": entry.service_id,
@@ -200,7 +202,7 @@ def payment_overview(db, year, environment, month=None, search="", page=1, page_
 
 
 def export_row(entry):
-    return [entry.paid_at, entry.payer_name, entry.payer_email, receipt_description(entry.package, entry.period),
+    return [entry.paid_at, entry.payer_name, entry.payer_email, receipt_description(entry.package, entry.period, entry.duration_days),
             money(entry.amount_grosz), entry.remote_id, entry.service_id, entry.order_reference, entry.recorded_at,
             money(entry.estimated_fee_grosz), money(entry.amount_grosz - entry.estimated_fee_grosz), entry.fee_tariff]
 

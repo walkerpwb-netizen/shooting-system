@@ -13,8 +13,9 @@ from fastapi import HTTPException
 
 from config import settings
 from premium_access import add_premium_period, effective_premium_until, parse_premium_datetime
+from premium_daily import daily_purchase, require_daily_offer_access
 
-TERMS_VERSION = "2026-10-28"
+TERMS_VERSION = "2026-11-06"
 EARLY_START_TEXT = (
     "Żądam rozpoczęcia świadczenia usługi przed upływem 14 dni na odstąpienie od umowy. "
     "Przyjmuję do wiadomości, że przy odstąpieniu po rozpoczęciu usługi zapłacę za świadczenie "
@@ -49,6 +50,12 @@ def queued_access_until(user, package, db, exclude_order=None):
 def make_quote(user, package, period, amount, early_start, competition_id, seller, *, environment="production", db=None):
     if environment != "production":
         raise HTTPException(400, "Nieobsługiwane środowisko płatności.")
+    duration_days = None
+    if period == "daily":
+        require_daily_offer_access(user)
+        if package != "shooter" or competition_id is not None:
+            raise HTTPException(400, "Oferta dzienna dotyczy wyłącznie Premium Strzelca.")
+        duration_days = daily_purchase(amount)
     issued = now()
     start = issued if early_start else issued + timedelta(days=14)
     existing = effective_premium_until(user, package)
@@ -58,13 +65,13 @@ def make_quote(user, package, period, amount, early_start, competition_id, selle
         queued = queued_access_until(user, package, db)
         if queued:
             start = max(start, queued)
-    value = {"id": str(uuid4()), "user_id": user.id, "package": package, "period": period, "environment": environment,
+    value = {"id": str(uuid4()), "user_id": user.id, "package": package, "period": period, "duration_days": duration_days, "environment": environment,
              "amount": amount, "early_start_requested": bool(early_start), "competition_id": competition_id,
              "terms_version": TERMS_VERSION, "issued_at": issued.isoformat(),
              "expires_at": (issued + timedelta(minutes=15)).isoformat(), "service_starts_at": start.isoformat(),
              "existing_access_until": existing.isoformat() if existing and existing > issued else None,
              "renews_existing_access": bool(existing and existing > issued and not (package == "organizer" and period == "monthly")),
-             "service_ends_at": None if package == "organizer" and period == "monthly" else add_premium_period(start, period).isoformat(),
+             "service_ends_at": None if package == "organizer" and period == "monthly" else add_premium_period(start, period, duration_days).isoformat(),
              "seller": seller, "terms_digest": hashlib.sha256(json.dumps(terms_sections(), ensure_ascii=False).encode()).hexdigest()}
     encoded = _encode(json.dumps(value, separators=(",", ":"), ensure_ascii=False).encode())
     signature = hmac.new(settings.secret_key.encode(), encoded.encode(), hashlib.sha256).digest()
@@ -81,6 +88,7 @@ def verify_quote(token, data, user, amount, *, environment="production"):
         if (value.get("environment") != environment or value["user_id"] != user.id or value["package"] != data.package or value["period"] != data.period
                 or value["amount"] != amount or value["competition_id"] != data.competition_id
                 or value["early_start_requested"] != data.early_start_requested or value["terms_version"] != TERMS_VERSION
+                or value.get("duration_days") != (daily_purchase(amount) if data.period == "daily" else None)
                 or datetime.fromisoformat(value["expires_at"]) <= now()
                 or value["terms_digest"] != hashlib.sha256(json.dumps(terms_sections(), ensure_ascii=False).encode()).hexdigest()):
             raise ValueError
@@ -106,6 +114,8 @@ def contract_text(order):
              f"Płatność potwierdzona: {order.paid_at}", f"Początek: {order.service_starts_at}",
              f"Koniec: {order.service_ends_at or 'jednorazowa dodatkowa publikacja'}", value["early_start_text"],
              f"Regulamin Premium — wersja {value['terms_version']}"]
+    if order.period == "daily":
+        lines.insert(3, f"Premium Strzelca: {order.duration_days} dni; cena za dzień: {value['offer']['price_per_day']} PLN.")
     if value.get("event"):
         lines.append(f"Wydarzenie: {value['event']['name']} (ID {value['event']['id']})")
     for section in value["terms"]:

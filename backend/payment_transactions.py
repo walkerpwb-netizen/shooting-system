@@ -94,7 +94,7 @@ def transaction_overview(db, *, status=None, search="", page=1, page_size=25):
                                    "last_seen_at": None})
         entries.append({
             "id": order.id, "status": state, "status_label": STATUS_LABELS[state], "amount": order.amount,
-            "currency": order.currency, "description": receipt_description(order.package, order.period),
+            "currency": order.currency, "description": receipt_description(order.package, order.period, order.duration_days),
             "created_at": order.created_at, "paid_at": order.paid_at,
             "payer_email": payer.payer_email if payer else user.email if user else "",
             "payer_name": payer.payer_name if payer else " ".join(filter(None, [user.first_name, user.last_name])) if user else "",

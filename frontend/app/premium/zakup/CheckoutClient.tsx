@@ -7,21 +7,22 @@ import { useEffect, useState } from "react";
 import { apiUrl } from "@/lib/api";
 import { authFetch, getValidAccessToken } from "@/lib/auth";
 import { buildAuthPath, storeAuthRedirectPath } from "@/lib/authRedirect";
-import { PAYMENT_MAINTENANCE_MESSAGE, premiumOfferDetails, premiumPackageNames, premiumPrice, type PremiumCommerce, type PremiumPrices } from "@/lib/premiumCommerce";
+import { PAYMENT_MAINTENANCE_MESSAGE, premiumOfferDetails, premiumPackageNames, premiumPrice, type DailyPremiumOffer, type PremiumCommerce, type PremiumPeriod, type PremiumPrices } from "@/lib/premiumCommerce";
 import { forgetPremiumCheckout, pendingPremiumCheckout, premiumOrderPath, rememberPremiumCheckout } from "@/lib/premiumReturn";
 import PaymentResult, { paymentResultTitle, type PremiumOrder as Order } from "./PaymentResult";
 
-type Quote = { environment: "production"; existing_access_until: string | null; renews_existing_access: boolean; quote_token: string; amount: string; service_starts_at: string; service_ends_at: string | null; expires_at: string; terms_version: string; early_start_text: string };
+type Quote = { environment: "production"; duration_days?: number | null; existing_access_until: string | null; renews_existing_access: boolean; quote_token: string; amount: string; service_starts_at: string; service_ends_at: string | null; expires_at: string; terms_version: string; early_start_text: string };
 type Event = { id: number; name: string; event_type: string };
 const button = "min-h-11 rounded-xl bg-emerald-300 px-5 py-3 font-bold text-green-950 disabled:cursor-not-allowed disabled:opacity-50";
 function date(value?: string | null) { return value ? new Intl.DateTimeFormat("pl-PL", { dateStyle: "short", timeStyle: "short", timeZone: "Europe/Warsaw" }).format(new Date(value)) : "—"; }
 
-export default function CheckoutClient({ packageType, period, orderId, serviceId = "", returnHash = "", initialCompetitionId = "" }: {
-  packageType: "shooter" | "organizer"; period: "monthly" | "yearly"; orderId: string; serviceId?: string; returnHash?: string; initialCompetitionId?: string;
+export default function CheckoutClient({ packageType, period, orderId, serviceId = "", returnHash = "", initialCompetitionId = "", initialDailyAmount = "" }: {
+  packageType: "shooter" | "organizer"; period: PremiumPeriod; orderId: string; serviceId?: string; returnHash?: string; initialCompetitionId?: string; initialDailyAmount?: string;
 }) {
   const router = useRouter();
   const [prices, setPrices] = useState<PremiumPrices | null>(null);
   const [commerce, setCommerce] = useState<PremiumCommerce | null>(null);
+  const [dailyOffer, setDailyOffer] = useState<DailyPremiumOffer | null>(null);
   const [profileEmail, setProfileEmail] = useState("");
   const [accepted, setAccepted] = useState(false);
   const [early, setEarly] = useState(false);
@@ -34,12 +35,15 @@ export default function CheckoutClient({ packageType, period, orderId, serviceId
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [order, setOrder] = useState<Order | null>(null);
-  const offer = premiumOfferDetails(packageType, period);
+  const daily = period === "daily";
+  const price = daily ? initialDailyAmount : prices?.[packageType][`${period}_price`] || "";
+  const offer = premiumOfferDetails(packageType, period, quote?.duration_days);
   const publication = packageType === "organizer" && period === "monthly";
   const params = new URLSearchParams(orderId ? { OrderID: orderId } : { pakiet: packageType, okres: offer.queryPeriod });
   if (serviceId) params.set("ServiceID", serviceId);
   if (returnHash) params.set("Hash", returnHash);
   if (initialCompetitionId) params.set("wydarzenie", initialCompetitionId);
+  if (daily && !orderId) params.set("kwota", initialDailyAmount);
   const nextPath = `/premium/zakup?${params}`;
 
   useEffect(() => {
@@ -54,6 +58,18 @@ export default function CheckoutClient({ packageType, period, orderId, serviceId
         if (!me.ok) throw new Error("Nie udało się pobrać Twojego konta. Odśwież stronę.");
         const profile = await me.json();
         if (ignore) return;
+        if (daily && !orderId) {
+          const offerResponse = await authFetch(apiUrl("/premium/support-offer"), { cache: "no-store" });
+          if (offerResponse.status === 403) { redirecting = true; router.replace("/"); return; }
+          if (!offerResponse.ok) throw new Error("Nie udało się pobrać oferty Premium w dniach.");
+          const dailyData: DailyPremiumOffer = await offerResponse.json();
+          if (packageType !== "shooter" || !/^[1-9][0-9]{0,5}\.00$/.test(initialDailyAmount)
+            || Number(initialDailyAmount) < Number(dailyData.minimum_amount) || Number(initialDailyAmount) > Number(dailyData.maximum_amount)) {
+            throw new Error("Wybierz poprawną kwotę zakupu w karcie Wesprzyj nas.");
+          }
+          if (ignore) return;
+          setDailyOffer(dailyData);
+        }
         setProfileEmail(profile.email);
         const pendingId = !orderId ? pendingPremiumCheckout(profile.email) : null;
         if (pendingId) {
@@ -102,7 +118,7 @@ export default function CheckoutClient({ packageType, period, orderId, serviceId
     }
     window.addEventListener("pageshow", returnedFromHistory);
     void load(); return () => { ignore = true; window.removeEventListener("pageshow", returnedFromHistory); };
-  }, [nextPath, orderId, serviceId, returnHash, publication, router]);
+  }, [nextPath, orderId, serviceId, returnHash, publication, daily, initialDailyAmount, packageType, router]);
 
   useEffect(() => {
     if (!prices || !commerce || orderId || (publication && !eventId)) return;
@@ -113,7 +129,7 @@ export default function CheckoutClient({ packageType, period, orderId, serviceId
       try {
         const response = await authFetch(apiUrl("/premium/quote"), { method: "POST", signal: controller.signal,
           headers: { "Content-Type": "application/json" }, body: JSON.stringify({ package: packageType, period,
-            expected_price: prices![packageType][`${period}_price`], terms_version: commerce!.terms_version, terms_accepted: false,
+            expected_price: price, terms_version: commerce!.terms_version, terms_accepted: false,
             early_start_requested: early, competition_id: publication ? Number(eventId) : null }),
         });
         const body = await response.json();
@@ -123,7 +139,7 @@ export default function CheckoutClient({ packageType, period, orderId, serviceId
       finally { if (!ignore) setQuoting(false); }
     }
     void prepare(); return () => { ignore = true; controller.abort(); };
-  }, [prices, commerce, orderId, publication, eventId, packageType, period, early, quoteRevision]);
+  }, [prices, commerce, orderId, publication, eventId, packageType, period, price, early, quoteRevision]);
 
   const watchedOrderId = order?.id;
   const watchedStatus = order?.status;
@@ -193,7 +209,7 @@ export default function CheckoutClient({ packageType, period, orderId, serviceId
         <details className="rounded-xl border border-green-700 p-4">
           <summary className="cursor-pointer font-bold text-emerald-100">Szczegóły zamówienia</summary>
           <div className="mt-4 space-y-4 text-sm text-green-100">
-        <h2 className="text-2xl font-bold">{premiumPackageNames[order.package]} — {premiumOfferDetails(order.package, order.period).summary}</h2>
+        <h2 className="text-2xl font-bold">{premiumPackageNames[order.package]} — {premiumOfferDetails(order.package, order.period, order.duration_days).summary}</h2>
         <p>Kwota zakupu: <strong>{premiumPrice(order.amount)}</strong></p>
         <p className="break-all">Numer: {order.id}</p>
         <p>Status: <strong>{order.status === "paid" ? "Płatność potwierdzona" : order.status === "cancelled" ? "Transakcja anulowana przez Autopay" : order.status === "failed" ? "Próba nieudana — możliwe późniejsze potwierdzenie" : "Oczekiwanie na potwierdzenie Autopay"}</strong></p>
@@ -204,8 +220,13 @@ export default function CheckoutClient({ packageType, period, orderId, serviceId
         </details>
         <div className="flex flex-wrap gap-3"><button className={button} disabled={busy} onClick={() => void orderAction("refresh")}>Odśwież status</button><button className={button} disabled={busy} onClick={() => void orderAction("check")}>Sprawdź w Autopay</button>{order.status !== "paid" && !order.provider_closed_at && <button className={button} disabled={busy} onClick={() => void orderAction("cancel")}>Anuluj nieopłaconą transakcję</button>}{order.confirmation_email?.queued && !order.confirmation_email.sent_at && <button className={button} disabled={busy} onClick={() => void orderAction("resend-confirmation")}>Ponów wysyłkę potwierdzenia</button>}</div>
       </section> : !orderId && prices && commerce && <>
-        <h2 className="text-2xl font-bold">{premiumPackageNames[packageType]}</h2><p>{offer.summary}</p><p className="text-2xl font-black">Łącznie: {premiumPrice(prices[packageType][`${period}_price`])}</p>
+        <h2 className="text-2xl font-bold">{premiumPackageNames[packageType]}</h2><p>{offer.summary}</p><p className="text-2xl font-black">Łącznie: {premiumPrice(price)}</p>
         <p className="leading-7 text-green-100">{offer.description} Bez automatycznego odnawiania.</p>
+        {daily && dailyOffer && <div className="space-y-3 rounded-xl border border-green-500/40 p-4 text-green-100">
+          <p>Cena za dzień: <strong>{premiumPrice(dailyOffer.price_per_day)}</strong>. Minimalny zakup: {premiumPrice(dailyOffer.minimum_amount)}. Kupujesz usługę Premium Strzelca na swoim koncie.</p>
+          <ul className="list-inside list-disc">{prices.shooter.available_features.filter((feature) => prices.shooter.features.includes(feature.id)).map((feature) => <li key={feature.id}>{feature.label}</li>)}</ul>
+          <Link href="/wesprzyj-nas" className="inline-block text-emerald-200 underline">Zmień kwotę i liczbę dni</Link>
+        </div>}
         {publication && <label className="block space-y-2"><span className="block font-bold">Wydarzenie do dodatkowej publikacji</span><select value={eventId} onChange={(event) => { setEventId(event.target.value); setQuote(null); }} className="min-h-11 w-full rounded-xl border border-green-400 bg-green-950 p-3"><option value="">Wybierz swój szkic</option>{events.map((event) => <option key={event.id} value={event.id}>{event.name} — {event.event_type === "training" ? "szkolenie" : "zawody"}</option>)}</select>{events.length === 0 && <span className="block text-sm">Najpierw utwórz szkic wydarzenia w panelu organizatora.</span>}</label>}
         <label className="flex items-start gap-3"><input type="checkbox" checked={early} onChange={(event) => setEarly(event.target.checked)} className="mt-1 h-5 w-5 shrink-0" /><span>Żądam rozpoczęcia usługi przed upływem 14 dni na odstąpienie. W razie odstąpienia po rozpoczęciu zapłacę proporcjonalnie za wykonaną usługę. Samo rozpoczęcie nie pozbawia prawa odstąpienia.</span></label>
         <p className="text-sm text-green-100">Bez tego żądania nowa usługa rozpocznie się po upływie 14 dni od potwierdzenia płatności. Jeśli masz już Premium, zakup przedłuży obecny dostęp bez jego skracania.</p>
@@ -218,7 +239,7 @@ export default function CheckoutClient({ packageType, period, orderId, serviceId
         <Link href="/premium/regulamin" target="_blank" rel="noopener noreferrer" className="block text-emerald-200 underline">Regulamin Premium i dane sprzedawcy</Link><Link href="/polityka-prywatnosci" className="block text-emerald-200 underline">Polityka prywatności</Link>
         {commerce.sales_enabled && commerce.payments_temporarily_unavailable === false ? <section className="space-y-5 rounded-xl border border-blue-300/50 bg-blue-300/10 p-5"><h3 className="font-bold">Zakup Premium</h3>
           <label className="flex items-start gap-3"><input type="checkbox" checked={accepted} onChange={(event) => setAccepted(event.target.checked)} className="mt-1 h-5 w-5 shrink-0" /><span>Akceptuję Regulamin Premium w wersji {quote?.terms_version || commerce.terms_version}.</span></label>
-          <button className={button} disabled={!accepted || !quote || quoting || busy} onClick={() => void startCheckout()}>{busy ? "Przygotowanie płatności…" : `Kupuję i płacę — ${premiumPrice(quote?.amount || prices[packageType][`${period}_price`])}`}</button>
+          <button className={button} disabled={!accepted || !quote || quoting || busy} onClick={() => void startCheckout()}>{busy ? "Przygotowanie płatności…" : `Kupuję i płacę — ${premiumPrice(quote?.amount || price)}`}</button>
         </section> : <p className="rounded-xl border border-blue-300/30 p-4 text-blue-100">{commerce.payments_temporarily_unavailable !== false ? commerce.payment_unavailable_message || PAYMENT_MAINTENANCE_MESSAGE : "Płatności są chwilowo niedostępne. Spróbuj ponownie później."}</p>}
       </>}
     </>}

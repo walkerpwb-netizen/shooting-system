@@ -1,8 +1,8 @@
 import Link from "next/link";
-import { premiumPackageNames, premiumPrice } from "@/lib/premiumCommerce";
+import { premiumPackageNames, premiumPrice, type PremiumPeriod } from "@/lib/premiumCommerce";
 
 export type PremiumOrder = {
-  id: string; package: "shooter" | "organizer"; period: "monthly" | "yearly"; amount: string; status: string; environment: string;
+  id: string; package: "shooter" | "organizer"; period: PremiumPeriod; duration_days?: number | null; amount: string; status: string; environment: string;
   service_starts_at?: string; service_ends_at?: string; gateway_valid_until?: string; provider_closed_at?: string;
   entitlements_applied_at?: string | null; renews_existing_access?: boolean; existing_access_until?: string | null;
   included_packages?: string[]; competition_id?: number | null;
@@ -33,7 +33,7 @@ export default function PaymentResult({ order }: { order: PremiumOrder }) {
       <span aria-hidden="true" className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-2xl font-bold ${paid ? "bg-emerald-300 text-green-950" : "bg-white/10 text-white"}`}>{paid ? "✓" : pending ? "…" : "!"}</span>
       <p className="text-lg font-bold">{paid ? "Płatność potwierdzona" : order.refunded_at ? "Zwrot zrealizowany" : order.refund_requested_at ? "W trakcie zwrotu" : order.status === "cancelled" ? "Transakcja zamknięta" : pending ? "Sprawdzamy status Twojego zamówienia" : "Próba płatności nieudana"}</p>
     </div>
-    <p className="text-green-50"><strong>{publication ? "Dodatkowa publikacja" : premiumPackageNames[order.package]}</strong><span className="mx-2" aria-hidden="true">·</span>{premiumPrice(order.amount)}</p>
+    <p className="text-green-50"><strong>{publication ? "Dodatkowa publikacja" : premiumPackageNames[order.package]}{order.period === "daily" && order.duration_days ? ` — ${order.duration_days} dni` : ""}</strong><span className="mx-2" aria-hidden="true">·</span>{premiumPrice(order.amount)}</p>
     {paid ? <>
       <p className="leading-7">{publication
         ? order.entitlements_applied_at ? "Zakupiona dodatkowa publikacja jest już dostępna przy wybranym wydarzeniu." : "Twoja dodatkowa publikacja została opłacona. Udostępnimy ją zgodnie z datą rozpoczęcia usługi."

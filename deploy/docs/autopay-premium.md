@@ -15,6 +15,29 @@ Finalny przycisk „Kupuję i płacę” potwierdza obowiązek zapłaty. Podpisa
 
 Bez osobnego, niezaznaczonego domyślnie żądania wcześniejszego rozpoczęcia usługa zaczyna się najwcześniej 14 dni po wpłacie. Istniejący dłuższy dostęp jest zachowywany. Potwierdzenie e-mail z pełnymi warunkami i wzorem odstąpienia jest kolejkowane dopiero po zweryfikowanej wpłacie. Produkcyjna aktywacja czeka na skuteczne wysłanie potwierdzenia oraz datę rozpoczęcia; opóźnione aktywacje są sprawdzane przy uwierzytelnieniu użytkownika. Samo rozpoczęcie usługi nie pozbawia prawa odstąpienia.
 
+## Oferta dzienna „Wesprzyj nas” — bez publikacji
+
+Karta `/wesprzyj-nas` i linki nawigacji pozostają dostępne wyłącznie administratorowi.
+API `/premium/support-offer`, przygotowanie oferty i checkout `shooter/daily` sprawdzają
+aktywną rolę administratora po stronie serwera. Sam bezpośredni adres ani wcześniej
+wystawiona oferta po odebraniu tej roli nie pozwalają rozpocząć zakupu. Publiczne
+uruchomienie wymaga osobnej, świadomej zmiany tych ograniczeń i treści regulaminu.
+
+To odpłatny zakup Premium Strzelca: 1 zł za 1 dzień kalendarzowy w Europe/Warsaw,
+minimum 10 zł, tylko pełne złotówki. Cena i minimum pochodzą z backendu. Klient
+wybiera kwotę, sprawdza liczbę dni i daty w standardowym podsumowaniu, akceptuje
+regulamin i używa „Kupuję i płacę”. Administrator korzysta z rzeczywistych płatności;
+wejście do karty lub podsumowania samo nie tworzy transakcji u operatora.
+
+Liczba dni jest zapisywana w podpisanej ofercie, zamówieniu, snapshotach umowy i
+wpłacie; nie jest dowolnym parametrem przyjmowanym od klienta. ITN, idempotencja,
+kolejka e-mail, aktywacja, zachowanie darmowego dostępu i blokada 95% są wspólne
+z pozostałymi zakupami. Zakup nie przedłuża Premium Organizatora. Kolejne dni są
+dopisywane po aktualnym dostępie i opłaconych przedłużeniach. Zwrot wycofuje ten
+zakup; zależne nieaktywowane okresy są przeliczane z zachowaniem ich własnej liczby
+dni lub miesięcy. Panel transakcji, CSV i raport roczny opisują liczbę zakupionych dni.
+Oryginalne wpłaty i potwierdzenia pozostają niezmienne przy korektach harmonogramu.
+
 ## Konfiguracja
 
 Tryby: `disabled` i `production`. Sam zapis klucza nie zmienia trybu. Produkcja wymaga kompletnych danych, modelu Merchant, skonfigurowanej poczty i potwierdzenia produkcyjnych adresów. Weryfikacją serwisu oraz dostępnością metod płatności zarządza Autopay. Sprawdzenie połączenia w panelu wywołuje odczytowe gatewayList/v3 i nie rozpoczyna transakcji.

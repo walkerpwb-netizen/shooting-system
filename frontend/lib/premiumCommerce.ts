@@ -8,6 +8,8 @@ export type PremiumPackage = {
   yearly_included_packages?: ("shooter" | "organizer")[];
 };
 export type PremiumPrices = Record<"shooter" | "organizer", PremiumPackage>;
+export type PremiumPeriod = "monthly" | "yearly" | "daily";
+export type DailyPremiumOffer = { price_per_day: string; minimum_amount: string; maximum_amount: string };
 export type PremiumCommerce = {
   sales_enabled: boolean;
   verification_status: string;
@@ -37,7 +39,16 @@ export function premiumPrice(value: string) {
 
 export const premiumPackageNames = { shooter: "Premium Strzelca", organizer: "Premium Organizatora" };
 
-export function premiumOfferDetails(packageType: "shooter" | "organizer", period: "monthly" | "yearly") {
+export function premiumOfferDetails(packageType: "shooter" | "organizer", period: PremiumPeriod, durationDays?: number | null) {
+  if (period === "daily") {
+    return {
+      title: "Premium w dniach — Wesprzyj nas",
+      summary: durationDays ? `${durationDays} dni Premium Strzelca` : "Premium Strzelca — dostęp w dniach",
+      priceCaption: "Jednorazowa cena za wybraną liczbę dni",
+      description: "Kupując dodatkowe dni Premium Strzelca, wspierasz utrzymanie i rozwój Systemu Strzeleckiego.",
+      queryPeriod: "daily",
+    };
+  }
   // The existing organizer monthly_price field stores a one-off publication price.
   if (packageType === "organizer") {
     return period === "monthly" ? {
