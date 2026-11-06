@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef } from "react";
 
 import { PREMIUM_EXPIRED_MESSAGE } from "@/lib/premium";
-import { PremiumPurchaseLink } from "./PremiumAccessMessage";
+import PremiumPurchaseLink from "./PremiumPurchaseLink";
 
 export default function PremiumExpiredDialog({ onClose }: { onClose: () => void }) {
   const dialogRef = useRef<HTMLDialogElement>(null);

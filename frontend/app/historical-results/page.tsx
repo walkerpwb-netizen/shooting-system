@@ -93,7 +93,11 @@ export default function HistoricalResultsPage() {
         </div>
 
         {message && (
-          <PremiumAccessMessage message={message} className="mb-6 rounded-xl border border-red-900 bg-red-950/50 p-4 text-red-100" />
+          <PremiumAccessMessage
+            message={message}
+            onDismiss={() => setMessage("")}
+            className="mb-6 rounded-xl border border-red-900 bg-red-950/50 p-4 text-red-100"
+          />
         )}
 
         {loading ? (
