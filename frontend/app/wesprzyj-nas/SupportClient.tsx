@@ -99,14 +99,14 @@ export default function SupportClient() {
               i szybciej tworzyć kolejne rozwiązania dla strzelców, organizatorów i sędziów.
               Każdy zakup pomaga rozwijać projekt i zapewnia Ci dodatkowy okres dostępu Premium.
             </p>
-            <p className="font-semibold text-emerald-200">Dziękujemy za zakup i za to, że jesteś z nami!</p>
+            <p className="font-semibold text-emerald-200">Dziękujemy za wsparcie i za to, że jesteś z nami!</p>
           </div>
 
           <form aria-labelledby="support-amount-heading" className="mt-8 rounded-2xl border border-emerald-200/25 bg-green-950/80 p-5 sm:p-7" onSubmit={(event) => {
             event.preventDefault();
             if (validAmount) router.push(`/premium/zakup?pakiet=shooter&okres=daily&kwota=${Number(normalizedAmount).toFixed(2)}`);
           }}>
-            <h2 id="support-amount-heading" className="text-2xl font-bold">Kup dodatkowe dni Premium</h2>
+            <h2 id="support-amount-heading" className="text-2xl font-bold">Każda złotówka wsparcia to 1 dodatkowy dzień Premium dla Ciebie</h2>
             <p className="mt-2 leading-7 text-green-100">Cena za 1 dzień Premium Strzelca: <strong>{offer ? premiumPrice(offer.price_per_day) : "—"}</strong>. Minimalny zakup: {offer ? premiumPrice(offer.minimum_amount) : "—"}. Wybierz kwotę w pełnych złotych.</p>
             <p className="mt-3 leading-7 text-green-100">Kupujesz odpłatną usługę Premium Strzelca. Zakupione dni przedłużają obecny dostęp; jeśli nie masz aktywnego Premium, datę rozpoczęcia wybierzesz zgodnie z zasadami w podsumowaniu. Płatność jednorazowa, bez automatycznego odnawiania.</p>
             <label htmlFor="support-amount" className="mt-6 block font-semibold">Kwota zakupu</label>
@@ -119,7 +119,7 @@ export default function SupportClient() {
                 autoComplete="off"
                 value={amount}
                 onChange={(event) => setAmount(event.target.value)}
-                placeholder="np. 20,00"
+                placeholder="dowolna kwota"
                 aria-describedby="support-currency support-payment-status"
                 aria-invalid={amount !== "" && !validAmount}
                 maxLength={12}
