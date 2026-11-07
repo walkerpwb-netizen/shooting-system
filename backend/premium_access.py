@@ -12,6 +12,15 @@ from models import Competition, PremiumMailOutbox, PremiumOrder, User
 PREMIUM_TIMEZONE = ZoneInfo("Europe/Warsaw")
 
 
+def standard_duration_days(package, period):
+    if package == "shooter" and period == "monthly":
+        return 31
+    if package in ("shooter", "organizer") and period == "yearly":
+        return 365
+    # The organizer's monthly key represents one publication, without a duration.
+    return None
+
+
 def parse_premium_datetime(value):
     if not value:
         return None
@@ -103,9 +112,10 @@ def premium_display_fields(user, orders=None, now=None):
 
 
 def add_premium_period(start, period, duration_days=None):
-    if period == "daily":
+    """Use purchased days; null retains the original calendar terms of old orders."""
+    if duration_days is not None or period == "daily":
         if not isinstance(duration_days, int) or isinstance(duration_days, bool) or duration_days <= 0:
-            raise ValueError("Daily Premium requires a positive number of days")
+            raise ValueError("Premium requires a positive number of days")
         return start.astimezone(PREMIUM_TIMEZONE) + timedelta(days=duration_days)
     if period not in ("monthly", "yearly"):
         raise ValueError("Unknown Premium period")
@@ -215,7 +225,7 @@ def revoke_order_entitlements(order, db):
 
 
 def reflow_pending_renewals(withdrawn, user, orders):
-    """Close only gaps caused by this withdrawal, keeping paid calendar periods.
+    """Close withdrawal gaps, keeping the duration agreed for each purchase.
 
     Original contracts/confirmation emails and receipt/refund records are never
     rewritten. The live schedule has its own append-only adjustment history.

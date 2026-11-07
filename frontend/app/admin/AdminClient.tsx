@@ -3284,10 +3284,10 @@ export default function AdminClient({
     const packageSettings = premiumSettings[packageType];
     const monthlyPriceLabel = packageType === "organizer"
       ? "Cena za dodatkowe opublikowane zawody"
-      : "Cena za 1 miesiąc";
+      : "Cena za pakiet miesięczny (31 dni)";
     const yearlyPriceLabel = packageType === "organizer"
-      ? "Cena rocznego pakietu bez limitu"
-      : "Cena za cały rok";
+      ? "Cena rocznego pakietu bez limitu (365 dni)"
+      : "Cena za pakiet roczny (365 dni)";
 
     return (
       <div className="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-5">

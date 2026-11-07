@@ -59,16 +59,16 @@ export function premiumOfferDetails(packageType: "shooter" | "organizer", period
       queryPeriod: "publication",
     } : {
       title: "Roczny pakiet bez limitu",
-      summary: "1 rok — publikacje bez limitu",
-      priceCaption: "Łączna cena za rok bez limitu publikacji",
-      description: "Nielimitowana liczba jednocześnie opublikowanych zawodów i szkoleń przez rok. W cenie otrzymujesz również Premium Strzelca na ten sam okres, bez dodatkowej opłaty.",
+      summary: durationDays === null ? "1 rok — okres zgodnie z warunkami zakupu" : `${durationDays ?? 365} dni — publikacje bez limitu`,
+      priceCaption: "Łączna cena za 365 dni bez limitu publikacji",
+      description: "Nielimitowana liczba jednocześnie opublikowanych zawodów i szkoleń przez 365 dni. W cenie otrzymujesz również Premium Strzelca na ten sam okres, bez dodatkowej opłaty.",
       queryPeriod: "yearly",
     };
   }
 
   return {
     title: period === "monthly" ? "Dostęp na miesiąc" : "Dostęp na rok",
-    summary: period === "monthly" ? "1 miesiąc" : "1 rok",
+    summary: durationDays === null ? `${period === "monthly" ? "1 miesiąc" : "1 rok"} — okres zgodnie z warunkami zakupu` : `${durationDays ?? (period === "monthly" ? 31 : 365)} dni`,
     priceCaption: "Łączna cena za cały okres",
     description: "Jednorazowa opłata za cały okres.",
     queryPeriod: period,

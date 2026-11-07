@@ -63,8 +63,10 @@ def receipt_description(package, period, duration_days=None):
     if package == "shooter" and period == "daily":
         return f"Premium Strzelca — {duration_days} dni (Wesprzyj nas)" if duration_days else "Premium Strzelca — dostęp w dniach (Wesprzyj nas)"
     if package == "organizer":
-        return "Roczny Organizator + Premium Strzelca" if period == "yearly" else "Jednorazowa dodatkowa publikacja"
-    return "Premium Strzelca — rok" if period == "yearly" else "Premium Strzelca — miesiąc"
+        description = "Roczny Organizator + Premium Strzelca" if period == "yearly" else "Jednorazowa dodatkowa publikacja"
+    else:
+        description = "Premium Strzelca — rok" if period == "yearly" else "Premium Strzelca — miesiąc"
+    return f"{description} ({duration_days} dni)" if duration_days else description
 
 
 def record_autopay_receipt(order, transaction, db, provider_zone="Europe/Warsaw"):

@@ -38,6 +38,20 @@ zakup; zależne nieaktywowane okresy są przeliczane z zachowaniem ich własnej 
 dni lub miesięcy. Panel transakcji, CSV i raport roczny opisują liczbę zakupionych dni.
 Oryginalne wpłaty i potwierdzenia pozostają niezmienne przy korektach harmonogramu.
 
+## Stałe okresy pakietów od 7.11.2026
+
+Nowa oferta miesięczna Strzelca obejmuje zawsze 31 dni, a roczna Strzelca i Organizatora
+365 dni od rozpoczęcia usługi. Roczny Organizator zachowuje bonus Strzelca na te same
+365 dni. Kupno w połowie miesiąca lub w sierpniu nie skraca okresu do końca miesiąca
+ani roku. Przy aktywnym dostępie nowe dni są dopisywane po jego zakończeniu.
+
+`duration_days` jest utrwalane w podpisanej ofercie, zamówieniu i wpłacie. Aktywacja,
+opóźniony ITN i korekty po zwrocie korzystają z tej samej zapisanej długości.
+Wcześniej zawarte umowy bez `duration_days` zachowują swoje pierwotne zasady
+kalendarzowe; nie przepisujemy dawnych umów, potwierdzeń ani dat w bazie.
+Zmiana wersji regulaminu unieważnia niezrealizowane podsumowania poprzedniej oferty,
+ale nie blokuje wpłat za już utworzone zamówienia.
+
 ## Konfiguracja
 
 Tryby: `disabled` i `production`. Sam zapis klucza nie zmienia trybu. Produkcja wymaga kompletnych danych, modelu Merchant, skonfigurowanej poczty i potwierdzenia produkcyjnych adresów. Weryfikacją serwisu oraz dostępnością metod płatności zarządza Autopay. Sprawdzenie połączenia w panelu wywołuje odczytowe gatewayList/v3 i nie rozpoczyna transakcji.
@@ -91,4 +105,4 @@ Status „W trakcie zwrotu” obejmuje także timeout lub błąd operatora; pane
 
 Proces w tle przy starcie backendu i co minutę odpytuje `outDetails/v2` dla już zleconych zwrotów, również bez otwartego panelu. Nie inicjuje nowych zwrotów ani ponowień przelewów. Ręczne sprawdzenie jest dostępne obok statusu; odczyty pojedynczego zwrotu mają co najmniej 15 sekund odstępu. Dopiero podpisane `DONE` dla sumy wszystkich wpłat zmienia stan na „Zwrot zrealizowany” i ustawia `refunded_at`. Status DONE oznacza potwierdzenie wykonania przelewu przez operatora; sesja powrotu klienta nie jest takim potwierdzeniem. Ekran zamówienia klienta odróżnia trwający zwrot od zakończonego.
 
-Wycofanie wcześniejszego zakupu przesuwa również zależne, jeszcze nieaktywowane przedłużenia, żeby nie pozostawić luki w dostępie. Przykład: darmowy dostęp do 31.12, pierwszy miesiąc do 31.01 i drugi do 28.02; po zwrocie pierwszego miesiąca pozostaje okres 31.12–31.01. Miesiące są przeliczane kalendarzowo, bez odejmowania stałej liczby dni. Niezależny zakup po przerwie, inne aktywne uprawnienia oraz 14-dniowe oczekiwanie bez żądania wcześniejszego startu są zachowane. Każda zmiana harmonogramu ma historię w `service_schedule_history` z powodem, identyfikatorem wycofanego zamówienia i poprzednimi oraz nowymi datami. Oryginalny snapshot umowy, wysłane potwierdzenie i finansowy rejestr wpłat/zwrotów pozostają bez zmian. Powtórzenie ITN lub rozliczenie zwrotu nie przesuwa okresu ponownie.
+Wycofanie wcześniejszego zakupu przesuwa również zależne, jeszcze nieaktywowane przedłużenia, żeby nie pozostawić luki w dostępie. Przykład nowych pakietów 31-dniowych: darmowy dostęp do 31.12.2026, pierwszy zakup do 31.01.2027 i drugi do 03.03.2027; po zwrocie pierwszego zakupu pozostaje okres 31.12.2026–31.01.2027. Nowe pakiety zachowują zapisane 31 lub 365 dni; umowy starsze bez zapisanej liczby dni są nadal przeliczane według pierwotnych zasad kalendarzowych. Niezależny zakup po przerwie, inne aktywne uprawnienia oraz 14-dniowe oczekiwanie bez żądania wcześniejszego startu są zachowane. Każda zmiana harmonogramu ma historię w `service_schedule_history` z powodem, identyfikatorem wycofanego zamówienia i poprzednimi oraz nowymi datami. Oryginalny snapshot umowy, wysłane potwierdzenie i finansowy rejestr wpłat/zwrotów pozostają bez zmian. Powtórzenie ITN lub rozliczenie zwrotu nie przesuwa okresu ponownie.

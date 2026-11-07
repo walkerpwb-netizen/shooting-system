@@ -12,10 +12,10 @@ from uuid import uuid4
 from fastapi import HTTPException
 
 from config import settings
-from premium_access import add_premium_period, effective_premium_until, parse_premium_datetime
+from premium_access import add_premium_period, effective_premium_until, parse_premium_datetime, standard_duration_days
 from premium_daily import daily_purchase, require_daily_offer_access
 
-TERMS_VERSION = "2026-11-06"
+TERMS_VERSION = "2026-11-07"
 EARLY_START_TEXT = (
     "Żądam rozpoczęcia świadczenia usługi przed upływem 14 dni na odstąpienie od umowy. "
     "Przyjmuję do wiadomości, że przy odstąpieniu po rozpoczęciu usługi zapłacę za świadczenie "
@@ -50,7 +50,7 @@ def queued_access_until(user, package, db, exclude_order=None):
 def make_quote(user, package, period, amount, early_start, competition_id, seller, *, environment="production", db=None):
     if environment != "production":
         raise HTTPException(400, "Nieobsługiwane środowisko płatności.")
-    duration_days = None
+    duration_days = standard_duration_days(package, period)
     if period == "daily":
         require_daily_offer_access(user)
         if package != "shooter" or competition_id is not None:
@@ -88,7 +88,7 @@ def verify_quote(token, data, user, amount, *, environment="production"):
         if (value.get("environment") != environment or value["user_id"] != user.id or value["package"] != data.package or value["period"] != data.period
                 or value["amount"] != amount or value["competition_id"] != data.competition_id
                 or value["early_start_requested"] != data.early_start_requested or value["terms_version"] != TERMS_VERSION
-                or value.get("duration_days") != (daily_purchase(amount) if data.period == "daily" else None)
+                or value.get("duration_days") != (daily_purchase(amount) if data.period == "daily" else standard_duration_days(data.package, data.period))
                 or datetime.fromisoformat(value["expires_at"]) <= now()
                 or value["terms_digest"] != hashlib.sha256(json.dumps(terms_sections(), ensure_ascii=False).encode()).hexdigest()):
             raise ValueError
@@ -116,6 +116,8 @@ def contract_text(order):
              f"Regulamin Premium — wersja {value['terms_version']}"]
     if order.period == "daily":
         lines.insert(3, f"Premium Strzelca: {order.duration_days} dni; cena za dzień: {value['offer']['price_per_day']} PLN.")
+    elif order.duration_days:
+        lines.insert(3, f"Zakupiony okres: {order.duration_days} dni.")
     if value.get("event"):
         lines.append(f"Wydarzenie: {value['event']['name']} (ID {value['event']['id']})")
     for section in value["terms"]:
