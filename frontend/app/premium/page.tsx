@@ -46,7 +46,7 @@ export default async function PremiumPage() {
                     {(["monthly", "yearly"] as const).map((period) => {
                       const offer = premiumOfferDetails(kind, period);
                       return <div key={period} className="rounded-2xl border border-green-200/20 bg-black/25 p-4">
-                        <h3 className="font-bold text-green-100">{offer.title}</h3>
+                        <h3 className="font-bold text-green-100">{offer.title}{kind === "shooter" && <span className="whitespace-nowrap font-normal text-green-200"> ({period === "monthly" ? "28–31 dni" : "365–366 dni"})</span>}</h3>
                         <p className="mt-3 text-3xl font-black">{premiumPrice(pack[`${period}_price`])}</p>
                         <p className="mt-2 text-sm text-green-200">{offer.priceCaption}</p>
                         {kind === "organizer" && period === "yearly" && (
@@ -56,6 +56,7 @@ export default async function PremiumPage() {
                       </div>;
                     })}
                   </div>
+                  {kind === "shooter" && <p className="mt-4 text-sm leading-6 text-green-200">Miesiąc i rok liczymy kalendarzowo. Liczba dni zależy od daty rozpoczęcia; dokładny okres dostępu zobaczysz w podsumowaniu zakupu.</p>}
                 </article>
               );
             })}
