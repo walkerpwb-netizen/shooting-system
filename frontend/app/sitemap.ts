@@ -10,6 +10,11 @@ const siteUrl = (
 
 const staticRoutes = [
   {
+    path: "/wesprzyj-nas",
+    priority: 0.7,
+    changeFrequency: "monthly",
+  },
+  {
     path: "/premium",
     priority: 0.8,
     changeFrequency: "daily",

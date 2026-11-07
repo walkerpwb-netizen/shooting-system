@@ -15,19 +15,25 @@ Finalny przycisk „Kupuję i płacę” potwierdza obowiązek zapłaty. Podpisa
 
 Bez osobnego, niezaznaczonego domyślnie żądania wcześniejszego rozpoczęcia usługa zaczyna się najwcześniej 14 dni po wpłacie. Istniejący dłuższy dostęp jest zachowywany. Potwierdzenie e-mail z pełnymi warunkami i wzorem odstąpienia jest kolejkowane dopiero po zweryfikowanej wpłacie. Produkcyjna aktywacja czeka na skuteczne wysłanie potwierdzenia oraz datę rozpoczęcia; opóźnione aktywacje są sprawdzane przy uwierzytelnieniu użytkownika. Samo rozpoczęcie usługi nie pozbawia prawa odstąpienia.
 
-## Oferta dzienna „Wesprzyj nas” — bez publikacji
+## Publiczna oferta dzienna „Wesprzyj nas” od 7.11.2026
 
-Karta `/wesprzyj-nas` i linki nawigacji pozostają dostępne wyłącznie administratorowi.
-API `/premium/support-offer`, przygotowanie oferty i checkout `shooter/daily` sprawdzają
-aktywną rolę administratora po stronie serwera. Sam bezpośredni adres ani wcześniej
-wystawiona oferta po odebraniu tej roli nie pozwalają rozpocząć zakupu. Publiczne
-uruchomienie wymaga osobnej, świadomej zmiany tych ograniczeń i treści regulaminu.
+Karta `/wesprzyj-nas`, jej linki w nawigacji i stopce oraz API `/premium/support-offer`
+są publiczne. Opis i aktualna cena są renderowane bez sesji użytkownika. Karta jest
+ujęta w sitemapie i dostępna do indeksowania. Zakładka Premium pozostaje ostatnia
+w nawigacji na komputerach i urządzeniach mobilnych.
+
+Przygotowanie indywidualnej oferty oraz checkout `shooter/daily` wymagają logowania
+oraz aktywnego konta, również przy bezpośrednim wywołaniu API. Gość wybiera kwotę,
+przechodzi do logowania albo rejestracji i aktywacji, a następnie wraca do podsumowania
+z tą samą kwotą w bezpiecznym wewnętrznym parametrze `next`. Dostęp nie wymaga roli
+administratora. Płatność i liczba dni pozostają związane z zalogowanym właścicielem.
 
 To odpłatny zakup Premium Strzelca: 1 zł za 1 dzień kalendarzowy w Europe/Warsaw,
 minimum 10 zł, tylko pełne złotówki. Cena i minimum pochodzą z backendu. Klient
 wybiera kwotę, sprawdza liczbę dni i daty w standardowym podsumowaniu, akceptuje
-regulamin i używa „Kupuję i płacę”. Administrator korzysta z rzeczywistych płatności;
-wejście do karty lub podsumowania samo nie tworzy transakcji u operatora.
+regulamin i używa „Kupuję i płacę”. Każdy zakup korzysta z rzeczywistych płatności; wejście do karty lub podsumowania
+samo nie tworzy transakcji u operatora. Awaria pobierania ceny, wyłączona sprzedaż
+lub blokada limitu wyłączają przycisk zakupu, lecz nie ukrywają opisu strony.
 
 Liczba dni jest zapisywana w podpisanej ofercie, zamówieniu, snapshotach umowy i
 wpłacie; nie jest dowolnym parametrem przyjmowanym od klienta. ITN, idempotencja,

@@ -10,7 +10,6 @@ export default function robots(): MetadataRoute.Robots {
       userAgent: "*",
       allow: "/",
       disallow: [
-        "/wesprzyj-nas",
         "/premium/zakup",
         "/admin",
         "/admin/",

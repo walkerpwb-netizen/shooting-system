@@ -13,9 +13,9 @@ from fastapi import HTTPException
 
 from config import settings
 from premium_access import add_premium_period, effective_premium_until, parse_premium_datetime, standard_duration_days
-from premium_daily import daily_purchase, require_daily_offer_access
+from premium_daily import daily_purchase, require_daily_purchase_access
 
-TERMS_VERSION = "2026-11-07"
+TERMS_VERSION = "2026-11-07.2"
 EARLY_START_TEXT = (
     "Żądam rozpoczęcia świadczenia usługi przed upływem 14 dni na odstąpienie od umowy. "
     "Przyjmuję do wiadomości, że przy odstąpieniu po rozpoczęciu usługi zapłacę za świadczenie "
@@ -52,7 +52,7 @@ def make_quote(user, package, period, amount, early_start, competition_id, selle
         raise HTTPException(400, "Nieobsługiwane środowisko płatności.")
     duration_days = standard_duration_days(package, period)
     if period == "daily":
-        require_daily_offer_access(user)
+        require_daily_purchase_access(user)
         if package != "shooter" or competition_id is not None:
             raise HTTPException(400, "Oferta dzienna dotyczy wyłącznie Premium Strzelca.")
         duration_days = daily_purchase(amount)

@@ -911,11 +911,11 @@ export default function Navbar() {
           Mapa strzelnic
         </Link>
 
+        <SupportLink className="font-bold text-emerald-200" />
+
         <Link href="/premium" className="font-bold text-amber-200">
           Premium
         </Link>
-
-        <SupportLink className="font-bold text-emerald-200" />
 
       </div>
 
@@ -1327,13 +1327,13 @@ export default function Navbar() {
                   </div>
                 </>
               )}
-              <Link href="/premium" onClick={() => setMobileMenuOpen(false)} className="py-3 font-bold text-amber-200">
-                Premium i cennik
-              </Link>
               <SupportLink
                 onClick={() => setMobileMenuOpen(false)}
                 className="py-3 font-bold text-emerald-200"
               />
+              <Link href="/premium" onClick={() => setMobileMenuOpen(false)} className="py-3 font-bold text-amber-200">
+                Premium i cennik
+              </Link>
             </div>
 
             <div className="mt-4 border-t border-green-800 pt-4">

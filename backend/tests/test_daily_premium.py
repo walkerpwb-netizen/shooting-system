@@ -1,4 +1,4 @@
-"""Private daily offer: real checkout rules with synthetic payments, never network."""
+"""Public daily offer: account-protected purchases with synthetic payments."""
 
 import json
 import unittest
@@ -39,20 +39,40 @@ class DailyPremiumTests(unittest.TestCase):
         xml = self.notification(order.id, amount=order.amount, remote=remote)
         self.assertEqual(fromstring(process_itn(xml, self.db, production_config())).findtext(".//confirmation"), "CONFIRMED")
 
-    def test_private_offer_rejects_guests_non_admins_and_demoted_quote_owner(self):
+    def test_offer_is_public_but_guest_or_inactive_account_cannot_purchase(self):
         data, _ = self.quoted()
-        self.assertEqual(self.request("GET", "/premium/support-offer")[0], 401)
-        for roles, role in [("user,shooter", "shooter"), ("user,shooter", "admin"), (None, "user")]:
-            self.admin.roles, self.admin.role = roles, role
-            self.db.commit()
-            for method, path, body in [
-                ("GET", "/premium/support-offer", b""),
-                ("POST", "/premium/quote", data.model_dump_json().encode()),
-                ("POST", "/premium/checkout", data.model_dump_json().encode()),
-            ]:
-                status, response = self.request(method, path, body, authorized=True)
-                self.assertEqual(status, 403, response)
+        status, body = self.request("GET", "/premium/support-offer")
+        self.assertEqual(status, 200)
+        self.assertEqual(set(json.loads(body)), {"price_per_day", "minimum_amount", "maximum_amount", "package", "period"})
+        for path in ("/premium/quote", "/premium/checkout"):
+            status, response = self.request("POST", path, data.model_dump_json().encode())
+            self.assertEqual(status, 401, response)
+        self.admin.role, self.admin.roles, self.admin.is_active = "shooter", "user,shooter", 0
+        self.db.commit()
+        for path in ("/premium/quote", "/premium/checkout"):
+            status, response = self.request("POST", path, data.model_dump_json().encode(), authorized=True)
+            self.assertEqual(status, 403, response)
         self.assertEqual(self.db.query(PremiumOrder).count(), 0)
+
+    def test_registered_active_shooter_can_buy_and_receive_days_without_admin_role(self):
+        self.admin.role, self.admin.roles = "shooter", "user,shooter"
+        self.db.commit()
+        data = self.data.model_copy(update={"period": "daily", "expected_price": "25.00", "early_start_requested": True})
+        status, body = self.request("POST", "/premium/quote", data.model_dump_json().encode(), authorized=True)
+        self.assertEqual(status, 200, body)
+        quote = json.loads(body)
+        self.assertEqual(quote["duration_days"], 25)
+        data = data.model_copy(update={"quote_token": quote["quote_token"]})
+        status, body = self.request("POST", "/premium/checkout", data.model_dump_json().encode(), authorized=True)
+        self.assertEqual(status, 200, body)
+        order = self.db.get(PremiumOrder, json.loads(body)["order_id"])
+        self.assertEqual(order.user_id, self.admin.id)
+        self.assertEqual(order.duration_days, 25)
+        self.assertIsNone(self.admin.premium_shooter_paid_until)
+        self.pay(order)
+        self.assertEqual(premium_display_fields(self.admin)["premium_coverage_until"], "2027-01-25T23:59:59+01:00")
+        self.assertEqual(self.db.query(AutopayReceipt).one().amount_grosz, 2500)
+        self.assertEqual(self.admin.premium_until, "2026-12-31T23:59:59+01:00")
 
     def test_server_offer_and_amount_validation_do_not_accept_rounding_or_extra_days(self):
         status, body = self.request("GET", "/premium/support-offer", authorized=True)

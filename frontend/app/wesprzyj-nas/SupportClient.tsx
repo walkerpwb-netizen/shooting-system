@@ -3,81 +3,26 @@
 import AutopayMethodsBanner from "@/components/AutopayMethodsBanner";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useState, useSyncExternalStore } from "react";
 
-import { apiUrl } from "@/lib/api";
-import { authFetch, getAuthSnapshot, subscribeToAuthChange } from "@/lib/auth";
-import { premiumPrice, type DailyPremiumOffer } from "@/lib/premiumCommerce";
+import { getAuthSnapshot, subscribeToAuthChange } from "@/lib/auth";
+import { premiumPrice, PAYMENT_MAINTENANCE_MESSAGE, type DailyPremiumOffer, type PremiumCommerce } from "@/lib/premiumCommerce";
+import { buildAuthPath, storeAuthRedirectPath } from "@/lib/authRedirect";
 
-export default function SupportClient() {
+export default function SupportClient({ offer, commerce }: { offer: DailyPremiumOffer | null; commerce: PremiumCommerce | null }) {
   const router = useRouter();
   const snapshot = useSyncExternalStore(subscribeToAuthChange, getAuthSnapshot, () => "");
-  const [access, setAccess] = useState<{ snapshot: string; allowed: boolean; error?: string } | null>(null);
   const [amount, setAmount] = useState("");
-  const [offer, setOffer] = useState<DailyPremiumOffer | null>(null);
-  const allowed = access?.snapshot === snapshot && access.allowed;
-  const error = access?.snapshot === snapshot ? access.error : "";
+  const signedIn = Boolean(snapshot.split("|")[0]);
+  const paymentsAvailable = Boolean(commerce?.sales_enabled && commerce.payments_temporarily_unavailable === false);
   const normalizedAmount = amount.trim().replace(",", ".");
   const validAmount = Boolean(offer && /^[1-9][0-9]{0,5}(?:\.0{1,2})?$/.test(normalizedAmount)
     && Number(normalizedAmount) >= Number(offer.minimum_amount) && Number(normalizedAmount) <= Number(offer.maximum_amount));
   const days = validAmount && offer ? Number(normalizedAmount) / Number(offer.price_per_day) : null;
 
-  useEffect(() => {
-    const controller = new AbortController();
-
-    async function verifyAccess() {
-      try {
-        // Verify the current role with the backend, never with localStorage alone.
-        const response = await authFetch(apiUrl("/me"), {
-          cache: "no-store",
-          signal: controller.signal,
-        });
-        if (controller.signal.aborted) return;
-        if (response.status === 401) {
-          router.replace("/login");
-          return;
-        }
-        if (!response.ok) throw new Error("Nie udało się sprawdzić uprawnień. Odśwież stronę i spróbuj ponownie.");
-
-        const profile = await response.json();
-        if (controller.signal.aborted) return;
-        const roles = Array.isArray(profile.roles)
-          ? profile.roles
-          : String(profile.roles || profile.role || "").split(",");
-        if (!roles.includes("admin")) {
-          router.replace("/");
-          return;
-        }
-        const offerResponse = await authFetch(apiUrl("/premium/support-offer"), { cache: "no-store", signal: controller.signal });
-        if (!offerResponse.ok) throw new Error("Nie udało się pobrać oferty Premium w dniach. Odśwież stronę.");
-        const dailyOffer: DailyPremiumOffer = await offerResponse.json();
-        if (controller.signal.aborted) return;
-        setOffer(dailyOffer);
-        setAccess({ snapshot, allowed: true });
-      } catch (error) {
-        if (!controller.signal.aborted) {
-          setAccess({
-            snapshot,
-            allowed: false,
-            error: error instanceof Error ? error.message : "Nie udało się sprawdzić uprawnień.",
-          });
-        }
-      }
-    }
-
-    void verifyAccess();
-    return () => controller.abort();
-  }, [router, snapshot]);
-
-  if (!allowed) {
-    return (
-      <main className="min-h-screen px-5 py-12 text-white">
-        <p className="mx-auto max-w-2xl" role={error ? "alert" : "status"}>
-          {error || "Sprawdzanie uprawnień…"}
-        </p>
-      </main>
-    );
-  }
+  const checkoutPath = validAmount
+    ? `/premium/zakup?pakiet=shooter&okres=daily&kwota=${Number(normalizedAmount).toFixed(2)}`
+    : "/wesprzyj-nas";
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-green-900 via-green-950 to-zinc-950 px-5 py-12 text-white sm:px-8 sm:py-16">
@@ -87,7 +32,6 @@ export default function SupportClient() {
             Razem rozwijamy System Strzelecki
           </p>
           <h1 className="mt-3 text-4xl font-black tracking-tight sm:text-5xl">Wesprzyj nas</h1>
-          <p className="mt-4 rounded-xl border border-amber-300/40 bg-amber-300/10 p-4 text-sm text-amber-100">Podgląd administratora. Ta oferta nie jest jeszcze dostępna publicznie. Zakup korzysta z rzeczywistych płatności Autopay.</p>
           <div className="mt-6 space-y-4 text-lg leading-8 text-green-50">
             <p>
               Podoba Ci się System Strzelecki i kierunek, w którym go rozwijamy?
@@ -104,11 +48,15 @@ export default function SupportClient() {
 
           <form aria-labelledby="support-amount-heading" className="mt-8 rounded-2xl border border-emerald-200/25 bg-green-950/80 p-5 sm:p-7" onSubmit={(event) => {
             event.preventDefault();
-            if (validAmount) router.push(`/premium/zakup?pakiet=shooter&okres=daily&kwota=${Number(normalizedAmount).toFixed(2)}`);
+            if (!validAmount || !paymentsAvailable) return;
+            if (!signedIn) storeAuthRedirectPath(checkoutPath);
+            router.push(signedIn ? checkoutPath : buildAuthPath("/login", checkoutPath));
           }}>
             <h2 id="support-amount-heading" className="text-2xl font-bold">Każda złotówka wsparcia to 1 dodatkowy dzień Premium dla Ciebie</h2>
             <p className="mt-2 leading-7 text-green-100">Cena za 1 dzień Premium Strzelca: <strong>{offer ? premiumPrice(offer.price_per_day) : "—"}</strong>. Minimalny zakup: {offer ? premiumPrice(offer.minimum_amount) : "—"}. Wybierz kwotę w pełnych złotych.</p>
             <p className="mt-3 leading-7 text-green-100">Kupujesz odpłatną usługę Premium Strzelca. Zakupione dni przedłużają obecny dostęp; jeśli nie masz aktywnego Premium, datę rozpoczęcia wybierzesz zgodnie z zasadami w podsumowaniu. Płatność jednorazowa, bez automatycznego odnawiania.</p>
+            {!offer && <p role="alert" className="mt-4 text-amber-100">Nie udało się pobrać aktualnej oferty. <button type="button" className="underline" onClick={() => router.refresh()}>Odśwież stronę</button>.</p>}
+            {!paymentsAvailable && <p role="status" className="mt-4 text-amber-100">{commerce?.payments_temporarily_unavailable !== false ? commerce?.payment_unavailable_message || PAYMENT_MAINTENANCE_MESSAGE : "Płatności są chwilowo niedostępne. Spróbuj ponownie później."}</p>}
             <label htmlFor="support-amount" className="mt-6 block font-semibold">Kwota zakupu</label>
             <div className="relative mt-2 max-w-sm">
               <input
@@ -129,12 +77,19 @@ export default function SupportClient() {
             </div>
             <button
               type="submit"
-              disabled={!validAmount}
+              disabled={!validAmount || !paymentsAvailable}
               aria-describedby="support-payment-status"
               className="mt-5 flex min-h-14 w-full items-center justify-center rounded-xl bg-emerald-300 px-6 py-4 text-lg font-black text-green-950 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
             >
-              Przejdź do podsumowania zakupu
+              {signedIn ? "Przejdź do podsumowania zakupu" : "Zaloguj się i przejdź do podsumowania"}
             </button>
+            {!signedIn && <div className="mt-4 space-y-2 text-sm leading-6 text-green-100">
+              <p>Do zakupu i przypisania dni Premium potrzebujesz zarejestrowanego, aktywnego konta. Po zalogowaniu wrócisz do wybranej kwoty i podsumowania.</p>
+              <div className="flex flex-wrap gap-4 font-semibold text-emerald-200 underline">
+                <Link href={buildAuthPath("/login", checkoutPath)} onClick={() => storeAuthRedirectPath(checkoutPath)}>Mam konto — zaloguj się</Link>
+                <Link href={buildAuthPath("/register", checkoutPath)} onClick={() => storeAuthRedirectPath(checkoutPath)}>Załóż konto</Link>
+              </div>
+            </div>}
             <p id="support-payment-status" aria-live="polite" className="mt-3 leading-6 text-green-100">
               {days !== null ? <>Kupujesz <strong>{days} dni Premium Strzelca</strong> za <strong>{premiumPrice(normalizedAmount)}</strong>. Cenę i dokładne daty potwierdzisz przed zapłatą.</> : amount ? "Podaj poprawną kwotę w pełnych złotych, zgodną z minimalną kwotą zakupu." : "Wpisz kwotę, aby zobaczyć liczbę kupowanych dni."}
             </p>

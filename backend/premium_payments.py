@@ -24,7 +24,7 @@ from payment_limits import acquire_payment_limit_lock, ensure_payment_capacity, 
 from autopay_config import read_configuration, production_allowed, valid_environment
 from premium_contract import TERMS_VERSION, contract_snapshot, make_quote, terms_sections, verify_quote
 from premium_mail import deliver_pending_confirmations, queue_confirmation
-from premium_daily import daily_offer, daily_purchase, require_daily_offer_access
+from premium_daily import daily_offer, daily_purchase, require_daily_purchase_access
 
 
 def seller_details():
@@ -114,7 +114,7 @@ def current_amount(data, db, get_prices):
 
 def create_production_order(data, user, db, get_prices):
     if data.period == "daily":
-        require_daily_offer_access(user)
+        require_daily_purchase_access(user)
     config = production_config()
     if not config["ready"]:
         raise HTTPException(503, "Płatności są chwilowo niedostępne. Spróbuj ponownie później.")
@@ -242,14 +242,13 @@ def build_premium_router(get_db, get_current_user, get_prices, is_admin):
             created_by=user.email, status="draft").order_by(Competition.id.desc()).all()]
 
     @router.get("/support-offer")
-    def support_offer(user=Depends(get_current_user)):
-        require_daily_offer_access(user)
+    def support_offer():
         return daily_offer()
 
     @router.post("/quote")
     def quote(data: CheckoutData, user=Depends(get_current_user), db=Depends(get_db)):
         if data.period == "daily":
-            require_daily_offer_access(user)
+            require_daily_purchase_access(user)
         if not user.is_active:
             raise HTTPException(403, "Aktywuj konto przed przygotowaniem zakupu.")
         _, amount = current_amount(data, db, get_prices)

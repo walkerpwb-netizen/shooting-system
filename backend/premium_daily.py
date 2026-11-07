@@ -1,4 +1,4 @@
-"""Private daily Premium offer. Opening it publicly requires an explicit change."""
+"""Public daily Premium offer; purchasing requires an active registered account."""
 
 import re
 from decimal import Decimal
@@ -10,10 +10,9 @@ MINIMUM_AMOUNT = "10.00"
 MAXIMUM_AMOUNT = "999999.00"
 
 
-def require_daily_offer_access(user):
-    roles = (getattr(user, "roles", None) or getattr(user, "role", None) or "").split(",")
-    if not user.is_active or "admin" not in [role.strip() for role in roles]:
-        raise HTTPException(403, "Ta oferta nie jest jeszcze dostępna publicznie.")
+def require_daily_purchase_access(user):
+    if user is None or not user.is_active:
+        raise HTTPException(403, "Aktywuj konto przed zakupem Premium.")
 
 
 def daily_purchase(amount):

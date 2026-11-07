@@ -59,8 +59,7 @@ export default function CheckoutClient({ packageType, period, orderId, serviceId
         const profile = await me.json();
         if (ignore) return;
         if (daily && !orderId) {
-          const offerResponse = await authFetch(apiUrl("/premium/support-offer"), { cache: "no-store" });
-          if (offerResponse.status === 403) { redirecting = true; router.replace("/"); return; }
+          const offerResponse = await fetch(apiUrl("/premium/support-offer"), { cache: "no-store" });
           if (!offerResponse.ok) throw new Error("Nie udało się pobrać oferty Premium w dniach.");
           const dailyData: DailyPremiumOffer = await offerResponse.json();
           if (packageType !== "shooter" || !/^[1-9][0-9]{0,5}\.00$/.test(initialDailyAmount)
