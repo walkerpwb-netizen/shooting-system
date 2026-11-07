@@ -51,16 +51,6 @@ type UserProfile = {
   phone_number: string;
   organizer_name: string;
   requested_role: string;
-  premium_until: string;
-  premium_organizer_until?: string;
-  premium_coverage_until?: string;
-  premium_organizer_coverage_until?: string;
-  premium_scheduled_starts_at?: string;
-  premium_scheduled_ends_at?: string;
-  premium_organizer_scheduled_starts_at?: string;
-  premium_organizer_scheduled_ends_at?: string;
-  premium_disabled: boolean;
-  premium_organizer_disabled: boolean;
   profile_photo_url: string;
   account_type: string;
   pzss_club_short_name: string;
@@ -184,27 +174,6 @@ function licenseQrPayloadFromProfile(profile: UserProfile) {
   ]);
 }
 
-function premiumTimeLeft(premiumUntil: string, currentTime: number) {
-  const targetTime = new Date(premiumUntil).getTime();
-
-  if (!premiumUntil || Number.isNaN(targetTime)) {
-    return null;
-  }
-
-  const diff = Math.max(targetTime - currentTime, 0);
-  const totalMinutes = Math.floor(diff / 60000);
-  const days = Math.floor(totalMinutes / 1440);
-  const hours = Math.floor((totalMinutes % 1440) / 60);
-  const minutes = totalMinutes % 60;
-
-  return {
-    days,
-    hours,
-    minutes,
-    expired: diff <= 0,
-  };
-}
-
 function pushStatusLabel(status: string) {
   if (status === "enabled") {
     return "Włączone";
@@ -262,58 +231,6 @@ function defaultPushPreferences(): PushPreferences {
     organizer_participant_changes_available: false,
     updated_at: "",
   };
-}
-
-function PremiumStatusBar({
-  premiumUntil,
-  premiumDisabled,
-  scheduledStartsAt,
-  scheduledEndsAt,
-  label = "PREMIUM",
-}: {
-  premiumUntil: string;
-  premiumDisabled: boolean;
-  scheduledStartsAt?: string;
-  scheduledEndsAt?: string;
-  label?: string;
-}) {
-  const [currentTime, setCurrentTime] = useState(() => Date.now());
-  const timeLeft = premiumTimeLeft(premiumUntil, currentTime);
-  const date = (value: string) => new Intl.DateTimeFormat("pl-PL", { dateStyle: "short", timeZone: "Europe/Warsaw" }).format(new Date(value));
-
-  useEffect(() => {
-    if (premiumDisabled) {
-      return;
-    }
-
-    const refresh = () => setCurrentTime(Date.now());
-    const timeoutId = window.setTimeout(refresh, 0);
-    const intervalId = window.setInterval(refresh, 60000);
-
-    return () => { window.clearTimeout(timeoutId); window.clearInterval(intervalId); };
-  }, [premiumDisabled]);
-
-  if (premiumDisabled || (!timeLeft && !scheduledEndsAt)) {
-    return null;
-  }
-
-  return (
-    <div aria-label={label} className="border-y border-yellow-500/40 bg-yellow-400/15 px-4 py-1 text-yellow-950 shadow-[0_0_12px_rgba(250,204,21,0.14)] dark:border-yellow-300/40 dark:bg-yellow-400/10 dark:text-yellow-100">
-      <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-0 text-center text-xs font-bold uppercase leading-none tracking-wide">
-        <span className="text-yellow-700 dark:text-yellow-300">
-          {label}
-        </span>
-
-        {timeLeft && <span className="text-xs text-yellow-900 dark:text-yellow-100 sm:text-sm">
-          {timeLeft.expired
-            ? "Status wygasł"
-            : `${timeLeft.days} dni ${timeLeft.hours} godz ${timeLeft.minutes} min`}
-        </span>}
-        {timeLeft && !timeLeft.expired && <span className="normal-case leading-5">do {date(premiumUntil)}</span>}
-      </div>
-      {scheduledStartsAt && scheduledEndsAt && <p className="mt-1 text-center text-xs leading-5">Opłacony okres: {date(scheduledStartsAt)} – {date(scheduledEndsAt)}.</p>}
-    </div>
-  );
 }
 
 function parseLicenseQrPayload(value: string): LicenseQrProfileData | null {
@@ -1526,26 +1443,6 @@ export default function ProfilePage() {
         </p>
       ) : profile ? (
         <>
-          {!isPzssClubProfile && (
-            <>
-              <PremiumStatusBar
-                premiumUntil={profile.premium_coverage_until ?? profile.premium_until}
-                premiumDisabled={profile.premium_disabled}
-                scheduledStartsAt={profile.premium_scheduled_starts_at}
-                scheduledEndsAt={profile.premium_scheduled_ends_at}
-                label="PREMIUM STRZELCA"
-              />
-
-              <PremiumStatusBar
-                premiumUntil={profile.premium_organizer_coverage_until ?? profile.premium_organizer_until ?? profile.premium_until}
-                premiumDisabled={profile.premium_organizer_disabled}
-                scheduledStartsAt={profile.premium_organizer_scheduled_starts_at}
-                scheduledEndsAt={profile.premium_organizer_scheduled_ends_at}
-                label="PREMIUM ORGANIZATORA"
-              />
-            </>
-          )}
-
           <div className="w-full px-6 py-8 sm:px-10 lg:px-14">
           {!isPzssClubProfile && !profile.profile_complete && (
             <p className="mb-8 max-w-2xl rounded-lg border border-yellow-500/50 bg-yellow-400/10 px-4 py-3 text-yellow-900 dark:text-yellow-100">

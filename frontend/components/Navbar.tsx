@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import type { MouseEvent } from "react";
 import { useEffect, useState, useSyncExternalStore } from "react";
 
@@ -26,12 +27,13 @@ import {
 import SocialMediaIcons from "./SocialMediaIcons";
 import SupportLink from "./SupportLink";
 import PremiumExpiredDialog from "./PremiumExpiredDialog";
+import PremiumStatusBars, { type PremiumStatusProfile } from "./PremiumStatusBars";
 
 type PublicCompetition = {
   status: string;
 };
 
-type MeResponse = {
+type MeResponse = PremiumStatusProfile & {
   email?: string;
   role?: string;
   roles?: string[];
@@ -93,9 +95,11 @@ function isFutureRoleDate(value: string) {
 }
 
 export default function Navbar() {
+  const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [hasStartedCompetition, setHasStartedCompetition] = useState(false);
   const [premiumActive, setPremiumActive] = useState(false);
+  const [premiumProfile, setPremiumProfile] = useState<{ snapshot: string; data: MeResponse } | null>(null);
   const [premiumExpiredDialogOpen, setPremiumExpiredDialogOpen] = useState(false);
   const [pendingClubMembersCount, setPendingClubMembersCount] = useState(0);
   const [pendingShootingRangeSubmissionsCount, setPendingShootingRangeSubmissionsCount] = useState(0);
@@ -157,6 +161,8 @@ export default function Navbar() {
 
   useEffect(() => {
     let active = true;
+    let pending = false;
+    const controller = new AbortController();
 
     if (!token) {
       const timeoutId = window.setTimeout(() => {
@@ -172,36 +178,51 @@ export default function Navbar() {
     }
 
     async function loadPremiumStatus() {
+      if (pending || document.visibilityState === "hidden") return;
+      pending = true;
       try {
         const response = await authFetch(
           apiUrl("/me"),
           {
             cache: "no-store",
+            signal: controller.signal,
           }
         );
         const data: MeResponse = await response.json().catch(() => ({}));
 
         if (active) {
+          setPremiumProfile(response.ok && data.email === email ? { snapshot: authSnapshot, data } : null);
           setPremiumActive(response.ok && isPremiumActive(
             data.premium_until,
             data.premium_disabled
           ));
         }
       } catch (error) {
-        console.error(error);
-
         if (active) {
+          console.error(error);
+          setPremiumProfile(null);
           setPremiumActive(false);
         }
+      } finally {
+        pending = false;
       }
     }
 
-    loadPremiumStatus();
+    void loadPremiumStatus();
+    const intervalId = window.setInterval(loadPremiumStatus, 60000);
+    window.addEventListener("focus", loadPremiumStatus);
+    window.addEventListener("pageshow", loadPremiumStatus);
+    document.addEventListener("visibilitychange", loadPremiumStatus);
 
     return () => {
       active = false;
+      controller.abort();
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", loadPremiumStatus);
+      window.removeEventListener("pageshow", loadPremiumStatus);
+      document.removeEventListener("visibilitychange", loadPremiumStatus);
     };
-  }, [token]);
+  }, [token, email, authSnapshot, pathname]);
 
   useEffect(() => {
     let active = true;
@@ -1482,6 +1503,8 @@ export default function Navbar() {
         </div>
       </nav>
     )}
+
+    {user && premiumProfile?.snapshot === authSnapshot && <PremiumStatusBars profile={premiumProfile.data} pathname={pathname} />}
 
     {roleDialog && (
       <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 px-4 py-6">
