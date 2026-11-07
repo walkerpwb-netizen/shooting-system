@@ -6,6 +6,7 @@ export const metadata: Metadata = {
   title: "Pobierz aplikację | System Strzelecki",
   description:
     "Instrukcja instalacji Systemu Strzeleckiego na telefonach, tabletach oraz komputerach z Windows i macOS.",
+  alternates: { canonical: "/pobierz-aplikacje" },
 };
 
 const androidSteps = [

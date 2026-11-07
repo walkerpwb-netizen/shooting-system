@@ -74,6 +74,21 @@ class DailyPremiumTests(unittest.TestCase):
         self.assertEqual(self.db.query(AutopayReceipt).one().amount_grosz, 2500)
         self.assertEqual(self.admin.premium_until, "2026-12-31T23:59:59+01:00")
 
+    def test_amounts_below_minimum_cannot_quote_or_start_payment_even_with_valid_quote_token(self):
+        self.admin.role, self.admin.roles = "shooter", "user,shooter"
+        self.db.commit()
+        valid_data, _ = self.quoted("10.00")
+        for amount in ("0.00", "1.00", "9.00", "9.99"):
+            for path in ("/premium/quote", "/premium/checkout"):
+                with self.subTest(amount=amount, path=path):
+                    data = valid_data.model_copy(update={"expected_price": amount})
+                    status, body = self.request("POST", path, data.model_dump_json().encode(), authorized=True)
+                    self.assertEqual(status, 400, body)
+                    self.assertIn("minimum 10", json.loads(body)["detail"])
+        self.assertEqual(self.db.query(PremiumOrder).count(), 0)
+        self.assertEqual(self.db.query(AutopayReceipt).count(), 0)
+        self.assertEqual(self.db.query(PremiumMailOutbox).count(), 0)
+
     def test_server_offer_and_amount_validation_do_not_accept_rounding_or_extra_days(self):
         status, body = self.request("GET", "/premium/support-offer", authorized=True)
         self.assertEqual(status, 200)

@@ -5,6 +5,7 @@ import SocialMediaIcons from "@/components/SocialMediaIcons";
 export const metadata: Metadata = {
   title: "Kontakt | System Strzelecki",
   description: "Skontaktuj się z zespołem System-Strzelecki.pl.",
+  alternates: { canonical: "/kontakt" },
 };
 
 const contactTopics = [

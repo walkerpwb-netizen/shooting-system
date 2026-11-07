@@ -1,9 +1,16 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import AutopayPaymentInfo from "@/components/AutopayPaymentInfo";
 import PremiumSellerDetails from "@/components/PremiumSellerDetails";
 import { getPremiumData, type PremiumCommerce } from "@/lib/premiumCommerce";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "Regulamin serwisu | System Strzelecki",
+  description: "Zasady korzystania z Systemu Strzeleckiego, rejestracji kont i publikacji danych oraz dane usługodawcy.",
+  alternates: { canonical: "/regulamin" },
+};
 
 const sections = [
   {

@@ -1,0 +1,121 @@
+"use client";
+
+import PremiumAccessMessage from "@/components/PremiumAccessMessage";
+import { useEffect, useState } from "react";
+
+import ResultCompetitionList from "@/app/components/ResultCompetitionList";
+import { apiUrl } from "@/lib/api";
+import { getAccessToken } from "@/lib/auth";
+import {
+  authHeaderFromToken,
+  PREMIUM_EXPIRED_MESSAGE,
+  PREMIUM_LOGIN_REQUIRED_MESSAGE,
+} from "@/lib/premium";
+
+type HistoricalCompetition = {
+  id: number;
+  name: string;
+  date: string;
+  location: string;
+  organizer_full_name: string;
+  organizer_logo: string;
+  sponsor_logo: string;
+  shooters_count: number;
+  status: string;
+  completed_at: string;
+  premium_locked?: boolean;
+};
+
+export default function HistoricalResultsPage() {
+  const [competitions, setCompetitions] = useState<HistoricalCompetition[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadCompetitions() {
+      try {
+        const token = getAccessToken();
+        const response = await fetch(
+          apiUrl("/historical-results/competitions"),
+          {
+            headers: authHeaderFromToken(token),
+            cache: "no-store",
+          }
+        );
+        const data = await response.json();
+
+        if (!response.ok) {
+          setMessage(data.detail || "Nie udało się pobrać wyników historycznych.");
+          return;
+        }
+
+        if (active) {
+          setCompetitions(data);
+          setMessage("");
+        }
+      } catch (error) {
+        console.error(error);
+
+        if (active) {
+          setMessage("Błąd połączenia z serwerem.");
+        }
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    }
+
+    loadCompetitions();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  return (
+    <main className="min-h-screen px-6 py-10">
+      <div className="w-full">
+        <div className="mb-8">
+          <p className="mb-3 inline-flex rounded-full border border-zinc-200 bg-zinc-100 px-4 py-2 text-sm font-bold text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
+            Archiwum
+          </p>
+
+          <h1 className="mb-2 text-4xl font-bold text-zinc-950 dark:text-white sm:text-5xl">
+            Wyniki Historyczne
+          </h1>
+
+          <p className="max-w-2xl text-zinc-600 dark:text-gray-400">
+            Zakończone zawody starsze niż 24 godziny, posortowane od najnowszych.
+          </p>
+        </div>
+
+        {message && (
+          <PremiumAccessMessage
+            message={message}
+            onDismiss={() => setMessage("")}
+            className="mb-6 rounded-xl border border-red-900 bg-red-950/50 p-4 text-red-100"
+          />
+        )}
+
+        {loading ? (
+          <p className="text-zinc-600 dark:text-gray-400">
+            Ładowanie wyników historycznych...
+          </p>
+        ) : (
+          <ResultCompetitionList
+            competitions={competitions}
+            emptyTitle="Brak wyników historycznych"
+            emptyText="Zawody trafią tutaj 24 godziny po zakończeniu."
+            hrefPrefix="/historical-results"
+            onLockedClick={() => setMessage(
+              getAccessToken() ? PREMIUM_EXPIRED_MESSAGE : PREMIUM_LOGIN_REQUIRED_MESSAGE
+            )}
+          />
+        )}
+      </div>
+    </main>
+  );
+}

@@ -10,6 +10,26 @@ const siteUrl = (
 
 const staticRoutes = [
   {
+    path: "/regulamin",
+    priority: 0.4,
+    changeFrequency: "monthly",
+  },
+  {
+    path: "/polityka-prywatnosci",
+    priority: 0.4,
+    changeFrequency: "monthly",
+  },
+  {
+    path: "/publikacja-wynikow",
+    priority: 0.4,
+    changeFrequency: "monthly",
+  },
+  {
+    path: "/historical-results",
+    priority: 0.7,
+    changeFrequency: "daily",
+  },
+  {
     path: "/wesprzyj-nas",
     priority: 0.7,
     changeFrequency: "monthly",
