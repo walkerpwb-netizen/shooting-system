@@ -275,13 +275,13 @@ export default function ShopsPanel() {
       </div>
       {loading ? <p className="text-gray-400">Ładowanie sklepów...</p> : loadError ? <p className="text-gray-400">Lista sklepów jest niedostępna. Odśwież listę, aby spróbować ponownie.</p> : (
         <section className="overflow-x-auto rounded-2xl border border-zinc-800 bg-zinc-900">
-          <div className="min-w-[1320px]">
-            <div className="grid grid-cols-[70px_1.5fr_1fr_1fr_1.1fr_0.9fr_1.1fr] gap-4 border-b border-zinc-800 px-5 py-4 text-sm font-bold text-gray-400">
-              {["Nr", "Nazwa", "Telefon", "WWW", "Współrzędne", "Źródło", "Akcje"].map((title) => <p key={title}>{title}</p>)}
+          <div className="min-w-[1180px]">
+            <div className="grid grid-cols-[70px_1.5fr_1fr_1fr_1.1fr_1.1fr] gap-4 border-b border-zinc-800 px-5 py-4 text-sm font-bold text-gray-400">
+              {["Nr", "Nazwa", "Telefon", "WWW", "Współrzędne", "Akcje"].map((title) => <p key={title}>{title}</p>)}
             </div>
             {shops.length === 0 && <p className="px-5 py-6 text-gray-400">Brak sklepów na liście.</p>}
             {shops.map((shop, index) => (
-              <div key={shop.id} className="grid grid-cols-[70px_1.5fr_1fr_1fr_1.1fr_0.9fr_1.1fr] items-center gap-4 border-b border-zinc-800 px-5 py-3 text-sm last:border-b-0">
+              <div key={shop.id} className="grid grid-cols-[70px_1.5fr_1fr_1fr_1.1fr_1.1fr] items-center gap-4 border-b border-zinc-800 px-5 py-3 text-sm last:border-b-0">
                 <p className="font-bold text-gray-300">{index + 1}</p>
                 <div className="min-w-0">
                   <p className="font-semibold text-white">{shop.name}</p>
@@ -297,7 +297,6 @@ export default function ShopsPanel() {
                     {shop.latitude.toFixed(6)}, {shop.longitude.toFixed(6)}
                   </a>
                 ) : <p className="text-yellow-200">brak punktu</p>}
-                <p className="break-words text-gray-400">{shop.license_source || "brak źródła informacji"}</p>
                 <div className="flex flex-wrap gap-2">
                   <button type="button" onClick={() => openEditor(shop)} disabled={deletingId !== null}
                     className="rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-blue-600 disabled:opacity-50">Edytuj</button>

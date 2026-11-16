@@ -4479,21 +4479,20 @@ export default function AdminClient({
             </section>
 
             <section className="overflow-x-auto rounded-2xl border border-zinc-800 bg-zinc-900">
-              <div className="min-w-[1320px]">
-                <div className="grid grid-cols-[70px_1.5fr_1fr_1fr_1.1fr_0.9fr_1.1fr] gap-4 border-b border-zinc-800 px-5 py-4 text-sm font-bold text-gray-400">
+              <div className="min-w-[1180px]">
+                <div className="grid grid-cols-[70px_1.5fr_1fr_1fr_1.1fr_1.1fr] gap-4 border-b border-zinc-800 px-5 py-4 text-sm font-bold text-gray-400">
                   <p>Nr</p>
                   <p>Nazwa</p>
                   <p>Telefon</p>
                   <p>WWW</p>
                   <p>Współrzędne</p>
-                  <p>Źródło</p>
                   <p>Akcje</p>
                 </div>
 
                 {currentMapRanges.map((range, index) => (
                   <div
                     key={range.id}
-                    className="grid grid-cols-[70px_1.5fr_1fr_1fr_1.1fr_0.9fr_1.1fr] items-center gap-4 border-b border-zinc-800 px-5 py-3 text-sm last:border-b-0"
+                    className="grid grid-cols-[70px_1.5fr_1fr_1fr_1.1fr_1.1fr] items-center gap-4 border-b border-zinc-800 px-5 py-3 text-sm last:border-b-0"
                   >
                     <p className="font-bold text-gray-300">
                       {index + 1}
@@ -4528,9 +4527,6 @@ export default function AdminClient({
                     ) : (
                       <p className="text-yellow-200">brak punktu</p>
                     )}
-                    <p className="text-gray-400">
-                      {range.source}
-                    </p>
                     <div className="flex flex-wrap gap-2">
                       <button
                         type="button"
