@@ -110,7 +110,7 @@ function hasCoordinates(range: ShootingRangeMapItem) {
 function createRangeIcon() {
   return L.divIcon({
     className: "shooting-range-map-marker",
-    html: "<span></span>",
+    html: '<svg viewBox="0 0 40 40" width="34" height="34" aria-hidden="true"><circle cx="20" cy="20" r="18" fill="#fff" stroke="#18181b" stroke-width="2"/><circle cx="20" cy="20" r="14" fill="#18181b"/><circle cx="20" cy="20" r="10" fill="#fff"/><circle cx="20" cy="20" r="6" fill="#18181b"/><circle cx="20" cy="20" r="2.5" fill="#dc2626"/></svg>',
     iconSize: [34, 34],
     iconAnchor: [17, 17],
     popupAnchor: [0, -14],
@@ -210,7 +210,7 @@ function ShootingRangeSubmissionDialog({
         <div className="flex items-start justify-between gap-4 border-b border-zinc-800 px-5 py-4">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.22em] text-green-400">
-              Mapa strzelnic
+              Mapa strzelnic i sklepów
             </p>
             <h2 className="mt-1 text-2xl font-black">
               {mode === "change" ? "Zgłoś zmianę danych" : "Dodaj strzelnicę"}
@@ -438,8 +438,8 @@ export default function ShootingRangesMap({
             <p className="text-xs font-bold uppercase tracking-[0.24em] text-green-400">
               Publiczna mapa
             </p>
-            <h1 className="truncate text-xl font-black sm:text-2xl">
-              Mapa strzelnic
+            <h1 className="text-xl font-black leading-tight sm:text-2xl">
+              Mapa strzelnic i sklepów
             </h1>
           </div>
 
@@ -547,6 +547,7 @@ export default function ShootingRangesMap({
             return (
               <Marker
                 key={range.id}
+                title={`Strzelnica: ${range.name}`}
                 icon={rangeIcon}
                 position={[range.latitude, range.longitude]}
               >

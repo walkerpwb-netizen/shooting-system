@@ -14,7 +14,7 @@ const ShootingRangesMap = dynamic(
               Beta test
             </p>
             <h1 className="text-xl font-black sm:text-2xl">
-              Mapa strzelnic
+              Mapa strzelnic i sklepów
             </h1>
           </div>
         </div>

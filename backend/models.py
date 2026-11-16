@@ -670,6 +670,23 @@ class ShootingRangeSubmission(Base):
     )
 
 
+class GunShop(Base):
+    __tablename__ = "gun_shops"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(180), nullable=False)
+    phone = Column(String(60), nullable=False, default="")
+    website = Column(String(300), nullable=False, default="")
+    address = Column(String(500), nullable=False, default="")
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
+    license_number = Column(String(120), nullable=False, default="")
+    license_source = Column(String(500), nullable=False, default="")
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, nullable=False)
+    updated_by = Column(String, nullable=False)
+
+
 class ShootingRange(Base):
     __tablename__ = "shooting_ranges"
 

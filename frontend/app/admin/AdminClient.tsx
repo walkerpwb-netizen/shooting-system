@@ -3,20 +3,22 @@
 import dynamic from "next/dynamic";
 import Image from "next/image";
 import Link from "next/link";
-import type { FormEvent, MouseEvent } from "react";
+import type { FormEvent } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { apiUrl } from "@/lib/api";
 import { getAccessToken, isAdmin } from "@/lib/auth";
 import { notifyShootingRangeSubmissionsChange } from "@/lib/shootingRangeNotifications";
+import { normalizeWebsiteUrl, openMapOnMac } from "@/lib/directoryLinks";
 import QrCodeScanner from "@/components/QrCodeScanner";
 import TargetPhotoScanner from "@/zdjęcie tarczy/TargetPhotoScanner";
 import PzssClubRejectionDialog from "./PzssClubRejectionDialog";
 import PaymentsPanel from "./PaymentsPanel";
 import AutopaySettingsPanel from "./AutopaySettingsPanel";
+import ShopsPanel from "./ShopsPanel";
 
-type AdminTab = "users" | "pzss-clubs" | "competitions" | "shooting-ranges" | "settings" | "premium" | "payments" | "autopay" | "ads" | "monitoring" | "codex" | "qr-scanner" | "target-photo" | "pdf-test" | "test-data";
+type AdminTab = "users" | "pzss-clubs" | "competitions" | "shooting-ranges" | "shops" | "settings" | "premium" | "payments" | "autopay" | "ads" | "monitoring" | "codex" | "qr-scanner" | "target-photo" | "pdf-test" | "test-data";
 type UserSortField = "name" | "status" | "role" | "club" | "account" | "phone";
 type SortDirection = "asc" | "desc";
 type CodexChatRole = "user" | "assistant";
@@ -515,31 +517,6 @@ const profileCssVariableNames: Record<keyof ProfileSettings, string> = {
   achievement_gap: "--ss-profile-achievement-gap",
 };
 
-function normalizeWebsiteUrl(website: string) {
-  const trimmedWebsite = website.trim();
-
-  if (!trimmedWebsite) {
-    return "";
-  }
-
-  if (/^https?:\/\//i.test(trimmedWebsite)) {
-    return trimmedWebsite;
-  }
-
-  return `https://${trimmedWebsite}`;
-}
-
-function openMapOnMac(event: MouseEvent<HTMLAnchorElement>) {
-  // iPads can use a Macintosh user agent; preserve their working geo: links.
-  if (!/Macintosh/.test(navigator.userAgent) || navigator.maxTouchPoints > 1) {
-    return;
-  }
-
-  const coordinates = new URL(event.currentTarget.href).pathname;
-  event.preventDefault();
-  window.location.assign(`maps://?ll=${coordinates}&q=${coordinates}`);
-}
-
 function displayRangeValue(value: string | number | null | undefined) {
   if (value === null || value === undefined || value === "") {
     return "brak";
@@ -775,7 +752,7 @@ export default function AdminClient({
       return;
     }
 
-    if (activeTab === "payments" || activeTab === "autopay") {
+    if (activeTab === "payments" || activeTab === "autopay" || activeTab === "shops") {
       return;
     }
 
@@ -3490,7 +3467,7 @@ export default function AdminClient({
           </div>
         )}
 
-        {activeTab === "autopay" ? <AutopaySettingsPanel /> : activeTab === "payments" ? <PaymentsPanel /> : loading ? (
+        {activeTab === "shops" ? <ShopsPanel /> : activeTab === "autopay" ? <AutopaySettingsPanel /> : activeTab === "payments" ? <PaymentsPanel /> : loading ? (
           <p className="text-gray-400">
             Ładowanie panelu administratora...
           </p>

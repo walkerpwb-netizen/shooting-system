@@ -908,7 +908,7 @@ export default function Navbar() {
         )}
 
         <Link href="/shooting-ranges/map">
-          Mapa strzelnic
+          Mapa strzelnic i sklepów
         </Link>
 
         <SupportLink className="font-bold text-emerald-200" />
@@ -1172,7 +1172,7 @@ export default function Navbar() {
                 onClick={() => setMobileMenuOpen(false)}
                 className="py-3"
               >
-                Mapa strzelnic
+                Mapa strzelnic i sklepów
               </Link>
 
               {isAdmin && (
@@ -1235,6 +1235,14 @@ export default function Navbar() {
                           {pendingShootingRangeSubmissionsCount}
                         </span>
                       )}
+                    </Link>
+
+                    <Link
+                      href="/admin?tab=shops"
+                      onClick={() => setMobileMenuOpen(false)}
+                      className="block py-2"
+                    >
+                      Sklepy
                     </Link>
 
                     <Link
@@ -1422,6 +1430,13 @@ export default function Navbar() {
                 {pendingShootingRangeSubmissionsCount}
               </span>
             )}
+          </Link>
+
+          <Link
+            href="/admin?tab=shops"
+            className="ui-button min-w-0 bg-zinc-800 hover:bg-zinc-700 px-4 py-2 rounded-lg text-center transition"
+          >
+            Sklepy
           </Link>
 
           <Link

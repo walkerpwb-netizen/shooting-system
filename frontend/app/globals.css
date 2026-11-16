@@ -184,36 +184,11 @@ body {
   border: 0;
 }
 
-.shooting-range-map-marker span {
-  background: #047857;
-  border: 3px solid #ffffff;
-  border-radius: 999px;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.34);
+.shooting-range-map-marker svg {
   display: block;
+  filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.5));
   height: 34px;
-  position: relative;
   width: 34px;
-}
-
-.shooting-range-map-marker span::before,
-.shooting-range-map-marker span::after {
-  background: rgba(255, 255, 255, 0.95);
-  border-radius: 999px;
-  content: "";
-  display: block;
-  left: 8px;
-  position: absolute;
-  width: 12px;
-}
-
-.shooting-range-map-marker span::before {
-  height: 4px;
-  top: 10px;
-}
-
-.shooting-range-map-marker span::after {
-  height: 10px;
-  top: 18px;
 }
 
 .trap-score-screen {

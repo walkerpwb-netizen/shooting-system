@@ -1,8 +1,8 @@
 import ShootingRangesMapClient from "./ShootingRangesMapClient";
 
 export const metadata = {
-  title: "Mapa strzelnic",
-  description: "Publiczna mapa strzelnic w Polsce z wyszukiwarką, danymi kontaktowymi i możliwością zgłaszania aktualizacji po zalogowaniu.",
+  title: "Mapa strzelnic i sklepów",
+  description: "Publiczna mapa strzelnic i sklepów w Polsce z wyszukiwarką, danymi kontaktowymi i możliwością zgłaszania aktualizacji po zalogowaniu.",
   alternates: { canonical: "/shooting-ranges/map" },
   robots: {
     index: true,
