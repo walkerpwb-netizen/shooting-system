@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import Image from "next/image";
 import Link from "next/link";
-import type { FormEvent } from "react";
+import type { FormEvent, MouseEvent } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -527,6 +527,17 @@ function normalizeWebsiteUrl(website: string) {
   }
 
   return `https://${trimmedWebsite}`;
+}
+
+function openMapOnMac(event: MouseEvent<HTMLAnchorElement>) {
+  // iPads can use a Macintosh user agent; preserve their working geo: links.
+  if (!/Macintosh/.test(navigator.userAgent) || navigator.maxTouchPoints > 1) {
+    return;
+  }
+
+  const coordinates = new URL(event.currentTarget.href).pathname;
+  event.preventDefault();
+  window.location.assign(`maps://?ll=${coordinates}&q=${coordinates}`);
 }
 
 function displayRangeValue(value: string | number | null | undefined) {
@@ -4387,6 +4398,7 @@ export default function AdminClient({
                             {hasCoordinates ? (
                               <a
                                 href={`geo:${submission.latitude},${submission.longitude}?q=${submission.latitude},${submission.longitude}`}
+                                onClick={openMapOnMac}
                                 title="Otwórz w aplikacji map"
                                 className="block text-blue-300 underline-offset-4 hover:underline"
                               >
@@ -4530,6 +4542,7 @@ export default function AdminClient({
                     {range.latitude !== null && range.longitude !== null ? (
                       <a
                         href={`geo:${range.latitude},${range.longitude}?q=${range.latitude},${range.longitude}`}
+                        onClick={openMapOnMac}
                         title="Otwórz w aplikacji map"
                         className="text-blue-300 underline-offset-4 hover:underline"
                       >
