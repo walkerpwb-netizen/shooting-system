@@ -4384,11 +4384,17 @@ export default function AdminClient({
                             <p className="text-gray-300">
                               {submission.address || "brak adresu"}
                             </p>
-                            <p className={hasCoordinates ? "text-gray-300" : "font-semibold text-yellow-200"}>
-                              {hasCoordinates
-                                ? `${submission.latitude?.toFixed(6)}, ${submission.longitude?.toFixed(6)}`
-                                : "brak punktu mapy"}
-                            </p>
+                            {hasCoordinates ? (
+                              <a
+                                href={`geo:${submission.latitude},${submission.longitude}?q=${submission.latitude},${submission.longitude}`}
+                                title="Otwórz w aplikacji map"
+                                className="block text-blue-300 underline-offset-4 hover:underline"
+                              >
+                                {submission.latitude?.toFixed(6)}, {submission.longitude?.toFixed(6)}
+                              </a>
+                            ) : (
+                              <p className="font-semibold text-yellow-200">brak punktu mapy</p>
+                            )}
                           </div>
                         </div>
 
@@ -4509,14 +4515,29 @@ export default function AdminClient({
                     <p className="text-gray-300">
                       {range.phone || "brak"}
                     </p>
-                    <p className="truncate text-blue-300">
-                      {range.website || "brak"}
-                    </p>
-                    <p className={range.latitude !== null && range.longitude !== null ? "text-gray-300" : "text-yellow-200"}>
-                      {range.latitude !== null && range.longitude !== null
-                        ? `${range.latitude.toFixed(6)}, ${range.longitude.toFixed(6)}`
-                        : "brak punktu"}
-                    </p>
+                    {range.website.trim() ? (
+                      <a
+                        href={normalizeWebsiteUrl(range.website)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="truncate text-blue-300 underline-offset-4 hover:underline"
+                      >
+                        {range.website}
+                      </a>
+                    ) : (
+                      <p className="text-gray-300">brak</p>
+                    )}
+                    {range.latitude !== null && range.longitude !== null ? (
+                      <a
+                        href={`geo:${range.latitude},${range.longitude}?q=${range.latitude},${range.longitude}`}
+                        title="Otwórz w aplikacji map"
+                        className="text-blue-300 underline-offset-4 hover:underline"
+                      >
+                        {range.latitude.toFixed(6)}, {range.longitude.toFixed(6)}
+                      </a>
+                    ) : (
+                      <p className="text-yellow-200">brak punktu</p>
+                    )}
                     <p className="text-gray-400">
                       {range.source}
                     </p>
