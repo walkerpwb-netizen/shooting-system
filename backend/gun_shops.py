@@ -21,7 +21,6 @@ class ShopDetailsData(BaseModel):
     address: str = Field(default="", max_length=500)
     latitude: float | None = Field(default=None, ge=48.5, le=55.2, allow_inf_nan=False)
     longitude: float | None = Field(default=None, ge=13.5, le=24.6, allow_inf_nan=False)
-    license_number: str = Field(default="", max_length=120)
     license_source: str = Field(default="", max_length=500)
 
     @field_validator("website")
@@ -57,19 +56,13 @@ def require_contacts(values):
         raise ValueError("Podaj telefon, stronę WWW i pełną lokalizację sklepu")
 
 
-def require_publication(values):
-    require_contacts(values)
-    if not values["license_number"] or not values["license_source"]:
-        raise ValueError("Przed publikacją uzupełnij numer koncesji i źródło jej weryfikacji")
-
-
 class GunShopData(ShopDetailsData):
     is_published: bool = False
 
     @model_validator(mode="after")
     def publication_ready(self):
         if self.is_published:
-            require_publication(self.model_dump())
+            require_contacts(self.model_dump())
         return self
 
 
@@ -96,7 +89,7 @@ def shop_identity(values):
 def shop_details(shop):
     return {field: getattr(shop, field) for field in (
         "id", "name", "phone", "website", "address", "latitude", "longitude",
-        "license_number", "license_source", "is_published", "created_at", "updated_at", "updated_by",
+        "license_source", "is_published", "created_at", "updated_at", "updated_by",
     )}
 
 
@@ -161,7 +154,7 @@ def build_gun_shops_router(get_db, get_current_admin, get_current_user):
     def public_shops(db=Depends(get_db)):
         shops = db.query(GunShop).filter(GunShop.is_published.is_(True)).order_by(GunShop.id).all()
         return [{field: getattr(shop, field) for field in (
-            "id", "name", "phone", "website", "address", "latitude", "longitude", "license_number",
+            "id", "name", "phone", "website", "address", "latitude", "longitude",
         )} for shop in shops]
 
     @router.post("/gun-shop-submissions", status_code=201)
@@ -220,13 +213,11 @@ def build_gun_shops_router(get_db, get_current_admin, get_current_user):
             shop = db.query(GunShop).filter_by(id=entry.source_shop_id).with_for_update().first()
             if shop is None:
                 raise HTTPException(409, "Sklep wskazany w zgłoszeniu został usunięty. Nie utworzono nowego wpisu.")
-            # A contact/location correction must not discard the verified license.
-            if not values["license_number"]:
-                values["license_number"] = shop.license_number
-            if not values["license_source"] and values["license_number"] == shop.license_number:
+            # Preserve the existing information source when a correction omits it.
+            if not values["license_source"]:
                 values["license_source"] = shop.license_source
         try:
-            require_publication(values)
+            require_contacts(values)
         except ValueError as error:
             raise HTTPException(400, str(error)) from error
         stamp = datetime.now(timezone.utc).isoformat()

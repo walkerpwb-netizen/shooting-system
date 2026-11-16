@@ -66,17 +66,18 @@ class GunShopTests(unittest.TestCase):
         response = b"".join(message.get("body", b"") for message in messages if message["type"] == "http.response.body")
         return status, json.loads(response)
 
-    def test_create_read_update_delete_persists_contacts_location_and_license(self):
+    def test_create_read_update_delete_persists_contacts_location_and_source(self):
         self.assertEqual(self.request("GET"), (200, []))
         data = {"name": "  Sklep testowy  ", "phone": "+48123456789", "website": "example.test",
                 "address": "Adres testowy", "latitude": 52.2, "longitude": 21.0,
-                "license_number": "TEST-123", "license_source": "Źródło testowe"}
+                "license_source": "Źródło testowe"}
         status, shop = self.request("POST", data=data)
         self.assertEqual(status, 201)
         self.assertEqual(shop["name"], "Sklep testowy")
         self.assertEqual(shop["website"], "https://example.test")
         self.assertEqual(shop["updated_by"], "admin@example.test")
-        self.assertEqual(shop["license_number"], data["license_number"])
+        self.assertNotIn("license_number", shop)
+        self.assertEqual(shop["license_source"], data["license_source"])
         self.db.expire_all()
         self.assertEqual(self.request("GET")[1], [shop])
         data.update(name="Nowa nazwa", latitude=51.0, longitude=20.0)
@@ -88,12 +89,12 @@ class GunShopTests(unittest.TestCase):
         self.assertEqual(self.request("DELETE", f'/admin/gun-shops/{shop["id"]}')[0], 200)
         self.assertEqual(self.request("GET"), (200, []))
 
-    def test_incomplete_draft_does_not_invent_license_or_location(self):
+    def test_incomplete_draft_does_not_invent_source_or_location(self):
         status, shop = self.request("POST", data={"name": "Do uzupełnienia"})
         self.assertEqual(status, 201)
         self.assertIsNone(shop["latitude"])
         self.assertIsNone(shop["longitude"])
-        self.assertEqual(shop["license_number"], "")
+        self.assertNotIn("license_number", shop)
         self.assertEqual(shop["license_source"], "")
         self.assertEqual(self.request("GET", "/gun-shops"), (200, []))
 
@@ -124,7 +125,7 @@ class GunShopTests(unittest.TestCase):
 
 SHOP_DATA = {"name": "Sklep testowy", "phone": "+48123456789", "website": "https://example.test",
              "address": "Adres testowy", "latitude": 52.2, "longitude": 21.0,
-             "license_number": "TEST-123", "license_source": "Testowe źródło weryfikacji"}
+             "license_source": "Testowe źródło informacji"}
 
 
 class GunShopSubmissionTests(unittest.TestCase):
@@ -175,12 +176,14 @@ class GunShopSubmissionTests(unittest.TestCase):
         self.assertEqual(published[0]["id"], shop["id"])
         self.assertTrue({"license_source", "updated_by", "identity_key", "submitted_by_email"}.isdisjoint(published[0]))
 
-    def test_admin_can_complete_license_before_approval(self):
-        entry = self.submit(license_number="", license_source="")
-        self.assertEqual(self.approve(entry)[0], 400)
+    def test_admin_can_edit_and_publish_submission_without_license_information(self):
+        entry = self.submit(license_source="")
         self.assertEqual(self.request("GET", "/gun-shops")[1], [])
-        self.assertEqual(self.request("PUT", f'/admin/gun-shop-submissions/{entry["id"]}', SHOP_DATA)[0], 200)
-        self.assertEqual(self.approve(entry)[0], 200)
+        self.assertEqual(self.request("PUT", f'/admin/gun-shop-submissions/{entry["id"]}', {**SHOP_DATA, "license_source": ""})[0], 200)
+        status, shop = self.approve(entry)
+        self.assertEqual(status, 200)
+        self.assertNotIn("license_number", shop)
+        self.assertEqual(shop["license_source"], "")
 
     def test_rejection_never_publishes_and_approved_record_cannot_be_rejected(self):
         entry = self.submit()
@@ -200,15 +203,13 @@ class GunShopSubmissionTests(unittest.TestCase):
         self.assertEqual(updated["name"], "Nowa nazwa")
         self.assertEqual(self.db.query(GunShop).count(), 1)
 
-    def test_contact_correction_preserves_existing_license_but_new_license_needs_source(self):
+    def test_contact_correction_preserves_existing_information_source(self):
         _, original = self.approve(self.submit())
-        change = self.submit(source_shop_id=original["id"], name="Nowa nazwa", license_number="", license_source="")
+        change = self.submit(source_shop_id=original["id"], name="Nowa nazwa", license_source="")
         status, updated = self.approve(change)
         self.assertEqual(status, 200)
-        self.assertEqual(updated["license_number"], original["license_number"])
+        self.assertNotIn("license_number", updated)
         self.assertEqual(updated["license_source"], original["license_source"])
-        license_change = self.submit(source_shop_id=original["id"], license_number="INNA-456", license_source="")
-        self.assertEqual(self.approve(license_change)[0], 400)
 
     def test_deleted_source_is_not_recreated_and_private_source_is_not_exposed(self):
         _, draft = self.request("POST", data={"name": "Prywatny szkic"})
@@ -231,11 +232,20 @@ class GunShopSubmissionTests(unittest.TestCase):
 
     def test_publication_is_explicit_and_requires_complete_data(self):
         self.assertEqual(self.request("POST", data={"name": "Niekompletny", "is_published": True})[0], 422)
-        status, shop = self.request("POST", data={**SHOP_DATA, "is_published": True})
+        status, shop = self.request("POST", data={**SHOP_DATA, "license_source": "", "is_published": True})
         self.assertEqual(status, 201)
         self.assertEqual(len(self.request("GET", "/gun-shops")[1]), 1)
         self.assertEqual(self.request("PUT", f'/admin/gun-shops/{shop["id"]}', SHOP_DATA)[0], 200)
         self.assertEqual(self.request("GET", "/gun-shops")[1], [])
+
+    def test_legacy_license_number_input_is_not_stored_or_returned(self):
+        entry = self.submit(license_number="LEGACY-NUMBER")
+        self.assertNotIn("license_number", entry)
+        _, shop = self.approve(entry)
+        self.assertNotIn("license_number", shop)
+        self.assertNotIn("license_number", self.request("GET", "/gun-shops")[1][0])
+        self.assertNotIn("license_number", GunShop.__table__.columns)
+        self.assertNotIn("license_number", GunShopSubmission.__table__.columns)
 
     def test_submission_requires_contact_and_location_and_cannot_change_source_on_edit(self):
         for updates in ({"phone": ""}, {"website": ""}, {"latitude": None, "longitude": None},

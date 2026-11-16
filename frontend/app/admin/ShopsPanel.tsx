@@ -21,7 +21,6 @@ type GunShop = {
   address: string;
   latitude: number | null;
   longitude: number | null;
-  license_number: string;
   license_source: string;
   is_published: boolean;
 };
@@ -36,13 +35,12 @@ type ShopSubmission = Omit<GunShop, "is_published"> & {
 
 const emptyForm = {
   name: "", phone: "", website: "", address: "", latitude: "", longitude: "",
-  license_number: "", license_source: "",
+  license_source: "",
   is_published: false,
 };
 const fields = [
   ["name", "Nazwa", 180], ["phone", "Telefon", 60], ["website", "WWW lub social media", 300],
-  ["address", "Adres", 500], ["license_number", "Numer koncesji", 120],
-  ["license_source", "Źródło weryfikacji koncesji", 500],
+  ["address", "Adres", 500], ["license_source", "Źródło informacji (opcjonalnie)", 500],
 ] as const;
 
 async function shopRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -55,7 +53,7 @@ async function shopRequest<T>(path: string, options: RequestInit = {}): Promise<
   const data = await response.json().catch(() => null);
   if (!response.ok) {
     throw new Error(typeof data?.detail === "string" ? data.detail
-      : response.status === 422 ? "Sprawdź nazwę, telefon, WWW i współrzędne. Publikacja wymaga też numeru koncesji i źródła weryfikacji."
+      : response.status === 422 ? "Sprawdź nazwę, telefon, WWW i współrzędne."
       : "Nie udało się wykonać operacji. Spróbuj ponownie.");
   }
   return data as T;
@@ -125,8 +123,7 @@ export default function ShopsPanel() {
     const source = submission ? shops.find((item) => item.id === submission.source_shop_id) : null;
     setForm(entry ? {
       name: entry.name, phone: entry.phone, website: entry.website, address: entry.address,
-      license_number: entry.license_number || source?.license_number || "",
-      license_source: entry.license_source || (source && (!entry.license_number || entry.license_number === source.license_number) ? source.license_source : ""),
+      license_source: entry.license_source || source?.license_source || "",
       latitude: entry.latitude === null ? "" : String(entry.latitude),
       longitude: entry.longitude === null ? "" : String(entry.longitude),
       is_published: "is_published" in entry ? entry.is_published : false,
@@ -214,7 +211,7 @@ export default function ShopsPanel() {
         <div className="flex items-center justify-between gap-4 border-b border-zinc-800 px-5 py-4">
           <div>
             <h2 className="text-3xl font-bold text-white">Zgłoszenia sklepów</h2>
-            <p className="mt-2 text-sm text-gray-400">Zgłoszenia z mapy czekają na akceptację. Przed publikacją sprawdź dane sklepu i informacje o koncesji.</p>
+            <p className="mt-2 text-sm text-gray-400">Zgłoszenia z mapy czekają na akceptację. Przed publikacją sprawdź dane sklepu.</p>
           </div>
           <div className="shrink-0 rounded-xl border border-yellow-500/40 bg-yellow-500/10 px-4 py-3 text-yellow-100">
             <p className="text-sm font-bold uppercase">Do akceptacji</p>
@@ -236,8 +233,7 @@ export default function ShopsPanel() {
                   <a href={normalizeWebsiteUrl(submission.website)} target="_blank" rel="noopener noreferrer" className="block break-all text-blue-300 hover:underline">{submission.website}</a>
                   <a href={`geo:${submission.latitude},${submission.longitude}?q=${submission.latitude},${submission.longitude}`} onClick={openMapOnMac}
                     className="block text-blue-300 hover:underline">{submission.latitude?.toFixed(6)}, {submission.longitude?.toFixed(6)}</a>
-                  <p>Koncesja: {submission.license_number || source?.license_number || "do uzupełnienia"}</p>
-                  <p className="break-words">Źródło weryfikacji: {submission.license_source || (source && (!submission.license_number || submission.license_number === source.license_number) ? source.license_source : "") || "do uzupełnienia"}</p>
+                  <p className="break-words">Źródło informacji: {submission.license_source || source?.license_source || "brak"}</p>
                   <div className="rounded-xl border border-zinc-800 bg-zinc-950/40 px-4 py-3 text-xs leading-5">
                     <p className="font-bold">{submission.source_shop_id ? source ? `Zmiana danych sklepu: ${source.name}` : "Zmiana sklepu, którego nie ma już na liście" : "Nowy sklep"}</p>
                     {source && fields.filter(([key]) => source[key] !== submission[key]).map(([key, label]) => (
@@ -265,7 +261,7 @@ export default function ShopsPanel() {
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <h2 className="text-3xl font-bold text-white">Sklepy</h2>
-            <p className="mt-2 text-gray-400">Lista sklepów z bronią w Polsce. Uzupełniaj dane kontaktowe, lokalizację i informacje o koncesji.</p>
+            <p className="mt-2 text-gray-400">Lista sklepów z bronią w Polsce. Uzupełniaj dane kontaktowe i lokalizację.</p>
           </div>
           <div className="flex items-center gap-4">
             <div className="rounded-xl border border-yellow-500/40 bg-yellow-500/10 px-4 py-3 text-yellow-100">
@@ -291,7 +287,6 @@ export default function ShopsPanel() {
                   <p className="font-semibold text-white">{shop.name}</p>
                   <p className={shop.is_published ? "text-xs text-green-300" : "text-xs text-yellow-200"}>{shop.is_published ? "Na publicznej mapie" : "Nieopublikowany"}</p>
                   {shop.address && <p className="mt-1 text-xs text-gray-400">{shop.address}</p>}
-                  <p className="mt-1 text-xs text-gray-400">{shop.license_number ? `Koncesja: ${shop.license_number}` : "Numer koncesji nieuzupełniony"}</p>
                 </div>
                 <p className="text-gray-300">{shop.phone || "brak"}</p>
                 {shop.website ? <a href={normalizeWebsiteUrl(shop.website)} target="_blank" rel="noopener noreferrer"
@@ -302,7 +297,7 @@ export default function ShopsPanel() {
                     {shop.latitude.toFixed(6)}, {shop.longitude.toFixed(6)}
                   </a>
                 ) : <p className="text-yellow-200">brak punktu</p>}
-                <p className="break-words text-gray-400">{shop.license_source || "brak źródła weryfikacji"}</p>
+                <p className="break-words text-gray-400">{shop.license_source || "brak źródła informacji"}</p>
                 <div className="flex flex-wrap gap-2">
                   <button type="button" onClick={() => openEditor(shop)} disabled={deletingId !== null}
                     className="rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-blue-600 disabled:opacity-50">Edytuj</button>
@@ -336,7 +331,7 @@ export default function ShopsPanel() {
                   {fields.map(([key, label, maxLength]) => (
                     <label key={key} className={key === "name" ? "block md:col-span-2" : "block"}>
                       <span className="mb-2 block font-semibold text-white">{label}{key === "name" ? " *" : ""}</span>
-                      <input type={key === "phone" ? "tel" : "text"} required={key === "name" || (form.is_published && ["phone", "website", "license_number", "license_source"].includes(key))} maxLength={maxLength}
+                      <input type={key === "phone" ? "tel" : "text"} required={key === "name" || (form.is_published && ["phone", "website"].includes(key))} maxLength={maxLength}
                         value={form[key]} onChange={(event) => setForm((current) => ({ ...current, [key]: event.target.value }))}
                         className="w-full rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-white" />
                     </label>
@@ -345,7 +340,7 @@ export default function ShopsPanel() {
                 {!editingSubmission && (
                   <label className="mt-5 flex items-start gap-3 rounded-xl border border-zinc-700 p-4 text-white">
                     <input type="checkbox" checked={form.is_published} onChange={(event) => setForm((current) => ({ ...current, is_published: event.target.checked }))} className="mt-1 h-5 w-5 accent-green-600" />
-                    <span>Pokaż sklep na publicznej mapie po sprawdzeniu danych i koncesji. Wymagane: telefon, WWW, lokalizacja, numer koncesji i źródło weryfikacji.</span>
+                    <span>Pokaż sklep na publicznej mapie po sprawdzeniu danych. Wymagane: telefon, WWW i lokalizacja.</span>
                   </label>
                 )}
                 <div className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">

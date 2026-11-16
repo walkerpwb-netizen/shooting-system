@@ -18,7 +18,6 @@ export type ShootingRangeMapItem = {
   id: string;
   kind?: "range" | "shop";
   shopId?: number;
-  licenseNumber?: string;
   name: string;
   address?: string;
   phone?: string;
@@ -44,7 +43,7 @@ type ShootingRangeResponse = {
   longitude: number;
 };
 
-type GunShopResponse = Omit<ShootingRangeResponse, "range_id"> & { license_number: string };
+type GunShopResponse = Omit<ShootingRangeResponse, "range_id">;
 
 type SubmissionFormState = {
   source_range_id: string;
@@ -52,7 +51,6 @@ type SubmissionFormState = {
   phone: string;
   website: string;
   address: string;
-  license_number: string;
   license_source: string;
   latitude: number | null;
   longitude: number | null;
@@ -90,7 +88,6 @@ const emptySubmissionForm: SubmissionFormState = {
   phone: "",
   website: "",
   address: "",
-  license_number: "",
   license_source: "",
   latitude: null,
   longitude: null,
@@ -164,7 +161,6 @@ function ShootingRangeSubmissionDialog({
           phone: initialRange.phone || "",
           website: initialRange.website || "",
           address: initialRange.address || "",
-          license_number: initialRange.licenseNumber || "",
           license_source: "",
           latitude: initialRange.latitude,
           longitude: initialRange.longitude,
@@ -305,16 +301,11 @@ function ShootingRangeSubmissionDialog({
                     className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-3 text-white" />
                 </label>
                 <label className="block">
-                  <span className="mb-2 block text-sm font-bold text-gray-200">Numer koncesji (jeśli znasz)</span>
-                  <input maxLength={120} value={form.license_number} onChange={(event) => updateForm({ license_number: event.target.value })}
-                    className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-3 text-white" />
-                </label>
-                <label className="block">
-                  <span className="mb-2 block text-sm font-bold text-gray-200">Źródło informacji o koncesji (opcjonalnie)</span>
+                  <span className="mb-2 block text-sm font-bold text-gray-200">Źródło informacji o sklepie (opcjonalnie)</span>
                   <input maxLength={500} value={form.license_source} onChange={(event) => updateForm({ license_source: event.target.value })}
                     className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-3 text-white" />
                 </label>
-                <p className="text-sm text-gray-400 md:col-span-2">Zgłoszenie sprawdzi administrator. Sklep pojawi się na mapie po zatwierdzeniu danych i informacji o koncesji.</p>
+                <p className="text-sm text-gray-400 md:col-span-2">Zgłoszenie sprawdzi administrator. Sklep pojawi się na mapie po zatwierdzeniu danych.</p>
               </>
             )}
           </div>
@@ -443,7 +434,7 @@ export default function ShootingRangesMap({
       if (ignore || requestGeneration !== generation) return;
       if (rangeResult.status === "fulfilled") setBackendRanges(rangeResult.value.map(toMapRange));
       if (shopResult.status === "fulfilled") setBackendShops(shopResult.value.map((shop) => ({
-        ...shop, id: `shop-${shop.id}`, shopId: shop.id, kind: "shop", licenseNumber: shop.license_number,
+        ...shop, id: `shop-${shop.id}`, shopId: shop.id, kind: "shop",
       })));
     }
 
@@ -631,7 +622,6 @@ export default function ShootingRangesMap({
                         {range.address}
                       </p>
                     )}
-                    {range.licenseNumber && <p>Koncesja: {range.licenseNumber}</p>}
                     {range.phone && (
                       <p>
                         Tel. {range.phone}
