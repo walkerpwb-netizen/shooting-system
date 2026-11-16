@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Date, Float, Index, Integer, String, ForeignKey, Text, UniqueConstraint
+from sqlalchemy import Boolean, Column, Date, Float, Index, Integer, String, ForeignKey, Text, UniqueConstraint
 
 from database import Base
 
@@ -682,9 +682,33 @@ class GunShop(Base):
     longitude = Column(Float, nullable=True)
     license_number = Column(String(120), nullable=False, default="")
     license_source = Column(String(500), nullable=False, default="")
+    is_published = Column(Boolean, nullable=False, default=False)
+    identity_key = Column(String(64), nullable=True, unique=True)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
     updated_by = Column(String, nullable=False)
+
+
+class GunShopSubmission(Base):
+    __tablename__ = "gun_shop_submissions"
+
+    id = Column(Integer, primary_key=True)
+    source_shop_id = Column(Integer, nullable=True)
+    approved_shop_id = Column(Integer, nullable=True)
+    name = Column(String(180), nullable=False)
+    phone = Column(String(60), nullable=False, default="")
+    website = Column(String(300), nullable=False, default="")
+    address = Column(String(500), nullable=False, default="")
+    latitude = Column(Float, nullable=False)
+    longitude = Column(Float, nullable=False)
+    license_number = Column(String(120), nullable=False, default="")
+    license_source = Column(String(500), nullable=False, default="")
+    submitted_by_email = Column(String, nullable=False)
+    submitted_by_name = Column(String, nullable=False)
+    status = Column(String(20), nullable=False, default="pending")
+    created_at = Column(String, nullable=False)
+    reviewed_at = Column(String, nullable=True)
+    reviewed_by = Column(String, nullable=True)
 
 
 class ShootingRange(Base):

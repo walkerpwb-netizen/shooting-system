@@ -10,11 +10,15 @@ import {
   getAuthSnapshot,
   subscribeToAuthChange,
 } from "@/lib/auth";
-import { notifyShootingRangeSubmissionsChange } from "@/lib/shootingRangeNotifications";
+import { notifyShootingRangeSubmissionsChange, SHOOTING_RANGE_SUBMISSIONS_CHANGE_EVENT, SHOOTING_RANGE_SUBMISSIONS_CHANGE_STORAGE_KEY } from "@/lib/shootingRangeNotifications";
+import { notifyGunShopSubmissionsChange, GUN_SHOP_SUBMISSIONS_CHANGE_EVENT, GUN_SHOP_SUBMISSIONS_CHANGE_STORAGE_KEY } from "@/lib/gunShopNotifications";
 import LeafletLocationPicker from "./LeafletLocationPicker";
 
 export type ShootingRangeMapItem = {
   id: string;
+  kind?: "range" | "shop";
+  shopId?: number;
+  licenseNumber?: string;
   name: string;
   address?: string;
   phone?: string;
@@ -40,12 +44,16 @@ type ShootingRangeResponse = {
   longitude: number;
 };
 
+type GunShopResponse = Omit<ShootingRangeResponse, "range_id"> & { license_number: string };
+
 type SubmissionFormState = {
   source_range_id: string;
   name: string;
   phone: string;
   website: string;
   address: string;
+  license_number: string;
+  license_source: string;
   latitude: number | null;
   longitude: number | null;
 };
@@ -82,6 +90,8 @@ const emptySubmissionForm: SubmissionFormState = {
   phone: "",
   website: "",
   address: "",
+  license_number: "",
+  license_source: "",
   latitude: null,
   longitude: null,
 };
@@ -117,6 +127,14 @@ function createRangeIcon() {
   });
 }
 
+function createShopIcon() {
+  return L.divIcon({
+    className: "gun-shop-map-marker",
+    html: '<svg viewBox="0 0 40 40" width="34" height="34" aria-hidden="true"><rect x="2" y="2" width="36" height="36" rx="9" fill="#1d4ed8" stroke="#fff" stroke-width="2"/><path d="M10 17h20v14H10z" fill="#fff"/><path d="M8 17l4-8h16l4 8z" fill="#93c5fd"/><path d="M16 9v8m8-8v8" stroke="#1d4ed8" stroke-width="2"/><path d="M17 23h6v8h-6z" fill="#1d4ed8"/></svg>',
+    iconSize: [34, 34], iconAnchor: [17, 17], popupAnchor: [0, -14],
+  });
+}
+
 function toMapRange(range: ShootingRangeResponse): ShootingRangeMapItem {
   return {
     id: range.range_id,
@@ -132,9 +150,11 @@ function toMapRange(range: ShootingRangeResponse): ShootingRangeMapItem {
 function ShootingRangeSubmissionDialog({
   initialRange,
   onClose,
+  kind = "range",
 }: {
   initialRange?: ShootingRangeMapItem | null;
   onClose: () => void;
+  kind?: "range" | "shop";
 }) {
   const [form, setForm] = useState<SubmissionFormState>(() => (
     initialRange
@@ -144,6 +164,8 @@ function ShootingRangeSubmissionDialog({
           phone: initialRange.phone || "",
           website: initialRange.website || "",
           address: initialRange.address || "",
+          license_number: initialRange.licenseNumber || "",
+          license_source: "",
           latitude: initialRange.latitude,
           longitude: initialRange.longitude,
         }
@@ -151,6 +173,7 @@ function ShootingRangeSubmissionDialog({
   ));
   const [mapPickerOpen, setMapPickerOpen] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
   const [message, setMessage] = useState("");
   const hasLocation = form.latitude !== null && form.longitude !== null;
   const mode: SubmissionDialogMode = initialRange ? "change" : "new";
@@ -167,31 +190,34 @@ function ShootingRangeSubmissionDialog({
     setMessage("");
 
     if (!hasLocation) {
-      setMessage("Zaznacz lokalizację strzelnicy na mapie.");
+      setMessage(kind === "shop" ? "Zaznacz lokalizację sklepu na mapie." : "Zaznacz lokalizację strzelnicy na mapie.");
       return;
     }
 
     try {
       setSubmitting(true);
       const token = getAuthSnapshot().split("|")[0];
-      const response = await fetch(apiUrl("/shooting-range-submissions"), {
+      const response = await fetch(apiUrl(kind === "shop" ? "/gun-shop-submissions" : "/shooting-range-submissions"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify(form),
+        body: JSON.stringify(kind === "shop" ? {
+          ...form, source_shop_id: initialRange?.shopId ?? null,
+        } : form),
       });
       const data = await response.json().catch(() => null);
 
       if (!response.ok) {
-        setMessage(data?.detail || "Nie udało się wysłać zgłoszenia.");
+        setMessage(typeof data?.detail === "string" ? data.detail
+          : "Nie udało się wysłać zgłoszenia. Sprawdź nazwę, telefon, adres WWW i lokalizację.");
         return;
       }
 
-      notifyShootingRangeSubmissionsChange();
-      setForm(emptySubmissionForm);
-      setMapPickerOpen(true);
+      if (kind === "shop") notifyGunShopSubmissionsChange();
+      else notifyShootingRangeSubmissionsChange();
+      setSubmitted(true);
       setMessage(mode === "change"
         ? "Zgłoszenie zmiany danych wysłane do akceptacji administratora."
         : "Zgłoszenie wysłane. Trafiło do panelu administratora do akceptacji."
@@ -213,7 +239,7 @@ function ShootingRangeSubmissionDialog({
               Mapa strzelnic i sklepów
             </p>
             <h2 className="mt-1 text-2xl font-black">
-              {mode === "change" ? "Zgłoś zmianę danych" : "Dodaj strzelnicę"}
+              {mode === "change" ? "Zgłoś zmianę danych" : kind === "shop" ? "Dodaj sklep" : "Dodaj strzelnicę"}
             </h2>
           </div>
 
@@ -241,7 +267,7 @@ function ShootingRangeSubmissionDialog({
                 value={form.name}
                 onChange={(event) => updateForm({ name: event.target.value })}
                 className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-3 text-white placeholder:text-gray-500"
-                placeholder="Nazwa strzelnicy"
+                placeholder={kind === "shop" ? "Nazwa sklepu" : "Nazwa strzelnicy"}
               />
             </label>
 
@@ -271,6 +297,26 @@ function ShootingRangeSubmissionDialog({
               />
             </label>
 
+            {kind === "shop" && (
+              <>
+                <label className="block md:col-span-2">
+                  <span className="mb-2 block text-sm font-bold text-gray-200">Adres sklepu</span>
+                  <input maxLength={500} value={form.address} onChange={(event) => updateForm({ address: event.target.value })}
+                    className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-3 text-white" />
+                </label>
+                <label className="block">
+                  <span className="mb-2 block text-sm font-bold text-gray-200">Numer koncesji (jeśli znasz)</span>
+                  <input maxLength={120} value={form.license_number} onChange={(event) => updateForm({ license_number: event.target.value })}
+                    className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-3 text-white" />
+                </label>
+                <label className="block">
+                  <span className="mb-2 block text-sm font-bold text-gray-200">Źródło informacji o koncesji (opcjonalnie)</span>
+                  <input maxLength={500} value={form.license_source} onChange={(event) => updateForm({ license_source: event.target.value })}
+                    className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-3 text-white" />
+                </label>
+                <p className="text-sm text-gray-400 md:col-span-2">Zgłoszenie sprawdzi administrator. Sklep pojawi się na mapie po zatwierdzeniu danych i informacji o koncesji.</p>
+              </>
+            )}
           </div>
 
           <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-900 p-4">
@@ -282,7 +328,7 @@ function ShootingRangeSubmissionDialog({
                 <p className="mt-1 text-sm text-gray-400">
                   {hasLocation
                     ? `${form.latitude?.toFixed(6)}, ${form.longitude?.toFixed(6)}`
-                    : "Kliknij dokładne miejsce strzelnicy na mapie"}
+                    : kind === "shop" ? "Kliknij dokładne miejsce sklepu na mapie" : "Kliknij dokładne miejsce strzelnicy na mapie"}
                 </p>
               </div>
 
@@ -323,10 +369,10 @@ function ShootingRangeSubmissionDialog({
 
             <button
               type="submit"
-              disabled={submitting}
+              disabled={submitting || submitted}
               className="rounded-lg bg-green-700 px-5 py-3 font-bold text-white transition hover:bg-green-600 disabled:cursor-not-allowed disabled:bg-zinc-700"
             >
-              {submitting ? "Wysyłam..." : "Wyślij zgłoszenie"}
+              {submitting ? "Wysyłam..." : submitted ? "Zgłoszenie wysłane" : "Wyślij zgłoszenie"}
             </button>
           </div>
         </form>
@@ -343,8 +389,10 @@ export default function ShootingRangesMap({
   const [searchQuery, setSearchQuery] = useState("");
   const [loginMessage, setLoginMessage] = useState("");
   const [submissionDialogOpen, setSubmissionDialogOpen] = useState(false);
+  const [submissionKind, setSubmissionKind] = useState<"range" | "shop">("range");
   const [submissionInitialRange, setSubmissionInitialRange] = useState<ShootingRangeMapItem | null>(null);
-  const [backendRanges, setBackendRanges] = useState<ShootingRangeMapItem[]>([]);
+  const [backendRanges, setBackendRanges] = useState<ShootingRangeMapItem[] | null>(null);
+  const [backendShops, setBackendShops] = useState<ShootingRangeMapItem[]>([]);
   const authSnapshot = useSyncExternalStore(
     subscribeToAuthChange,
     getAuthSnapshot,
@@ -352,7 +400,7 @@ export default function ShootingRangesMap({
   );
   const [token] = authSnapshot.split("|");
   const isLoggedIn = Boolean(token);
-  const currentRanges = backendRanges.length > 0 ? backendRanges : ranges;
+  const currentRanges = useMemo(() => [...(backendRanges ?? ranges), ...backendShops], [backendRanges, backendShops, ranges]);
   const normalizedSearchQuery = searchQuery.trim().toLowerCase();
   const mappedRanges = useMemo(
     () => currentRanges
@@ -372,37 +420,53 @@ export default function ShootingRangesMap({
     [currentRanges, normalizedSearchQuery]
   );
   const rangeIcon = useMemo(() => createRangeIcon(), []);
+  const shopIcon = useMemo(() => createShopIcon(), []);
   const activeLayer = mapLayers[layerMode];
 
   useEffect(() => {
     let ignore = false;
+    let generation = 0;
 
-    async function loadRangeData() {
-      try {
-        const response = await fetch(apiUrl("/shooting-ranges"), {
-          cache: "no-store",
-        });
-
-        if (!response.ok) {
-          return;
-        }
-
-        const data: ShootingRangeResponse[] = await response.json();
-
-        if (!ignore) {
-          if (Array.isArray(data)) {
-            setBackendRanges(data.map(toMapRange));
-          }
-        }
-      } catch (error) {
-        console.error(error);
-      }
+    async function readDirectory<T>(path: string): Promise<T[]> {
+      const response = await fetch(apiUrl(path), { cache: "no-store" });
+      if (!response.ok) throw new Error("Nie udało się pobrać punktów mapy");
+      const data = await response.json();
+      if (!Array.isArray(data)) throw new Error("Niepoprawna lista punktów mapy");
+      return data;
     }
 
-    void loadRangeData();
+    async function loadDirectory() {
+      const requestGeneration = ++generation;
+      const [rangeResult, shopResult] = await Promise.allSettled([
+        readDirectory<ShootingRangeResponse>("/shooting-ranges"), readDirectory<GunShopResponse>("/gun-shops"),
+      ]);
+      if (ignore || requestGeneration !== generation) return;
+      if (rangeResult.status === "fulfilled") setBackendRanges(rangeResult.value.map(toMapRange));
+      if (shopResult.status === "fulfilled") setBackendShops(shopResult.value.map((shop) => ({
+        ...shop, id: `shop-${shop.id}`, shopId: shop.id, kind: "shop", licenseNumber: shop.license_number,
+      })));
+    }
+
+    const refresh = () => { if (!document.hidden) void loadDirectory(); };
+    const onStorage = (event: StorageEvent) => {
+      if ([SHOOTING_RANGE_SUBMISSIONS_CHANGE_STORAGE_KEY, GUN_SHOP_SUBMISSIONS_CHANGE_STORAGE_KEY].includes(event.key || "")) refresh();
+    };
+    void loadDirectory();
+    window.addEventListener(SHOOTING_RANGE_SUBMISSIONS_CHANGE_EVENT, refresh);
+    window.addEventListener(GUN_SHOP_SUBMISSIONS_CHANGE_EVENT, refresh);
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    const interval = window.setInterval(refresh, 30000);
 
     return () => {
       ignore = true;
+      window.clearInterval(interval);
+      window.removeEventListener(SHOOTING_RANGE_SUBMISSIONS_CHANGE_EVENT, refresh);
+      window.removeEventListener(GUN_SHOP_SUBMISSIONS_CHANGE_EVENT, refresh);
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
     };
   }, []);
 
@@ -414,13 +478,14 @@ export default function ShootingRangesMap({
     mapRef.current?.zoomOut();
   }
 
-  function openSubmissionDialog(range: ShootingRangeMapItem | null = null) {
+  function openSubmissionDialog(range: ShootingRangeMapItem | null = null, kind: "range" | "shop" = "range") {
     if (!isLoggedIn) {
-      setLoginMessage("Musisz się zalogować, żeby dodać strzelnicę lub zgłosić zmianę danych.");
+      setLoginMessage("Musisz się zalogować, żeby dodać strzelnicę, sklep lub zgłosić zmianę danych.");
       return;
     }
 
     setLoginMessage("");
+    setSubmissionKind(range?.kind ?? kind);
     setSubmissionInitialRange(range);
     setSubmissionDialogOpen(true);
   }
@@ -448,7 +513,7 @@ export default function ShootingRangesMap({
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
               className="h-11 min-w-0 rounded-lg border border-zinc-700 bg-zinc-900 px-4 text-sm font-semibold text-white outline-none placeholder:text-gray-500 focus:border-green-600 sm:w-72"
-              placeholder="Szukaj strzelnicy"
+              placeholder="Szukaj strzelnicy lub sklepu"
               type="search"
             />
 
@@ -497,6 +562,10 @@ export default function ShootingRangesMap({
               className="h-11 rounded-lg border border-green-700 bg-green-800 px-4 text-sm font-bold text-white transition hover:bg-green-700"
             >
               Dodaj strzelnicę
+            </button>
+            <button type="button" onClick={() => openSubmissionDialog(null, "shop")}
+              className="h-11 rounded-lg border border-blue-700 bg-blue-800 px-4 text-sm font-bold text-white transition hover:bg-blue-700">
+              Dodaj sklep
             </button>
           </div>
         </div>
@@ -547,12 +616,13 @@ export default function ShootingRangesMap({
             return (
               <Marker
                 key={range.id}
-                title={`Strzelnica: ${range.name}`}
-                icon={rangeIcon}
+                title={`${range.kind === "shop" ? "Sklep" : "Strzelnica"}: ${range.name}`}
+                icon={range.kind === "shop" ? shopIcon : rangeIcon}
                 position={[range.latitude, range.longitude]}
               >
                 <Popup>
                   <div className="min-w-56 space-y-2 text-sm text-zinc-900">
+                    <p className="text-xs font-bold uppercase text-zinc-600">{range.kind === "shop" ? "Sklep z bronią" : "Strzelnica"}</p>
                     <p className="text-base font-black">
                       {range.name}
                     </p>
@@ -561,6 +631,7 @@ export default function ShootingRangesMap({
                         {range.address}
                       </p>
                     )}
+                    {range.licenseNumber && <p>Koncesja: {range.licenseNumber}</p>}
                     {range.phone && (
                       <p>
                         Tel. {range.phone}
@@ -593,8 +664,8 @@ export default function ShootingRangesMap({
         {mappedRanges.length === 0 && (
           <div className="pointer-events-none absolute inset-x-4 top-4 z-[500] mx-auto max-w-xl rounded-xl border border-zinc-700 bg-zinc-950/90 p-4 text-sm font-semibold leading-6 text-gray-200 shadow-2xl backdrop-blur">
             {normalizedSearchQuery
-              ? "Brak strzelnic pasujących do filtra."
-              : "Brak zaimportowanej oficjalnej listy zarejestrowanych strzelnic. Punkty dodamy po potwierdzeniu źródła danych."}
+              ? "Brak strzelnic i sklepów pasujących do filtra."
+              : "Brak punktów do wyświetlenia na mapie."}
           </div>
         )}
       </section>
@@ -602,6 +673,7 @@ export default function ShootingRangesMap({
       {submissionDialogOpen && (
         <ShootingRangeSubmissionDialog
           initialRange={submissionInitialRange}
+          kind={submissionKind}
           onClose={closeSubmissionDialog}
         />
       )}

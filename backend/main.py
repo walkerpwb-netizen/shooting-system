@@ -10351,7 +10351,7 @@ app.include_router(build_premium_router(
 ))
 app.include_router(build_payments_router(get_db, get_current_admin, seller_details))
 app.include_router(build_autopay_settings_router(get_current_admin, get_db))
-app.include_router(build_gun_shops_router(get_db, get_current_admin))
+app.include_router(build_gun_shops_router(get_db, get_current_admin, get_current_user))
 
 
 @app.get("/home-posts")

@@ -179,12 +179,14 @@ body {
   background: #2563eb;
 }
 
-.shooting-range-map-marker {
+.shooting-range-map-marker,
+.gun-shop-map-marker {
   background: transparent;
   border: 0;
 }
 
-.shooting-range-map-marker svg {
+.shooting-range-map-marker svg,
+.gun-shop-map-marker svg {
   display: block;
   filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.5));
   height: 34px;

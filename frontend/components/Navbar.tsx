@@ -6,6 +6,7 @@ import type { MouseEvent } from "react";
 import { useEffect, useState, useSyncExternalStore } from "react";
 
 import { apiUrl } from "@/lib/api";
+import { usePendingGunShopSubmissions } from "@/lib/usePendingGunShopSubmissions";
 import {
   isPremiumActive,
   PREMIUM_LOGIN_REQUIRED_MESSAGE,
@@ -137,6 +138,8 @@ export default function Navbar() {
     : null;
   const isShooter = Boolean(user?.roles.includes("shooter"));
   const isAdmin = Boolean(user?.roles.includes("admin"));
+  const pendingGunShopSubmissionsCount = usePendingGunShopSubmissions(isAdmin, token);
+  const hasPendingGunShopSubmissions = pendingGunShopSubmissionsCount > 0;
   const receivesAdminNotifications = Boolean(
     isAdmin && user?.email.toLowerCase() === "walkerpwb@gmail.com"
   );
@@ -151,7 +154,7 @@ export default function Navbar() {
   const hasPendingClubMembers = pendingClubMembersCount > 0;
   const hasPendingShootingRangeSubmissions = isAdmin && pendingShootingRangeSubmissionsCount > 0;
   const hasPendingPzssClubs = receivesAdminNotifications && pendingPzssClubsCount > 0;
-  const adminNotificationCount = pendingShootingRangeSubmissionsCount + pendingPzssClubsCount;
+  const adminNotificationCount = pendingShootingRangeSubmissionsCount + pendingPzssClubsCount + pendingGunShopSubmissionsCount;
   const hasAdminNotifications = isAdmin && adminNotificationCount > 0;
 
 
@@ -1240,9 +1243,10 @@ export default function Navbar() {
                     <Link
                       href="/admin?tab=shops"
                       onClick={() => setMobileMenuOpen(false)}
-                      className="block py-2"
+                      className="flex items-center gap-2 py-2"
                     >
-                      Sklepy
+                      <span>Sklepy</span>
+                      {hasPendingGunShopSubmissions && <span className="rounded-full bg-yellow-300 px-2 py-0.5 text-xs font-black text-zinc-950">{pendingGunShopSubmissionsCount}</span>}
                     </Link>
 
                     <Link
@@ -1434,9 +1438,10 @@ export default function Navbar() {
 
           <Link
             href="/admin?tab=shops"
-            className="ui-button min-w-0 bg-zinc-800 hover:bg-zinc-700 px-4 py-2 rounded-lg text-center transition"
+            className="ui-button inline-flex min-w-0 items-center gap-2 bg-zinc-800 hover:bg-zinc-700 px-4 py-2 rounded-lg text-center transition"
           >
-            Sklepy
+            <span>Sklepy</span>
+            {hasPendingGunShopSubmissions && <span className="rounded-full bg-yellow-300 px-2 py-0.5 text-xs font-black text-zinc-950">{pendingGunShopSubmissionsCount}</span>}
           </Link>
 
           <Link
