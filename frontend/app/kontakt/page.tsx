@@ -1,12 +1,13 @@
+import { createPageMetadata } from "@/lib/page-metadata";
 import type { Metadata } from "next";
 
 import SocialMediaIcons from "@/components/SocialMediaIcons";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = createPageMetadata({
+  path: "/kontakt",
   title: "Kontakt | System Strzelecki",
   description: "Skontaktuj się z zespołem System-Strzelecki.pl.",
-  alternates: { canonical: "/kontakt" },
-};
+});
 
 const contactTopics = [
   {

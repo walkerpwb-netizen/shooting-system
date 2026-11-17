@@ -1,11 +1,12 @@
+import { createPageMetadata } from "@/lib/page-metadata";
 import type { Metadata } from "next";
 import Link from "next/link";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = createPageMetadata({
+  path: "/polityka-prywatnosci",
   title: "Polityka prywatności | System Strzelecki",
   description: "Informacje o przetwarzaniu danych osobowych, płatnościach, plikach cookies i prawach użytkowników Systemu Strzeleckiego.",
-  alternates: { canonical: "/polityka-prywatnosci" },
-};
+});
 
 const sections = [
   {

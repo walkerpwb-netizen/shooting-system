@@ -1,3 +1,4 @@
+import { createPageMetadata } from "@/lib/page-metadata";
 import type { Metadata } from "next";
 import Link from "next/link";
 import AutopayPaymentInfo from "@/components/AutopayPaymentInfo";
@@ -5,7 +6,11 @@ import PremiumSellerDetails from "@/components/PremiumSellerDetails";
 import { getPremiumData, type PremiumCommerce } from "@/lib/premiumCommerce";
 
 export const dynamic = "force-dynamic";
-export const metadata: Metadata = { title: "Regulamin Premium | System Strzelecki", alternates: { canonical: "/premium/regulamin" } };
+export const metadata: Metadata = createPageMetadata({
+  path: "/premium/regulamin",
+  title: "Regulamin Premium | System Strzelecki",
+  description: "Zasady zakupu i korzystania z Premium w Systemie Strzeleckim, dane sprzedawcy, reklamacje i odstąpienie od umowy.",
+});
 
 
 

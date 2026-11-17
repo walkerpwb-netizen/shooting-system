@@ -1,13 +1,13 @@
+import { createPageMetadata } from "@/lib/page-metadata";
 import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = createPageMetadata({
+  path: "/pobierz-aplikacje",
   title: "Pobierz aplikację | System Strzelecki",
-  description:
-    "Instrukcja instalacji Systemu Strzeleckiego na telefonach, tabletach oraz komputerach z Windows i macOS.",
-  alternates: { canonical: "/pobierz-aplikacje" },
-};
+  description: "Instrukcja instalacji Systemu Strzeleckiego na telefonach, tabletach oraz komputerach z Windows i macOS.",
+});
 
 const androidSteps = [
   {

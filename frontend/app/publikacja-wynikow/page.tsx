@@ -1,11 +1,12 @@
+import { createPageMetadata } from "@/lib/page-metadata";
 import type { Metadata } from "next";
 import Link from "next/link";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = createPageMetadata({
+  path: "/publikacja-wynikow",
   title: "Zasady publikacji wyników | System Strzelecki",
   description: "Zasady publikacji wyników sportowych, danych zawodników i rankingów w Systemie Strzeleckim.",
-  alternates: { canonical: "/publikacja-wynikow" },
-};
+});
 
 const publishedData = [
   "imienia i nazwiska",

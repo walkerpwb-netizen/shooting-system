@@ -11,6 +11,53 @@ let origin;
 let logs = "";
 const requests = [];
 const availablePaths = new Set();
+const fallbackImage = "https://system-strzelecki.pl/icons/system-strzelecki-logo-20260623.png";
+const imageCases = [
+  [20, "data:image/png;base64,AAAA", null],
+  [21, "/icons/organizer.png", "https://system-strzelecki.pl/icons/organizer.png"],
+  [22, "https://images.example.com/logo.png", "https://images.example.com/logo.png"],
+  [23, "http://images.example.com/logo.png", "http://images.example.com/logo.png"],
+  [24, "blob:https://system-strzelecki.pl/123", null],
+  [25, "http://127.0.0.1:8000/logo.png", null],
+  [26, "//images.example.com/logo.png", null],
+  [27, "https://", null],
+  [28, fallbackImage, fallbackImage],
+  [29, "http://localhost:8000/logo.png", null],
+  [30, "https://user:password@images.example.com/logo.png", null],
+  [31, "http://10.0.0.1/logo.png", null],
+  [32, "javascript:alert(1)", null],
+  [33, "https://[::1]/logo.png", null],
+  [34, "http://api.internal/logo.png", null],
+  [35, "  /icons/organizer.png#preview  ", "https://system-strzelecki.pl/icons/organizer.png"],
+];
+
+function assertMetadata(html, path, expectedImage = fallbackImage) {
+  const tags = new Map();
+  for (const [tag] of html.matchAll(/<meta\b[^>]*>/g)) {
+    const attrs = Object.fromEntries([...tag.matchAll(/([\w:-]+)="([^"]*)"/g)].map((m) => [m[1], m[2]]));
+    const key = attrs.name || attrs.property;
+    if (key) tags.set(key, [...(tags.get(key) || []), attrs.content]);
+  }
+  const title = html.match(/<title>(.*?)<\/title>/)?.[1];
+  assert.ok(title);
+  assert.equal(tags.get("description")?.length, 1);
+  assert.ok(tags.get("description")[0]);
+  assert.deepEqual(tags.get("og:title"), [title]);
+  assert.deepEqual(tags.get("twitter:title"), [title]);
+  assert.deepEqual(tags.get("og:description"), tags.get("description"));
+  assert.deepEqual(tags.get("twitter:description"), tags.get("description"));
+  const canonicalUrl = `https://system-strzelecki.pl${path === "/" ? "" : path}`;
+  assert.deepEqual(tags.get("og:url"), [canonicalUrl]);
+  const canonical = [...html.matchAll(/<link rel="canonical" href="([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(canonical, [canonicalUrl]);
+  const images = expectedImage === fallbackImage ? [fallbackImage] : [expectedImage, fallbackImage];
+  assert.deepEqual(tags.get("og:image"), images);
+  assert.deepEqual(tags.get("twitter:image"), images);
+  assert.deepEqual(tags.get("og:locale"), ["pl_PL"]);
+  assert.deepEqual(tags.get("og:site_name"), ["System Strzelecki"]);
+  assert.deepEqual(tags.get("twitter:card"), ["summary_large_image"]);
+  return tags;
+}
 
 function visibleHtml(html) {
   // The RSC payload also contains unused not-found fallbacks. Only assert on
@@ -29,7 +76,12 @@ before(async () => {
     requests.push(req.url);
     const [, collection, id] = req.url.split("/");
     res.setHeader("Content-Type", "application/json");
-    if (id === "1" || availablePaths.has(req.url)) {
+    if (!id && ["competitions", "trainings"].includes(collection)) {
+      res.end("[]");
+      return;
+    }
+    const imageCase = imageCases.find(([caseId]) => String(caseId) === id);
+    if (id === "1" || imageCase || availablePaths.has(req.url)) {
       res.end(JSON.stringify({
         id: Number(id),
         name: `Test ${collection}`,
@@ -40,6 +92,7 @@ before(async () => {
         longitude: null,
         status: "planned",
         organizer_full_name: "Organizator testowy",
+        organizer_logo: imageCase?.[1],
         disciplines: [],
         participants: [],
       }));
@@ -108,6 +161,7 @@ for (const collection of ["competitions", "trainings"]) {
     const response = await fetch(origin + path);
     const html = visibleHtml(await response.text());
     assert.equal(response.status, 200);
+    assertMetadata(html, path);
     assert.match(html, new RegExp(`<title>Test ${collection} \\|`));
     assert.match(html, new RegExp(`<link rel="canonical" href="https://system-strzelecki.pl/${collection}/1"`));
     assert.match(html, /<meta name="description" content="[^"]+"/);
@@ -187,3 +241,54 @@ for (const collection of ["competitions", "trainings"]) {
     assert.match(logs, /Public event API timeout/);
   });
 }
+
+
+for (const collection of ["competitions", "trainings"]) {
+  test(`${collection}: safe public logo URLs keep a fallback; inline, malformed and internal URLs use fallback`, async () => {
+    for (const [id, , expectedImage] of imageCases) {
+      const path = `/${collection}/${id}`;
+      const response = await fetch(origin + path, { headers: { "User-Agent": "Twitterbot" } });
+      const html = visibleHtml(await response.text());
+      assert.equal(response.status, 200);
+      const tags = assertMetadata(html, path, expectedImage || fallbackImage);
+      assert.deepEqual(tags.get("og:type"), ["article"]);
+      assert.ok(html.indexOf('property="og:image"') < html.indexOf("</head>"));
+    }
+  });
+
+  test(`${collection}: search and sharing bots receive metadata without executing JS; query keeps canonical`, async () => {
+    for (const agent of ["Mozilla/5.0", "Googlebot", "bingbot", "Twitterbot", "facebookexternalhit", "Slackbot", "Discordbot", "OAI-SearchBot"]) {
+      const path = `/${collection}/1`;
+      const response = await fetch(origin + path + "?utm_source=test", { headers: { "User-Agent": agent } });
+      const html = visibleHtml(await response.text());
+      assert.equal(response.status, 200);
+      assertMetadata(html, path);
+      if (["bingbot", "Twitterbot", "facebookexternalhit", "Slackbot", "Discordbot"].includes(agent)) {
+        assert.ok(html.indexOf('property="og:image"') < html.indexOf("</head>"), agent);
+      }
+    }
+  });
+}
+
+test("public information, Premium, support, archive and maps have complete page-specific previews", async () => {
+  for (const path of ["/", "/kontakt", "/pobierz-aplikacje", "/regulamin", "/polityka-prywatnosci", "/publikacja-wynikow", "/premium", "/premium/regulamin", "/wesprzyj-nas", "/historical-results", "/shooting-ranges/map", "/premium/zakup"]) {
+    const response = await fetch(origin + path + "?utm_source=test", { headers: { "User-Agent": "Twitterbot" } });
+    const html = visibleHtml(await response.text());
+    assert.equal(response.status, 200, path);
+    const tags = assertMetadata(html, path);
+    assert.equal(tags.get("robots")?.join().includes("noindex") || false, path === "/premium/zakup");
+    if (path === "/premium/zakup") assert.match(tags.get("robots").join(), /nofollow/);
+  }
+});
+
+test("list and map filter variants retain the unfiltered canonical and complete previews", async () => {
+  for (const path of ["/competitions", "/trainings", "/competitions/map", "/trainings/map"]) {
+    for (const status of ["upcoming", "live", "finished", "joined", "invalid"]) {
+      const response = await fetch(origin + path + `?status=${status}&utm_source=test`, { headers: { "User-Agent": "Twitterbot" } });
+      const html = visibleHtml(await response.text());
+      assert.equal(response.status, 200);
+      const tags = assertMetadata(html, path);
+      assert.doesNotMatch(tags.get("robots")?.join() || "", /noindex/);
+    }
+  }
+});

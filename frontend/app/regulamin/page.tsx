@@ -1,3 +1,4 @@
+import { createPageMetadata } from "@/lib/page-metadata";
 import type { Metadata } from "next";
 import Link from "next/link";
 import AutopayPaymentInfo from "@/components/AutopayPaymentInfo";
@@ -6,11 +7,11 @@ import { getPremiumData, type PremiumCommerce } from "@/lib/premiumCommerce";
 
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = createPageMetadata({
+  path: "/regulamin",
   title: "Regulamin serwisu | System Strzelecki",
   description: "Zasady korzystania z Systemu Strzeleckiego, rejestracji kont i publikacji danych oraz dane usługodawcy.",
-  alternates: { canonical: "/regulamin" },
-};
+});
 
 const sections = [
   {

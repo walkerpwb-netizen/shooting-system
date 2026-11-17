@@ -41,3 +41,11 @@ production data. CI also runs it. Existing detail-page status tests remain under
 Source: [Google Search Central: build a sitemap](https://developers.google.com/search/docs/crawling-indexing/sitemaps/build-sitemap)
 (`lastmod` and canonical URL guidance), reviewed 17 November 2026. Runtime behavior
 uses the installed Next.js 16.2.6 guides for sitemap metadata routes and fetch.
+
+# Metadata and share previews
+
+See [METADATA.md](../METADATA.md) for page metadata, canonical/filter and image
+fallback rules. `npm run test:event-pages` also checks the rendered OG/Twitter
+metadata, image URL cases, sharing bots, public pages and query variants. Keep
+these assertions when adding public routes or changing a canonical; changing
+indexing still requires the sitemap checks above and the policy in INDEXING.md.

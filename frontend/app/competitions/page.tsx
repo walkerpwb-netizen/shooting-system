@@ -1,3 +1,4 @@
+import { createPageMetadata } from "@/lib/page-metadata";
 import type { Metadata } from "next";
 
 import CompetitionList from "../components/CompetitionList";
@@ -5,22 +6,11 @@ import CompetitionParticipationFilterButton from "../components/CompetitionParti
 
 import { apiUrl } from "@/lib/api";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = createPageMetadata({
+  path: "/competitions",
   title: "Zawody strzeleckie | System Strzelecki",
-  description:
-    "Przeglądaj opublikowane zawody strzeleckie: nadchodzące, trwające i zakończone wydarzenia z datą, lokalizacją oraz szczegółami organizatora.",
-  openGraph: {
-    title: "Zawody strzeleckie | System Strzelecki",
-    description:
-      "Lista opublikowanych zawodów strzeleckich z datami, lokalizacjami i szczegółami wydarzeń.",
-    url: "/competitions",
-    siteName: "System Strzelecki",
-    type: "website",
-  },
-  alternates: {
-    canonical: "/competitions",
-  },
-};
+  description: "Przeglądaj opublikowane zawody strzeleckie: nadchodzące, trwające i zakończone wydarzenia z datą, lokalizacją oraz szczegółami organizatora.",
+});
 
 type CompetitionStatusTab = "upcoming" | "live" | "finished" | "joined";
 

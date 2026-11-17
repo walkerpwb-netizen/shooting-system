@@ -1,3 +1,4 @@
+import { createPageMetadata } from "@/lib/page-metadata";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
@@ -75,16 +76,6 @@ function truncateDescription(value: string) {
     : value;
 }
 
-function metadataImageUrl(value: string | undefined) {
-  if (!value) {
-    return undefined;
-  }
-
-  return value.startsWith("/") || value.startsWith("http://") || value.startsWith("https://")
-    ? value
-    : undefined;
-}
-
 function getTraining(id: string) {
   return getPublicEvent<Training>("trainings", id);
 }
@@ -114,38 +105,17 @@ export async function generateMetadata({
       : `Szkolenie strzeleckie ${training.name}. Data: ${training.date}. Miejsce: ${training.location}.${organizer}${blocksCount}`
   );
   const title = `${training.name} | Szkolenie strzeleckie`;
-  const imageUrl = metadataImageUrl(training.organizer_logo);
 
-  return {
+  return createPageMetadata({
+    path: `/trainings/${training.id}`,
     title,
     description,
-    openGraph: {
-      title,
-      description,
-      url: `/trainings/${training.id}`,
-      siteName: "System Strzelecki",
-      type: "article",
-      images: imageUrl
-        ? [
-            {
-              url: imageUrl,
-              alt: `Logo organizatora szkolenia ${training.name}`,
-            },
-          ]
-        : undefined,
+    type: "article",
+    image: {
+      url: training.organizer_logo,
+      alt: `Logo organizatora szkolenia ${training.name}`,
     },
-    twitter: {
-      card: "summary_large_image",
-      title,
-      description,
-      images: imageUrl
-        ? [imageUrl]
-        : undefined,
-    },
-    alternates: {
-      canonical: `/trainings/${training.id}`,
-    },
-  };
+  });
 }
 
 export default async function TrainingPage({

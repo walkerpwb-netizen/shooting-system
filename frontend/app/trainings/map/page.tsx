@@ -1,25 +1,15 @@
+import { createPageMetadata } from "@/lib/page-metadata";
 import type { Metadata } from "next";
 import Link from "next/link";
 
 import CompetitionsMapClient from "@/app/competitions/map/CompetitionsMapClient";
 import { apiUrl } from "@/lib/api";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = createPageMetadata({
+  path: "/trainings/map",
   title: "Mapa szkoleń i zawodów strzeleckich | System Strzelecki",
-  description:
-    "Znajdź szkolenia i zawody strzeleckie na mapie oraz sprawdź lokalizację nadchodzących, trwających i zakończonych wydarzeń.",
-  openGraph: {
-    title: "Mapa szkoleń i zawodów strzeleckich | System Strzelecki",
-    description:
-      "Mapa opublikowanych szkoleń i zawodów strzeleckich z dokładnymi lokalizacjami wydarzeń.",
-    url: "/trainings/map",
-    siteName: "System Strzelecki",
-    type: "website",
-  },
-  alternates: {
-    canonical: "/trainings/map",
-  },
-};
+  description: "Znajdź szkolenia i zawody strzeleckie na mapie oraz sprawdź lokalizację nadchodzących, trwających i zakończonych wydarzeń.",
+});
 
 type TrainingStatusTab = "upcoming" | "live" | "finished";
 

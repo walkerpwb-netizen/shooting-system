@@ -1,3 +1,4 @@
+import { createPageMetadata } from "@/lib/page-metadata";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
@@ -74,16 +75,6 @@ function truncateDescription(value: string) {
     : value;
 }
 
-function metadataImageUrl(value: string | undefined) {
-  if (!value) {
-    return undefined;
-  }
-
-  return value.startsWith("/") || value.startsWith("http://") || value.startsWith("https://")
-    ? value
-    : undefined;
-}
-
 function getCompetition(id: string) {
   return getPublicEvent<Competition>("competitions", id);
 }
@@ -111,38 +102,17 @@ export async function generateMetadata({
     `Zawody strzeleckie ${competition.name}. Data: ${competition.date}. Miejsce: ${competition.location}.${organizer}${disciplinesCount}`
   );
   const title = `${competition.name} | Zawody strzeleckie`;
-  const imageUrl = metadataImageUrl(competition.organizer_logo);
 
-  return {
+  return createPageMetadata({
+    path: `/competitions/${competition.id}`,
     title,
     description,
-    openGraph: {
-      title,
-      description,
-      url: `/competitions/${competition.id}`,
-      siteName: "System Strzelecki",
-      type: "article",
-      images: imageUrl
-        ? [
-            {
-              url: imageUrl,
-              alt: `Logo organizatora zawodów ${competition.name}`,
-            },
-          ]
-        : undefined,
+    type: "article",
+    image: {
+      url: competition.organizer_logo,
+      alt: `Logo organizatora zawodów ${competition.name}`,
     },
-    twitter: {
-      card: "summary_large_image",
-      title,
-      description,
-      images: imageUrl
-        ? [imageUrl]
-        : undefined,
-    },
-    alternates: {
-      canonical: `/competitions/${competition.id}`,
-    },
-  };
+  });
 }
 
 export default async function CompetitionPage({

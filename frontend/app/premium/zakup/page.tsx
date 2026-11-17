@@ -1,7 +1,13 @@
+import { createPageMetadata } from "@/lib/page-metadata";
 import type { Metadata } from "next";
 import CheckoutClient from "./CheckoutClient";
 
-export const metadata: Metadata = { title: "Zakup Premium | System Strzelecki", robots: { index: false, follow: false } };
+export const metadata: Metadata = createPageMetadata({
+  path: "/premium/zakup",
+  title: "Zakup Premium | System Strzelecki",
+  description: "Wybierz pakiet Premium i przejdź przez proces zakupu w Systemie Strzeleckim.",
+  robots: { index: false, follow: false },
+});
 
 export default async function CheckoutPage({ searchParams }: { searchParams: Promise<{ pakiet?: string; okres?: string; kwota?: string; OrderID?: string; ServiceID?: string; Hash?: string; wydarzenie?: string }> }) {
   const query = await searchParams;

@@ -6,39 +6,14 @@ import AppNavigation from "@/components/AppNavigation";
 import GlobalUiSettings from "./components/GlobalUiSettings";
 import MaintenanceGuard from "./components/MaintenanceGuard";
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://system-strzelecki.pl";
+import { siteUrl, homeTitle, homeDescription } from "@/lib/page-metadata";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   applicationName: "System Strzelecki",
-  title: "System Strzelecki | Organizacja zawodów strzeleckich",
-  description:
-    "System Strzelecki pomaga organizować zawody strzeleckie: publikacja zawodów, zapisy zawodników, obsługa sędziów, wyniki na żywo i historia startów.",
+  title: homeTitle,
+  description: homeDescription,
   manifest: "/manifest.webmanifest",
-  openGraph: {
-    type: "website",
-    locale: "pl_PL",
-    url: siteUrl,
-    siteName: "System Strzelecki",
-    title: "System Strzelecki | Organizacja zawodów strzeleckich",
-    description:
-      "Kompleksowy system do obsługi zawodów strzeleckich, zapisów, sędziowania i publikacji zawodów.",
-    images: [
-      {
-        url: "/icons/system-strzelecki-logo-20260623.png",
-        width: 1560,
-        height: 1008,
-        alt: "System Strzelecki",
-      },
-    ],
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: "System Strzelecki | Organizacja zawodów strzeleckich",
-    description:
-      "Publikuj zawody strzeleckie, obsługuj zapisy, sędziów i wyniki w jednym systemie.",
-    images: ["/icons/system-strzelecki-logo-20260623.png"],
-  },
   appleWebApp: {
     capable: true,
     title: "S-S",

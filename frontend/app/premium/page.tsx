@@ -1,14 +1,15 @@
+import { createPageMetadata } from "@/lib/page-metadata";
 import type { Metadata } from "next";
 import Link from "next/link";
 import AutopayPaymentInfo from "@/components/AutopayPaymentInfo";
 import { getPremiumData, PAYMENT_MAINTENANCE_MESSAGE, premiumOfferDetails, premiumPackageNames, premiumPrice, type PremiumCommerce, type PremiumPrices } from "@/lib/premiumCommerce";
 
 export const dynamic = "force-dynamic";
-export const metadata: Metadata = {
+export const metadata: Metadata = createPageMetadata({
+  path: "/premium",
   title: "Premium — pakiety i cennik | System Strzelecki",
   description: "Poznaj Premium dla strzelców i organizatorów zawodów. Aktualny cennik, zakres pakietów i zasady zakupu.",
-  alternates: { canonical: "/premium" },
-};
+});
 
 export default async function PremiumPage() {
   const [prices, commerce] = await Promise.all([
