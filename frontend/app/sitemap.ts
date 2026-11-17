@@ -93,86 +93,85 @@ const staticRoutes = [
 type Competition = {
   id: number;
   status: string;
+  event_type: "competition" | "training";
 };
 
 function absoluteUrl(path: string) {
-  return `${siteUrl}${path}`;
+  return path === "/" ? siteUrl : `${siteUrl}${path}`;
 }
 
 function sitemapEntry(
   path: string,
   options: {
-    lastModified?: string | Date;
     changeFrequency?: MetadataRoute.Sitemap[number]["changeFrequency"];
     priority?: number;
   } = {},
 ): MetadataRoute.Sitemap[number] {
   return {
     url: absoluteUrl(path),
-    lastModified: options.lastModified || new Date(),
+    // Neither static content nor the event API currently has a reliable date
+    // of its last significant change. Omit lastmod until that source exists.
     changeFrequency: options.changeFrequency || "weekly",
     priority: options.priority,
   };
 }
 
-async function getJson<T>(path: string): Promise<T | null> {
+async function getEvents(collection: "competitions" | "trainings"): Promise<Competition[]> {
+  const path = `/${collection}`;
+  const signal = AbortSignal.timeout(5_000);
+  let data: unknown;
   try {
     const response = await fetch(apiUrl(path), {
       cache: "no-store",
+      signal,
     });
 
     if (!response.ok) {
-      return null;
+      throw new Error(`HTTP ${response.status}`);
     }
 
-    return await response.json() as T;
-  } catch (error) {
-    console.error(`Sitemap fetch failed for ${path}`, error);
-    return null;
+    // Keep the body read within the same timeout. Only a valid [] means an
+    // empty catalog; never publish a partial sitemap on an API failure.
+    data = await response.json();
+  } catch (cause) {
+    throw new Error(`Sitemap API ${signal.aborted ? "timeout" : "failure"}: ${path}`, { cause });
   }
+
+  const eventType = collection === "competitions" ? "competition" : "training";
+  if (!Array.isArray(data) || data.some((event) => (
+    !event || typeof event !== "object"
+    || !Number.isInteger(event.id) || event.id < 1 || event.id > 2_147_483_647
+    || typeof event.status !== "string" || event.event_type !== eventType
+  ))) {
+    throw new Error(`Sitemap API invalid catalog: ${path}`);
+  }
+
+  return data as Competition[];
 }
 
-async function competitionEntries() {
-  const competitions = await getJson<Competition[]>("/competitions");
+async function eventEntries(collection: "competitions" | "trainings") {
+  const events = await getEvents(collection);
 
-  if (!competitions) {
-    return [];
-  }
-
-  return competitions
-    .filter((competition) =>
-      ["published", "started", "completed"].includes(competition.status)
+  return events
+    .filter((event) =>
+      ["published", "started", "completed"].includes(event.status)
     )
-    .map((competition) =>
-      sitemapEntry(`/competitions/${competition.id}`, {
-        changeFrequency: competition.status === "completed" ? "monthly" : "daily",
-        priority: competition.status === "published" ? 0.8 : 0.7,
-      })
-    );
-}
-
-async function trainingEntries() {
-  const trainings = await getJson<Competition[]>("/trainings");
-
-  if (!trainings) {
-    return [];
-  }
-
-  return trainings
-    .filter((training) =>
-      ["published", "started", "completed"].includes(training.status)
-    )
-    .map((training) =>
-      sitemapEntry(`/trainings/${training.id}`, {
-        changeFrequency: training.status === "completed" ? "monthly" : "daily",
-        priority: training.status === "published" ? 0.7 : 0.6,
+    .sort((first, second) => first.id - second.id)
+    .map((event) =>
+      sitemapEntry(`/${collection}/${event.id}`, {
+        changeFrequency: event.status === "completed" ? "monthly" : "daily",
+        priority: collection === "competitions"
+          ? event.status === "published" ? 0.8 : 0.7
+          : event.status === "published" ? 0.7 : 0.6,
       })
     );
 }
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const competitions = await competitionEntries();
-  const trainings = await trainingEntries();
+  const [competitions, trainings] = await Promise.all([
+    eventEntries("competitions"),
+    eventEntries("trainings"),
+  ]);
 
   return [
     ...staticRoutes.map((route) =>

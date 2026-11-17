@@ -52,6 +52,9 @@ jobs:
       - name: Test event page HTTP statuses and API failures
         run: npm run test:event-pages
 
+      - name: Test sitemap dates, public URLs and API failures
+        run: npm run test:sitemap
+
   backend:
     name: Backend checks
     runs-on: ubuntu-latest

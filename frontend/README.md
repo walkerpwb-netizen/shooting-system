@@ -1,5 +1,11 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Public URLs and sitemap
+
+When changing public pages, follow the [sitemap maintenance rules](tests/README.md).
+After building, `npm run test:sitemap` checks public URL selection, omitted
+unverified dates, empty catalogs, API failures and recovery in the production runtime.
+
 ## Getting Started
 
 First, run the development server:
