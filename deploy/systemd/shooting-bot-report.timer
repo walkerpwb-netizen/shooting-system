@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily verified robot report and 90-day aggregate retention
+
+[Timer]
+OnCalendar=*-*-* 03:25:00 UTC
+Persistent=true
+RandomizedDelaySec=5m
+Unit=shooting-bot-report.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,17 @@
+[Unit]
+Description=Aggregate host-aware nginx logs and verify selected robots
+After=network-online.target nginx.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+SupplementaryGroups=adm
+UMask=0027
+ExecStart=/usr/bin/python3 /home/ubuntu/shooting-system/deploy/scripts/report-bots.py
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/shooting-system/bot-reports
+PrivateTmp=true
+TimeoutStartSec=120

@@ -122,6 +122,7 @@ class NginxTests(unittest.TestCase):
             rules = (REPO / "deploy/nginx/maintenance-server.conf").read_text().replace("/var/lib/shooting-system/maintenance/public", str(REPO / "deploy/maintenance"))
             # Exercise all actual production locations, including the Codex endpoint.
             production = (REPO / "deploy/nginx/shooting-system.conf").read_text()
+            logging = production.split("\nserver {", 1)[0].replace("include /etc/nginx/snippets/shooting-maintenance-http.conf;", "")
             server = "server {" + production.rsplit("\nserver {", 1)[1]
             server = "\n".join(line for line in server.splitlines() if not any(value in line for value in ("ssl_certificate", "ssl_dhparam", "include /etc/letsencrypt/")))
             with socket.socket() as reserve:
@@ -134,8 +135,9 @@ class NginxTests(unittest.TestCase):
             server = server.replace("include /etc/nginx/snippets/shooting-maintenance-server.conf;", rules)
             for upstream_port in (8000, 3000):
                 server = server.replace(f"127.0.0.1:{upstream_port}", f"127.0.0.1:{upstream.server_port}")
+            server = server.replace("/var/log/nginx/access.log", str(directory / "access.log")).replace("/var/log/nginx/shooting-bots.log", str(directory / "bots.log"))
             config = directory / "nginx.conf"
-            config.write_text(f"pid {directory}/nginx.pid; error_log {directory}/error.log; events {{}} http {{ access_log off; {maps} {server} }}")
+            config.write_text(f"pid {directory}/nginx.pid; error_log {directory}/error.log; events {{}} http {{ access_log off; {maps} {logging} {server} }}")
             process = subprocess.Popen([shutil.which("nginx"), "-p", temporary, "-c", str(config), "-g", "daemon off;"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
             def request(path, method="GET", source="127.0.0.2", headers=None):
@@ -184,6 +186,7 @@ class NginxTests(unittest.TestCase):
                     else:
                         self.fail("nginx did not apply maintenance state")
 
+                request.log_path = directory / "bots.log"
                 request.configure = configure
                 yield request
             finally:
@@ -192,6 +195,30 @@ class NginxTests(unittest.TestCase):
                 upstream.shutdown()
                 upstream.server_close()
                 worker.join(timeout=5)
+
+    def test_json_log_preserves_host_original_path_and_maintenance_after_redirect(self):
+        with self.site() as request:
+            code, _, _ = request("/robots.txt?token=TOPSECRET", headers={
+                "Host": "www.system-strzelecki.pl",
+                "User-Agent": 'Googlebot/2.1 ShootingBotAuditTest/1.0 "quoted"',
+                "X-Forwarded-For": "66.249.66.1",
+            })
+            self.assertEqual(code, 503)
+            request("/maintenance/status")
+            # Logging happens after the response is sent; wait for the last line.
+            for _ in range(100):
+                rows = [json.loads(line) for line in request.log_path.read_text().splitlines()]
+                if any(row["path"] == "/robots.txt" for row in rows):
+                    break
+                time.sleep(0.01)
+            row = next(row for row in rows if row["path"] == "/robots.txt")
+            self.assertEqual(row["host"], "www.system-strzelecki.pl")
+            self.assertEqual(row["http_host"], "www.system-strzelecki.pl")
+            self.assertEqual(row["ip"], "127.0.0.2")
+            self.assertEqual(row["status"], 503)
+            self.assertEqual(row["maintenance_blocked"], "1")
+            self.assertNotIn("TOPSECRET", request.log_path.read_text())
+            self.assertIn('"quoted"', row["ua"])
 
     def test_blocks_all_app_and_api_routes_including_writes(self):
         with self.site() as request:

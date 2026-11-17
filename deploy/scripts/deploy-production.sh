@@ -247,6 +247,12 @@ reload_nginx() {
     fi
   done
 
+  # The distro /etc/logrotate.d/nginx wildcard already rotates *.log daily (14 archives).
+  # Preserve combined consumers and create the new private stream before nginx opens it.
+  if ! sudo test -e /var/log/nginx/shooting-bots.log; then
+    run sudo install -m 640 -o www-data -g adm /dev/null /var/log/nginx/shooting-bots.log
+  fi
+
   log "Validating nginx config"
   if sync_file_with_backup "$REPO_DIR/$NGINX_CONF_SRC" "$NGINX_CONF_DST" "deploy"; then
     nginx_changed=1
@@ -261,6 +267,20 @@ reload_nginx() {
   fi
 
   run systemctl is-active nginx
+
+  log "Installing daily robot reports (no public endpoint)"
+  run sudo install -d -m 750 -o ubuntu -g adm /var/lib/shooting-system/bot-reports
+  local bot_units_changed=0
+  for unit in shooting-bot-report.service shooting-bot-report.timer; do
+    if sync_file_with_backup "$REPO_DIR/deploy/systemd/$unit" "/etc/systemd/system/$unit" "deploy"; then
+      bot_units_changed=1
+    fi
+  done
+  if [[ "$bot_units_changed" -eq 1 ]]; then
+    run sudo systemctl daemon-reload
+    run sudo systemctl restart shooting-bot-report.timer
+  fi
+  run sudo systemctl enable --now shooting-bot-report.timer
 }
 
 check_public_access() {
