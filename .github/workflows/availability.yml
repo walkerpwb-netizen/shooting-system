@@ -1,0 +1,71 @@
+name: Public availability record
+
+on:
+  schedule:
+    - cron: '7,17,27,37,47,57 * * * *'
+  workflow_dispatch:
+  push:
+    branches: [main, env-config]
+    paths:
+      - .github/workflows/availability.yml
+      - deploy/scripts/check-availability.py
+      - deploy/tests/test_availability.py
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: public-availability-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      result: ${{ steps.result.outputs.result }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Test probe classification and incident history
+        run: python3 -m unittest discover -s deploy/tests -p test_availability.py -v
+      - name: Restore latest observation state for this branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_NAME: availability-${{ github.ref_name }}
+        run: |
+          mkdir -p previous
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$ARTIFACT_NAME&per_page=1" > previous/artifacts.json
+          artifact_id=$(jq -r '.artifacts[] | select(.expired == false) | .id' previous/artifacts.json)
+          if [ -n "$artifact_id" ]; then
+            gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" > previous/state.zip
+            unzip -j previous/state.zip state.json -d previous
+          fi
+      - name: Observe public DNS and HTTPS endpoints (no notifications)
+        run: python3 deploy/scripts/check-availability.py --previous previous/state.json --output observation
+      - name: Publish observation summary
+        if: always()
+        run: |
+          if [ -f observation/summary.md ]; then
+            cat observation/summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Expose observation result in the public run summary
+        id: result
+        run: |
+          result=$(jq -r '"\(.phase) (\(.samples | length) URLs)"' observation/record.json)
+          echo "result=$result" >> "$GITHUB_OUTPUT"
+      - name: Preserve sample and incident history
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: availability-${{ github.ref_name }}
+          path: observation/
+          retention-days: 90
+          if-no-files-found: error
+
+  result:
+    name: 'Observation: ${{ needs.probe.outputs.result }}'
+    needs: probe
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 'See the probe summary and artifact for statuses and incident history. Alerts remain disabled.'
