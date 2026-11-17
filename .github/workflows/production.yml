@@ -49,6 +49,9 @@ jobs:
       - name: Build frontend
         run: npm run build
 
+      - name: Test event page HTTP statuses and API failures
+        run: npm run test:event-pages
+
   backend:
     name: Backend checks
     runs-on: ubuntu-latest

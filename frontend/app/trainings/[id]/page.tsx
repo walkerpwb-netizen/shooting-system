@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
+import { notFound } from "next/navigation";
 
 import JoinCompetitionPanel from "@/app/competitions/[id]/JoinCompetitionPanel";
 import LogoPreviewLink from "@/app/competitions/[id]/LogoPreviewLink";
 import RegistrationCountdown from "@/app/competitions/[id]/RegistrationCountdown";
 import { CompetitionParticipationProvider, DisciplineParticipationCard } from "@/app/components/CompetitionParticipation";
 import DisciplineDescription from "@/app/components/DisciplineDescription";
-import { apiUrl } from "@/lib/api";
+import { getPublicEvent } from "@/lib/public-events";
 import { getClayTargetsCount } from "@/lib/disciplines";
 import { getDirectionsHref, hasMapCoordinates } from "@/lib/maps";
 
@@ -84,19 +85,8 @@ function metadataImageUrl(value: string | undefined) {
     : undefined;
 }
 
-async function getTraining(id: string) {
-  const response = await fetch(
-    apiUrl(`/trainings/${id}`),
-    {
-      cache: "no-store",
-    }
-  );
-
-  if (!response.ok) {
-    return null;
-  }
-
-  return response.json() as Promise<Training>;
+function getTraining(id: string) {
+  return getPublicEvent<Training>("trainings", id);
 }
 
 export async function generateMetadata({
@@ -108,10 +98,7 @@ export async function generateMetadata({
   if (!training) {
     return {
       title: "Nie znaleziono szkolenia | System Strzelecki",
-      robots: {
-        index: false,
-        follow: false,
-      },
+      robots: { index: false, follow: false },
     };
   }
 
@@ -168,13 +155,7 @@ export default async function TrainingPage({
   const training = await getTraining(id);
 
   if (!training) {
-    return (
-      <main className="min-h-screen bg-white p-10 text-zinc-950 dark:bg-black dark:text-white">
-        <h1 className="text-4xl font-bold mb-6">
-          Nie znaleziono szkolenia
-        </h1>
-      </main>
-    );
+    notFound();
   }
 
   const hasDirections = hasMapCoordinates(training.latitude, training.longitude);

@@ -6,7 +6,8 @@
     "dev": "next dev --webpack",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:event-pages": "node --test tests/event-pages.test.mjs"
   },
   "dependencies": {
     "jsqr": "^1.4.0",

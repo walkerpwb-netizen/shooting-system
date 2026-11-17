@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { notFound } from "next/navigation";
 
 import JoinCompetitionPanel from "./JoinCompetitionPanel";
 import LogoPreviewLink from "./LogoPreviewLink";
@@ -6,7 +7,7 @@ import RegistrationCountdown from "./RegistrationCountdown";
 
 import { CompetitionParticipationProvider, DisciplineParticipationCard } from "@/app/components/CompetitionParticipation";
 import DisciplineDescription from "@/app/components/DisciplineDescription";
-import { apiUrl } from "@/lib/api";
+import { getPublicEvent } from "@/lib/public-events";
 import { getClayTargetsCount } from "@/lib/disciplines";
 import { getDirectionsHref, hasMapCoordinates } from "@/lib/maps";
 
@@ -83,19 +84,8 @@ function metadataImageUrl(value: string | undefined) {
     : undefined;
 }
 
-async function getCompetition(id: string) {
-  const response = await fetch(
-    apiUrl(`/competitions/${id}`),
-    {
-      cache: "no-store",
-    }
-  );
-
-  if (!response.ok) {
-    return null;
-  }
-
-  return response.json() as Promise<Competition>;
+function getCompetition(id: string) {
+  return getPublicEvent<Competition>("competitions", id);
 }
 
 export async function generateMetadata({
@@ -107,10 +97,7 @@ export async function generateMetadata({
   if (!competition) {
     return {
       title: "Nie znaleziono zawodów | System Strzelecki",
-      robots: {
-        index: false,
-        follow: false,
-      },
+      robots: { index: false, follow: false },
     };
   }
 
@@ -165,13 +152,7 @@ export default async function CompetitionPage({
   const competition = await getCompetition(id);
 
   if (!competition) {
-    return (
-      <main className="min-h-screen bg-white p-10 text-zinc-950 dark:bg-black dark:text-white">
-        <h1 className="text-4xl font-bold mb-6">
-          Nie znaleziono zawodów
-        </h1>
-      </main>
-    );
+    notFound();
   }
 
   const hasDirections = hasMapCoordinates(competition.latitude, competition.longitude);
