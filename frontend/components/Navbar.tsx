@@ -910,6 +910,8 @@ export default function Navbar() {
           </Link>
         )}
 
+        <Link href="/shooting-ranges">Katalog strzelnic</Link>
+
         <Link href="/shooting-ranges/map">
           Mapa strzelnic i sklepów
         </Link>
@@ -1168,6 +1170,10 @@ export default function Navbar() {
                 className="py-3"
               >
                 Pobierz Aplikację
+              </Link>
+
+              <Link href="/shooting-ranges" onClick={() => setMobileMenuOpen(false)} className="py-3">
+                Katalog strzelnic
               </Link>
 
               <Link

@@ -16,7 +16,7 @@ const siteUrl = "https://system-strzelecki.pl";
 const staticPaths = ["", "/regulamin", "/polityka-prywatnosci", "/publikacja-wynikow",
   "/historical-results", "/wesprzyj-nas", "/premium", "/premium/regulamin",
   "/competitions", "/competitions/map", "/trainings",
-  "/shooting-ranges/map", "/kontakt", "/pobierz-aplikacje"];
+  "/shooting-ranges", "/shooting-ranges/map", "/kontakt", "/pobierz-aplikacje"];
 
 async function listen(server) {
   server.listen(0, "127.0.0.1");
@@ -178,4 +178,28 @@ test("publishing and removing an event updates the same sitemap URL without a ca
   assertXml(await sitemap(), [...staticPaths, "/trainings/50"]);
   catalogs["/trainings"][0].status = "cancelled";
   assertXml(await sitemap());
+});
+
+test("range directory renders public data and navigation in HTML, handles empty and failed API", async () => {
+  const path = "/shooting-ranges";
+  catalogs[path] = [
+    { id: 2, name: "Żubr", address: "Łódź", phone: "+48123", website: "https://example.com" },
+    { id: 1, name: "Alfa", address: "Warszawa", phone: "", website: "" },
+  ];
+  let response = await fetch(origin + path);
+  let html = (await response.text()).replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "");
+  assert.equal(response.status, 200);
+  for (const value of ["Alfa", "Żubr", "Łódź", "+48123", 'href="https://example.com/"', 'href="#litera-41"', 'href="/shooting-ranges/map"', 'href="https://system-strzelecki.pl/shooting-ranges"']) assert.ok(html.includes(value), value);
+  assert.ok(html.indexOf("Alfa") < html.indexOf("Żubr"));
+  catalogs[path] = [];
+  response = await fetch(origin + path);
+  html = await response.text();
+  assert.equal(response.status, 200);
+  assert.match(html, /Obecnie w katalogu nie ma strzelnic/);
+  failures[path] = 503;
+  response = await fetch(origin + path);
+  assert.equal(response.status, 500);
+  delete failures[path];
+  catalogs[path] = [{ id: 1, name: "Alfa", address: "", phone: "", website: "" }];
+  assert.equal((await fetch(origin + path)).status, 200);
 });
