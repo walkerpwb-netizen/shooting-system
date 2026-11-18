@@ -11,6 +11,7 @@ from html import escape
 from pywebpush import WebPushException, webpush
 
 from database import SessionLocal
+from event_logos import materialize_event_logo
 from result_store import save_discipline_result
 from results_excel import build_results_workbook
 from config import settings
@@ -105,6 +106,7 @@ PROFILE_PHOTO_DIR = UPLOADS_DIR / "profile-photos"
 EMAIL_ASSET_DIR = UPLOADS_DIR / "email-assets"
 HOME_POST_DIR = UPLOADS_DIR / "home-posts"
 HOME_SCREEN_DIR = UPLOADS_DIR / "home-screens"
+EVENT_LOGO_DIR = UPLOADS_DIR / "event-logos"
 PROFILE_PHOTO_ROUTE_PREFIX = "/uploads/profile-photos"
 EMAIL_ASSET_ROUTE_PREFIX = "/uploads/email-assets"
 HOME_POST_ROUTE_PREFIX = "/uploads/home-posts"
@@ -166,6 +168,19 @@ PROFILE_PHOTO_DIR.mkdir(parents=True, exist_ok=True)
 EMAIL_ASSET_DIR.mkdir(parents=True, exist_ok=True)
 HOME_POST_DIR.mkdir(parents=True, exist_ok=True)
 HOME_SCREEN_DIR.mkdir(parents=True, exist_ok=True)
+
+
+class EventLogoFiles(StaticFiles):
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        if response.status_code in (200, 304):
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+            response.headers["X-Content-Type-Options"] = "nosniff"
+        return response
+
+
+EVENT_LOGO_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads/event-logos", EventLogoFiles(directory=str(EVENT_LOGO_DIR)), name="event-logos")
 app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 
 
@@ -10078,9 +10093,9 @@ def public_competition_detail_row(
         "longitude": competition.longitude,
         "entry_fee": competition.entry_fee or "",
         "organizer_full_name": competition.organizer_full_name or "",
-        "organizer_logo": competition.organizer_logo or "",
+        "organizer_logo": materialize_event_logo(competition.organizer_logo or "", EVENT_LOGO_DIR),
         "sponsors": competition.sponsors or "",
-        "sponsor_logo": competition.sponsor_logo or "",
+        "sponsor_logo": materialize_event_logo(competition.sponsor_logo or "", EVENT_LOGO_DIR),
         "participant_limit": competition.participant_limit,
         "registration_deadline": getattr(competition, "registration_deadline", None),
         "min_participants": getattr(competition, "min_participants", None),
@@ -12843,6 +12858,13 @@ def create_competition(
         else bool(data.requires_licensed_judge)
     )
     club_discount = normalize_competition_club_discount(data)
+
+    for logo in (data.organizer_logo, data.sponsor_logo):
+        if logo.startswith("data:"):
+            try:
+                materialize_event_logo(logo, EVENT_LOGO_DIR)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     competition = Competition(
         name=data.name,
@@ -17069,6 +17091,13 @@ def update_competition(
             status_code=400,
             detail="Wybierz, czy zawody wymagają licencjonowanego sędziego PZSS"
         )
+
+    for logo in (data.organizer_logo, data.sponsor_logo):
+        if logo.startswith("data:"):
+            try:
+                materialize_event_logo(logo, EVENT_LOGO_DIR)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     competition.name = data.name
     competition.event_type = event_type

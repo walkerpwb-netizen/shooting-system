@@ -17,7 +17,7 @@ const fallbackImage = {
 };
 
 // Share previews need fetchable URLs, not data/blob URLs or internal API hosts.
-// Uploaded inline logos remain available in the page, outside these metadata.
+// Inline or otherwise non-public values use the site fallback.
 function publicImageUrl(value?: string) {
   if (!value) return undefined;
   const candidate = value.trim();

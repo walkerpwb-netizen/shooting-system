@@ -1467,8 +1467,8 @@ function OrganizerContent() {
       return;
     }
 
-    if (!file.type.startsWith("image/")) {
-      setMessage("Logo musi być plikiem graficznym ❌");
+    if (!["image/jpeg", "image/png", "image/gif", "image/webp"].includes(file.type) || file.size > 6 * 1024 * 1024) {
+      setMessage("Logo musi być obrazem JPEG, PNG, GIF lub WebP o rozmiarze do 6 MiB ❌");
       return;
     }
 
@@ -2382,7 +2382,7 @@ function OrganizerContent() {
 
                   <input
                     type="file"
-                    accept="image/*"
+                    accept="image/jpeg,image/png,image/gif,image/webp"
                     onChange={(event) => handleLogoChange(
                       event.target.files?.[0],
                       setOrganizerLogo
@@ -2425,7 +2425,7 @@ function OrganizerContent() {
 
                   <input
                     type="file"
-                    accept="image/*"
+                    accept="image/jpeg,image/png,image/gif,image/webp"
                     onChange={(event) => handleLogoChange(
                       event.target.files?.[0],
                       setSponsorLogo
