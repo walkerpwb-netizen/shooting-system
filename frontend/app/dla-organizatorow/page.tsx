@@ -35,7 +35,7 @@ export default function OrganizerOfferPage() {
           <div className="mt-6 grid gap-4 md:grid-cols-2">
             {steps.map((step) => <article key={step.title} className="rounded-2xl border border-green-300/20 bg-black/20 p-6"><h3 className="text-xl font-bold text-emerald-200">{step.title}</h3><p className="mt-3 leading-7 text-green-100">{step.text}</p></article>)}
           </div>
-          <p className="mt-5 leading-7 text-green-100">Przed rozpoczęciem przypisz sędziów do wymagających tego konkurencji. Po rozpoczęciu edycja i usunięcie zawodów są zablokowane dla organizatora.</p>
+          <p className="mt-5 leading-7 text-green-100">Przed rozpoczęciem przypisz sędziów do wymagających tego konkurencji. Po rozpoczęciu edycja i usunięcie zawodów są zablokowane dla organizatora. <Link className="font-bold text-emerald-200 underline" href="/instrukcja-sedziowania">Przeczytaj instrukcję sędziowania i wyników</Link>.</p>
         </section>
 
         <section className="mt-16">
