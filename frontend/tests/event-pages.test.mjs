@@ -403,3 +403,25 @@ test("structured data describes public pages and escapes untrusted content", asy
   assert.equal(range.telephone, "123");
   assert.equal(range.sameAs, undefined);
 });
+
+test("breadcrumbs match visible HTML and link to public parent pages", async () => {
+  for (const [path, parent, label] of [
+    ["/competitions/1", "/competitions", "Zawody"],
+    ["/trainings/1", "/trainings", "Szkolenia"],
+    ["/shooting-ranges/1", "/shooting-ranges", "Katalog strzelnic"],
+    ["/premium/regulamin", "/premium", "Pakiety i cennik Premium"],
+  ]) {
+    const response = await fetch(origin + path);
+    assert.equal(response.status, 200, path);
+    const html = await response.text();
+    const nav = html.match(/<nav aria-label="Okruszki nawigacji"[\s\S]*?<\/nav>/)?.[0];
+    assert.ok(nav, path);
+    assert.ok(nav.includes(`href="${parent}"`));
+    assert.ok(nav.includes(label));
+    assert.match(nav, /aria-current="page"/);
+    const crumbs = jsonLd(html).find((data) => data["@type"] === "BreadcrumbList").itemListElement;
+    assert.deepEqual(crumbs.map((item) => item.item), ["https://system-strzelecki.pl/", `https://system-strzelecki.pl${parent}`, `https://system-strzelecki.pl${path}`]);
+    assert.equal(crumbs[1].name, label);
+    assert.equal((await fetch(origin + parent)).status, 200);
+  }
+});

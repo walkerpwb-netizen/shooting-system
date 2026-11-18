@@ -1,3 +1,4 @@
+import Breadcrumbs from "@/components/Breadcrumbs";
 import JsonLd from "@/components/JsonLd";
 import { eventStructuredData } from "@/lib/structured-data";
 import Link from "next/link";
@@ -142,6 +143,7 @@ export default async function TrainingPage({
   return (
     <main className="min-h-screen bg-white p-6 text-zinc-950 dark:bg-black dark:text-white sm:p-10">
       <JsonLd data={eventStructuredData(training, "trainings")} />
+      <Breadcrumbs items={[{ label: "Strona główna", path: "/" }, { label: "Szkolenia", path: "/trainings" }, { label: training.name, path: `/trainings/${training.id}` }]} />
       {["published", "started"].includes(training.status) && <RegistrationCountdown
         registrationDeadline={training.registration_deadline}
         participantsCount={training.participants.length}

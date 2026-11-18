@@ -1,3 +1,4 @@
+import Breadcrumbs from "@/components/Breadcrumbs";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { cache } from "react";
@@ -26,7 +27,7 @@ export async function generateMetadata({ params }: Props) {
 export default async function CityPage({ params }: Props) {
   const { city, ranges } = await getCity((await params).city);
   return <main className="mx-auto max-w-4xl px-4 py-10 sm:px-6">
-    <p><Link className="underline" href="/shooting-ranges">Katalog strzelnic w Polsce</Link></p>
+    <Breadcrumbs items={[{ label: "Strona główna", path: "/" }, { label: "Katalog strzelnic", path: "/shooting-ranges" }, { label: city.heading, path: `/shooting-ranges/miasta/${city.slug}` }]} />
     <h1 className="mt-4 text-3xl font-black">{city.heading}</h1>
     {ranges.length > 0 ? <>
       <p className="mt-4">{city.introduction}</p>

@@ -237,7 +237,11 @@ test("city pilot only includes reviewed addresses and removes stale assignments 
     { id: 1, name: "Wrocław A", address: "ul. Sztabowa 32, Wrocław", phone: "", website: "", latitude: 51.08951016666667, longitude: 17.011930638888888 },
   ];
   let response = await fetch(origin + "/shooting-ranges/miasta/warszawa");
-  let html = (await response.text()).replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "");
+  const cityHtml = await response.text();
+  const breadcrumb = [...cityHtml.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)].map((match) => JSON.parse(match[1])).find((item) => item["@type"] === "BreadcrumbList");
+  assert.deepEqual(breadcrumb.itemListElement.map((item) => item.item), [siteUrl + "/", siteUrl + "/shooting-ranges", siteUrl + "/shooting-ranges/miasta/warszawa"]);
+  assert.match(cityHtml, /<nav aria-label="Okruszki nawigacji"[\s\S]*?href="\/shooting-ranges"/);
+  let html = cityHtml.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "");
   assert.equal(response.status, 200);
   for (const value of ["Warszawa A", "ul. Krakowiaków 80A", 'href="/shooting-ranges/75"', 'href="https://system-strzelecki.pl/shooting-ranges/miasta/warszawa"']) assert.ok(html.includes(value), value);
   assert.doesNotMatch(html, /Operator Warszawa|Suchodół/);

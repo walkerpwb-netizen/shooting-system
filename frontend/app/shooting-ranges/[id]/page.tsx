@@ -1,3 +1,4 @@
+import Breadcrumbs from "@/components/Breadcrumbs";
 import JsonLd from "@/components/JsonLd";
 import { siteUrl } from "@/lib/page-metadata";
 import Link from "next/link";
@@ -39,7 +40,7 @@ export default async function ShootingRangePage({ params }: Props) {
       ...(range.address ? { address: range.address } : {}),
       ...(range.phone ? { telephone: range.phone } : {}),
     }} />
-    <p><Link className="underline" href="/shooting-ranges">Katalog strzelnic</Link></p>
+    <Breadcrumbs items={[{ label: "Strona główna", path: "/" }, { label: "Katalog strzelnic", path: "/shooting-ranges" }, { label: range.name, path: `/shooting-ranges/${range.id}` }]} />
     <h1 className="mt-4 text-3xl font-black">{range.name}</h1>
     <section className="mt-8 space-y-3" aria-label="Lokalizacja i kontakt">
       {range.address && <p><strong>Lokalizacja:</strong> {range.address}</p>}
@@ -48,6 +49,6 @@ export default async function ShootingRangePage({ params }: Props) {
       {website && <p><a className="font-bold underline" href={website} rel="noopener noreferrer">Strona internetowa strzelnicy</a></p>}
     </section>
     <p className="mt-8 text-sm text-gray-400">Źródło danych: katalog Systemu Strzeleckiego. Data weryfikacji nie jest dostępna.</p>
-    <p className="mt-4"><Link className="underline" href="/shooting-ranges/map">Mapa strzelnic i sklepów</Link></p>
+    <nav className="mt-4 flex flex-wrap gap-4" aria-label="Odkryj więcej"><Link className="underline" href="/shooting-ranges/map">Mapa strzelnic i sklepów</Link><Link className="underline" href="/competitions">Wszystkie zawody</Link><Link className="underline" href="/trainings">Wszystkie szkolenia</Link></nav>
   </main>;
 }
