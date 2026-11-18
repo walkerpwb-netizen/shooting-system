@@ -54,7 +54,7 @@ export default function OrganizerOfferPage() {
           <Link href="/premium" className="mt-6 inline-block font-bold text-emerald-200 underline underline-offset-4">Sprawdź aktualny cennik i warunki Premium</Link>
         </section>
         <nav aria-label="Dalsze kroki dla organizatora" className="mt-10 flex flex-wrap gap-6 font-bold text-emerald-200 underline underline-offset-4">
-          <Link href="/register">Załóż konto</Link><Link href="/competitions">Zobacz zawody</Link><Link href="/kontakt">Porozmawiaj o wdrożeniu</Link>
+          <Link href="/lista-kontrolna-organizacji-zawodow">Lista kontrolna organizacji zawodów</Link><Link href="/register">Załóż konto</Link><Link href="/competitions">Zobacz zawody</Link><Link href="/kontakt">Porozmawiaj o wdrożeniu</Link>
         </nav>
       </div>
     </main>
