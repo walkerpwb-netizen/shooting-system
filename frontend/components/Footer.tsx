@@ -4,6 +4,7 @@ import SocialMediaIcons from "./SocialMediaIcons";
 import SupportLink from "./SupportLink";
 
 const footerLinks = [
+  { href: "/o-projekcie", label: "O projekcie" },
   { href: "/jak-sie-zapisac", label: "Jak się zapisać" },
   { href: "/dla-organizatorow", label: "Dla organizatorów" },
   {

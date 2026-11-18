@@ -11,6 +11,7 @@ const siteUrl = (
 ).replace(/\/+$/, "");
 
 const staticRoutes = [
+  { path: "/o-projekcie", priority: 0.6, changeFrequency: "monthly" },
   { path: "/lista-kontrolna-organizacji-zawodow", priority: 0.7, changeFrequency: "monthly" },
   { path: "/instrukcja-sedziowania", priority: 0.7, changeFrequency: "monthly" },
   { path: "/jak-sie-zapisac", priority: 0.7, changeFrequency: "monthly" },

@@ -13,7 +13,7 @@ const catalogs = {};
 const failures = {};
 const requests = [];
 const siteUrl = "https://system-strzelecki.pl";
-const staticPaths = ["", "/lista-kontrolna-organizacji-zawodow", "/instrukcja-sedziowania", "/jak-sie-zapisac", "/dla-organizatorow", "/regulamin", "/polityka-prywatnosci", "/publikacja-wynikow",
+const staticPaths = ["", "/o-projekcie", "/lista-kontrolna-organizacji-zawodow", "/instrukcja-sedziowania", "/jak-sie-zapisac", "/dla-organizatorow", "/regulamin", "/polityka-prywatnosci", "/publikacja-wynikow",
   "/historical-results", "/wesprzyj-nas", "/premium", "/premium/regulamin",
   "/competitions", "/competitions/map", "/trainings",
   "/shooting-ranges", "/shooting-ranges/map", "/kontakt", "/pobierz-aplikacje"];
