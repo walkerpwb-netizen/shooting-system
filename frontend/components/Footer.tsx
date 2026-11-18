@@ -7,6 +7,7 @@ const footerLinks = [
   { href: "/o-projekcie", label: "O projekcie" },
   { href: "/jak-sie-zapisac", label: "Jak się zapisać" },
   { href: "/dla-organizatorow", label: "Dla organizatorów" },
+  { href: "/organizatorzy", label: "Organizatorzy wydarzeń" },
   {
     href: "/premium",
     label: "Premium i cennik",

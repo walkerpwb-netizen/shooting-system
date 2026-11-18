@@ -13,7 +13,7 @@ const catalogs = {};
 const failures = {};
 const requests = [];
 const siteUrl = "https://system-strzelecki.pl";
-const staticPaths = ["", "/o-projekcie", "/lista-kontrolna-organizacji-zawodow", "/instrukcja-sedziowania", "/jak-sie-zapisac", "/dla-organizatorow", "/regulamin", "/polityka-prywatnosci", "/publikacja-wynikow",
+const staticPaths = ["", "/organizatorzy", "/o-projekcie", "/lista-kontrolna-organizacji-zawodow", "/instrukcja-sedziowania", "/jak-sie-zapisac", "/dla-organizatorow", "/regulamin", "/polityka-prywatnosci", "/publikacja-wynikow",
   "/historical-results", "/wesprzyj-nas", "/premium", "/premium/regulamin",
   "/competitions", "/competitions/map", "/trainings",
   "/shooting-ranges", "/shooting-ranges/map", "/kontakt", "/pobierz-aplikacje"];
@@ -269,12 +269,20 @@ test("city pilot only includes reviewed addresses and removes stale assignments 
 
 
 test("published organizer pages are canonical, contain approved HTML and disappear when unpublished", async () => {
-  catalogs["/public-organizers"] = [{id: 7}];
+  catalogs["/public-organizers"] = [{id: 7, name: "Klub Alfa"}];
   catalogs["/public-organizers/7"] = {id: 7, name: "Klub Alfa", description: "Zatwierdzony opis klubu.", events: [
     {id: 12, name: "Zawody aktualne", date: "2026-12-01", location: "Warszawa", status: "published", event_type: "competition"},
     {id: 13, name: "Szkolenie zakończone", date: "2026-01-01", location: "Kraków", status: "completed", event_type: "training"},
   ]};
   assertXml(await sitemap(), [...staticPaths, "/organizatorzy/7"]);
+  const directory = await (await fetch(origin + "/organizatorzy")).text();
+  assert.match(directory, /href="\/organizatorzy\/7"[^>]*>Klub Alfa/);
+  catalogs["/public-organizers/7"].events = [];
+  assert.match(await (await fetch(origin + "/organizatorzy")).text(), /href="\/organizatorzy\/7"/);
+  catalogs["/public-organizers/7"].events = [
+    {id: 12, name: "Zawody aktualne", date: "2026-12-01", location: "Warszawa", status: "published", event_type: "competition"},
+    {id: 13, name: "Szkolenie zakończone", date: "2026-01-01", location: "Kraków", status: "completed", event_type: "training"},
+  ];
   let response = await fetch(origin + "/organizatorzy/7");
   assert.equal(response.status, 200);
   const html = (await response.text()).replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "");
@@ -282,8 +290,10 @@ test("published organizer pages are canonical, contain approved HTML and disappe
   assert.equal((await fetch(origin + "/organizatorzy/07")).status, 404);
   failures["/public-organizers/7"] = 404;
   catalogs["/public-organizers"] = [];
+  assert.doesNotMatch(await (await fetch(origin + "/organizatorzy")).text(), /href="\/organizatorzy\/7"/);
   assert.equal((await fetch(origin + "/organizatorzy/7")).status, 404);
   assertXml(await sitemap());
   failures["/public-organizers"] = 500;
+  assert.equal((await fetch(origin + "/organizatorzy")).status, 500);
   assert.equal((await sitemap()).response.status, 500);
 });

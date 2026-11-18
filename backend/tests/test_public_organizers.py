@@ -56,7 +56,7 @@ class PublicOrganizerTests(unittest.TestCase):
         with self.assertRaises(HTTPException) as error:
             main.get_public_organizer(first.id, self.db)
         self.assertEqual(error.exception.status_code, 404)
-        self.assertEqual(main.list_public_organizers(self.db), [{"id": second.id}])
+        self.assertEqual(main.list_public_organizers(self.db), [{"id": second.id, "name": second.name}])
 
     def test_cannot_claim_foreign_event_or_publish_without_content(self):
         with self.assertRaises(HTTPException): self.save(self.a, [4])

@@ -12974,7 +12974,7 @@ def save_public_organizer_settings(data: PublicOrganizerSettings, user: User = D
 @app.get("/public-organizers")
 def list_public_organizers(db=Depends(get_db)):
     profiles = db.query(PublicOrganizer).filter(PublicOrganizer.published.is_(True)).order_by(PublicOrganizer.id).all()
-    return [{"id": p.id} for p in profiles]
+    return [{"id": p.id, "name": p.name} for p in profiles]
 
 
 @app.get("/public-organizers/{profile_id}")
