@@ -1,6 +1,7 @@
 "use client";
 
 import PremiumAccessMessage from "@/components/PremiumAccessMessage";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import ResultCompetitionList from "@/app/components/ResultCompetitionList";
@@ -26,9 +27,8 @@ type HistoricalCompetition = {
   premium_locked?: boolean;
 };
 
-export default function HistoricalResultsPage() {
-  const [competitions, setCompetitions] = useState<HistoricalCompetition[]>([]);
-  const [loading, setLoading] = useState(true);
+export default function HistoricalResultsPage({ initialCompetitions }: { initialCompetitions: HistoricalCompetition[] }) {
+  const [competitions, setCompetitions] = useState<HistoricalCompetition[]>(initialCompetitions);
   const [message, setMessage] = useState("");
 
   useEffect(() => {
@@ -61,10 +61,6 @@ export default function HistoricalResultsPage() {
         if (active) {
           setMessage("Błąd połączenia z serwerem.");
         }
-      } finally {
-        if (active) {
-          setLoading(false);
-        }
       }
     }
 
@@ -88,7 +84,7 @@ export default function HistoricalResultsPage() {
           </h1>
 
           <p className="max-w-2xl text-zinc-600 dark:text-gray-400">
-            Zakończone zawody starsze niż 24 godziny, posortowane od najnowszych.
+            Zakończone zawody, posortowane od najnowszych. Szczegółowe wyniki starszych zawodów wymagają aktywnego Premium. <Link className="font-semibold text-green-700 underline dark:text-green-400" href="/premium">Poznaj Premium</Link>.
           </p>
         </div>
 
@@ -100,21 +96,15 @@ export default function HistoricalResultsPage() {
           />
         )}
 
-        {loading ? (
-          <p className="text-zinc-600 dark:text-gray-400">
-            Ładowanie wyników historycznych...
-          </p>
-        ) : (
           <ResultCompetitionList
             competitions={competitions}
             emptyTitle="Brak wyników historycznych"
-            emptyText="Zawody trafią tutaj 24 godziny po zakończeniu."
+            emptyText="Zawody pojawią się tutaj po zakończeniu."
             hrefPrefix="/historical-results"
             onLockedClick={() => setMessage(
               getAccessToken() ? PREMIUM_EXPIRED_MESSAGE : PREMIUM_LOGIN_REQUIRED_MESSAGE
             )}
           />
-        )}
       </div>
     </main>
   );

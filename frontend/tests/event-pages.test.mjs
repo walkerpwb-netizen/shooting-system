@@ -12,6 +12,7 @@ let logs = "";
 const requests = [];
 const availablePaths = new Set();
 const mapCatalogs = { competitions: [], trainings: [] };
+let historicalUnavailable = false;
 const fallbackImage = "https://system-strzelecki.pl/icons/system-strzelecki-logo-20260623.png";
 const imageCases = [
   [20, "data:image/png;base64,AAAA", null],
@@ -75,6 +76,11 @@ async function listen(server) {
 before(async () => {
   api = http.createServer((req, res) => {
     requests.push(req.url);
+    if (req.url === "/historical-results/competitions") {
+      if (historicalUnavailable) return res.writeHead(503).end();
+      res.setHeader("Content-Type", "application/json");
+      return res.end(JSON.stringify([{ id: 42, name: "Zawody testowe", date: "2026-10-01", location: "Miasto testowe", organizer_full_name: "Klub testowy", shooters_count: 12, status: "completed", completed_at: "", premium_locked: true, description: "NIEPUBLIKOWANY_OPIS", participants: [{ name: "NIEPUBLIKOWANY_UCZESTNIK" }] }]));
+    }
     const [, collection, id] = req.url.split("/");
     res.setHeader("Content-Type", "application/json");
     if (!id && ["competitions", "trainings"].includes(collection)) {
@@ -141,6 +147,27 @@ before(async () => {
       throw new Error(`Test runtime failed to start: ${logs}`);
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+});
+
+test("historical archive: public summaries are in HTML, with Premium link and no participant data", async () => {
+  const response = await fetch(origin + "/historical-results");
+  const html = await response.text();
+  const visible = visibleHtml(html);
+  assert.equal(response.status, 200);
+  assertMetadata(visible, "/historical-results");
+  assert.match(visible, /Zawody testowe/);
+  assert.match(visible, /Miasto testowe/);
+  assert.match(visible, /Klub testowy/);
+  assert.match(visible.replace(/<!--.*?-->/g, ""), /12 zawodników/);
+  assert.match(visible, /href="\/premium"/);
+  assert.doesNotMatch(html, /NIEPUBLIKOWANY_OPIS|NIEPUBLIKOWANY_UCZESTNIK/);
+  historicalUnavailable = true;
+  try {
+    const unavailable = await fetch(origin + "/historical-results");
+    assert.equal(unavailable.status, 500);
+  } finally {
+    historicalUnavailable = false;
   }
 });
 
