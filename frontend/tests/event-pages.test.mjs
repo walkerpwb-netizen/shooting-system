@@ -81,6 +81,10 @@ before(async () => {
       res.setHeader("Content-Type", "application/json");
       return res.end(JSON.stringify([{ id: 42, name: "Zawody testowe", date: "2026-10-01", location: "Miasto testowe", organizer_full_name: "Klub testowy", shooters_count: 12, status: "completed", completed_at: "", premium_locked: true, description: "NIEPUBLIKOWANY_OPIS", participants: [{ name: "NIEPUBLIKOWANY_UCZESTNIK" }] }]));
     }
+    if (req.url === "/shooting-ranges") {
+      res.setHeader("Content-Type", "application/json");
+      return res.end(JSON.stringify([{ id: 1, name: "Strzelnica testowa", address: "Miasto testowe", phone: "123", website: "", latitude: 52, longitude: 21 }]));
+    }
     const [, collection, id] = req.url.split("/");
     res.setHeader("Content-Type", "application/json");
     if (!id && ["competitions", "trainings"].includes(collection)) {
@@ -88,12 +92,12 @@ before(async () => {
       return;
     }
     const imageCase = imageCases.find(([caseId]) => String(caseId) === id);
-    if (id === "1" || imageCase || availablePaths.has(req.url)) {
+    if (id === "1" || id === "50" || imageCase || availablePaths.has(req.url)) {
       res.end(JSON.stringify({
         id: Number(id),
         name: `Test ${collection}`,
-        description: "Opis szkolenia testowego",
-        date: "2026-12-01",
+        description: id === "50" ? "</script><script>atak</script>" : "Opis szkolenia testowego",
+        date: id === "50" ? "31.02.2026" : "2026-12-01",
         location: "Testowa lokalizacja",
         latitude: null,
         longitude: null,
@@ -367,4 +371,35 @@ test("shared map receives both event types and filters them by status", async ()
     mapCatalogs.competitions = [];
     mapCatalogs.trainings = [];
   }
+});
+
+function jsonLd(html) {
+  return [...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)].map((match) => JSON.parse(match[1]));
+}
+
+test("structured data describes public pages and escapes untrusted content", async () => {
+  const home = await (await fetch(origin + "/")).text();
+  const graph = jsonLd(home)[0]["@graph"];
+  assert.deepEqual(graph.map((item) => item["@type"]), ["Person", "WebSite", "WebApplication"]);
+  assert.equal(graph[0].name, "Piotr Bronny");
+  for (const collection of ["competitions", "trainings"]) {
+    const html = await (await fetch(`${origin}/${collection}/1`)).text();
+    const event = jsonLd(html)[0];
+    assert.equal(event.url, `https://system-strzelecki.pl/${collection}/1`);
+    assert.equal(event.startDate, "2026-12-01");
+    assert.equal(event.location, "Testowa lokalizacja");
+    assert.equal(event.organizer, undefined);
+    assert.equal(event.participants, undefined);
+    const unsafe = await (await fetch(`${origin}/${collection}/50`)).text();
+    assert.ok(!unsafe.includes("</script><script>atak</script>"));
+    const parsed = jsonLd(unsafe)[0];
+    assert.equal(parsed.description, "</script><script>atak</script>");
+    assert.equal(parsed.startDate, undefined);
+  }
+  const range = jsonLd(await (await fetch(origin + "/shooting-ranges/1")).text())[0];
+  assert.equal(range["@type"], "Place");
+  assert.equal(range.url, "https://system-strzelecki.pl/shooting-ranges/1");
+  assert.equal(range.address, "Miasto testowe");
+  assert.equal(range.telephone, "123");
+  assert.equal(range.sameAs, undefined);
 });

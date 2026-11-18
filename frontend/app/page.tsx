@@ -2,6 +2,8 @@ import { createPageMetadata, homeTitle, homeDescription } from "@/lib/page-metad
 import type { Metadata } from "next";
 
 import HomeClient from "./HomeClient";
+import JsonLd from "@/components/JsonLd";
+import { siteStructuredData } from "@/lib/structured-data";
 
 export const metadata: Metadata = createPageMetadata({
   path: "/",
@@ -10,5 +12,5 @@ export const metadata: Metadata = createPageMetadata({
 });
 
 export default function HomePage() {
-  return <HomeClient />;
+  return <><JsonLd data={siteStructuredData} /><HomeClient /></>;
 }

@@ -1,3 +1,5 @@
+import JsonLd from "@/components/JsonLd";
+import { eventStructuredData } from "@/lib/structured-data";
 import Link from "next/link";
 import { createPageMetadata } from "@/lib/page-metadata";
 import type { Metadata } from "next";
@@ -137,6 +139,7 @@ export default async function CompetitionPage({
 
   return (
     <main className="min-h-screen bg-white p-6 text-zinc-950 dark:bg-black dark:text-white sm:p-10">
+      <JsonLd data={eventStructuredData(competition, "competitions")} />
       {["published", "started"].includes(competition.status) && <RegistrationCountdown
         registrationDeadline={competition.registration_deadline}
         participantsCount={competition.participants.length}

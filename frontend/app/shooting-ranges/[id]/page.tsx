@@ -1,3 +1,5 @@
+import JsonLd from "@/components/JsonLd";
+import { siteUrl } from "@/lib/page-metadata";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { cache } from "react";
@@ -30,6 +32,13 @@ export default async function ShootingRangePage({ params }: Props) {
   const website = websiteUrl(range.website);
   const directions = `https://www.google.com/maps/dir/?api=1&destination=${range.latitude}%2C${range.longitude}`;
   return <main className="mx-auto max-w-4xl px-4 py-10 sm:px-6">
+    <JsonLd data={{
+      "@context": "https://schema.org", "@type": "Place",
+      "@id": `${siteUrl}/shooting-ranges/${range.id}#miejsce`,
+      url: `${siteUrl}/shooting-ranges/${range.id}`, name: range.name,
+      ...(range.address ? { address: range.address } : {}),
+      ...(range.phone ? { telephone: range.phone } : {}),
+    }} />
     <p><Link className="underline" href="/shooting-ranges">Katalog strzelnic</Link></p>
     <h1 className="mt-4 text-3xl font-black">{range.name}</h1>
     <section className="mt-8 space-y-3" aria-label="Lokalizacja i kontakt">
