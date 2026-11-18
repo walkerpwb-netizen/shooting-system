@@ -71,6 +71,7 @@ export default async function PremiumPage() {
         <p className="mt-8 leading-7 text-green-100">Zakup dotyczy wyłącznie wybranej usługi. Premium nie jest opłatą startową za zawody. Bez dodatkowej opłaty lub pakietu rocznego organizator może mieć jedno aktywne opublikowane wydarzenie — zawody lub szkolenie. Szkice są bez limitu. Jednorazowa opłata obejmuje publikację jednego dodatkowego wydarzenia.</p>
         <AutopayPaymentInfo wideDesktop />
         <nav aria-label="Informacje o zakupie Premium" className="mt-6 flex flex-wrap gap-6 font-semibold text-emerald-200 underline underline-offset-4">
+          <Link href="/dla-organizatorow">Oferta dla organizatorów</Link>
           <Link href="/premium/regulamin">Regulamin Premium i dane sprzedawcy</Link>
           <Link href="/polityka-prywatnosci">Polityka prywatności</Link>
           <Link href="/kontakt">Kontakt i reklamacje</Link>

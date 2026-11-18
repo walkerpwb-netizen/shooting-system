@@ -11,6 +11,7 @@ const siteUrl = (
 ).replace(/\/+$/, "");
 
 const staticRoutes = [
+  { path: "/dla-organizatorow", priority: 0.8, changeFrequency: "monthly" },
   {
     path: "/regulamin",
     priority: 0.4,

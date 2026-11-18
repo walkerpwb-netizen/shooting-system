@@ -4,6 +4,7 @@ import SocialMediaIcons from "./SocialMediaIcons";
 import SupportLink from "./SupportLink";
 
 const footerLinks = [
+  { href: "/dla-organizatorow", label: "Dla organizatorów" },
   {
     href: "/premium",
     label: "Premium i cennik",
@@ -35,7 +36,7 @@ export default function Footer() {
     <footer className="w-full border-t border-green-800 bg-green-950 px-6 py-6 text-white">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
         <nav
-          aria-label="Linki prawne"
+          aria-label="Informacje i linki prawne"
           className="flex flex-col gap-3 text-sm font-semibold text-green-100 sm:flex-row sm:flex-wrap sm:items-center sm:gap-6"
         >
           {footerLinks.map((link) => (
