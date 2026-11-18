@@ -72,7 +72,7 @@ after(async () => {
 });
 
 beforeEach(() => {
-  for (const path of ["/competitions", "/trainings"]) {
+  for (const path of ["/competitions", "/trainings", "/shooting-ranges"]) {
     catalogs[path] = [];
     delete failures[path];
   }
@@ -183,8 +183,8 @@ test("publishing and removing an event updates the same sitemap URL without a ca
 test("range directory renders public data and navigation in HTML, handles empty and failed API", async () => {
   const path = "/shooting-ranges";
   catalogs[path] = [
-    { id: 2, name: "Żubr", address: "Łódź", phone: "+48123", website: "https://example.com" },
-    { id: 1, name: "Alfa", address: "Warszawa", phone: "", website: "" },
+    { id: 2, name: "Żubr", address: "Łódź", phone: "+48123", website: "https://example.com", latitude: 52, longitude: 19 },
+    { id: 1, name: "Alfa", address: "Warszawa", phone: "", website: "", latitude: 52, longitude: 19 },
   ];
   let response = await fetch(origin + path);
   let html = (await response.text()).replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "");
@@ -200,6 +200,31 @@ test("range directory renders public data and navigation in HTML, handles empty 
   response = await fetch(origin + path);
   assert.equal(response.status, 500);
   delete failures[path];
-  catalogs[path] = [{ id: 1, name: "Alfa", address: "", phone: "", website: "" }];
+  catalogs[path] = [{ id: 1, name: "Alfa", address: "", phone: "", website: "", latitude: 52, longitude: 19 }];
   assert.equal((await fetch(origin + path)).status, 200);
+});
+
+
+test("range pages, sitemap and removal use stable IDs and honest HTML", async () => {
+  const path = "/shooting-ranges";
+  catalogs[path] = [{ id: 23, name: "Strzelnica Alfa", address: "Łódź", phone: "+48123", website: "https://example.com", latitude: 52, longitude: 19 }];
+  assertXml(await sitemap(), [...staticPaths, "/shooting-ranges/23"]);
+  let response = await fetch(origin + "/shooting-ranges/23");
+  let html = (await response.text()).replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "");
+  assert.equal(response.status, 200);
+  for (const value of ["Strzelnica Alfa", "Łódź", "+48123", "Data weryfikacji nie jest dostępna", "katalog Systemu Strzeleckiego", "destination=52%2C19", 'href="https://system-strzelecki.pl/shooting-ranges/23"']) assert.ok(html.includes(value), value);
+  response = await fetch(origin + path);
+  assert.match(await response.text(), /href="\/shooting-ranges\/23"/);
+  catalogs[path][0].name = "Nowa nazwa";
+  assert.match(await (await fetch(origin + "/shooting-ranges/23")).text(), /Nowa nazwa/);
+  for (const id of ["999", "023", "abc"]) assert.equal((await fetch(origin + "/shooting-ranges/" + id)).status, 404);
+  Object.assign(catalogs[path][0], { address: "", phone: "", website: "" });
+  html = (await (await fetch(origin + "/shooting-ranges/23")).text()).replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "");
+  for (const absent of ["Lokalizacja:", "Telefon:", "Strona internetowa strzelnicy", "Godziny", "Cena", "Opinie"]) assert.ok(!html.includes(absent), absent);
+  catalogs[path] = [];
+  assert.equal((await fetch(origin + "/shooting-ranges/23")).status, 404);
+  assertXml(await sitemap());
+  failures[path] = 503;
+  assert.equal((await fetch(origin + "/shooting-ranges/23")).status, 500);
+  assert.equal((await sitemap()).response.status, 500);
 });

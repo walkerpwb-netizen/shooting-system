@@ -18,6 +18,7 @@ export type ShootingRangeMapItem = {
   id: string;
   kind?: "range" | "shop";
   shopId?: number;
+  publicRangeId?: number;
   name: string;
   address?: string;
   phone?: string;
@@ -135,6 +136,7 @@ function createShopIcon() {
 function toMapRange(range: ShootingRangeResponse): ShootingRangeMapItem {
   return {
     id: range.range_id,
+    publicRangeId: range.id,
     name: range.name,
     address: range.address,
     phone: range.phone,
@@ -617,6 +619,9 @@ export default function ShootingRangesMap({
                     <p className="text-base font-black">
                       {range.name}
                     </p>
+                    {range.kind !== "shop" && range.publicRangeId && (
+                      <p><a className="font-bold underline" href={`/shooting-ranges/${range.publicRangeId}`}>Zobacz kartę strzelnicy</a></p>
+                    )}
                     {range.address && (
                       <p>
                         {range.address}

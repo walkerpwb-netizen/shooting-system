@@ -1,6 +1,7 @@
 import type { MetadataRoute } from "next";
 
 import { apiUrl } from "@/lib/api";
+import { getShootingRanges } from "@/lib/shooting-ranges";
 
 export const dynamic = "force-dynamic";
 
@@ -168,9 +169,10 @@ async function eventEntries(collection: "competitions" | "trainings") {
 }
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const [competitions, trainings] = await Promise.all([
+  const [competitions, trainings, ranges] = await Promise.all([
     eventEntries("competitions"),
     eventEntries("trainings"),
+    getShootingRanges(),
   ]);
 
   return [
@@ -182,5 +184,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     ),
     ...competitions,
     ...trainings,
+    ...ranges.sort((a, b) => a.id - b.id).map((range) => sitemapEntry(`/shooting-ranges/${range.id}`)),
   ];
 }

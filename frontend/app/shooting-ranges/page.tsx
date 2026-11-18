@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { apiUrl } from "@/lib/api";
+import { getShootingRanges, websiteUrl, type ShootingRange } from "@/lib/shooting-ranges";
 import { createPageMetadata } from "@/lib/page-metadata";
 
 export const metadata: Metadata = createPageMetadata({
@@ -10,33 +10,9 @@ export const metadata: Metadata = createPageMetadata({
   robots: { index: true, follow: true },
 });
 
-type Range = { id: number; name: string; address: string; phone: string; website: string };
-
-async function getRanges(): Promise<Range[]> {
-  const response = await fetch(apiUrl("/shooting-ranges"), {
-    cache: "no-store", signal: AbortSignal.timeout(5000),
-  });
-  if (!response.ok) throw new Error(`Shooting ranges API: HTTP ${response.status}`);
-  const data: unknown = await response.json();
-  if (!Array.isArray(data) || data.some((range) => !range || typeof range !== "object"
-    || !Number.isSafeInteger(range.id) || range.id < 1 || typeof range.name !== "string"
-    || !range.name.trim() || [range.address, range.phone, range.website].some((value) => typeof value !== "string"))) {
-    throw new Error("Shooting ranges API: invalid directory");
-  }
-  return (data as Range[]).sort((a, b) => a.name.localeCompare(b.name, "pl") || a.id - b.id);
-}
-
-function websiteUrl(value: string): string | undefined {
-  if (!value.trim()) return undefined;
-  try {
-    const url = new URL(/^https?:\/\//i.test(value.trim()) ? value.trim() : `https://${value.trim()}`);
-    return ["http:", "https:"].includes(url.protocol) && !url.username && !url.password ? url.href : undefined;
-  } catch { return undefined; }
-}
-
 export default async function ShootingRangesPage() {
-  const ranges = await getRanges();
-  const groups = new Map<string, Range[]>();
+  const ranges = (await getShootingRanges()).sort((a, b) => a.name.localeCompare(b.name, "pl") || a.id - b.id);
+  const groups = new Map<string, ShootingRange[]>();
   for (const range of ranges) {
     const letter = Array.from(range.name.trim().toLocaleUpperCase("pl"))[0] || "#";
     groups.set(letter, [...(groups.get(letter) || []), range]);
@@ -59,7 +35,7 @@ export default async function ShootingRangesPage() {
             {items.map((range) => {
               const website = websiteUrl(range.website);
               return <li id={`strzelnica-${range.id}`} key={range.id} className="rounded-xl border border-zinc-700 p-4">
-                <h3 className="font-bold">{range.name}</h3>
+                <h3 className="font-bold"><Link className="underline" href={`/shooting-ranges/${range.id}`}>{range.name}</Link></h3>
                 {range.address && <p className="mt-2">{range.address}</p>}
                 {range.phone && <p className="mt-2">Telefon: {range.phone}</p>}
                 {website && <p className="mt-2"><a className="underline" href={website} rel="noopener noreferrer">Strona internetowa</a></p>}
