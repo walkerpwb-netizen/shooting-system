@@ -16,8 +16,8 @@ inherit the home page's `og:url`. Account/Premium indexing rules remain in
 
 ## URL policy
 
-- Each current public page has a self-canonical path. Both existing event maps
-  remain independent canonical pages until topic 08 decides their scope.
+- Each current public page has a self-canonical path. The shared event map uses
+  `/competitions/map`; `/trainings/map` permanently redirects there with its query.
 - List/map `status` values (`upcoming`, `live`, `finished`, `joined`, unsupported
   values) are views of the same resource, canonicalized to the unfiltered path.
   They keep the resource's title, description and previews. Unknown statuses

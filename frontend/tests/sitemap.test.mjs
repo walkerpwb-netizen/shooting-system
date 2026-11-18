@@ -15,7 +15,7 @@ const requests = [];
 const siteUrl = "https://system-strzelecki.pl";
 const staticPaths = ["", "/regulamin", "/polityka-prywatnosci", "/publikacja-wynikow",
   "/historical-results", "/wesprzyj-nas", "/premium", "/premium/regulamin",
-  "/competitions", "/competitions/map", "/trainings", "/trainings/map",
+  "/competitions", "/competitions/map", "/trainings",
   "/shooting-ranges/map", "/kontakt", "/pobierz-aplikacje"];
 
 async function listen(server) {

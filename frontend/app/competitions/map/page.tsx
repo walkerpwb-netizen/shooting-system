@@ -98,12 +98,20 @@ export default async function CompetitionsMapPage({
             </p>
           </div>
 
-          <Link
-            href={`/competitions?status=${activeTab.key}`}
-            className="ui-button inline-flex w-full items-center justify-center rounded-xl bg-zinc-100 px-5 py-3 font-bold text-zinc-800 transition hover:bg-zinc-200 dark:bg-zinc-800 dark:text-gray-200 dark:hover:bg-zinc-700 md:w-auto"
-          >
-            Wróć do zawodów
-          </Link>
+          <div className="flex flex-wrap gap-3">
+            <Link
+              href={`/competitions?status=${activeTab.key}`}
+              className="ui-button inline-flex w-full items-center justify-center rounded-xl bg-zinc-100 px-5 py-3 font-bold text-zinc-800 transition hover:bg-zinc-200 dark:bg-zinc-800 dark:text-gray-200 dark:hover:bg-zinc-700 md:w-auto"
+            >
+              Lista zawodów
+            </Link>
+            <Link
+              href={`/trainings?status=${activeTab.key}`}
+              className="ui-button inline-flex w-full items-center justify-center rounded-xl bg-zinc-100 px-5 py-3 font-bold text-zinc-800 transition hover:bg-zinc-200 dark:bg-zinc-800 dark:text-gray-200 dark:hover:bg-zinc-700 md:w-auto"
+            >
+              Lista szkoleń
+            </Link>
+          </div>
         </div>
 
         <div className="mb-6 flex flex-wrap gap-3">

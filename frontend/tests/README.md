@@ -10,8 +10,8 @@ the sitemap and its acceptance tests in the same change.
   redirects, query variants and URLs with another canonical or `noindex`.
 - Check GET/HEAD 200, self-canonical metadata and compatibility with `robots.txt`.
   The current `/historical-results` entry is the public archive landing page;
-  its protected descendants are excluded. Both existing event maps stay listed
-  until task 08 decides their future. Do not pre-add planned range, city or
+  its protected descendants are excluded. The shared event map is listed at
+  `/competitions/map`; `/trainings/map` redirects to it. Do not pre-add planned range, city or
   organizer pages before they exist and their public scope is settled.
 - Omit `lastmod` unless its source records the last significant change of the
   public page. Currently static pages have no maintained editorial dates, and

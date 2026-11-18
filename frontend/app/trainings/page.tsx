@@ -168,7 +168,7 @@ export default async function TrainingsPage({
           competitions={visibleTrainings}
           emptyMessage={activeTab.empty}
           dateSortDirection={activeTab.key === "finished" ? "desc" : "asc"}
-          mapHref={`/trainings/map?status=${activeTab.key === "joined" ? "upcoming" : activeTab.key}`}
+          mapHref={`/competitions/map?status=${activeTab.key === "joined" ? "upcoming" : activeTab.key}`}
           onlyMyEntries={activeTab.key === "joined"}
           entriesEndpoint="/trainings/my-entries"
           detailsHrefBase="/trainings"

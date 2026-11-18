@@ -11,6 +11,7 @@ let origin;
 let logs = "";
 const requests = [];
 const availablePaths = new Set();
+const mapCatalogs = { competitions: [], trainings: [] };
 const fallbackImage = "https://system-strzelecki.pl/icons/system-strzelecki-logo-20260623.png";
 const imageCases = [
   [20, "data:image/png;base64,AAAA", null],
@@ -77,7 +78,7 @@ before(async () => {
     const [, collection, id] = req.url.split("/");
     res.setHeader("Content-Type", "application/json");
     if (!id && ["competitions", "trainings"].includes(collection)) {
-      res.end("[]");
+      res.end(JSON.stringify(mapCatalogs[collection]));
       return;
     }
     const imageCase = imageCases.find(([caseId]) => String(caseId) === id);
@@ -282,7 +283,7 @@ test("public information, Premium, support, archive and maps have complete page-
 });
 
 test("list and map filter variants retain the unfiltered canonical and complete previews", async () => {
-  for (const path of ["/competitions", "/trainings", "/competitions/map", "/trainings/map"]) {
+  for (const path of ["/competitions", "/trainings", "/competitions/map"]) {
     for (const status of ["upcoming", "live", "finished", "joined", "invalid"]) {
       const response = await fetch(origin + path + `?status=${status}&utm_source=test`, { headers: { "User-Agent": "Twitterbot" } });
       const html = visibleHtml(await response.text());
@@ -290,5 +291,51 @@ test("list and map filter variants retain the unfiltered canonical and complete 
       const tags = assertMetadata(html, path);
       assert.doesNotMatch(tags.get("robots")?.join() || "", /noindex/);
     }
+  }
+});
+
+test("training map redirects permanently to the shared map and preserves filters", async () => {
+  for (const method of ["GET", "HEAD"]) {
+    for (const query of ["", "?status=finished&utm_source=test", "?status=live"]) {
+      const response = await fetch(origin + "/trainings/map" + query, { method, redirect: "manual" });
+      assert.equal(response.status, 308);
+      assert.equal(response.headers.get("location"), "/competitions/map" + query);
+      const destination = await fetch(new URL(response.headers.get("location"), origin), { method, redirect: "manual" });
+      assert.equal(destination.status, 200);
+    }
+  }
+});
+
+test("shared map links to both event lists with the selected status", async () => {
+  for (const status of ["upcoming", "live", "finished"]) {
+    const response = await fetch(origin + "/competitions/map?status=" + status);
+    const html = visibleHtml(await response.text());
+    assert.equal(response.status, 200);
+    for (const collection of ["competitions", "trainings"]) {
+      assert.match(html, new RegExp(`href="/${collection}\\?status=${status}"`));
+    }
+  }
+});
+
+test("shared map receives both event types and filters them by status", async () => {
+  for (const [collection, type] of [["competitions", "competition"], ["trainings", "training"]]) {
+    mapCatalogs[collection] = [
+      { id: type === "competition" ? 101 : 201, name: `${type}-live-test`, event_type: type, status: "started", latitude: 52, longitude: 20, date: "2026-12-01", location: "Test" },
+      { id: type === "competition" ? 102 : 202, name: `${type}-finished-test`, event_type: type, status: "completed", latitude: 52, longitude: 20, date: "2026-12-01", location: "Test" },
+    ];
+  }
+  try {
+    for (const [status, included, excluded] of [["live", "live-test", "finished-test"], ["finished", "finished-test", "live-test"]]) {
+      const response = await fetch(origin + "/competitions/map?status=" + status);
+      const html = await response.text();
+      assert.equal(response.status, 200);
+      for (const type of ["competition", "training"]) {
+        assert.ok(html.includes(`${type}-${included}`));
+        assert.ok(!html.includes(`${type}-${excluded}`));
+      }
+    }
+  } finally {
+    mapCatalogs.competitions = [];
+    mapCatalogs.trainings = [];
   }
 });

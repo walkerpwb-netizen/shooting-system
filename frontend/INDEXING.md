@@ -6,7 +6,8 @@ Authentication, role checks, field filtering and Premium checks stay in the API.
 
 | Routes | Access and indexing policy | Search crawler rules |
 | --- | --- | --- |
-| `/`, `/competitions`, `/competitions/map`, `/competitions/[id]`, `/trainings`, `/trainings/map`, `/trainings/[id]`, `/shooting-ranges/map` | Public, indexable published content; event publication filters remain in place | Allow |
+| `/`, `/competitions`, `/competitions/map`, `/competitions/[id]`, `/trainings`, `/trainings/[id]`, `/shooting-ranges/map` | Public, indexable published content; event publication filters remain in place | Allow |
+| `/trainings/map` | Permanent redirect to the shared `/competitions/map`, preserving query | Allow |
 | `/kontakt`, `/pobierz-aplikacje`, `/regulamin`, `/polityka-prywatnosci`, `/publikacja-wynikow`, `/wesprzyj-nas`, `/premium`, `/premium/regulamin` | Public, indexable information and offer (not paid data) | Allow |
 | `/historical-results` | Public, indexable archive landing page; existing API summary and lock rules | Allow exact landing page; block descendants |
 | `/login`, `/register`, `/activate`, `/forgot-password`, `/reset-password` | Public account forms, `noindex, follow`; activation/reset still require valid tokens | Allow HTML to read noindex |
