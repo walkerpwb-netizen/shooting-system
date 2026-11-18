@@ -228,3 +228,37 @@ test("range pages, sitemap and removal use stable IDs and honest HTML", async ()
   assert.equal((await fetch(origin + "/shooting-ranges/23")).status, 500);
   assert.equal((await sitemap()).response.status, 500);
 });
+
+test("city pilot only includes reviewed addresses and removes stale assignments from HTML and sitemap", async () => {
+  const path = "/shooting-ranges";
+  catalogs[path] = [
+    { id: 75, name: "Warszawa A", address: "ul. Krakowiaków 80A, 02-255 Warszawa", phone: "", website: "", latitude: 52.1915002, longitude: 20.9357887 },
+    { id: 169, name: "Operator Warszawa", address: "ul. Myśliwska 6, 05-555 Suchodół", phone: "", website: "", latitude: 52, longitude: 21 },
+    { id: 1, name: "Wrocław A", address: "ul. Sztabowa 32, Wrocław", phone: "", website: "", latitude: 51.08951016666667, longitude: 17.011930638888888 },
+  ];
+  let response = await fetch(origin + "/shooting-ranges/miasta/warszawa");
+  let html = (await response.text()).replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "");
+  assert.equal(response.status, 200);
+  for (const value of ["Warszawa A", "ul. Krakowiaków 80A", 'href="/shooting-ranges/75"', 'href="https://system-strzelecki.pl/shooting-ranges/miasta/warszawa"']) assert.ok(html.includes(value), value);
+  assert.doesNotMatch(html, /Operator Warszawa|Suchodół/);
+  let urls = (await sitemap()).urls;
+  assert.ok(urls.includes(siteUrl + "/shooting-ranges/miasta/warszawa"));
+  assert.ok(urls.includes(siteUrl + "/shooting-ranges/miasta/wroclaw"));
+  assert.ok(!urls.includes(siteUrl + "/shooting-ranges/miasta/krakow"));
+  response = await fetch(origin + path);
+  assert.match(await response.text(), /href="\/shooting-ranges\/miasta\/warszawa"/);
+  catalogs[path][0].address = "Nowy adres, Suchodół";
+  response = await fetch(origin + "/shooting-ranges/miasta/warszawa");
+  html = (await response.text()).replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "");
+  assert.match(html, /Obecnie nie mamy obiektów przypisanych/);
+  assert.match(html, /noindex/);
+  assert.doesNotMatch(html, /Warszawa A|Nowy adres/);
+  urls = (await sitemap()).urls;
+  assert.ok(!urls.includes(siteUrl + "/shooting-ranges/miasta/warszawa"));
+  catalogs[path][0].address = "ul. Krakowiaków 80A, 02-255 Warszawa";
+  catalogs[path][0].latitude = 50;
+  assert.ok(!(await sitemap()).urls.includes(siteUrl + "/shooting-ranges/miasta/warszawa"));
+  assert.equal((await fetch(origin + "/shooting-ranges/miasta/nieznane")).status, 404);
+  failures[path] = 503;
+  assert.equal((await fetch(origin + "/shooting-ranges/miasta/warszawa")).status, 500);
+});

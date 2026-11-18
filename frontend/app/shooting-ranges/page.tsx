@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { getShootingRanges, websiteUrl, type ShootingRange } from "@/lib/shooting-ranges";
 import { createPageMetadata } from "@/lib/page-metadata";
+import { cityRanges, rangeCities } from "@/lib/range-cities";
 
 export const metadata: Metadata = createPageMetadata({
   path: "/shooting-ranges",
@@ -24,6 +25,11 @@ export default async function ShootingRangesPage() {
       <h1 className="text-3xl font-black">Katalog strzelnic w Polsce</h1>
       <p className="mt-3">Lista strzelnic i dostępnych danych kontaktowych. Lokalizacja może być podana jako miejscowość lub adres.</p>
       <p className="mt-3"><Link className="font-bold underline" href="/shooting-ranges/map">Zobacz mapę strzelnic i sklepów</Link></p>
+      {rangeCities.some((city) => cityRanges(city, ranges).length > 0) && <nav className="mt-6" aria-label="Strzelnice w miastach">
+        <h2 className="font-bold">Strzelnice w miastach</h2>
+        <ul className="mt-2 flex flex-wrap gap-4">{rangeCities.filter((city) => cityRanges(city, ranges).length > 0).map((city) =>
+          <li key={city.slug}><Link className="underline" href={`/shooting-ranges/miasta/${city.slug}`}>{city.name}</Link></li>)}</ul>
+      </nav>}
       {ranges.length === 0 ? <p className="mt-8">Obecnie w katalogu nie ma strzelnic.</p> : <>
         <p className="mt-6">Liczba strzelnic: {ranges.length}</p>
         <nav aria-label="Strzelnice według pierwszej litery" className="mt-4 flex flex-wrap gap-3">

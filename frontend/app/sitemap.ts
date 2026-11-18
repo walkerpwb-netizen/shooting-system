@@ -2,6 +2,7 @@ import type { MetadataRoute } from "next";
 
 import { apiUrl } from "@/lib/api";
 import { getShootingRanges } from "@/lib/shooting-ranges";
+import { cityRanges, rangeCities } from "@/lib/range-cities";
 
 export const dynamic = "force-dynamic";
 
@@ -185,5 +186,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     ...competitions,
     ...trainings,
     ...ranges.sort((a, b) => a.id - b.id).map((range) => sitemapEntry(`/shooting-ranges/${range.id}`)),
+    ...rangeCities.filter((city) => cityRanges(city, ranges).length > 0)
+      .map((city) => sitemapEntry(`/shooting-ranges/miasta/${city.slug}`)),
   ];
 }
