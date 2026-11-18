@@ -142,6 +142,7 @@ export default async function CompetitionsPage({
 
         <p className="mb-6 text-zinc-600 dark:text-gray-400">
           Aby się zapisać, otwórz szczegóły wydarzenia i zaloguj się. Dostępność zapisów, limit miejsc i termin określa dane wydarzenie.
+          {" "}<Link href="/jak-sie-zapisac" className="font-semibold text-green-700 underline dark:text-green-300">Instrukcja zapisów</Link>.
         </p>
 
         <div className="flex flex-wrap gap-3 mb-8">
