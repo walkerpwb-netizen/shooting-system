@@ -6,6 +6,7 @@ type RegistrationCountdownProps = {
   registrationDeadline: string | null | undefined;
   participantsCount: number;
   minParticipants: number | null | undefined;
+  eventType?: "competition" | "training";
 };
 
 function countdownParts(remainingMs: number) {
@@ -47,6 +48,7 @@ export default function RegistrationCountdown({
   registrationDeadline,
   participantsCount,
   minParticipants,
+  eventType = "competition",
 }: RegistrationCountdownProps) {
   const deadlineTime = useMemo(() => {
     if (!registrationDeadline) {
@@ -86,7 +88,7 @@ export default function RegistrationCountdown({
       <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <p className="text-sm font-black uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
-            Zapisy do zawodów
+            {eventType === "training" ? "Zapisy na szkolenie" : "Zapisy do zawodów"}
           </p>
           <h2 className="mt-2 text-3xl font-black sm:text-5xl">
             {registrationClosed ? "Zapisy zakończone" : "Do końca zapisów"}

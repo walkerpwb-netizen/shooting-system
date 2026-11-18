@@ -49,6 +49,7 @@ type Participant = {
 type Competition = {
   id: number;
   name: string;
+  description?: string;
   date: string;
   location: string;
   latitude: number | null;
@@ -136,11 +137,11 @@ export default async function CompetitionPage({
 
   return (
     <main className="min-h-screen bg-white p-6 text-zinc-950 dark:bg-black dark:text-white sm:p-10">
-      <RegistrationCountdown
+      {["published", "started"].includes(competition.status) && <RegistrationCountdown
         registrationDeadline={competition.registration_deadline}
         participantsCount={competition.participants.length}
         minParticipants={competition.min_participants || null}
-      />
+      />}
 
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <h1 className="text-4xl font-bold">
@@ -152,6 +153,9 @@ export default async function CompetitionPage({
       <div className="grid lg:grid-cols-2 gap-6">
         <div className="space-y-6">
           <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
+            <p className="text-zinc-700 dark:text-gray-300">
+              Status: {({ published: "Opublikowane", started: "W trakcie", completed: "Zakończone" } as Record<string, string>)[competition.status] || competition.status}
+            </p>
             <p className="text-zinc-700 dark:text-gray-300">
               Data: {competition.date}
             </p>
@@ -194,6 +198,13 @@ export default async function CompetitionPage({
               </p>
             )}
           </section>
+
+          {competition.description && (
+            <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+              <h2 className="mb-4 text-2xl font-bold">Opis zawodów</h2>
+              <p className="whitespace-pre-wrap text-zinc-700 dark:text-gray-300">{competition.description}</p>
+            </section>
+          )}
 
           {(competition.public_organizer_id || competition.organizer_full_name || competition.organizer_logo || competition.sponsors || competition.sponsor_logo) && (
             <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 space-y-4">

@@ -139,11 +139,12 @@ export default async function TrainingPage({
 
   return (
     <main className="min-h-screen bg-white p-6 text-zinc-950 dark:bg-black dark:text-white sm:p-10">
-      <RegistrationCountdown
+      {["published", "started"].includes(training.status) && <RegistrationCountdown
         registrationDeadline={training.registration_deadline}
         participantsCount={training.participants.length}
         minParticipants={training.min_participants || null}
-      />
+        eventType="training"
+      />}
 
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <h1 className="text-4xl font-bold">
@@ -155,6 +156,9 @@ export default async function TrainingPage({
       <div className="grid lg:grid-cols-2 gap-6">
         <div className="space-y-6">
           <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
+            <p className="text-zinc-700 dark:text-gray-300">
+              Status: {({ published: "Opublikowane", started: "W trakcie", completed: "Zakończone" } as Record<string, string>)[training.status] || training.status}
+            </p>
             <p className="text-zinc-700 dark:text-gray-300">
               Data: {training.date}
             </p>

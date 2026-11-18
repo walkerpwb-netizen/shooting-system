@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { createPageMetadata } from "@/lib/page-metadata";
 import type { Metadata } from "next";
 
@@ -54,9 +55,9 @@ const tabs: {
   },
   {
     key: "upcoming",
-    label: "Nadchodzące zawody",
-    title: "Nadchodzące Zawody",
-    empty: "Brak nadchodzących zawodów.",
+    label: "Opublikowane zawody",
+    title: "Opublikowane zawody",
+    empty: "Brak opublikowanych zawodów.",
     statuses: ["published"],
   },
   {
@@ -77,7 +78,7 @@ async function getCompetitions() {
   );
 
   if (!response.ok) {
-    return [];
+    throw new Error("Nie udało się pobrać listy wydarzeń");
   }
 
   return response.json();
@@ -135,9 +136,13 @@ export default async function CompetitionsPage({
           </h1>
 
           <p className="text-zinc-600 dark:text-gray-400">
-            Opublikowane zawody strzeleckie
+            Przeglądaj zawody według statusu, daty i miejsca. Na stronie zawodów znajdziesz konkurencje, opłaty i dostępne zasady udziału.
           </p>
         </div>
+
+        <p className="mb-6 text-zinc-600 dark:text-gray-400">
+          Aby się zapisać, otwórz szczegóły wydarzenia i zaloguj się. Dostępność zapisów, limit miejsc i termin określa dane wydarzenie.
+        </p>
 
         <div className="flex flex-wrap gap-3 mb-8">
           {tabs.map((tab) => (
@@ -159,6 +164,23 @@ export default async function CompetitionsPage({
             isActive={activeTab.key === "joined"}
           />
         </div>
+
+        {activeTab.key !== "finished" && activeTab.key !== "joined" && visibleCompetitions.length === 0 && (
+          <div className="mb-6 space-y-2 text-zinc-600 dark:text-gray-400">
+            {competitions.some((event) => event.status === "completed") ? (
+              <>
+              <p>Możesz też przejrzeć <Link className="font-semibold text-green-700 underline dark:text-green-400" href="/competitions?status=finished">zakończone zawody</Link> i ich szczegóły.</p>
+              <ul className="list-inside list-disc">
+                {competitions.filter((event) => event.status === "completed").sort((a, b) => parseCompetitionTime(b.date) - parseCompetitionTime(a.date)).slice(0, 3).map((event) => (
+                  <li key={event.id}><Link className="underline" href={`/competitions/${event.id}`}>{event.name} — {event.date}</Link></li>
+                ))}
+              </ul>
+              </>
+            ) : (
+              <p>Nie ma obecnie opublikowanych zakończonych zawodów. Sprawdź ponownie później.</p>
+            )}
+          </div>
+        )}
 
         <CompetitionList
           competitions={visibleCompetitions}

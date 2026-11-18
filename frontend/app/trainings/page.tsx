@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { createPageMetadata } from "@/lib/page-metadata";
 import type { Metadata } from "next";
 
@@ -55,9 +56,9 @@ const tabs: {
   },
   {
     key: "upcoming",
-    label: "Nadchodzące szkolenia",
-    title: "Nadchodzące Szkolenia",
-    empty: "Brak nadchodzących szkoleń.",
+    label: "Opublikowane szkolenia",
+    title: "Opublikowane szkolenia",
+    empty: "Brak opublikowanych szkoleń.",
     statuses: ["published"],
   },
   {
@@ -78,7 +79,7 @@ async function getTrainings() {
   );
 
   if (!response.ok) {
-    return [];
+    throw new Error("Nie udało się pobrać listy wydarzeń");
   }
 
   return response.json();
@@ -136,9 +137,13 @@ export default async function TrainingsPage({
           </h1>
 
           <p className="text-zinc-600 dark:text-gray-400">
-            Opublikowane szkolenia strzeleckie
+            Przeglądaj szkolenia według statusu, daty i miejsca. Na stronie szkolenia znajdziesz opis, program, cenę i dostępne zasady udziału.
           </p>
         </div>
+
+        <p className="mb-6 text-zinc-600 dark:text-gray-400">
+          Aby się zapisać, otwórz szczegóły wydarzenia i zaloguj się. Dostępność zapisów, limit miejsc i termin określa dane wydarzenie.
+        </p>
 
         <div className="flex flex-wrap gap-3 mb-8">
           {tabs.map((tab) => (
@@ -163,6 +168,23 @@ export default async function TrainingsPage({
             entriesEndpoint="/trainings/my-entries"
           />
         </div>
+
+        {activeTab.key !== "finished" && activeTab.key !== "joined" && visibleTrainings.length === 0 && (
+          <div className="mb-6 space-y-2 text-zinc-600 dark:text-gray-400">
+            {trainings.some((event) => event.status === "completed") ? (
+              <>
+              <p>Możesz też przejrzeć <Link className="font-semibold text-green-700 underline dark:text-green-400" href="/trainings?status=finished">zakończone szkolenia</Link> i ich szczegóły.</p>
+              <ul className="list-inside list-disc">
+                {trainings.filter((event) => event.status === "completed").sort((a, b) => parseTrainingTime(b.date) - parseTrainingTime(a.date)).slice(0, 3).map((event) => (
+                  <li key={event.id}><Link className="underline" href={`/trainings/${event.id}`}>{event.name} — {event.date}</Link></li>
+                ))}
+              </ul>
+              </>
+            ) : (
+              <p>Nie ma obecnie opublikowanych zakończonych szkoleń. Sprawdź ponownie później.</p>
+            )}
+          </div>
+        )}
 
         <CompetitionList
           competitions={visibleTrainings}
