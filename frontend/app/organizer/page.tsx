@@ -2050,6 +2050,7 @@ function OrganizerContent() {
           </div>
 
           <div className="flex w-full flex-col gap-3 md:w-auto md:flex-row">
+            {!adminClubId && <button type="button" onClick={() => router.push("/organizer/public-profile")} className="ui-button rounded-2xl bg-zinc-700 px-6 py-4 font-bold text-white hover:bg-zinc-600">Publiczna karta</button>}
             {adminClubId && (
               <button
                 type="button"

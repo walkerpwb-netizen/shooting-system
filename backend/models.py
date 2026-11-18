@@ -803,8 +803,20 @@ class HomePost(Base):
     )
 
 
+class PublicOrganizer(Base):
+    __tablename__ = "public_organizers"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False)
+    name = Column(String(200), nullable=False, default="")
+    description = Column(Text, nullable=False, default="")
+    published = Column(Boolean, nullable=False, default=False)
+
+
 class Competition(Base):
     __tablename__ = "competitions"
+
+    public_organizer_id = Column(Integer, ForeignKey("public_organizers.id", ondelete="SET NULL"), nullable=True, index=True)
 
     id = Column(
         Integer,

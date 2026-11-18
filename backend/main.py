@@ -43,6 +43,7 @@ from models import (
     ShootingRangeSubmission,
     User,
     Competition,
+    PublicOrganizer,
     Discipline,
     CompetitionParticipant,
     ParticipantDiscipline,
@@ -4462,6 +4463,13 @@ def delete_user_with_dependencies(user: User, db):
         .delete(synchronize_session=False)
     )
 
+    public_profile = db.query(PublicOrganizer).filter(PublicOrganizer.user_id == user.id).first()
+    if public_profile:
+        db.query(Competition).filter(Competition.public_organizer_id == public_profile.id).update(
+            {Competition.public_organizer_id: None}, synchronize_session=False
+        )
+        db.delete(public_profile)
+        db.flush()
     db.delete(user)
 
     if participant_ids:
@@ -10093,6 +10101,7 @@ def public_competition_detail_row(
         "longitude": competition.longitude,
         "entry_fee": competition.entry_fee or "",
         "organizer_full_name": competition.organizer_full_name or "",
+        "public_organizer_id": public_organizer_id_for_event(competition, db),
         "organizer_logo": materialize_event_logo(competition.organizer_logo or "", EVENT_LOGO_DIR),
         "sponsors": competition.sponsors or "",
         "sponsor_logo": materialize_event_logo(competition.sponsor_logo or "", EVENT_LOGO_DIR),
@@ -12900,6 +12909,87 @@ def create_competition(
         "competition_id": competition.id,
     }
 
+
+
+class PublicOrganizerSettings(BaseModel):
+    name: str = Field(default="", max_length=200)
+    description: str = Field(default="", max_length=4000)
+    published: bool = False
+    event_ids: list[int] = Field(default_factory=list, max_length=5000)
+
+
+def public_organizer_id_for_event(event, db):
+    if event.status not in ("published", "started", "completed") or not event.public_organizer_id:
+        return None
+    profile = db.query(PublicOrganizer).filter(
+        PublicOrganizer.id == event.public_organizer_id, PublicOrganizer.published.is_(True)
+    ).first()
+    return profile.id if profile else None
+
+
+def organizer_settings_payload(user, db):
+    profile = db.query(PublicOrganizer).filter(PublicOrganizer.user_id == user.id).first()
+    events = db.query(Competition).filter(Competition.created_by == user.email).order_by(Competition.date.desc(), Competition.id.desc()).all()
+    return {
+        "name": profile.name if profile else "",
+        "description": profile.description if profile else "",
+        "published": profile.published if profile else False,
+        "public_id": profile.id if profile and profile.published else None,
+        "events": [{"id": e.id, "name": e.name, "date": e.date, "status": e.status,
+                    "event_type": competition_event_type(e), "selected": bool(profile and e.public_organizer_id == profile.id)} for e in events],
+    }
+
+
+@app.get("/organizer/public-profile")
+def get_public_organizer_settings(user: User = Depends(get_current_organizer), db=Depends(get_db)):
+    return organizer_settings_payload(user, db)
+
+
+@app.put("/organizer/public-profile")
+def save_public_organizer_settings(data: PublicOrganizerSettings, user: User = Depends(get_current_organizer), db=Depends(get_db)):
+    name, description = data.name.strip(), data.description.strip()
+    if data.published and (not name or not description):
+        raise HTTPException(status_code=400, detail="Aby opublikować kartę, podaj nazwę i opis")
+    ids = set(data.event_ids)
+    events = db.query(Competition).filter(Competition.id.in_(ids), Competition.created_by == user.email).all() if ids else []
+    if len(events) != len(ids):
+        raise HTTPException(status_code=400, detail="Niektóre wydarzenia nie należą do tego konta")
+    profile = db.query(PublicOrganizer).filter(PublicOrganizer.user_id == user.id).first()
+    if not profile:
+        profile = PublicOrganizer(user_id=user.id, name=name, description=description, published=data.published)
+        db.add(profile)
+        db.flush()
+    if any(e.public_organizer_id not in (None, profile.id) for e in events):
+        raise HTTPException(status_code=409, detail="Wydarzenie jest przypisane do innej karty")
+    profile.name, profile.description, profile.published = name, description, data.published
+    db.query(Competition).filter(Competition.public_organizer_id == profile.id, ~Competition.id.in_(ids)).update(
+        {Competition.public_organizer_id: None}, synchronize_session=False
+    )
+    for event in events:
+        event.public_organizer_id = profile.id
+    db.commit()
+    return organizer_settings_payload(user, db)
+
+
+@app.get("/public-organizers")
+def list_public_organizers(db=Depends(get_db)):
+    profiles = db.query(PublicOrganizer).filter(PublicOrganizer.published.is_(True)).order_by(PublicOrganizer.id).all()
+    return [{"id": p.id} for p in profiles]
+
+
+@app.get("/public-organizers/{profile_id}")
+def get_public_organizer(profile_id: int, db=Depends(get_db)):
+    profile = db.query(PublicOrganizer).filter(PublicOrganizer.id == profile_id, PublicOrganizer.published.is_(True)).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Nie znaleziono organizatora")
+    events = db.query(Competition).filter(
+        Competition.public_organizer_id == profile.id,
+        Competition.status.in_(["published", "started", "completed"]),
+        Competition.event_type.in_([COMPETITION_EVENT_TYPE, TRAINING_EVENT_TYPE]),
+    ).order_by(Competition.date.desc(), Competition.id.desc()).all()
+    return {"id": profile.id, "name": profile.name, "description": profile.description,
+            "events": [{"id": e.id, "name": e.name, "date": e.date, "location": e.location,
+                        "status": e.status, "event_type": competition_event_type(e)} for e in events]}
 
 @app.get("/my-competitions")
 def get_my_competitions(

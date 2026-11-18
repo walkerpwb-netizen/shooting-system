@@ -93,6 +93,7 @@ before(async () => {
         longitude: null,
         status: "planned",
         organizer_full_name: "Organizator testowy",
+        public_organizer_id: id === "1" ? 7 : null,
         organizer_logo: imageCase?.[1],
         disciplines: [],
         participants: [],
@@ -167,6 +168,7 @@ for (const collection of ["competitions", "trainings"]) {
     assert.match(html, new RegExp(`<link rel="canonical" href="https://system-strzelecki.pl/${collection}/1"`));
     assert.match(html, /<meta name="description" content="[^"]+"/);
     assert.doesNotMatch(html, /<meta name="robots" content="[^"]*noindex/);
+    assert.match(html, /href="\/organizatorzy\/7"/);
     assert.equal(requests.filter((url) => url === path).length - countBefore, 1);
   });
 

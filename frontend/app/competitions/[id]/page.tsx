@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { createPageMetadata } from "@/lib/page-metadata";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
@@ -58,6 +59,7 @@ type Competition = {
   min_participants?: number | null;
   status: string;
   organizer_full_name?: string;
+  public_organizer_id?: number | null;
   organizer_logo?: string;
   sponsors?: string;
   sponsor_logo?: string;
@@ -193,7 +195,7 @@ export default async function CompetitionPage({
             )}
           </section>
 
-          {(competition.organizer_full_name || competition.organizer_logo || competition.sponsors || competition.sponsor_logo) && (
+          {(competition.public_organizer_id || competition.organizer_full_name || competition.organizer_logo || competition.sponsors || competition.sponsor_logo) && (
             <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
               <h2 className="text-2xl font-bold">
                 Organizator i sponsorzy
@@ -219,7 +221,7 @@ export default async function CompetitionPage({
                     </p>
 
                     <p className="text-lg font-bold">
-                      {competition.organizer_full_name || "Nie podano"}
+                      {competition.public_organizer_id ? <Link className="underline" href={`/organizatorzy/${competition.public_organizer_id}`}>{competition.organizer_full_name || "Karta organizatora"}</Link> : (competition.organizer_full_name || "Nie podano")}
                     </p>
                   </div>
                 </div>

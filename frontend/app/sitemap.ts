@@ -169,11 +169,26 @@ async function eventEntries(collection: "competitions" | "trainings") {
     );
 }
 
+async function organizerEntries() {
+  const signal = AbortSignal.timeout(5_000);
+  let data: unknown;
+  try {
+    const response = await fetch(apiUrl("/public-organizers"), { cache: "no-store", signal });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    data = await response.json();
+  } catch (cause) {
+    throw new Error("Sitemap organizer API failure", { cause });
+  }
+  if (!Array.isArray(data) || data.some((item) => !item || !Number.isInteger(item.id) || item.id < 1 || item.id > 2_147_483_647) || new Set(data.map((item) => item.id)).size !== data.length) throw new Error("Sitemap organizer API invalid catalog");
+  return data.sort((a, b) => a.id - b.id).map((item) => sitemapEntry(`/organizatorzy/${item.id}`));
+}
+
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const [competitions, trainings, ranges] = await Promise.all([
+  const [competitions, trainings, ranges, organizers] = await Promise.all([
     eventEntries("competitions"),
     eventEntries("trainings"),
     getShootingRanges(),
+    organizerEntries(),
   ]);
 
   return [
@@ -185,6 +200,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     ),
     ...competitions,
     ...trainings,
+    ...organizers,
     ...ranges.sort((a, b) => a.id - b.id).map((range) => sitemapEntry(`/shooting-ranges/${range.id}`)),
     ...rangeCities.filter((city) => cityRanges(city, ranges).length > 0)
       .map((city) => sitemapEntry(`/shooting-ranges/miasta/${city.slug}`)),

@@ -12,7 +12,9 @@ the sitemap and its acceptance tests in the same change.
   The current `/historical-results` entry is the public archive landing page;
   its protected descendants are excluded. The shared event map is listed at
   `/competitions/map`; `/trainings/map` redirects to it. Do not pre-add planned range, city or
-  organizer pages before they exist and their public scope is settled.
+  planned pages before they exist and their public scope is settled. Organizer
+  pages are listed only after their owner explicitly publishes an approved name
+  and description; disabling publication removes them from the catalog.
 - Omit `lastmod` unless its source records the last significant change of the
   public page. Currently static pages have no maintained editorial dates, and
   `Competition` (also used for trainings) has no content modification timestamp.

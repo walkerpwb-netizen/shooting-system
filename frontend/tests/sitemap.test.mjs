@@ -72,7 +72,7 @@ after(async () => {
 });
 
 beforeEach(() => {
-  for (const path of ["/competitions", "/trainings", "/shooting-ranges"]) {
+  for (const path of ["/competitions", "/trainings", "/shooting-ranges", "/public-organizers"]) {
     catalogs[path] = [];
     delete failures[path];
   }
@@ -261,4 +261,25 @@ test("city pilot only includes reviewed addresses and removes stale assignments 
   assert.equal((await fetch(origin + "/shooting-ranges/miasta/nieznane")).status, 404);
   failures[path] = 503;
   assert.equal((await fetch(origin + "/shooting-ranges/miasta/warszawa")).status, 500);
+});
+
+
+test("published organizer pages are canonical, contain approved HTML and disappear when unpublished", async () => {
+  catalogs["/public-organizers"] = [{id: 7}];
+  catalogs["/public-organizers/7"] = {id: 7, name: "Klub Alfa", description: "Zatwierdzony opis klubu.", events: [
+    {id: 12, name: "Zawody aktualne", date: "2026-12-01", location: "Warszawa", status: "published", event_type: "competition"},
+    {id: 13, name: "Szkolenie zakończone", date: "2026-01-01", location: "Kraków", status: "completed", event_type: "training"},
+  ]};
+  assertXml(await sitemap(), [...staticPaths, "/organizatorzy/7"]);
+  let response = await fetch(origin + "/organizatorzy/7");
+  assert.equal(response.status, 200);
+  const html = (await response.text()).replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "");
+  for (const value of ["Klub Alfa", "Zatwierdzony opis klubu.", "Aktualne wydarzenia", "Zakończone wydarzenia", 'href="/competitions/12"', 'href="/trainings/13"', 'href="https://system-strzelecki.pl/organizatorzy/7"']) assert.ok(html.includes(value), value);
+  assert.equal((await fetch(origin + "/organizatorzy/07")).status, 404);
+  failures["/public-organizers/7"] = 404;
+  catalogs["/public-organizers"] = [];
+  assert.equal((await fetch(origin + "/organizatorzy/7")).status, 404);
+  assertXml(await sitemap());
+  failures["/public-organizers"] = 500;
+  assert.equal((await sitemap()).response.status, 500);
 });
