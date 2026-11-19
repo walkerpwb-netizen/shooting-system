@@ -817,6 +817,7 @@ class Competition(Base):
     __tablename__ = "competitions"
 
     public_organizer_id = Column(Integer, ForeignKey("public_organizers.id", ondelete="SET NULL"), nullable=True, index=True)
+    shooting_range_id = Column(Integer, ForeignKey("shooting_ranges.id", ondelete="SET NULL"), nullable=True, index=True)
 
     id = Column(
         Integer,

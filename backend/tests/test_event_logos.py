@@ -44,7 +44,7 @@ class EventLogoFlowTests(unittest.TestCase):
         from sqlalchemy import create_engine
         from sqlalchemy.orm import sessionmaker
         from database import Base
-        from models import Competition, User
+        from models import Competition, ShootingRange, User
 
         engine = create_engine('sqlite://')
         Base.metadata.create_all(engine)
@@ -54,13 +54,13 @@ class EventLogoFlowTests(unittest.TestCase):
         self.addCleanup(engine.dispose)
         self.addCleanup(session.close)
         user = User(email='organizer@example.test', organizer_name='Organizator', roles='organizer')
-        session.add(user)
+        session.add_all([user, ShootingRange(id=1, range_id='test', name='Test', phone='', website='', address='', latitude=52.0, longitude=21.0, created_at='', updated_at='')])
         session.commit()
         stream = BytesIO()
         Image.new('RGB', (2, 2), 'blue').save(stream, format='PNG')
         content = stream.getvalue()
         logo = 'data:image/png;base64,' + base64.b64encode(content).decode()
-        data = main.CompetitionData(name='Test', date='2099-01-01', location='Test',
+        data = main.CompetitionData(name='Test', date='2099-01-01', location='Test', shooting_range_id=1,
                                     organizer_logo=logo, sponsor_logo=logo,
                                     requires_licensed_judge=False)
         with tempfile.TemporaryDirectory() as folder, patch.object(main, 'EVENT_LOGO_DIR', Path(folder)):

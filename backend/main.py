@@ -356,6 +356,7 @@ class CompetitionData(BaseModel):
     name: str
     date: str
     location: str
+    shooting_range_id: Optional[int] = None
     event_type: str = "competition"
     description: str = ""
     latitude: Optional[float] = None
@@ -8459,6 +8460,7 @@ COMPETITION_COPY_FIELDS = [
     "description",
     "date",
     "location",
+    "shooting_range_id",
     "latitude",
     "longitude",
     "entry_fee",
@@ -12816,6 +12818,17 @@ def reset_password(
     }
 
 
+def selected_competition_range(data: CompetitionData, db, required: bool):
+    if data.shooting_range_id is None:
+        if required:
+            raise HTTPException(status_code=400, detail="Wybierz strzelnicę z katalogu")
+        return None
+    range_entry = db.query(ShootingRange).filter(ShootingRange.id == data.shooting_range_id).first()
+    if not range_entry:
+        raise HTTPException(status_code=400, detail="Wybrana strzelnica nie istnieje w katalogu")
+    return range_entry
+
+
 @app.post("/competitions")
 def create_competition(
     data: CompetitionData,
@@ -12825,6 +12838,7 @@ def create_competition(
 ):
     event_type = normalize_competition_event_type(data.event_type)
     is_training = event_type == TRAINING_EVENT_TYPE
+    range_entry = selected_competition_range(data, db, required=not is_training) if not is_training else None
     validate_competition_coordinates(data)
     description = validate_competition_description(data)
     organizer = admin_context_organizer(user, admin_club_id, db)
@@ -12880,9 +12894,10 @@ def create_competition(
         event_type=event_type,
         description=description,
         date=data.date,
-        location=data.location,
-        latitude=data.latitude,
-        longitude=data.longitude,
+        location=range_entry.name if range_entry else data.location,
+        shooting_range_id=range_entry.id if range_entry else None,
+        latitude=range_entry.latitude if range_entry else data.latitude,
+        longitude=range_entry.longitude if range_entry else data.longitude,
         entry_fee=data.entry_fee,
         organizer_full_name=organizer_display_name(organizer),
         organizer_logo=data.organizer_logo,
@@ -13093,6 +13108,7 @@ def organizer_competition_detail_row(competition: Competition, db):
         "description": getattr(competition, "description", "") or "",
         "date": competition.date,
         "location": competition.location,
+        "shooting_range_id": competition.shooting_range_id,
         "latitude": competition.latitude,
         "longitude": competition.longitude,
         "entry_fee": competition.entry_fee or "",
@@ -13241,6 +13257,9 @@ def copy_organizer_competition(
             status_code=403,
             detail="Nie masz dostępu do tych zawodów"
         )
+
+    if not is_training_event(competition) and competition.shooting_range_id is None:
+        raise HTTPException(status_code=400, detail="Przed skopiowaniem zawodów wybierz strzelnicę z katalogu w ich edycji")
 
     copied_competition = copy_competition_as_draft(competition, organizer, db)
     db.commit()
@@ -17189,13 +17208,18 @@ def update_competition(
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    range_entry = selected_competition_range(
+        data, db, required=competition.shooting_range_id is not None or is_training_event(competition)
+    ) if not is_training else None
+
     competition.name = data.name
     competition.event_type = event_type
     competition.description = description
     competition.date = data.date
-    competition.location = data.location
-    competition.latitude = data.latitude
-    competition.longitude = data.longitude
+    competition.location = range_entry.name if range_entry else data.location
+    competition.shooting_range_id = range_entry.id if range_entry else None
+    competition.latitude = range_entry.latitude if range_entry else data.latitude
+    competition.longitude = range_entry.longitude if range_entry else data.longitude
     competition.entry_fee = data.entry_fee
     if normalize_text(organizer.organizer_name or ""):
         competition.organizer_full_name = organizer_display_name(organizer)

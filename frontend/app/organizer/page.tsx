@@ -7,6 +7,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 import SocialMediaIcons from "@/components/SocialMediaIcons";
 import { apiUrl } from "@/lib/api";
+import { getShootingRanges, type ShootingRange } from "@/lib/shooting-ranges";
 import { authFetch, getAuthSnapshot, isOrganizer, subscribeToAuthChange } from "@/lib/auth";
 import {
   HUNTING_TRAP_SHOTS_COUNT,
@@ -27,6 +28,7 @@ type Competition = {
   description?: string;
   date: string;
   location: string;
+  shooting_range_id?: number | null;
   latitude: number | null;
   longitude: number | null;
   entry_fee: string;
@@ -622,6 +624,10 @@ function OrganizerContent() {
   const [name, setName] = useState("");
   const [date, setDate] = useState("");
   const [location, setLocation] = useState("");
+  const [shootingRangeId, setShootingRangeId] = useState<number | null>(null);
+  const [ranges, setRanges] = useState<ShootingRange[]>([]);
+  const [rangeSearch, setRangeSearch] = useState("");
+  const [rangesError, setRangesError] = useState("");
   const [latitude, setLatitude] = useState<number | null>(null);
   const [longitude, setLongitude] = useState<number | null>(null);
   const [locatingMapPosition, setLocatingMapPosition] = useState(false);
@@ -741,12 +747,28 @@ function OrganizerContent() {
     return url.toString();
   }, [adminClubId]);
 
+  useEffect(() => {
+    if (!showCreateForm || isTrainingForm) return;
+    let cancelled = false;
+    getShootingRanges().then((items) => {
+      if (!cancelled) {
+        setRanges(items.sort((a, b) => a.name.localeCompare(b.name, "pl")));
+        setRangesError("");
+      }
+    }).catch(() => {
+      if (!cancelled) setRangesError("Nie udało się pobrać katalogu strzelnic. Zamknij i otwórz formularz, aby spróbować ponownie.");
+    });
+    return () => { cancelled = true; };
+  }, [showCreateForm, isTrainingForm]);
+
   function resetForm() {
     setEventType("competition");
     setEventDescription("");
     setName("");
     setDate("");
     setLocation("");
+    setShootingRangeId(null);
+    setRangeSearch("");
     setLatitude(null);
     setLongitude(null);
     setLocatingMapPosition(false);
@@ -932,6 +954,8 @@ function OrganizerContent() {
     setName(competitionDetails.name);
     setDate(competitionDetails.date);
     setLocation(competitionDetails.location);
+    setShootingRangeId(competitionDetails.shooting_range_id ?? null);
+    setRangeSearch("");
     setLatitude(competitionDetails.latitude ?? null);
     setLongitude(competitionDetails.longitude ?? null);
     setEntryFee(competitionDetails.entry_fee || "");
@@ -1696,7 +1720,7 @@ function OrganizerContent() {
       return "competition-date";
     }
 
-    if (!hasText(location)) {
+    if ((!isTrainingForm && !editingCompetitionId && !shootingRangeId) || !hasText(location)) {
       return "competition-location";
     }
 
@@ -1874,6 +1898,7 @@ function OrganizerContent() {
             description: isTrainingForm ? eventDescription : "",
             date,
             location,
+            shooting_range_id: isTrainingForm ? null : shootingRangeId,
             latitude,
             longitude,
             entry_fee: entryFee,
@@ -2152,16 +2177,40 @@ function OrganizerContent() {
                 className={requiredFieldClass(hasText(date))}
               />
 
-              <input
-                id="competition-location"
-                type="text"
-                placeholder={eventLabels.locationPlaceholder}
-                value={location}
-                onChange={(e) => setLocation(e.target.value)}
-                aria-invalid={!hasText(location)}
-                required
-                className={requiredFieldClass(hasText(location))}
-              />
+              {isTrainingForm ? (
+                <input id="competition-location" type="text" placeholder={eventLabels.locationPlaceholder}
+                  value={location} onChange={(e) => setLocation(e.target.value)}
+                  aria-invalid={!hasText(location)} required className={requiredFieldClass(hasText(location))} />
+              ) : (
+                <div className="space-y-2 rounded-xl border border-zinc-700 p-4">
+                  <label htmlFor="range-search" className="block font-semibold">Strzelnica *</label>
+                  <input id="range-search" type="search" value={rangeSearch}
+                    onChange={(e) => setRangeSearch(e.target.value)} placeholder="Szukaj po nazwie lub adresie"
+                    className={requiredFieldClass(true)} />
+                  <select id="competition-location" value={shootingRangeId ?? ""}
+                    onChange={(e) => {
+                      const range = ranges.find((item) => item.id === Number(e.target.value));
+                      setShootingRangeId(range?.id ?? null);
+                      if (range) { setLocation(range.name); setLatitude(range.latitude); setLongitude(range.longitude); }
+                      else if (!editingCompetitionId) { setLocation(""); setLatitude(null); setLongitude(null); }
+                    }} aria-invalid={!shootingRangeId && !editingCompetitionId}
+                    className={requiredFieldClass(Boolean(shootingRangeId) || Boolean(editingCompetitionId))}>
+                    <option value="">Wybierz strzelnicę z katalogu</option>
+                    {ranges.filter((range) => range.id === shootingRangeId || `${range.name} ${range.address}`.toLocaleLowerCase("pl").includes(rangeSearch.trim().toLocaleLowerCase("pl"))).map((range) => (
+                      <option key={range.id} value={range.id}>{range.name}{range.address ? ` — ${range.address}` : ""}</option>
+                    ))}
+                  </select>
+                  {editingCompetitionId && !shootingRangeId && <p className="text-sm text-amber-200">Dotychczasowe miejsce: {location}. Wybierz strzelnicę, aby powiązać je z katalogiem.</p>}
+                  <button type="button" className="text-sm font-bold underline" onClick={() => {
+                    void getShootingRanges().then((items) => {
+                      setRanges(items.sort((a, b) => a.name.localeCompare(b.name, "pl")));
+                      setRangesError("");
+                    }).catch(() => setRangesError("Nie udało się pobrać katalogu strzelnic. Spróbuj ponownie."));
+                  }}>Odśwież listę strzelnic</button>
+                  {rangesError && <p role="alert" className="text-sm text-red-300">{rangesError}</p>}
+                  <p className="text-sm text-gray-300">Brakuje strzelnicy? <a href="/shooting-ranges/map" target="_blank" rel="noreferrer" className="font-bold underline">Dodaj ją na mapie</a>. Po zatwierdzeniu zgłoszenia wróć do formularza i wybierz obiekt z listy.</p>
+                </div>
+              )}
 
               {isTrainingForm && (
                 <label className="block">
@@ -2180,7 +2229,7 @@ function OrganizerContent() {
                 </label>
               )}
 
-              <section className="rounded-xl border border-zinc-700 bg-zinc-950/40 p-4 text-white">
+              {(isTrainingForm || (Boolean(editingCompetitionId) && !shootingRangeId)) && <section className="rounded-xl border border-zinc-700 bg-zinc-950/40 p-4 text-white">
                 <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                   <div>
                     <h3 className="text-lg font-bold">
@@ -2240,7 +2289,7 @@ function OrganizerContent() {
                     </span>
                   )}
                 </div>
-              </section>
+              </section>}
 
               {!isTrainingForm && (
                 <>
