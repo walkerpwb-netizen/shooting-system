@@ -19,6 +19,7 @@ from premium_payments import build_premium_router, seller_details
 from payment_reports import build_payments_router
 from autopay_config import build_autopay_settings_router
 from gun_shops import build_gun_shops_router
+from meta_news import build_meta_news_router, sync_loop as meta_news_sync_loop
 from premium_access import effective_premium_until, effective_premium_until_iso, included_premium_packages, has_paid_publication, activate_due_premium_orders, premium_display_fields, pending_paid_premium_orders
 from mailer import (
     ACTIVATION_LINK_PLACEHOLDER,
@@ -36,7 +37,6 @@ from mailer import (
 from models import (
     AdDailyStat,
     AppSetting,
-    HomePost,
     PushPreference,
     PushSubscription,
     ShootingRange,
@@ -105,20 +105,16 @@ BACKUP_DIR = Path("/home/ubuntu/backups/shooting-system/postgres")
 UPLOADS_DIR = Path(__file__).resolve().parent / "uploads"
 PROFILE_PHOTO_DIR = UPLOADS_DIR / "profile-photos"
 EMAIL_ASSET_DIR = UPLOADS_DIR / "email-assets"
-HOME_POST_DIR = UPLOADS_DIR / "home-posts"
 HOME_SCREEN_DIR = UPLOADS_DIR / "home-screens"
 EVENT_LOGO_DIR = UPLOADS_DIR / "event-logos"
 PROFILE_PHOTO_ROUTE_PREFIX = "/uploads/profile-photos"
 EMAIL_ASSET_ROUTE_PREFIX = "/uploads/email-assets"
-HOME_POST_ROUTE_PREFIX = "/uploads/home-posts"
 HOME_SCREEN_ROUTE_PREFIX = "/uploads/home-screens"
 PROFILE_PHOTO_SIZE = 320
 PROFILE_PHOTO_MAX_BYTES = 8 * 1024 * 1024
 PROFILE_PHOTO_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 EMAIL_ASSET_MAX_BYTES = 8 * 1024 * 1024
 EMAIL_ASSET_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
-HOME_POST_IMAGE_MAX_BYTES = 10 * 1024 * 1024
-HOME_POST_IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 HOME_SCREEN_IMAGE_MAX_BYTES = 10 * 1024 * 1024
 HOME_SCREEN_IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 HOME_SCREEN_KINDS = {"qr", "organizer", "live", "judge", "history", "ranking"}
@@ -167,7 +163,6 @@ pwd_context = CryptContext(
 app = FastAPI()
 PROFILE_PHOTO_DIR.mkdir(parents=True, exist_ok=True)
 EMAIL_ASSET_DIR.mkdir(parents=True, exist_ok=True)
-HOME_POST_DIR.mkdir(parents=True, exist_ok=True)
 HOME_SCREEN_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -212,6 +207,22 @@ async def start_expired_activation_accounts_cleanup():
 async def start_refund_status_worker():
     from premium_refunds import refund_status_loop
     app.state.refund_status_task = asyncio.create_task(refund_status_loop())
+
+
+@app.on_event("startup")
+async def start_meta_news_worker():
+    app.state.meta_news_task = asyncio.create_task(meta_news_sync_loop())
+
+
+@app.on_event("shutdown")
+async def stop_meta_news_worker():
+    task = getattr(app.state, "meta_news_task", None)
+    if task:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
 
 @app.on_event("shutdown")
@@ -3578,64 +3589,6 @@ def save_email_asset(file: UploadFile):
         "path": relative_url,
         "url": f"{settings.frontend_url}/api{relative_url}",
     }
-
-
-def home_post_image_path_from_url(image_url: str):
-    if not image_url or not image_url.startswith(f"{HOME_POST_ROUTE_PREFIX}/"):
-        return None
-
-    file_path = HOME_POST_DIR / Path(image_url).name
-
-    try:
-        file_path.resolve().relative_to(HOME_POST_DIR.resolve())
-    except ValueError:
-        return None
-
-    return file_path
-
-
-def delete_home_post_image(image_url: str):
-    file_path = home_post_image_path_from_url(image_url)
-
-    if file_path and file_path.exists():
-        file_path.unlink()
-
-
-def save_home_post_image(file: UploadFile):
-    content_type = (file.content_type or "").lower()
-
-    if content_type not in HOME_POST_IMAGE_CONTENT_TYPES:
-        raise HTTPException(
-            status_code=400,
-            detail="Dodaj screen w formacie JPG, PNG albo WebP",
-        )
-
-    contents = file.file.read(HOME_POST_IMAGE_MAX_BYTES + 1)
-
-    if len(contents) > HOME_POST_IMAGE_MAX_BYTES:
-        raise HTTPException(status_code=400, detail="Screen może mieć maksymalnie 10 MB")
-
-    try:
-        image = Image.open(BytesIO(contents))
-        image.load()
-    except (UnidentifiedImageError, OSError) as exc:
-        raise HTTPException(status_code=400, detail="Nie udało się odczytać screena") from exc
-
-    image = ImageOps.exif_transpose(image)
-    image.thumbnail((2200, 2200), Image.Resampling.LANCZOS)
-
-    if image.mode not in ("RGB", "RGBA"):
-        image = image.convert("RGBA" if "transparency" in image.info else "RGB")
-
-    file_name = f"{uuid4().hex}.webp"
-    image.save(
-        HOME_POST_DIR / file_name,
-        format="WEBP",
-        quality=88,
-        method=6,
-    )
-
-    return f"{HOME_POST_ROUTE_PREFIX}/{file_name}"
 
 
 def public_home_screen(kind: str):
@@ -10378,25 +10331,7 @@ app.include_router(build_premium_router(
 app.include_router(build_payments_router(get_db, get_current_admin, seller_details))
 app.include_router(build_autopay_settings_router(get_current_admin, get_db))
 app.include_router(build_gun_shops_router(get_db, get_current_admin, get_current_user))
-
-
-@app.get("/home-posts")
-def get_home_posts(db=Depends(get_db)):
-    posts = (
-        db.query(HomePost)
-        .order_by(HomePost.created_at.desc(), HomePost.id.desc())
-        .all()
-    )
-
-    return [
-        {
-            "id": post.id,
-            "description": post.description,
-            "image_url": post.image_url,
-            "created_at": post.created_at,
-        }
-        for post in posts
-    ]
+app.include_router(build_meta_news_router(get_db, get_current_admin))
 
 
 @app.get("/home-screens")
@@ -10406,80 +10341,6 @@ def get_home_screens():
         for kind in sorted(HOME_SCREEN_KINDS)
         if (screen := public_home_screen(kind))
     ]
-
-
-@app.post("/admin/home-posts")
-def create_home_post(
-    description: str = Form(...),
-    image: UploadFile = File(...),
-    beta_user: User = Depends(get_current_beta_tester),
-    db=Depends(get_db),
-):
-    normalized_description = description.strip()
-
-    if not normalized_description:
-        raise HTTPException(status_code=400, detail="Dodaj opis wpisu")
-
-    if len(normalized_description) > 4000:
-        raise HTTPException(status_code=400, detail="Opis może mieć maksymalnie 4000 znaków")
-
-    image_url = save_home_post_image(image)
-    post = HomePost(
-        description=normalized_description,
-        image_url=image_url,
-        created_at=datetime.now(timezone.utc).isoformat(),
-        created_by=beta_user.email,
-    )
-
-    try:
-        db.add(post)
-        db.commit()
-        db.refresh(post)
-    except Exception:
-        db.rollback()
-        delete_home_post_image(image_url)
-        raise
-
-    return {
-        "id": post.id,
-        "description": post.description,
-        "image_url": post.image_url,
-        "created_at": post.created_at,
-    }
-
-
-@app.put("/admin/home-posts/{post_id}/image")
-def replace_home_post_image(
-    post_id: int,
-    image: UploadFile = File(...),
-    beta_user: User = Depends(get_current_beta_tester),
-    db=Depends(get_db),
-):
-    post = db.query(HomePost).filter(HomePost.id == post_id).first()
-
-    if not post:
-        raise HTTPException(status_code=404, detail="Nie znaleziono wpisu")
-
-    old_image_url = post.image_url
-    image_url = save_home_post_image(image)
-    post.image_url = image_url
-
-    try:
-        db.commit()
-        db.refresh(post)
-    except Exception:
-        db.rollback()
-        delete_home_post_image(image_url)
-        raise
-
-    delete_home_post_image(old_image_url)
-
-    return {
-        "id": post.id,
-        "description": post.description,
-        "image_url": post.image_url,
-        "created_at": post.created_at,
-    }
 
 
 @app.put("/admin/home-screens/{kind}")

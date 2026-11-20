@@ -17,8 +17,9 @@ import PzssClubRejectionDialog from "./PzssClubRejectionDialog";
 import PaymentsPanel from "./PaymentsPanel";
 import AutopaySettingsPanel from "./AutopaySettingsPanel";
 import ShopsPanel from "./ShopsPanel";
+import MetaNewsPanel from "./MetaNewsPanel";
 
-type AdminTab = "users" | "pzss-clubs" | "competitions" | "shooting-ranges" | "shops" | "settings" | "premium" | "payments" | "autopay" | "ads" | "monitoring" | "codex" | "qr-scanner" | "target-photo" | "pdf-test" | "test-data";
+type AdminTab = "users" | "pzss-clubs" | "competitions" | "shooting-ranges" | "shops" | "settings" | "premium" | "payments" | "autopay" | "ads" | "monitoring" | "meta" | "codex" | "qr-scanner" | "target-photo" | "pdf-test" | "test-data";
 type UserSortField = "name" | "status" | "role" | "club" | "account" | "phone";
 type SortDirection = "asc" | "desc";
 type CodexChatRole = "user" | "assistant";
@@ -752,7 +753,7 @@ export default function AdminClient({
       return;
     }
 
-    if (activeTab === "payments" || activeTab === "autopay" || activeTab === "shops") {
+    if (activeTab === "payments" || activeTab === "autopay" || activeTab === "shops" || activeTab === "meta") {
       return;
     }
 
@@ -3467,7 +3468,7 @@ export default function AdminClient({
           </div>
         )}
 
-        {activeTab === "shops" ? <ShopsPanel /> : activeTab === "autopay" ? <AutopaySettingsPanel /> : activeTab === "payments" ? <PaymentsPanel /> : loading ? (
+        {activeTab === "meta" ? <MetaNewsPanel /> : activeTab === "shops" ? <ShopsPanel /> : activeTab === "autopay" ? <AutopaySettingsPanel /> : activeTab === "payments" ? <PaymentsPanel /> : loading ? (
           <p className="text-gray-400">
             Ładowanie panelu administratora...
           </p>

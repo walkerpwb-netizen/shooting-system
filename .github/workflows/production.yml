@@ -55,6 +55,9 @@ jobs:
       - name: Test sitemap dates, public URLs and API failures
         run: npm run test:sitemap
 
+      - name: Test server-rendered Meta news and archive
+        run: npm run test:meta-news
+
   backend:
     name: Backend checks
     runs-on: ubuntu-latest

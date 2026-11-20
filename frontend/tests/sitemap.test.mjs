@@ -72,11 +72,20 @@ after(async () => {
 });
 
 beforeEach(() => {
+  catalogs["/meta-news?page=1"] = { posts: [], has_more: false };
+  delete failures["/meta-news?page=1"];
   for (const path of ["/competitions", "/trainings", "/shooting-ranges", "/public-organizers"]) {
     catalogs[path] = [];
     delete failures[path];
   }
   requests.length = 0;
+});
+
+test("news archive is listed when available and failures do not silently remove it", async () => {
+  catalogs["/meta-news?page=1"] = { posts: [], has_more: true };
+  assertXml(await sitemap(), [...staticPaths, "/aktualnosci?strona=2"]);
+  failures["/meta-news?page=1"] = 503;
+  assert.equal((await sitemap()).response.status, 500);
 });
 
 async function sitemap(method = "GET") {

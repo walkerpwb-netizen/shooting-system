@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "test:event-pages": "node --test tests/event-pages.test.mjs",
-    "test:sitemap": "node --test tests/sitemap.test.mjs"
+    "test:sitemap": "node --test tests/sitemap.test.mjs",
+    "test:meta-news": "node --test tests/meta-news.test.mjs"
   },
   "dependencies": {
     "jsqr": "^1.4.0",

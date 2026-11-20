@@ -772,6 +772,33 @@ class ShootingRange(Base):
     )
 
 
+class MetaNewsPost(Base):
+    __tablename__ = "meta_news_posts"
+    __table_args__ = (UniqueConstraint("source", "source_id", name="uq_meta_news_source_id"),)
+
+    id = Column(Integer, primary_key=True)
+    source = Column(String(16), nullable=False)
+    source_id = Column(String(128), nullable=False)
+    text = Column(Text, nullable=False)
+    published_at = Column(String(40), nullable=False, index=True)
+    permalink = Column(Text, nullable=False)
+    media_json = Column(Text, nullable=False, default="[]")
+    missing_count = Column(Integer, nullable=False, default=0)
+
+
+class MetaNewsStatus(Base):
+    __tablename__ = "meta_news_status"
+
+    source = Column(String(16), primary_key=True)
+    last_attempt_at = Column(String(40), nullable=True)
+    last_success_at = Column(String(40), nullable=True)
+    error = Column(String(255), nullable=True)
+    failures = Column(Integer, nullable=False, default=0)
+    alert_sent = Column(Boolean, nullable=False, default=False)
+    data_access_expires_at = Column(String(40), nullable=True)
+    token_expires_at = Column(String(40), nullable=True)
+
+
 class HomePost(Base):
     __tablename__ = "home_posts"
 

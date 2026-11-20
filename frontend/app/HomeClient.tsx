@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { ChangeEvent, FormEvent, useEffect, useState, useSyncExternalStore } from "react";
+import { ChangeEvent, ReactNode, useEffect, useState, useSyncExternalStore } from "react";
 
 import TrackedAdSlot from "@/components/TrackedAdSlot";
 import { apiUrl } from "@/lib/api";
@@ -22,13 +22,6 @@ type Feature = {
   description: string;
   bullets: string[];
   kind: FeatureKind;
-};
-
-type HomePost = {
-  id: number;
-  description: string;
-  image_url: string;
-  created_at: string;
 };
 
 type HomeScreenOverride = {
@@ -351,19 +344,9 @@ function AdminHomeStatsPanel({
   );
 }
 
-export default function Home() {
-  const [posts, setPosts] = useState<HomePost[]>([]);
-  const [postsLoading, setPostsLoading] = useState(true);
-  const [postsMessage, setPostsMessage] = useState("");
+export default function Home({ news }: { news: ReactNode }) {
   const [homeStats, setHomeStats] = useState<HomeStats | null>(null);
   const [homeStatsMessage, setHomeStatsMessage] = useState("");
-  const [showPostForm, setShowPostForm] = useState(false);
-  const [postDescription, setPostDescription] = useState("");
-  const [postImage, setPostImage] = useState<File | null>(null);
-  const [postImagePreview, setPostImagePreview] = useState("");
-  const [postSaving, setPostSaving] = useState(false);
-  const [postImageSaving, setPostImageSaving] = useState<Record<number, boolean>>({});
-  const [postImageMessages, setPostImageMessages] = useState<Record<number, string>>({});
   const [openedScreen, setOpenedScreen] = useState<{ src: string; alt: string } | null>(null);
   const [featureScreenOverrides, setFeatureScreenOverrides] = useState<Partial<Record<FeatureKind, string>>>({});
   const [screenUploadSaving, setScreenUploadSaving] = useState<Partial<Record<FeatureKind, boolean>>>({});
@@ -415,39 +398,6 @@ export default function Home() {
   useEffect(() => {
     let active = true;
 
-    fetch(apiUrl("/home-posts"), { cache: "no-store" })
-      .then(async (response) => {
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(data.detail || "Nie udało się pobrać aktualności");
-        }
-
-        if (active) {
-          setPosts(data);
-        }
-      })
-      .catch((error) => {
-        console.error(error);
-
-        if (active) {
-          setPostsMessage("Aktualności są chwilowo niedostępne.");
-        }
-      })
-      .finally(() => {
-        if (active) {
-          setPostsLoading(false);
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    let active = true;
-
     fetch(apiUrl("/home-screens"), { cache: "no-store" })
       .then(async (response) => {
         const data: HomeScreenOverride[] = await response.json();
@@ -480,14 +430,6 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    return () => {
-      if (postImagePreview) {
-        URL.revokeObjectURL(postImagePreview);
-      }
-    };
-  }, [postImagePreview]);
-
-  useEffect(() => {
     if (!openedScreen) {
       return;
     }
@@ -508,51 +450,6 @@ export default function Home() {
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [openedScreen]);
-
-  function handlePostImageChange(file: File | null) {
-    setPostImage(file);
-    setPostImagePreview(file ? URL.createObjectURL(file) : "");
-  }
-
-  async function handleAddPost(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setPostsMessage("");
-
-    if (!postDescription.trim() || !postImage) {
-      setPostsMessage("Dodaj opis oraz plik screena.");
-      return;
-    }
-
-    const formData = new FormData();
-    formData.append("description", postDescription.trim());
-    formData.append("image", postImage);
-
-    try {
-      setPostSaving(true);
-      const response = await authFetch(apiUrl("/admin/home-posts"), {
-        method: "POST",
-        body: formData,
-      });
-      const data = await response.json();
-
-      if (!response.ok) {
-        setPostsMessage(data.detail || "Nie udało się dodać wpisu.");
-        return;
-      }
-
-      setPosts((currentPosts) => [data, ...currentPosts]);
-      setPostDescription("");
-      setPostImage(null);
-      setPostImagePreview("");
-      setShowPostForm(false);
-      setPostsMessage("Nowy wpis został opublikowany.");
-    } catch (error) {
-      console.error(error);
-      setPostsMessage("Błąd połączenia z serwerem.");
-    } finally {
-      setPostSaving(false);
-    }
-  }
 
   async function handleReplaceFeatureScreen(kind: FeatureKind, file: File) {
     if (!file.type.startsWith("image/")) {
@@ -610,63 +507,6 @@ export default function Home() {
       setScreenUploadSaving((currentSaving) => ({
         ...currentSaving,
         [kind]: false,
-      }));
-    }
-  }
-
-  async function handleReplacePostImage(postId: number, file: File) {
-    if (!file.type.startsWith("image/")) {
-      setPostImageMessages((currentMessages) => ({
-        ...currentMessages,
-        [postId]: "Wybierz plik JPG, PNG albo WebP.",
-      }));
-      return;
-    }
-
-    const formData = new FormData();
-    formData.append("image", file);
-
-    setPostImageSaving((currentSaving) => ({
-      ...currentSaving,
-      [postId]: true,
-    }));
-    setPostImageMessages((currentMessages) => ({
-      ...currentMessages,
-      [postId]: "",
-    }));
-
-    try {
-      const response = await authFetch(apiUrl(`/admin/home-posts/${postId}/image`), {
-        method: "PUT",
-        body: formData,
-      });
-      const data = await response.json();
-
-      if (!response.ok) {
-        setPostImageMessages((currentMessages) => ({
-          ...currentMessages,
-          [postId]: data.detail || "Nie udało się podmienić screena.",
-        }));
-        return;
-      }
-
-      setPosts((currentPosts) => currentPosts.map((post) => (
-        post.id === postId ? data : post
-      )));
-      setPostImageMessages((currentMessages) => ({
-        ...currentMessages,
-        [postId]: "Screen podmieniony.",
-      }));
-    } catch (error) {
-      console.error(error);
-      setPostImageMessages((currentMessages) => ({
-        ...currentMessages,
-        [postId]: "Błąd połączenia z serwerem.",
-      }));
-    } finally {
-      setPostImageSaving((currentSaving) => ({
-        ...currentSaving,
-        [postId]: false,
       }));
     }
   }
@@ -774,179 +614,9 @@ export default function Home() {
                 />
               )}
 
-              {canUseBetaFeatures && (
-                <div className="mt-7 w-full max-w-2xl">
-                  <button
-                    type="button"
-                    onClick={() => setShowPostForm((currentValue) => !currentValue)}
-                    className="rounded-xl border border-emerald-300/45 bg-emerald-300/10 px-5 py-3 text-sm font-black text-emerald-100 transition hover:bg-emerald-300/20"
-                  >
-                    {showPostForm ? "Anuluj dodawanie wpisu" : "+ Dodaj nowy wpis"}
-                  </button>
-
-                  {showPostForm && (
-                    <form
-                      onSubmit={handleAddPost}
-                      className="mt-5 rounded-2xl border border-emerald-300/25 bg-black/30 p-5 text-left shadow-2xl backdrop-blur-sm"
-                    >
-                      <label htmlFor="home-post-description" className="block text-sm font-black text-white">
-                        Opis aktualności
-                      </label>
-                      <textarea
-                        id="home-post-description"
-                        value={postDescription}
-                        onChange={(event) => setPostDescription(event.target.value)}
-                        maxLength={4000}
-                        required
-                        placeholder="Napisz, co nowego pojawiło się w systemie..."
-                        className="mt-2 min-h-32 w-full rounded-xl border border-white/15 bg-[#031713] p-4 text-white outline-none transition focus:border-emerald-300"
-                      />
-
-                      <label htmlFor="home-post-image" className="mt-4 block text-sm font-black text-white">
-                        Screen
-                      </label>
-                      <input
-                        id="home-post-image"
-                        type="file"
-                        accept="image/jpeg,image/png,image/webp"
-                        required
-                        onChange={(event) => handlePostImageChange(event.target.files?.[0] || null)}
-                        className="mt-2 w-full text-sm text-zinc-300 file:mr-3 file:rounded-lg file:border-0 file:bg-emerald-500 file:px-4 file:py-2 file:font-black file:text-emerald-950"
-                      />
-
-                      {postImagePreview && (
-                        <div className="relative mt-4 aspect-video overflow-hidden rounded-xl border border-white/10 bg-black/30">
-                          <Image
-                            src={postImagePreview}
-                            alt="Podgląd dodawanego screena"
-                            fill
-                            unoptimized
-                            className="object-contain"
-                          />
-                        </div>
-                      )}
-
-                      <button
-                        type="submit"
-                        disabled={postSaving}
-                        className="mt-5 w-full rounded-xl bg-emerald-400 px-5 py-3 font-black text-emerald-950 transition hover:bg-emerald-300 disabled:cursor-wait disabled:opacity-60"
-                      >
-                        {postSaving ? "Publikowanie..." : "Opublikuj wpis"}
-                      </button>
-                    </form>
-                  )}
-                </div>
-              )}
             </section>
 
-            {(posts.length > 0 || postsLoading || postsMessage) && (
-              <section aria-labelledby="home-news-title" className="border-t border-white/8 py-10 lg:py-16">
-                <div className="mb-7">
-                  <p className="text-xs font-black uppercase tracking-[0.24em] text-emerald-300">
-                    Co nowego
-                  </p>
-                  <h2 id="home-news-title" className="mt-3 text-3xl font-black tracking-tight text-white sm:text-4xl">
-                    Aktualności
-                  </h2>
-                </div>
-
-                {postsMessage && (
-                  <p className="mb-5 rounded-xl border border-emerald-300/20 bg-emerald-300/8 px-4 py-3 text-sm font-semibold text-emerald-100">
-                    {postsMessage}
-                  </p>
-                )}
-
-                {postsLoading && (
-                  <p className="text-zinc-400">Ładowanie aktualności...</p>
-                )}
-
-                <div className="space-y-7">
-                  {posts.map((post) => {
-                    const postImageInputId = `home-post-image-replace-${post.id}`;
-                    const postImageUrl = apiUrl(post.image_url);
-
-                    return (
-                      <article
-                        key={post.id}
-                        className="grid gap-7 rounded-2xl border border-white/12 bg-white/[0.05] p-5 shadow-2xl sm:p-7 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] lg:items-center"
-                      >
-                        <div>
-                          <p className="whitespace-pre-line text-base leading-7 text-zinc-200 sm:text-lg">
-                            {post.description}
-                          </p>
-                          <time
-                            dateTime={post.created_at}
-                            className="mt-4 block text-xs font-bold uppercase tracking-wider text-emerald-300/80"
-                          >
-                            {new Intl.DateTimeFormat("pl-PL", {
-                              dateStyle: "long",
-                              timeZone: "Europe/Warsaw",
-                            }).format(new Date(post.created_at))}
-                          </time>
-                        </div>
-
-                        <div className="relative">
-                          {canUseBetaFeatures && (
-                            <div className="absolute left-3 top-3 z-10 flex max-w-[calc(100%-1.5rem)] flex-col items-start gap-2 rounded-xl border border-emerald-300/40 bg-black/80 p-2 shadow-xl backdrop-blur-sm">
-                              <input
-                                id={postImageInputId}
-                                type="file"
-                                accept="image/jpeg,image/png,image/webp"
-                                disabled={Boolean(postImageSaving[post.id])}
-                                onChange={(event) => {
-                                  const file = event.target.files?.[0];
-                                  event.target.value = "";
-
-                                  if (file) {
-                                    void handleReplacePostImage(post.id, file);
-                                  }
-                                }}
-                                className="sr-only"
-                              />
-                              <label
-                                htmlFor={postImageInputId}
-                                className="cursor-pointer rounded-lg bg-emerald-400 px-3 py-2 text-xs font-black text-emerald-950 transition hover:bg-emerald-300"
-                              >
-                                {postImageSaving[post.id] ? "Wgrywanie..." : "Podmień screen"}
-                              </label>
-                              {postImageMessages[post.id] && (
-                                <p className="max-w-56 text-left text-[11px] font-semibold leading-4 text-emerald-100">
-                                  {postImageMessages[post.id]}
-                                </p>
-                              )}
-                            </div>
-                          )}
-
-                          <button
-                            type="button"
-                            onClick={() => setOpenedScreen({
-                              src: postImageUrl,
-                              alt: "Screen do aktualności",
-                            })}
-                            aria-label="Otwórz screen aktualności w pełnej rozdzielczości"
-                            title="Kliknij, aby powiększyć screen"
-                            className="group relative block w-full cursor-zoom-in overflow-hidden rounded-xl border border-white/10 bg-[#071713] p-0 text-left outline-none transition hover:-translate-y-1 hover:border-emerald-300/50 focus-visible:ring-2 focus-visible:ring-emerald-300"
-                          >
-                            <Image
-                              src={postImageUrl}
-                              alt="Screen do aktualności"
-                              width={2200}
-                              height={1400}
-                              sizes="(min-width: 1024px) 650px, 100vw"
-                              unoptimized
-                              className="h-auto w-full transition duration-300 group-hover:scale-[1.01]"
-                            />
-                            <span className="absolute bottom-3 right-3 rounded-lg bg-black/75 px-3 py-2 text-xs font-black text-white opacity-100 shadow-lg backdrop-blur-sm transition sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-visible:opacity-100">
-                              Powiększ
-                            </span>
-                          </button>
-                        </div>
-                      </article>
-                    );
-                  })}
-                </div>
-              </section>
-            )}
+            {news}
 
             <div className="border-t border-white/8">
               {features.map((feature, index) => {
