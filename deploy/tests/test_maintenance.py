@@ -283,6 +283,16 @@ class NginxTests(unittest.TestCase):
                 self.assertEqual(request(path)[0], 200)
             self.assertEqual(json.loads(request("/maintenance/status")[2]), {"enabled": 0, "restricted": 0})
 
+    def test_news_images_are_allowed_without_relaxing_script_policy(self):
+        with self.site(enabled=False) as request:
+            code, headers, _ = request("/")
+            self.assertEqual(code, 200)
+            directives = dict(part.strip().split(" ", 1) for part in headers["Content-Security-Policy"].split(";") if " " in part.strip())
+            self.assertIn("https://*.fbcdn.net", directives["img-src"].split())
+            self.assertIn("https://*.cdninstagram.com", directives["img-src"].split())
+            self.assertNotIn("https://*.fbcdn.net", directives["script-src"].split())
+            self.assertNotIn("https://*.cdninstagram.com", directives["script-src"].split())
+
     def test_atomic_state_changes_and_real_nginx_reloads(self):
         with self.site(enabled=False) as request:
             self.assertEqual(request("/")[0], 200)
