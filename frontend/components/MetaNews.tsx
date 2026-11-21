@@ -30,11 +30,11 @@ export default function MetaNews({ posts, hasMore, page = 1 }: { posts: Post[]; 
         <h2 id="home-news-title" className="mt-3 text-3xl font-black text-white sm:text-4xl">Aktualności</h2></div>
       {!posts.length && <p className="text-zinc-400">Brak aktualności do wyświetlenia.</p>}
       <div className="space-y-7">
-        {posts.map((post) => <article key={`${post.source}-${post.id}`} className="grid gap-7 rounded-2xl border border-white/12 bg-white/[0.05] p-5 sm:p-7 lg:grid-cols-2 lg:items-center">
+        {posts.map((post) => <article key={`${post.source}-${post.id}`} className="grid gap-7 rounded-2xl border border-white/12 bg-white/[0.05] p-5 sm:p-7 lg:grid-cols-2 lg:items-start">
           <div>
-            <p className="text-xs font-black uppercase tracking-wider text-emerald-300">{post.source === "facebook" ? "Facebook" : "Instagram"}</p>
+            <time dateTime={post.published_at} className="block text-base font-bold text-emerald-200 sm:text-lg">Opublikowano: {new Intl.DateTimeFormat("pl-PL", { dateStyle: "long", timeZone: "Europe/Warsaw" }).format(new Date(post.published_at))}</time>
+            <p className="mt-3 text-xs font-black uppercase tracking-wider text-emerald-300">{post.source === "facebook" ? "Facebook" : "Instagram"}</p>
             <p className="mt-3 whitespace-pre-line text-base leading-7 text-zinc-200">{post.text}</p>
-            <time dateTime={post.published_at} className="mt-4 block text-xs font-bold text-emerald-300/80">{new Intl.DateTimeFormat("pl-PL", { dateStyle: "long", timeZone: "Europe/Warsaw" }).format(new Date(post.published_at))}</time>
             <a className="mt-4 inline-block font-bold text-emerald-300 underline" href={post.permalink} target="_blank" rel="noopener noreferrer">Zobacz oryginalny post</a>
           </div>
           {post.media.length > 0 && <div className="grid grid-cols-2 gap-2">{post.media.map((media, index) => <a key={`${index}-${media.url}`} href={media.type === "video" ? post.permalink : media.url} target="_blank" rel="noopener noreferrer" className={`relative overflow-hidden rounded-xl border border-white/10 ${post.media.length === 1 ? "col-span-2" : ""}`}>

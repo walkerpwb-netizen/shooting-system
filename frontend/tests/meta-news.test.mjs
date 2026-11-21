@@ -41,10 +41,12 @@ test("home and archive expose news and crawlable pagination without scripts", as
   let response = await fetch(origin + "/"); assert.equal(response.status, 200);
   let html = visible(await response.text());
   assert.match(html, /Pierwsza unikalna aktualność/);
+  assert.ok(html.indexOf("Opublikowano:") >= 0 && html.indexOf("Opublikowano:") < html.indexOf("Pierwsza unikalna aktualność"));
   assert.match(html, /href="\/aktualnosci\?strona=2"/);
   assert.match(html, /href="https:\/\/www.instagram.com\/p\/1\/"/);
   response = await fetch(origin + "/aktualnosci?strona=2"); assert.equal(response.status, 200);
   html = visible(await response.text());
   assert.match(html, /Starsza unikalna aktualność/);
+  assert.ok(html.indexOf("Opublikowano:") >= 0 && html.indexOf("Opublikowano:") < html.indexOf("Starsza unikalna aktualność"));
   assert.match(html, /rel="canonical" href="https:\/\/system-strzelecki.pl\/aktualnosci\?strona=2"/);
 });
